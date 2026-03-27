@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-50: #f4f6f8;
+  --color-primary-100: #e3e8ee;
+  --color-primary-200: #cbd5e1;
+  --color-primary-300: #a1b2c9;
+  --color-primary-400: #718fb0;
+  --color-primary-500: #4f7397;
+  --color-primary-600: #3c5a7a;
+  --color-primary-700: #314965;
+  --color-primary-800: #2a3e56;
+  --color-primary-900: #253549;
+  --color-primary-950: #192434;
+  
+  --color-accent: #3b82f6; /* Electric Blue for warnings/alerts */
+  --color-accent-hover: #2563eb;
+  
+  /* Shop Floor High Vis */
+  --color-safety: #eab308;
+}
+
+@layer base {
+  body {
+    @apply bg-zinc-950 text-zinc-100 antialiased selection:bg-primary-500/30;
+  }
+}
+

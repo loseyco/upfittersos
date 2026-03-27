@@ -1,0 +1,18 @@
+﻿{
+  "status": "success",
+  "result": {
+    "fileName": "firebase-js-config.json",
+    "fileContents": "{\n  \"projectId\": \"saegroup-c6487\",\n  \"appId\": \"1:366321240977:web:03fa004c71741512dfa830\",\n  \"storageBucket\": \"saegroup-c6487.firebasestorage.app\",\n  \"apiKey\": \"AIzaSyCXCkX5ddcni6L-tYsFHsZIUowwQrvtBwM\",\n  \"authDomain\": \"saegroup-c6487.firebaseapp.com\",\n  \"messagingSenderId\": \"366321240977\",\n  \"measurementId\": \"G-HRTHWG1J5N\",\n  \"projectNumber\": \"366321240977\",\n  \"version\": \"2\"\n}",
+    "sdkConfig": {
+      "projectId": "saegroup-c6487",
+      "appId": "1:366321240977:web:03fa004c71741512dfa830",
+      "storageBucket": "saegroup-c6487.firebasestorage.app",
+      "apiKey": "AIzaSyCXCkX5ddcni6L-tYsFHsZIUowwQrvtBwM",
+      "authDomain": "saegroup-c6487.firebaseapp.com",
+      "messagingSenderId": "366321240977",
+      "measurementId": "G-HRTHWG1J5N",
+      "projectNumber": "366321240977",
+      "version": "2"
+    }
+  }
+}
