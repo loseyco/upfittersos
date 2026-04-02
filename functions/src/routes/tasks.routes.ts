@@ -17,7 +17,8 @@ tasksRoutes.get('/', authenticate, async (req: Request, res: Response): Promise<
         }
 
         // Security check: Only members of this tenant (or super admin) can fetch tasks
-        const isSuperAdmin = caller.role === 'super_admin';
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isSuperAdmin = callerRoles.includes('super_admin');
         const isMemberOfTenant = caller.tenantId === tenantId;
 
         if (!isSuperAdmin && !isMemberOfTenant) {
@@ -26,10 +27,17 @@ tasksRoutes.get('/', authenticate, async (req: Request, res: Response): Promise<
 
         const snapshot = await getDb().collection('tasks')
             .where('tenantId', '==', tenantId)
-            .orderBy('createdAt', 'desc')
             .get();
 
         const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Sort in memory to avoid requiring a composite index in Firestore
+        tasks.sort((a: any, b: any) => {
+            const timeA = a.createdAt?._seconds ?? 0;
+            const timeB = b.createdAt?._seconds ?? 0;
+            return timeB - timeA;
+        });
+
         return res.json(tasks);
     } catch (error) {
         console.error("Error fetching tasks:", error);
@@ -48,10 +56,11 @@ tasksRoutes.post('/', authenticate, async (req: Request, res: Response): Promise
         }
 
         // Security check: Check if user has explicit manage_tasks permission
-        const hasManageTasks = await checkBackendPermission(caller.uid, caller.role, caller.tenantId, 'manage_tasks');
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const hasManageTasks = await checkBackendPermission(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
 
         // Further check that they are interacting within their own workspace unless they are a superadmin
-        const isTenantBoundaryValid = caller.role === 'super_admin' || caller.tenantId === tenantId;
+        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
 
         if (!hasManageTasks || !isTenantBoundaryValid) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to assign tasks in this workspace.' });
@@ -81,7 +90,7 @@ tasksRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promi
     try {
         const caller = (req as any).user;
         const taskId = req.params.id;
-        const { title, type, assigneeUid, status } = req.body;
+        const { title, type, assigneeUid, status, feedback } = req.body;
 
         const taskRef = getDb().collection('tasks').doc(taskId);
         const taskDoc = await taskRef.get();
@@ -94,8 +103,9 @@ tasksRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promi
         const tenantId = taskData.tenantId;
 
         // Security check: Manager/Owner or the Assignee can update
-        const hasManageTasks = await checkBackendPermission(caller.uid, caller.role, caller.tenantId, 'manage_tasks');
-        const isTenantBoundaryValid = caller.role === 'super_admin' || caller.tenantId === tenantId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const hasManageTasks = await checkBackendPermission(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
+        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
         const hasAdminRights = hasManageTasks && isTenantBoundaryValid;
         
         const isAssignee = caller.uid === taskData.assigneeUid;
@@ -109,6 +119,7 @@ tasksRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promi
         if (type && hasAdminRights) updates.type = type;
         if (assigneeUid && hasAdminRights) updates.assigneeUid = assigneeUid;
         if (status) updates.status = status; // Even the assignee can update status (e.g. to 'completed')
+        if (feedback && (hasAdminRights || isAssignee)) updates.feedback = feedback;
 
         await taskRef.update(updates);
         return res.json({ id: taskId, ...taskData, ...updates });
@@ -135,8 +146,9 @@ tasksRoutes.delete('/:id', authenticate, async (req: Request, res: Response): Pr
         const tenantId = taskData.tenantId;
 
         // Security check: Only users with manage_tasks can delete
-        const hasManageTasks = await checkBackendPermission(caller.uid, caller.role, caller.tenantId, 'manage_tasks');
-        const isTenantBoundaryValid = caller.role === 'super_admin' || caller.tenantId === tenantId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const hasManageTasks = await checkBackendPermission(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
+        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
         
         const hasAdminRights = hasManageTasks && isTenantBoundaryValid;
 

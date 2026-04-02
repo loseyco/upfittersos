@@ -1,6 +1,7 @@
 import { auth } from './firebase';
 
-const baseURL = import.meta.env.VITE_API_URL || 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+const defaultBaseURL = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+const baseURL = import.meta.env.VITE_API_URL || defaultBaseURL;
 
 class ApiClient {
     private async request(method: string, endpoint: string, data?: any) {

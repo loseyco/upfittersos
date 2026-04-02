@@ -11,12 +11,13 @@ import { APP_NAME } from '../lib/constants';
 export function MainLayout() {
     const location = useLocation();
     const navigate = useNavigate();
-    const { currentUser, logout, tenantId, signInWithGoogle } = useAuth();
+    const { currentUser, logout, tenantId, signInWithGoogle, simulatedRole, endSimulation } = useAuth();
 
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
     const [businessName, setBusinessName] = useState(APP_NAME);
     const [apiVersion, setApiVersion] = useState<string>('checking...');
     const [keepScreenAwake, setKeepScreenAwake] = useState(false);
+    const [profileName, setProfileName] = useState<string>('Authorized User');
     
     useWakeLock(keepScreenAwake);
 
@@ -49,10 +50,20 @@ export function MainLayout() {
                 setIsSuperAdmin(res.claims.role === 'super_admin');
             }).catch(() => setIsSuperAdmin(false));
 
-            // Subscribe to user preferences
+            // Subscribe to user preferences and profile
             const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (docSnap) => {
-                if (docSnap.exists() && docSnap.data().keepScreenAwake) {
-                    setKeepScreenAwake(true);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    setKeepScreenAwake(!!data.keepScreenAwake);
+                    
+                    const fn = data.firstName || '';
+                    const ln = data.lastName || '';
+                    const full = `${fn} ${ln}`.trim();
+                    if (full) {
+                        setProfileName(full);
+                    } else if (data.nickName) {
+                        setProfileName(data.nickName);
+                    }
                 } else {
                     setKeepScreenAwake(false);
                 }
@@ -62,6 +73,12 @@ export function MainLayout() {
         } else {
             setIsSuperAdmin(false);
             setKeepScreenAwake(false);
+        }
+        
+        if ((currentUser as any)?.displayName) {
+            setProfileName((currentUser as any).displayName);
+        } else {
+            setProfileName('Authorized User');
         }
     }, [currentUser, location.pathname]);
 
@@ -104,24 +121,41 @@ export function MainLayout() {
                 </div>
             )}
 
+            {/* Global Role Simulation Killswitch */}
+            {simulatedRole && (
+                <div className="w-full h-12 bg-amber-500 text-black z-[50] flex items-center justify-between px-6 font-bold text-sm shadow-lg shadow-amber-500/20 sticky top-0">
+                    <div className="flex items-center gap-2">
+                        <User className="w-4 h-4" />
+                        <span className="hidden sm:inline">ROLE SIMULATION:</span> You are viewing the platform with strictly '{simulatedRole}' capabilities.
+                    </div>
+                    <button
+                        onClick={endSimulation}
+                        className="bg-black/10 hover:bg-black/20 px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors border border-black/10"
+                    >
+                        <LogOut className="w-4 h-4" /> End Simulation
+                    </button>
+                </div>
+            )}
+
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">
                     <Link to={currentUser ? '/workspace' : '/'}>
                         <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
                     </Link>
                 </div>
-                <div className="flex items-center gap-2 md:gap-4">                    {currentUser ? (
+                <div className="flex items-center gap-2 md:gap-4">                    
+                    {currentUser ? (
                     <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
                         <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
                             <div className="hidden lg:flex flex-col items-end">
-                                <span className="text-sm font-bold text-white leading-none">{currentUser.displayName || 'Authorized User'}</span>
+                                <span className="text-sm font-bold text-white leading-none">{profileName}</span>
                                 <span className="text-[10px] text-zinc-500 font-medium">{currentUser.email}</span>
                             </div>
                             <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
                                 {currentUser.photoURL ? (
                                     <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : currentUser.displayName ? (
-                                    currentUser.displayName[0].toUpperCase()
+                                ) : profileName !== 'Authorized User' ? (
+                                    profileName[0].toUpperCase()
                                 ) : (
                                     <User className="w-4 h-4" />
                                 )}

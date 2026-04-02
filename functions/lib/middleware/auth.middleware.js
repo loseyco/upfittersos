@@ -55,15 +55,16 @@ exports.authenticate = authenticate;
 const requireRole = (allowedRoles) => {
     return async (req, res, next) => {
         const user = req.user;
+        const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
         // Super Admins always have skeleton-key access across the entire system
-        if (user.role === 'super_admin') {
+        if (userRoles.includes('super_admin')) {
             return next();
         }
-        if (!user.role || !allowedRoles.includes(user.role)) {
+        if (!userRoles.some((r) => allowedRoles.includes(r))) {
             return res.status(403).json({
                 error: 'Forbidden. Insufficient role permissions.',
                 required: allowedRoles,
-                current: user.role || 'none'
+                current: userRoles
             });
         }
         return next();
@@ -73,7 +74,8 @@ exports.requireRole = requireRole;
 // --- Middleware: Super Admin Auth ---
 const superAdminOnly = async (req, res, next) => {
     const user = req.user;
-    if (!user || user.role !== 'super_admin') {
+    const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+    if (!user || !userRoles.includes('super_admin')) {
         return res.status(403).json({ error: 'Forbidden. Super Admin access required.' });
     }
     return next();

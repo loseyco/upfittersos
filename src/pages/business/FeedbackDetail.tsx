@@ -321,8 +321,11 @@ export function FeedbackDetail() {
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-zinc-500 font-bold uppercase tracking-wider">Tenant Bind</span>
                                     <div className="flex flex-col items-end">
-                                        {businessName && <span className="font-bold text-white mb-1.5">{businessName}</span>}
-                                        <span className="text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded shadow-sm">{feedback.tenantId}</span>
+                                        <span className="text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded shadow-sm">
+                                            {feedback.tenantId === 'unassigned' ? 'Unassigned' : 
+                                             feedback.tenantId === 'GLOBAL' ? 'Global Platform' :
+                                             businessName || feedback.tenantId}
+                                        </span>
                                     </div>
                                 </div>
                                 <div className="flex items-center justify-between text-xs">

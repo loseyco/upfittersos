@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera } from 'lucide-react';
+import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera, Eye } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { signInWithCustomToken } from 'firebase/auth';
+import { auth } from '../../../lib/firebase';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
@@ -12,12 +14,13 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
     const { currentUser } = useAuth();
     const { businessRoles } = usePermissions(tenantId);
     const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
     const [staff, setStaff] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Invite Logic
     const [inviteEmail, setInviteEmail] = useState('');
-    const [inviteRole, setInviteRole] = useState('staff');
+    const [inviteRole, setInviteRole] = useState('');
     const [isInviting, setIsInviting] = useState(false);
 
     // Detailed Edit State
@@ -123,7 +126,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                         skills: urlMatch.skills || [],
                         certificates: urlMatch.certificates || [],
                         role: (urlMatch.roles && urlMatch.roles.length > 0 ? urlMatch.roles[0] : urlMatch.role) || 'staff',
-                        roles: urlMatch.roles && urlMatch.roles.length > 0 ? urlMatch.roles : (urlMatch.role ? [urlMatch.role] : ['staff']),
+                        roles: urlMatch.roles && urlMatch.roles.length > 0 ? urlMatch.roles : (urlMatch.role ? [urlMatch.role] : []),
                         customPermissions: urlMatch.customPermissions || {}
                     });
                 }
@@ -183,6 +186,24 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
         }
     };
 
+    const handleImpersonate = async (targetUid: string) => {
+        try {
+            toast.loading("Generating secure overriding identity token...", { id: 'impersonate_staff' });
+            const res = await api.post(`/businesses/${tenantId}/staff/${targetUid}/impersonate`);
+            const { token } = res.data;
+            
+            toast.loading("Assuming target identity...", { id: 'impersonate_staff' });
+            sessionStorage.setItem('sae_impersonating', 'true');
+            await signInWithCustomToken(auth, token);
+            
+            toast.success("Identity assumed successfully. Entering context.", { id: 'impersonate_staff' });
+            navigate('/workspace');
+        } catch (error: any) {
+            console.error("Impersonation failed", error);
+            toast.error(error?.response?.data?.error || "Failed to impersonate identity.", { id: 'impersonate_staff' });
+        }
+    };
+
     const openEditUser = (user: any) => {
         setSearchParams(prev => {
             prev.set('edit', user.uid);
@@ -212,8 +233,8 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
             notes: user.notes || '',
             skills: user.skills || [],
             certificates: user.certificates || [],
-            role: (user.roles && user.roles.length > 0 ? user.roles[0] : user.role) || 'staff',
-            roles: user.roles && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : ['staff']),
+            role: (user.roles && user.roles.length > 0 ? user.roles[0] : user.role) || '',
+            roles: user.roles && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []),
             customPermissions: user.customPermissions || {}
         };
         setEditForm(initialFormValues);
@@ -311,15 +332,10 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                 notes: editForm.notes,
                 skills: finalSkills,
                 certificates: editForm.certificates,
-                customPermissions: editForm.customPermissions
+                customPermissions: editForm.customPermissions,
+                role: editForm.role,
+                roles: editForm.roles
             });
-            
-            // Handle standalone role modification securely
-            if (editForm.role && editForm.role !== selectedUser.role) {
-                if (selectedUser.role !== 'business_owner' && selectedUser.uid !== currentUser?.uid) {
-                    await api.post('/roles/assign', { targetUid: selectedUser.uid, role: editForm.role, tenantId });
-                }
-            }
 
             toast.success("User profile saved.");
             fetchStaff();
@@ -443,17 +459,15 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                         {(editForm.roles || []).map((activeRole: string) => (
                                             <div key={activeRole} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold tracking-wider uppercase
                                                 ${activeRole === 'business_owner' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 
-                                                activeRole === 'manager' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                                 'bg-zinc-800 text-zinc-300 border-zinc-700'}`}>
                                                 {businessRoles[activeRole] ? businessRoles[activeRole]?.label : activeRole.replace('_', ' ')}
                                                 
-                                                {activeRole !== 'business_owner' && activeRole !== 'staff' && selectedUser.uid !== currentUser?.uid && (
+                                                {activeRole !== 'business_owner' && selectedUser.uid !== currentUser?.uid && (
                                                     <button 
                                                         onClick={(e) => {
                                                             e.preventDefault();
                                                             const updated = editForm.roles.filter((r: string) => r !== activeRole);
-                                                            if (updated.length === 0) updated.push('staff'); // Enforce at least one role
-                                                            setEditForm({...editForm, roles: updated, role: updated[0]});
+                                                            setEditForm({...editForm, roles: updated, role: updated.length > 0 ? updated[0] : ''});
                                                         }}
                                                         className="ml-1 text-zinc-500 hover:text-white transition-colors"
                                                     >
@@ -486,10 +500,6 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                             )}
                                             <optgroup label="Standard Roles">
                                                 <option value="business_owner" disabled>Owner (Unchangeable)</option>
-                                                <option value="manager" disabled={(editForm.roles || []).includes('manager')}>Manager</option>
-                                                <option value="department_lead" disabled={(editForm.roles || []).includes('department_lead')}>Department Lead</option>
-                                                <option value="parts_guy" disabled={(editForm.roles || []).includes('parts_guy')}>Parts Guy</option>
-                                                <option value="staff" disabled={(editForm.roles || []).includes('staff')}>Staff</option>
                                             </optgroup>
                                         </select>
                                     </div>
@@ -836,8 +846,29 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
 
 
 
+                    {selectedUser.uid !== currentUser?.uid && (
+                        <section className="mt-12 pt-8 border-t border-zinc-800/50">
+                            <h3 className="text-lg font-bold text-amber-500 mb-2 flex items-center gap-2">
+                                <Eye className="w-5 h-5" /> Impersonate Workspace Identity
+                            </h3>
+                            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div>
+                                    <h4 className="text-white font-bold text-sm mb-1">View Platform As User</h4>
+                                    <p className="text-zinc-400 text-xs text-balance">Assume this user's explicit token identity. You will securely experience the platform identically to this user to test configurations. End the session via the red taskbar.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => handleImpersonate(selectedUser.uid)}
+                                    className="bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-500 border border-amber-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
+                                >
+                                    Log In As User
+                                </button>
+                            </div>
+                        </section>
+                    )}
+
                     {selectedUser.role !== 'business_owner' && selectedUser.uid !== currentUser?.uid && (
-                        <section className="mt-12 pt-8 border-t border-red-900/30">
+                        <section className="mt-8">
                             <h3 className="text-lg font-bold text-red-500 mb-2 flex items-center gap-2">
                                 <AlertTriangle className="w-5 h-5" /> Danger Zone
                             </h3>
@@ -911,10 +942,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                 </optgroup>
                             )}
                             <optgroup label="Standard Roles">
-                                <option value="manager">Manager</option>
-                                <option value="department_lead">Department Lead</option>
-                                <option value="parts_guy">Parts Guy</option>
-                                <option value="staff">Staff</option>
+                                <option value="" disabled>Unassigned (No Roles)</option>
                             </optgroup>
                         </select>
                     </div>

@@ -70,7 +70,7 @@ jobsRoutes.post('/', authenticate, async (req: Request, res: Response): Promise<
         const {
             title, description, status, priority,
             customerId, vehicleId, assignedStaffId,
-            tags, dueDate, notes
+            tags, dueDate, notes, parts, laborLines
         } = req.body;
 
         const newJob = {
@@ -83,6 +83,8 @@ jobsRoutes.post('/', authenticate, async (req: Request, res: Response): Promise<
             vehicleId: vehicleId || null,
             assignedStaffId: assignedStaffId || null,
             tags: tags || [],
+            parts: parts || [],
+            laborLines: laborLines || [],
             dueDate: dueDate || null,
             notes: notes || '',
             createdBy: caller.uid,
@@ -121,7 +123,7 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
         const {
             title, description, status, priority,
             customerId, vehicleId, assignedStaffId,
-            tags, dueDate, notes
+            tags, dueDate, notes, parts, laborLines
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -134,6 +136,8 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
         if (vehicleId !== undefined) updates.vehicleId = vehicleId;
         if (assignedStaffId !== undefined) updates.assignedStaffId = assignedStaffId;
         if (tags !== undefined) updates.tags = tags;
+        if (parts !== undefined) updates.parts = parts;
+        if (laborLines !== undefined) updates.laborLines = laborLines;
         if (dueDate !== undefined) updates.dueDate = dueDate;
         if (notes !== undefined) updates.notes = notes;
 

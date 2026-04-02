@@ -91,7 +91,7 @@ exports.jobsRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes } = req.body;
+        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, parts, laborLines } = req.body;
         const newJob = {
             tenantId,
             title: title || 'Untitled Job',
@@ -102,6 +102,8 @@ exports.jobsRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
             vehicleId: vehicleId || null,
             assignedStaffId: assignedStaffId || null,
             tags: tags || [],
+            parts: parts || [],
+            laborLines: laborLines || [],
             dueDate: dueDate || null,
             notes: notes || '',
             createdBy: caller.uid,
@@ -131,7 +133,7 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this job.' });
         }
-        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes } = req.body;
+        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, parts, laborLines } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (title !== undefined)
             updates.title = title;
@@ -149,6 +151,10 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
             updates.assignedStaffId = assignedStaffId;
         if (tags !== undefined)
             updates.tags = tags;
+        if (parts !== undefined)
+            updates.parts = parts;
+        if (laborLines !== undefined)
+            updates.laborLines = laborLines;
         if (dueDate !== undefined)
             updates.dueDate = dueDate;
         if (notes !== undefined)

@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, Workflow, ShieldAlert, Map as MapIcon, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList } from 'lucide-react';
+import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, Calendar, MapPin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StaffAdminTab } from './admin/StaffAdminTab';
 import { TasksAdminTab } from './admin/TasksAdminTab';
+import { MeetingsAdminTab } from './admin/MeetingsAdminTab';
 import { CustomersAdminTab } from './admin/CustomersAdminTab';
-import { WorkflowCanvasTab } from './admin/WorkflowCanvasTab';
-import { CanvasGalleryTab } from './admin/CanvasGalleryTab';
 import { FacilityMapTab } from './admin/FacilityMapTab';
+
 import { JobsAdminTab } from './admin/JobsAdminTab';
 import { VehiclesAdminTab } from './admin/VehiclesAdminTab';
 import { InventoryAdminTab } from './admin/InventoryAdminTab';
 import { FinancesAdminTab } from './admin/FinancesAdminTab';
+import { AreasAdminTab } from './admin/AreasAdminTab';
 import { ReportsAdminTab } from './admin/ReportsAdminTab';
 import { BusinessSettingsTab } from './admin/BusinessSettingsTab';
 import { RolesAdminTab } from './admin/RolesAdminTab';
@@ -27,7 +28,7 @@ export function BusinessAdminSuite() {
     const { checkPermission, loading } = usePermissions();
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
-    const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
+
     
     // Super Admin Workspace Selection State
     const [businesses, setBusinesses] = useState<any[]>([]);
@@ -68,26 +69,24 @@ export function BusinessAdminSuite() {
     };
     
     // Sidebar Navigation Items conditionally loaded based on granular permissions or role defaults
-    const isManagerOrOwner = (role === 'business_owner' || role === 'manager') || role === 'super_admin';
-    const hasAdminAccess = isManagerOrOwner || checkPermission('manage_staff') || checkPermission('manage_inventory');
-    
     const navItems = [
-        ...(isManagerOrOwner ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
-        ...(isManagerOrOwner ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
-        ...(isManagerOrOwner || checkPermission('manage_staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
-        ...(isManagerOrOwner || checkPermission('manage_tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
-        ...(isManagerOrOwner ? [
-            { id: 'customers', label: 'Customer Management', icon: Users },
-            { id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck },
-            { id: 'jobs', label: 'Job Management*', icon: Briefcase },
-            { id: 'inventory', label: 'Inventory (WMS)*', icon: ScanLine },
-            { id: 'finances', label: 'Finances & Billing*', icon: DollarSign },
-            { id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 },
-            { id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare },
-            { id: 'canvas', label: 'Whiteboard Canvas', icon: Workflow },
-            { id: 'facility', label: 'Facility Map', icon: MapIcon }
-        ] : [])
+        ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
+        ...(checkPermission('manage_roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
+        ...(checkPermission('manage_staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
+        ...(checkPermission('manage_tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
+        ...(checkPermission('view_meetings') ? [{ id: 'meetings', label: 'Meetings & Notes', icon: Calendar }] : []),
+        ...(checkPermission('view_customers') ? [{ id: 'customers', label: 'Customer Management', icon: Users }] : []),
+        ...(checkPermission('view_vehicles') ? [{ id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck }] : []),
+        ...(checkPermission('view_jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
+        ...(checkPermission('view_areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
+        ...(checkPermission('view_inventory') ? [{ id: 'inventory', label: 'Inventory (WMS)', icon: ScanLine }] : []),
+        ...(checkPermission('view_financials') ? [{ id: 'finances', label: 'Finances & Billing*', icon: DollarSign }] : []),
+        ...(checkPermission('view_financials') ? [{ id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 }] : []),
+        ...(checkPermission('manage_settings') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
+        ...(checkPermission('manage_facility_map') ? [{ id: 'facility', label: 'Facility Map Editor', icon: MapIcon }] : [])
     ];
+
+    const hasAdminAccess = navItems.length > 0;
 
     // Safely resolve the currently active tab URL parameter
     const requestedTab = searchParams.get('tab');
@@ -100,7 +99,6 @@ export function BusinessAdminSuite() {
             prev.delete('edit'); // clear edit pane when switching tabs
             return prev;
         });
-        setActiveCanvasId(null);
     };
 
     // Fallback if they are loading
@@ -202,11 +200,20 @@ export function BusinessAdminSuite() {
                         onClick={() => navigate('/workspace')}
                         className="md:hidden flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 transition-colors"
                     >
-                        <ArrowLeft className="w-4 h-4" /> Quit to Hub
+                        <ArrowLeft className="w-4 h-4" /> Back to Dashboard
                     </button>
                 </div>
 
-                <nav className="flex-none p-2 md:p-4 flex flex-row md:flex-col overflow-x-auto md:overflow-visible space-x-2 md:space-x-0 md:space-y-1 no-scrollbar">
+                <div className="pt-4 px-4 hidden md:block shrink-0">
+                    <button 
+                        onClick={() => navigate('/workspace')}
+                        className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/80 border border-zinc-800/50 hover:border-zinc-700 transition-all shadow-sm"
+                    >
+                        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard
+                    </button>
+                </div>
+
+                <nav className="flex-1 p-2 md:p-4 flex flex-row md:flex-col overflow-x-auto overflow-y-auto space-x-2 md:space-x-0 md:space-y-1 no-scrollbar pb-6 md:pb-20">
                     {navItems.map((item) => (
                         <button
                             key={item.id}
@@ -222,15 +229,6 @@ export function BusinessAdminSuite() {
                         </button>
                     ))}
                 </nav>
-
-                <div className="mt-auto p-4 border-t border-zinc-800/50 hidden md:block">
-                    <button 
-                        onClick={() => navigate('/workspace')}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-500 hover:text-white hover:bg-zinc-900 transition-colors"
-                    >
-                        <ArrowLeft className="w-4 h-4" /> Quit to Hub
-                    </button>
-                </div>
             </div>
 
             {/* Main Content Area */}
@@ -248,18 +246,16 @@ export function BusinessAdminSuite() {
                     {activeTab === 'roles' && <RolesAdminTab tenantId={tenantId} />}
                     {activeTab === 'staff' && <StaffAdminTab tenantId={tenantId} />}
                     {activeTab === 'tasks' && <TasksAdminTab tenantId={tenantId} />}
+                    {activeTab === 'meetings' && <MeetingsAdminTab tenantId={tenantId} />}
                     {activeTab === 'customers' && <CustomersAdminTab tenantId={tenantId} />}
-                    {activeTab === 'vehicles' && <VehiclesAdminTab tenantId={tenantId} />}
+                    { activeTab === 'vehicles' && <VehiclesAdminTab tenantId={tenantId} />}
                     { activeTab === 'jobs' && <JobsAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'areas' && <AreasAdminTab tenantId={tenantId} /> }
                     { activeTab === 'inventory' && <InventoryAdminTab tenantId={tenantId} /> }
                     { activeTab === 'finances' && <FinancesAdminTab tenantId={tenantId} /> }
                     { activeTab === 'reports' && <ReportsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'feedback' && <FeedbackAdminTab tenantId={tenantId} /> }
-                    { activeTab === 'canvas' && (
-                        activeCanvasId  
-                            ? <WorkflowCanvasTab tenantId={tenantId} canvasId={activeCanvasId} onBack={() => setActiveCanvasId(null)} />
-                            : <CanvasGalleryTab tenantId={tenantId} onOpenCanvas={setActiveCanvasId} />
-                    )}
+
                     {activeTab === 'facility' && <FacilityMapTab tenantId={tenantId} />}
                 </div>
             </div>

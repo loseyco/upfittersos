@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { DEFAULT_PERMISSIONS, type PermissionKey } from '../lib/permissions';
 
 export function usePermissions(overrideTenantId?: string) {
-    const { currentUser, role, roles, tenantId: authTenantId } = useAuth();
+    const { currentUser, role, roles, simulatedRole, tenantId: authTenantId } = useAuth();
     const activeTenantId = overrideTenantId || authTenantId;
     const [customPermissions, setCustomPermissions] = useState<Partial<Record<PermissionKey, boolean>>>({});
     const [businessRoles, setBusinessRoles] = useState<Record<string, { label: string, permissions: Partial<Record<PermissionKey, boolean>> }>>({});
@@ -47,12 +47,18 @@ export function usePermissions(overrideTenantId?: string) {
     const checkPermission = (key: PermissionKey): boolean => {
         if (!currentUser) return false;
         
+        // Role Simulation intercepts mathematically
+        if (simulatedRole) {
+            if (businessRoles[simulatedRole] && businessRoles[simulatedRole].permissions?.[key] === true) return true;
+            return false; // Lock out anything not explicitly afforded by the simulated custom role
+        }
+        
         if (customPermissions[key] !== undefined) {
             return customPermissions[key] as boolean;
         }
 
         // Construct standard roles array with backward compatibility 
-        const arrayRoles = roles && roles.length > 0 ? roles : (role ? [role] : ['staff']);
+        const arrayRoles = roles && roles.length > 0 ? roles : (role ? [role] : []);
 
         // Check if ANY role in the user's role array grants the permission
         for (const iterateRole of arrayRoles) {

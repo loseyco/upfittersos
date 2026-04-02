@@ -53,6 +53,15 @@ export function Login() {
 
         setError('');
         setLoading(true);
+
+        // Fast-path automatic SSO for internal corporate domains
+        if (email.toLowerCase().endsWith('@saegrp.com')) {
+            setProviders(['google.com']);
+            setStep('password');
+            await handleGoogleSSOSignIn();
+            return;
+        }
+
         try {
             const res = await api.post('/auth/check', { email });
             const { exists, status, authProviders } = res.data;

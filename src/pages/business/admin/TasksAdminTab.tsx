@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ClipboardList, Trash2, Edit2, Plus, RefreshCw } from 'lucide-react';
+import { ClipboardList, Trash2, Edit2, Plus, RefreshCw, X } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 
@@ -14,6 +14,11 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
     const [taskTitle, setTaskTitle] = useState('');
     const [taskType, setTaskType] = useState('Standard');
     const [taskAssignee, setTaskAssignee] = useState('');
+
+    const [editTask, setEditTask] = useState<any | null>(null);
+    const [editTitle, setEditTitle] = useState('');
+    const [editType, setEditType] = useState('Standard');
+    const [editAssignee, setEditAssignee] = useState('');
 
     const fetchTasks = async () => {
         try {
@@ -68,6 +73,28 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
         }
     };
 
+    const handleUpdateTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editTitle || !editAssignee) return toast.error("Title and Assignee are required.");
+        
+        try {
+            setIsSubmitting(true);
+            await api.put(`/tasks/${editTask.id}`, {
+                title: editTitle,
+                type: editType,
+                assigneeUid: editAssignee,
+            });
+            toast.success("Task updated successfully");
+            setEditTask(null);
+            fetchTasks();
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to update task");
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const handleToggleStatus = async (taskId: string, currentStatus: string) => {
         const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
         try {
@@ -115,6 +142,125 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                 </div>
             </div>
 
+            {/* Edit Task Modal */}
+            {editTask && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                    <div className="bg-zinc-900 border border-zinc-700/50 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-6 border-b border-zinc-800/50 flex justify-between items-center bg-zinc-900">
+                            <div>
+                                <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                                    <Edit2 className="w-5 h-5 text-accent" /> Task Details
+                                </h3>
+                                <p className="text-sm text-zinc-500 mt-1">Update assignment or view submitted feedback.</p>
+                            </div>
+                            <button onClick={() => setEditTask(null)} className="text-zinc-500 hover:text-white transition-colors bg-zinc-800 p-2 rounded-full">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                            {/* Edit Form */}
+                            <form id="editTaskForm" onSubmit={handleUpdateTask} className="space-y-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Task Title</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        value={editTitle}
+                                        onChange={e => setEditTitle(e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Directive Type</label>
+                                        <select 
+                                            value={editType}
+                                            onChange={e => setEditType(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
+                                        >
+                                            <option value="Standard">Standard</option>
+                                            <option value="Maintenance">Maintenance</option>
+                                            <option value="Diagnostic">Diagnostic</option>
+                                            <option value="Administrative">Administrative</option>
+                                            <option value="Urgent">Urgent</option>
+                                            <option value="interview">Interview Feedback</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Assign to Staff</label>
+                                        <select 
+                                            required
+                                            value={editAssignee}
+                                            onChange={e => setEditAssignee(e.target.value)}
+                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
+                                        >
+                                            {staff.map(user => (
+                                                <option key={user.uid} value={user.uid}>
+                                                    {user.displayName || user.email} {user.jobTitle ? `(${user.jobTitle})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </form>
+
+                            {/* Feedback Display */}
+                            {editTask.feedback && (
+                                <div className="mt-8 pt-6 border-t border-zinc-800/50 space-y-4">
+                                    <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-4">
+                                        <ClipboardList className="w-4 h-4 text-accent" /> Submitted Feedback
+                                    </h4>
+                                    
+                                    {editTask.feedback.good && (
+                                        <div className="bg-zinc-950/50 p-4 rounded-xl border border-emerald-500/20">
+                                            <span className="block text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2">The Good</span>
+                                            <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{editTask.feedback.good}</p>
+                                        </div>
+                                    )}
+                                    {editTask.feedback.badUgly && (
+                                        <div className="bg-zinc-950/50 p-4 rounded-xl border border-red-500/20">
+                                            <span className="block text-[10px] font-black text-red-400 uppercase tracking-widest mb-2">The Bad & The Ugly</span>
+                                            <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{editTask.feedback.badUgly}</p>
+                                        </div>
+                                    )}
+                                    {editTask.feedback.wishlist && (
+                                        <div className="bg-zinc-950/50 p-4 rounded-xl border border-purple-500/20">
+                                            <span className="block text-[10px] font-black text-purple-400 uppercase tracking-widest mb-2">Wish List</span>
+                                            <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{editTask.feedback.wishlist}</p>
+                                        </div>
+                                    )}
+                                    {editTask.feedback.positionNotes && (
+                                        <div className="bg-zinc-950/50 p-4 rounded-xl border border-blue-500/20">
+                                            <span className="block text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">Thoughts On Position</span>
+                                            <p className="text-sm text-zinc-300 whitespace-pre-wrap leading-relaxed">{editTask.feedback.positionNotes}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-6 border-t border-zinc-800 flex justify-end gap-3 bg-zinc-900">
+                            <button 
+                                type="button"
+                                onClick={() => setEditTask(null)}
+                                className="px-6 py-2.5 rounded-xl font-bold text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit" 
+                                form="editTaskForm"
+                                disabled={isSubmitting} 
+                                className="bg-accent text-white hover:bg-accent-hover font-bold py-2.5 px-8 rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50 text-sm"
+                            >
+                                {isSubmitting ? 'Saving...' : 'Save Updates'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Inline Add Form */}
             {showAddForm && (
                 <form onSubmit={handleCreateTask} className="p-4 bg-zinc-900 border-b border-zinc-800 shrink-0 flex flex-col md:flex-row items-end gap-4">
@@ -141,6 +287,7 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                             <option value="Diagnostic">Diagnostic</option>
                             <option value="Administrative">Administrative</option>
                             <option value="Urgent">Urgent</option>
+                            <option value="interview">Interview Feedback</option>
                         </select>
                     </div>
                     <div className="w-full md:w-64 shrink-0 relative">
@@ -211,6 +358,12 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                                 </div>
                                 <div className="col-span-3 md:col-span-2 flex items-center justify-end gap-2">
                                     <button 
+                                        onClick={() => {
+                                            setEditTask(task);
+                                            setEditTitle(task.title);
+                                            setEditType(task.type || 'Standard');
+                                            setEditAssignee(task.assigneeUid);
+                                        }}
                                         title="View Details"
                                         className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-colors"
                                     >

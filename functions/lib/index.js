@@ -53,6 +53,7 @@ const tasks_routes_1 = require("./routes/tasks.routes");
 const customers_routes_1 = require("./routes/customers.routes");
 const vehicles_routes_1 = require("./routes/vehicles.routes");
 const jobs_routes_1 = require("./routes/jobs.routes");
+const areas_routes_1 = require("./routes/areas.routes");
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
@@ -234,7 +235,7 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
     }
     catch (error) {
         console.error(`Error updating workspace metadata:`, error);
-        return res.status(500).json({ error: 'Failed to update workspace metadata' });
+        return res.status(500).json({ error: 'Failed to update workspace metadata', raw: (error === null || error === void 0 ? void 0 : error.message) || String(error), stack: error === null || error === void 0 ? void 0 : error.stack });
     }
 });
 // POST /businesses - Provision a new client business
@@ -323,6 +324,7 @@ app.get('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, res
                     displayName: userRecord.displayName,
                     photoURL: userRecord.photoURL || null,
                     role: claims.role || 'standard',
+                    roles: Array.isArray(claims.roles) ? claims.roles : (claims.role ? [claims.role] : []),
                     tenantId: tId,
                     lastSignInTime: userRecord.metadata.lastSignInTime,
                     creationTime: userRecord.metadata.creationTime
@@ -462,6 +464,34 @@ app.delete('/businesses/:id/staff/:uid', auth_middleware_1.authenticate, async (
         return res.status(500).json({ error: 'Failed to delete user identity.' });
     }
 });
+// POST /businesses/:id/staff/:uid/impersonate - Generate a secure Custom JWT to assume a staff member's identity
+app.post('/businesses/:id/staff/:uid/impersonate', auth_middleware_1.authenticate, async (req, res) => {
+    const businessId = req.params.id;
+    const targetUid = req.params.uid;
+    const caller = req.user;
+    try {
+        const isSuperAdmin = caller.role === 'super_admin';
+        const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+        if (!isSuperAdmin && !isOwnerOfTenant) {
+            return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
+        }
+        // Verify target user actually belongs to this tenant
+        const targetUser = await admin.auth().getUser(targetUid);
+        const targetClaims = targetUser.customClaims || {};
+        if (targetClaims.tenantId !== businessId) {
+            return res.status(403).json({ error: 'Target identity is not bound to your workspace.' });
+        }
+        if (targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
+            return res.status(403).json({ error: 'Cannot impersonate equal or higher authority identities.' });
+        }
+        const customToken = await admin.auth().createCustomToken(targetUid);
+        return res.json({ token: customToken });
+    }
+    catch (error) {
+        console.error("Failed to generate contextual bind token for staff", error);
+        return res.status(500).json({ error: 'Server failed to construct impersonation token' });
+    }
+});
 // POST /businesses/:id/staff/:uid/metadata - Update jobTitle and department for a staff member
 app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, async (req, res) => {
     var _a, _b, _c, _d;
@@ -486,7 +516,7 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
         if (!isSuperAdmin && !isManagerOfTenant && !hasManageStaffOverride) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to modify staff metadata.' });
         }
-        const { jobTitle, department, workPhone, mobilePhone, addressStreet, addressCity, addressState, addressZip, photoURL, dob, emergencyContactName, emergencyContactPhone, payRate, payType, startDate, notes, skills, certificates, firstName, middleName, lastName, nickName, customPermissions } = req.body;
+        const { jobTitle, department, workPhone, mobilePhone, addressStreet, addressCity, addressState, addressZip, photoURL, dob, emergencyContactName, emergencyContactPhone, payRate, payType, startDate, notes, skills, certificates, firstName, middleName, lastName, nickName, customPermissions, role, roles } = req.body;
         const userUpdates = { updatedAt: new Date().toISOString() };
         if (firstName !== undefined)
             userUpdates.firstName = firstName;
@@ -591,6 +621,22 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
                 throw err;
             }
         }
+        // Synchronize Auth Claims natively if explicitly mutated in the payload
+        if (roles !== undefined) {
+            const sanitizedRoles = Array.isArray(roles) ? roles : (role ? [role] : []);
+            const filteredRoles = sanitizedRoles.filter((r) => isSuperAdmin || (r !== 'super_admin' && r !== 'business_owner'));
+            const targetAuth = await admin.auth().getUser(targetUid);
+            const currentClaims = targetAuth.customClaims || {};
+            // Block hijacking core ownership models securely
+            if (currentClaims.role !== 'business_owner' || isSuperAdmin) {
+                const primaryRole = filteredRoles.length > 0 ? filteredRoles[0] : 'staff';
+                await admin.auth().setCustomUserClaims(targetUid, Object.assign(Object.assign({}, currentClaims), { role: primaryRole, roles: filteredRoles }));
+                await db.collection('users').doc(targetUid).update({
+                    role: primaryRole,
+                    roles: filteredRoles
+                });
+            }
+        }
         return res.json({ message: 'Identity metadata securely updated.' });
     }
     catch (error) {
@@ -677,9 +723,10 @@ app.use('/qbo', qbo_routes_1.qboRoutes);
 app.use('/tasks', tasks_routes_1.tasksRoutes);
 // --- Customers ---
 app.use('/customers', customers_routes_1.customersRoutes);
-// --- Vehicles & Jobs ---
+// --- Vehicles & Jobs & Areas ---
 app.use('/vehicles', vehicles_routes_1.vehiclesRoutes);
 app.use('/jobs', jobs_routes_1.jobsRoutes);
+app.use('/areas', areas_routes_1.areasRoutes);
 // Export the Express API as a Cloud Function
 exports.api = functions.https.onRequest(app);
 //# sourceMappingURL=index.js.map

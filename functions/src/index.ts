@@ -14,6 +14,7 @@ import { tasksRoutes } from './routes/tasks.routes';
 import { customersRoutes } from './routes/customers.routes';
 import { vehiclesRoutes } from './routes/vehicles.routes';
 import { jobsRoutes } from './routes/jobs.routes';
+import { areasRoutes } from './routes/areas.routes';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -212,9 +213,9 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     await db.collection('businesses').doc(businessId).update(updates);
 
     return res.json({ message: 'Workspace metadata updated successfully', updates });
-  } catch (error) {
+  } catch (error: any) {
     console.error(`Error updating workspace metadata:`, error);
-    return res.status(500).json({ error: 'Failed to update workspace metadata' });
+    return res.status(500).json({ error: 'Failed to update workspace metadata', raw: error?.message || String(error), stack: error?.stack });
   }
 });
 
@@ -323,6 +324,7 @@ app.get('/businesses/:id/staff', authenticate, async (req: Request, res: Respons
           displayName: userRecord.displayName,
           photoURL: userRecord.photoURL || null,
           role: claims.role || 'standard',
+          roles: Array.isArray(claims.roles) ? claims.roles : (claims.role ? [claims.role] : []),
           tenantId: tId,
           lastSignInTime: userRecord.metadata.lastSignInTime,
           creationTime: userRecord.metadata.creationTime
@@ -483,6 +485,40 @@ app.delete('/businesses/:id/staff/:uid', authenticate, async (req: Request, res:
   }
 });
 
+// POST /businesses/:id/staff/:uid/impersonate - Generate a secure Custom JWT to assume a staff member's identity
+app.post('/businesses/:id/staff/:uid/impersonate', authenticate, async (req: Request, res: Response): Promise<Response> => {
+  const businessId = req.params.id;
+  const targetUid = req.params.uid;
+  const caller = (req as any).user;
+
+  try {
+    const isSuperAdmin = caller.role === 'super_admin';
+    const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+
+    if (!isSuperAdmin && !isOwnerOfTenant) {
+      return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
+    }
+
+    // Verify target user actually belongs to this tenant
+    const targetUser = await admin.auth().getUser(targetUid);
+    const targetClaims = targetUser.customClaims || {};
+    
+    if (targetClaims.tenantId !== businessId) {
+      return res.status(403).json({ error: 'Target identity is not bound to your workspace.' });
+    }
+
+    if (targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
+      return res.status(403).json({ error: 'Cannot impersonate equal or higher authority identities.' });
+    }
+
+    const customToken = await admin.auth().createCustomToken(targetUid);
+    return res.json({ token: customToken });
+  } catch (error) {
+    console.error("Failed to generate contextual bind token for staff", error);
+    return res.status(500).json({ error: 'Server failed to construct impersonation token' });
+  }
+});
+
 // POST /businesses/:id/staff/:uid/metadata - Update jobTitle and department for a staff member
 app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Request, res: Response): Promise<Response> => {
   const businessId = req.params.id;
@@ -515,7 +551,7 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
         photoURL, dob, emergencyContactName,
         emergencyContactPhone, payRate, payType, startDate, notes,
         skills, certificates, firstName, middleName, lastName, nickName,
-        customPermissions
+        customPermissions, role, roles
     } = req.body;
 
     const userUpdates: any = { updatedAt: new Date().toISOString() };
@@ -600,6 +636,31 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
             await db.collection('users').doc(targetUid).set(freshCreate);
         } else {
             throw err;
+        }
+    }
+
+    // Synchronize Auth Claims natively if explicitly mutated in the payload
+    if (roles !== undefined) {
+        const sanitizedRoles = Array.isArray(roles) ? roles : (role ? [role] : []);
+        const filteredRoles = sanitizedRoles.filter((r: string) => 
+           isSuperAdmin || (r !== 'super_admin' && r !== 'business_owner')
+        );
+
+        const targetAuth = await admin.auth().getUser(targetUid);
+        const currentClaims = targetAuth.customClaims || {};
+        
+        // Block hijacking core ownership models securely
+        if (currentClaims.role !== 'business_owner' || isSuperAdmin) {
+            const primaryRole = filteredRoles.length > 0 ? filteredRoles[0] : 'staff';
+            await admin.auth().setCustomUserClaims(targetUid, {
+                ...currentClaims,
+                role: primaryRole,
+                roles: filteredRoles
+            });
+            await db.collection('users').doc(targetUid).update({
+                role: primaryRole,
+                roles: filteredRoles
+            });
         }
     }
 
@@ -708,9 +769,10 @@ app.use('/tasks', tasksRoutes);
 // --- Customers ---
 app.use('/customers', customersRoutes);
 
-// --- Vehicles & Jobs ---
+// --- Vehicles & Jobs & Areas ---
 app.use('/vehicles', vehiclesRoutes);
 app.use('/jobs', jobsRoutes);
+app.use('/areas', areasRoutes);
 
 // Export the Express API as a Cloud Function
 export const api = functions.https.onRequest(app);

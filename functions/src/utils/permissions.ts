@@ -1,49 +1,47 @@
 import * as admin from 'firebase-admin';
 
 export type PermissionKey = 
+  | 'manage_settings'
+  | 'manage_roles'
   | 'manage_staff'
+  | 'view_customers'
+  | 'manage_customers'
+  | 'view_vehicles'
+  | 'manage_vehicles'
+  | 'view_jobs'
+  | 'manage_jobs'
+  | 'view_inventory'
   | 'manage_inventory'
-  | 'view_financials'
+  | 'manage_canvases'
   | 'manage_tasks'
-  | 'super_admin_feature_x';
+  | 'view_financials'
+  | 'view_facility_map'
+  | 'manage_facility_map'
+  | 'simulate_roles'
+  | 'super_admin_core';
 
 export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, boolean>>> = {
   business_owner: {
-    manage_staff: true,
-    manage_inventory: true,
+    manage_settings: true, manage_roles: true, manage_staff: true,
+    view_customers: true, manage_customers: true,
+    view_vehicles: true, manage_vehicles: true,
+    view_jobs: true, manage_jobs: true,
+    view_inventory: true, manage_inventory: true,
+    manage_canvases: true, manage_tasks: true,
     view_financials: true,
-    manage_tasks: true,
-  },
-  manager: {
-    manage_staff: true,
-    manage_inventory: true,
-    view_financials: false,
-    manage_tasks: true,
-  },
-  department_lead: {
-    manage_staff: false,
-    manage_inventory: true,
-    view_financials: false,
-    manage_tasks: true,
-  },
-  parts_guy: {
-    manage_staff: false,
-    manage_inventory: true,
-    view_financials: false,
-    manage_tasks: false,
-  },
-  staff: {
-    manage_staff: false,
-    manage_inventory: false,
-    view_financials: false,
-    manage_tasks: false,
+    view_facility_map: true, manage_facility_map: true, 
+    simulate_roles: true
   },
   super_admin: {
-    manage_staff: true,
-    manage_inventory: true,
-    view_financials: true,
-    manage_tasks: true,
-    super_admin_feature_x: true,
+    manage_settings: true, manage_roles: true, manage_staff: true,
+    view_customers: true, manage_customers: true,
+    view_vehicles: true, manage_vehicles: true,
+    view_jobs: true, manage_jobs: true,
+    view_inventory: true, manage_inventory: true,
+    manage_canvases: true, manage_tasks: true,
+    view_financials: true, super_admin_core: true,
+    view_facility_map: true, manage_facility_map: true,
+    simulate_roles: true
   }
 };
 
@@ -52,11 +50,12 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
  * Order of evaluation:
  * 1. Super admin? -> yes
  * 2. User document custom override? -> return explicitly mapped value
- * 3. Tenant business custom roles override? -> return value explicitly mapped to their role
- * 4. Fallback to platform-wide hardcoded role mapping -> return mapped value
+ * 3. Tenant business custom roles OR fallback defaults -> mathematically union mappings across all assigned user roles array.
  */
-export async function checkBackendPermission(callerUid: string, callerRole: string, callerTenantId: string, permissionKey: PermissionKey): Promise<boolean> {
-  if (callerRole === 'super_admin') return true;
+export async function checkBackendPermission(callerUid: string, callerRolesParam: string | string[], callerTenantId: string, permissionKey: PermissionKey): Promise<boolean> {
+  const rolesArray = Array.isArray(callerRolesParam) ? callerRolesParam : [callerRolesParam || 'staff'];
+  
+  if (rolesArray.includes('super_admin')) return true;
 
   try {
     const db = admin.firestore();
@@ -65,26 +64,34 @@ export async function checkBackendPermission(callerUid: string, callerRole: stri
     const userDoc = await db.collection('users').doc(callerUid).get();
     const userData = userDoc.exists ? userDoc.data() : null;
     if (userData && userData.customPermissions && userData.customPermissions[permissionKey] !== undefined) {
-      return userData.customPermissions[permissionKey] as boolean;
+      if (userData.customPermissions[permissionKey] === true) return true;
     }
 
     // 2. Fetch business document to check for custom role overrides
+    let customBusinessRoles: any = {};
     if (callerTenantId && callerTenantId !== 'GLOBAL') {
       const businessDoc = await db.collection('businesses').doc(callerTenantId).get();
       const businessData = businessDoc.exists ? businessDoc.data() : null;
-      if (businessData && businessData.customRoles && businessData.customRoles[callerRole]) {
-        const rolePermissions = businessData.customRoles[callerRole].permissions;
-        if (rolePermissions && rolePermissions[permissionKey] !== undefined) {
-          return rolePermissions[permissionKey] as boolean;
-        }
+      if (businessData && businessData.customRoles) {
+        customBusinessRoles = businessData.customRoles;
       }
+    }
+
+    // 3. Mathematical OR logic across all roles
+    for (const r of rolesArray) {
+        // First check custom business overrides mapped
+        if (customBusinessRoles[r] && customBusinessRoles[r].permissions && customBusinessRoles[r].permissions[permissionKey] === true) {
+            return true;
+        }
+        // Then fallback to default mappings
+        if (DEFAULT_PERMISSIONS[r] && DEFAULT_PERMISSIONS[r][permissionKey] === true) {
+            return true;
+        }
     }
 
   } catch (err) {
     console.error("Failed to verify backend permission dynamically", err);
   }
 
-  // 3. Fallback mathematically to the platform default
-  const effectiveRole = callerRole || 'staff';
-  return DEFAULT_PERMISSIONS[effectiveRole]?.[permissionKey] || false;
+  return false;
 }

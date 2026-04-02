@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Building2, Package, Activity, ArrowRight, Users, ScanLine, ClipboardList } from 'lucide-react';
+import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -35,16 +35,30 @@ export function WorkspaceHub() {
 
     const hasValidWorkspace = tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned';
     
-    // Legacy hard-coded manager check or explicit permissions
-    const isManagerOrOwner = (role === 'business_owner' || role === 'manager' && hasValidWorkspace) || role === 'super_admin';
-    const hasAdminAccess = isManagerOrOwner || checkPermission('manage_staff') || checkPermission('manage_inventory');
+    // Safely evaluate if user has any access to the management cluster tabs
+    const adminPermissions: any[] = [
+        'manage_settings', 'manage_roles', 'manage_staff', 'manage_tasks',
+        'view_customers', 'view_vehicles', 'view_jobs', 'view_inventory',
+        'view_financials', 'manage_canvases'
+    ];
+    const hasAdminAccess = hasValidWorkspace && adminPermissions.some(p => checkPermission(p));
 
-    // Everyone mapped safely to a valid Workspace sees the Coworkers Application
     const apps: any[] = [
         { name: 'My Tasks', desc: 'View and complete assigned administrative and executive tasks.', icon: ClipboardList, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'hover:border-orange-500/50', link: '/business/tasks', badge: '' },
-        { name: 'Universal Scanner', desc: 'Activate your device camera to resolve physical QR stickers.', icon: ScanLine, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'hover:border-emerald-500/50', link: '/scan', badge: '' },
-        { name: 'Coworkers', desc: 'Secure company directory and peer contact information.', icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'hover:border-blue-500/50', link: '/business/coworkers', badge: '#soon' }
+        { name: 'Universal Scanner', desc: 'Activate your device camera to resolve physical QR stickers.', icon: ScanLine, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'hover:border-emerald-500/50', link: '/scan', badge: '' }
     ];
+
+    if (!loading && checkPermission('view_facility_map')) {
+        apps.unshift({ name: 'Facility Map', desc: 'Interactive floorplan of the business campus.', icon: MapIcon, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'hover:border-purple-500/50', link: '/business/facility', badge: '' });
+    }
+
+    if (!loading && checkPermission('manage_jobs')) {
+        apps.unshift({ name: 'Mission Control', desc: 'Live operations overview to monitor floor activity and bottlenecks.', icon: Activity, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/business/ops', badge: '' });
+    }
+
+    if (!loading && checkPermission('manage_canvases')) {
+        apps.unshift({ name: 'Workflow Whiteboards', desc: 'Create and manage logic canvases to organize operational procedures.', icon: Workflow, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'hover:border-cyan-500/50', link: '/business/canvases', badge: '' });
+    }
 
     if (!loading && hasAdminAccess) {
         apps.unshift({ name: 'Business Admin Suite', desc: 'Full-screen operational management for your workspace.', icon: Building2, color: 'text-zinc-300', bg: 'bg-zinc-700/20', border: 'hover:border-zinc-500/50', link: '/business/manage', badge: '' });

@@ -7,10 +7,11 @@ import { MapBackgroundNode } from './canvas/MapBackgroundNode';
 import { db } from '../../../lib/firebase';
 import { doc, setDoc, onSnapshot, deleteDoc, arrayUnion } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Loader2, Save, X, Plus, Layers, Image as ImageIcon, MousePointer2, PenTool, Trash2, MapPin, Square } from 'lucide-react';
+import { Loader2, Save, X, Plus, Layers, Image as ImageIcon, MousePointer2, PenTool, Trash2, MapPin, Square, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import { api } from '../../../lib/api';
+import { usePermissions } from '../../../hooks/usePermissions';
 
 const nodeTypes = {
     polygon: MapPolygonNode,
@@ -33,15 +34,18 @@ const computeBoundingBox = (points: {x: number, y: number}[]) => {
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 };
 
-function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
+function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string, user: any, readOnly?: boolean }) {
     const { screenToFlowPosition } = useReactFlow();
     const transform = useStore((s) => s.transform);
+    const { checkPermission } = usePermissions();
+    const canManage = !readOnly && checkPermission('manage_facility_map');
     
     // Core state
     const [allNodes, setAllNodes] = useState<Node[]>([]);
     const [activeFloorId, setActiveFloorId] = useState<string>('default');
     const [floors, setFloors] = useState<{id: string, name: string}[]>([{id: 'default', name: 'Ground Floor'}]);
     const [baseImages, setBaseImages] = useState<Record<string, string>>({});
+    const [availableAreas, setAvailableAreas] = useState<any[]>([]);
     
     // Aux Context State
 
@@ -143,13 +147,13 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
             .filter(n => n.data.floorId === activeFloorId)
             .map(n => ({
                 ...n,
-                draggable: n.id === selectedNodeId,
+                draggable: canManage && n.id === selectedNodeId,
                 data: {
                     ...n.data,
-                    onPointsUpdated: handlePointsUpdate
+                    onPointsUpdated: canManage ? handlePointsUpdate : () => {}
                 }
             }));
-    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate]);
+    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate, canManage]);
     // Add Object Modal State
     const [isObjectModalOpen, setIsObjectModalOpen] = useState(false);
     const [objFormData, setObjFormData] = useState({ name: 'New Object', widthFt: 10, lengthFt: 10, type: 'Equipment', wallHeight: 8 });
@@ -217,6 +221,72 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
             unsubscribe();
         };
     }, [tenantId]);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        const fetchAreas = async () => {
+            try {
+                const res = await api.get(`/areas?tenantId=${tenantId}`);
+                setAvailableAreas(res.data);
+            } catch (err) {
+                console.error("Failed to load available areas", err);
+            }
+        };
+        fetchAreas();
+    }, [tenantId]);
+
+    const handleLinkArea = async (areaId: string) => {
+        if (!areaId) return;
+        const targetArea = availableAreas.find(a => a.id === areaId);
+        if (!targetArea) return;
+        if (!selectedNodeId) return;
+        const selectedNode = allNodes.find(x => x.id === selectedNodeId);
+        if (!selectedNode) return;
+
+        const oldId = selectedNodeId;
+
+        // 1. Delete old auto-generated ID from business_zones, if it differs
+        if (oldId !== areaId && tenantId && tenantId !== 'GLOBAL') {
+            await deleteDoc(doc(db, 'business_zones', oldId)).catch(console.error);
+        }
+
+        // 2. Update React Flow node ID and inject targetArea properties
+        const updatedData = {
+            ...selectedNode.data,
+            ...targetArea,
+            points: selectedNode.data.points,
+            width: selectedNode.data.width,
+            height: selectedNode.data.height,
+        };
+
+        setAllNodes(prev => prev.map(n => {
+            if (n.id === oldId) {
+                return {
+                    ...n,
+                    id: areaId,
+                    data: updatedData
+                };
+            }
+            return n;
+        }));
+
+        // 3. Update business_zones for the targetArea with the new points
+        if (tenantId && tenantId !== 'GLOBAL') {
+            const payload = {
+                ...updatedData,
+                updatedAt: new Date().toISOString(),
+                lastModifiedBy: user?.displayName || user?.email || 'Unknown Staff',
+            };
+            await setDoc(doc(db, 'business_zones', areaId), payload, { merge: true }).catch(console.error);
+        }
+
+        setSelectedNodeId(areaId);
+        hasUnsavedChangesRef.current = true;
+        toast.success(`Successfully linked geometry to ${targetArea.label || 'Area'}`);
+        
+        // Refresh available areas
+        api.get(`/areas?tenantId=${tenantId}`).then(res => setAvailableAreas(res.data)).catch(console.error);
+    };
 
 
 
@@ -422,6 +492,7 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
     }, [currentPolygonPoints, activeFloorId, tenantId]);
 
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
+        if (!canManage) return;
         if (!isDrawing) {
             if (selectedNodeId && (e.key === 'Delete' || e.key === 'Backspace')) {
                 if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
@@ -485,41 +556,6 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
     const handleNodeClick = (_e: React.MouseEvent, node: Node) => {
         if (isDrawing) return;
         setSelectedNodeId(node.id);
-    };
-
-    const updateSelectedNode = (field: string, value: any) => {
-        if (!selectedNodeId) return;
-        
-        // Auto update color if type changes and color hasn't been manually specialized? 
-        // We can just keep it simple: if you change type, we auto-assign the standard color for that type.
-        let colorOverride = null;
-        if (field === 'type') {
-            colorOverride = getColorForType(value);
-        }
-
-        setAllNodes(prev => prev.map(n => {
-            if (n.id === selectedNodeId) {
-                const updatedData = { ...n.data, [field]: value };
-                if (colorOverride) updatedData.color = colorOverride;
-                return { ...n, data: updatedData };
-            }
-            return n;
-        }));
-        hasUnsavedChangesRef.current = true;
-
-        if (tenantId && tenantId !== 'GLOBAL') {
-            setDoc(doc(db, 'business_zones', selectedNodeId), {
-                [field]: value,
-                ...(colorOverride ? { color: colorOverride } : {}),
-                updatedAt: new Date().toISOString(),
-                lastModifiedBy: user?.displayName || user?.email || 'Unknown Staff',
-                activityLogs: arrayUnion({
-                    timestamp: new Date().toISOString(),
-                    actor: user?.displayName || user?.email || 'Unknown Staff',
-                    action: `Updated ${field} to ${value}`
-                })
-            }, { merge: true }).catch(console.error);
-        }
     };
 
     const rescaleSelectedNode = (newWidthPx?: number, newHeightPx?: number) => {
@@ -647,9 +683,9 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                 width: wPx,
                 height: hPx,
                 color: calculatedColor,
-                label: objFormData.name,
-                type: objFormData.type,
-                wallHeight: objFormData.wallHeight
+                label: 'Unassigned Geometry',
+                type: 'Other',
+                wallHeight: 10
             }
         };
 
@@ -717,59 +753,65 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                         </button>
                     ))}
                     {/* Placeholder for future "Add Floor" capability */}
-                    <button className="w-10 h-10 rounded-xl flex items-center justify-center bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-white transition-colors">
-                        <Plus className="w-4 h-4" />
-                    </button>
+                    {canManage && (
+                        <button className="w-10 h-10 rounded-xl flex items-center justify-center bg-zinc-950 border border-zinc-800 text-zinc-500 hover:text-white transition-colors">
+                            <Plus className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
 
                 <div className="h-px w-8 bg-zinc-800 mb-6"></div>
 
                 <div className="flex flex-col gap-2 w-full px-2">
-                    <button
-                        onClick={() => {
-                            const nextState = !isDrawing;
-                            setIsDrawing(nextState);
-                            if (!nextState) {
-                                setCurrentPolygonPoints([]);
-                                setTempMousePos(null);
-                                setTypedDistance('');
-                            }
-                        }}
-                        className={`w-full aspect-square rounded-xl flex flex-col items-center justify-center gap-1 transition-all shadow-lg ${
-                            isDrawing 
-                            ? 'bg-amber-500 border border-amber-400 text-white animate-pulse' 
-                            : 'bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white'
-                        }`}
-                        title="Draw Custom Free-Form Polygon"
-                    >
-                        <PenTool className="w-5 h-5 flex-shrink-0" />
-                    </button>
+                    {canManage && (
+                        <>
+                            <button
+                                onClick={() => {
+                                    const nextState = !isDrawing;
+                                    setIsDrawing(nextState);
+                                    if (!nextState) {
+                                        setCurrentPolygonPoints([]);
+                                        setTempMousePos(null);
+                                        setTypedDistance('');
+                                    }
+                                }}
+                                className={`w-full aspect-square rounded-xl flex flex-col items-center justify-center gap-1 transition-all shadow-lg ${
+                                    isDrawing 
+                                    ? 'bg-amber-500 border border-amber-400 text-white animate-pulse' 
+                                    : 'bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white'
+                                }`}
+                                title="Draw Custom Free-Form Polygon"
+                            >
+                                <PenTool className="w-5 h-5 flex-shrink-0" />
+                            </button>
 
-                    <button
-                        onClick={() => setIsObjectModalOpen(true)}
-                        className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
-                        title="Add Scaled Object or Room by Dimensions"
-                    >
-                        <Square className="w-5 h-5" />
-                    </button>
-                    
-                    <button
-                        onClick={handleAddressImport}
-                        className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
-                        title="Import Google Maps Satellite View via Address"
-                    >
-                        <MapPin className="w-5 h-5" />
-                    </button>
-                    
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
-                        title="Upload Map Image for this floor"
-                    >
-                        <ImageIcon className="w-5 h-5" />
-                    </button>
+                            <button
+                                onClick={() => setIsObjectModalOpen(true)}
+                                className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
+                                title="Add Scaled Object or Room by Dimensions"
+                            >
+                                <Square className="w-5 h-5" />
+                            </button>
+                            
+                            <button
+                                onClick={handleAddressImport}
+                                className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
+                                title="Import Google Maps Satellite View via Address"
+                            >
+                                <MapPin className="w-5 h-5" />
+                            </button>
+                            
+                            <button
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-full aspect-square rounded-xl flex items-center justify-center bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all shadow-lg"
+                                title="Upload Map Image for this floor"
+                            >
+                                <ImageIcon className="w-5 h-5" />
+                            </button>
 
-                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -788,8 +830,8 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                     className="bg-zinc-950"
                     minZoom={0.1}
                     maxZoom={5}
-                    nodesDraggable={!isDrawing}
-                    elementsSelectable={!isDrawing}
+                    nodesDraggable={canManage && !isDrawing}
+                    elementsSelectable={canManage && !isDrawing}
                     panOnDrag={isDrawing ? [1, 2] : [0, 1, 2]} // Middle/Right drag pans when drawing, else all drag
                     snapToGrid={true}
                     snapGrid={[5, 5]} // Half-foot snapping (1ft = 10px)
@@ -885,7 +927,7 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
             </div>
 
             {/* Properties Panel Overlay */}
-            {selectedNodeId && selectedNode && (
+            {canManage && selectedNodeId && selectedNode && (
                 <div className="w-80 bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl relative z-40 transform transition-transform">
                     <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/50">
                         <h3 className="font-bold text-white flex items-center gap-2">
@@ -898,15 +940,67 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                     </div>
 
                     <div className="p-4 space-y-4 overflow-y-auto">
-                        <div>
-                            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Name / Label</label>
-                            <input 
-                                type="text"
-                                value={(selectedNode.data.label as string) || ''}
-                                onChange={(e) => updateSelectedNode('label', e.target.value)}
-                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-                                placeholder="e.g. Bay 1, Main Office"
-                            />
+                        {canManage && (
+                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-2 flex flex-col gap-2">
+                                {availableAreas.length > 0 && (() => {
+                                    const isUnassigned = !selectedNode.data.label || selectedNode.data.label === 'Unassigned Geometry';
+                                    return (
+                                        <>
+                                            <label className="text-[10px] font-bold text-amber-500 uppercase tracking-wider block">
+                                                {isUnassigned ? 'Merge with Pre-Registered Area' : 'Reassign Map Geometry'}
+                                            </label>
+                                            <p className="text-[10px] text-amber-500/70 mb-1 leading-snug">
+                                                {isUnassigned ? 'Select an unmapped Area to inject its details here and link them.' : 'Warning: Selecting a new Area will overwrite this geometry\'s current identity.'}
+                                            </p>
+                                            <select 
+                                                className="w-full bg-zinc-950 border border-amber-500/30 rounded-lg px-3 py-2 text-sm text-amber-500 focus:outline-none focus:border-amber-400 cursor-pointer"
+                                                onChange={(e) => {
+                                                    if (e.target.value) handleLinkArea(e.target.value);
+                                                    e.target.value = "";
+                                                }}
+                                                defaultValue=""
+                                            >
+                                                <option value="" disabled>
+                                                    {isUnassigned ? '-- Select Registry Area to Assign --' : '-- Reassign to Different Area --'}
+                                                </option>
+                                                {availableAreas.map(a => {
+                                                    const isMapped = a.points && a.points.length > 0;
+                                                    const isCurrent = a.id === selectedNodeId;
+                                                    return (
+                                                        <option key={a.id} value={a.id} disabled={isMapped || isCurrent}>
+                                                            {a.label || 'Unnamed'} {isCurrent ? ' (This Polygon)' : isMapped ? ' (Already Mapped)' : ' (Unmapped)'}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </>
+                                    );
+                                })()}
+                                <button 
+                                    onClick={() => window.open('/business/manage?tab=areas', '_blank')}
+                                    className="w-full bg-zinc-950 border border-amber-500/30 hover:border-amber-400 text-amber-500 rounded-lg px-3 py-2 text-xs font-bold transition-colors flex items-center justify-center gap-2 mt-1"
+                                >
+                                    <Plus className="w-3.5 h-3.5" /> Registry: Add / Edit Areas <ExternalLink className="w-3 h-3 ml-1" />
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Name / Label</label>
+                                <div className="text-sm font-bold text-white truncate px-1">{(selectedNode.data.label as string) || 'Unassigned Geometry'}</div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
+                                <div>
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Type</label>
+                                    <div className="text-sm text-zinc-300 font-medium px-1">{(selectedNode.data.type as string) || 'Other'}</div>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Status</label>
+                                    <div className="text-sm font-bold text-zinc-300 px-1">{(selectedNode.data.status as string) || 'Clear'}</div>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 pb-3">
@@ -914,9 +1008,10 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Width <span className="text-zinc-600">(ft)</span></label>
                                 <input 
                                     type="number"
+                                    disabled={!canManage}
                                     value={selectedNode.data.width !== undefined ? Number(((selectedNode.data.width as number) / 10).toFixed(2)) : 0}
                                     onChange={(e) => rescaleSelectedNode(parseFloat(e.target.value) * 10, undefined)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                                     min="0"
                                     step="0.5"
                                 />
@@ -925,88 +1020,45 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Length <span className="text-zinc-600">(ft)</span></label>
                                 <input 
                                     type="number"
+                                    disabled={!canManage}
                                     value={selectedNode.data.height !== undefined ? Number(((selectedNode.data.height as number) / 10).toFixed(2)) : 0}
                                     onChange={(e) => rescaleSelectedNode(undefined, parseFloat(e.target.value) * 10)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
                                     min="0"
                                     step="0.5"
                                 />
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Type</label>
-                                <select
-                                    value={(selectedNode.data.type as string) || 'Bay'}
-                                    onChange={(e) => updateSelectedNode('type', e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-                                >
-                                    <option value="Bay">Service Bay</option>
-                                    <option value="Parking">Parking Spot</option>
-                                    <option value="Office">Office</option>
-                                    <option value="Equipment">Equipment</option>
-                                    <option value="Room">Storage/Room</option>
-                                    <option value="Building">Building / Structure</option>
-                                    <option value="Door - Garage">Door (Garage)</option>
-                                    <option value="Door - Man">Door (Man)</option>
-                                    <option value="Door - Misc">Door (Misc)</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Status</label>
-                                <select
-                                    value={(selectedNode.data.status as string) || 'Clear'}
-                                    onChange={(e) => updateSelectedNode('status', e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-                                >
-                                    <option value="Clear">Clear / Empty</option>
-                                    <option value="Working">In-Progress</option>
-                                    <option value="Blocked">Blocked</option>
-                                    <option value="Needs Help">Needs Help</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Height <span className="text-zinc-600">(ft)</span></label>
-                                <input 
-                                    type="number"
-                                    value={selectedNode.data.wallHeight !== undefined ? (selectedNode.data.wallHeight as number) : 10}
-                                    onChange={(e) => updateSelectedNode('wallHeight', parseFloat(e.target.value) || 0)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-                                    min="0"
-                                    step="0.5"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Border Color</label>
-                                <input 
-                                    type="color"
-                                    value={(selectedNode.data.color as string) || '#3b82f6'}
-                                    onChange={(e) => updateSelectedNode('color', e.target.value)}
-                                    className="w-full h-[38px] bg-zinc-900 border border-zinc-800 rounded-lg px-1 py-1 cursor-pointer"
-                                />
-                            </div>
-                        </div>
+
 
                         {/* Future Expansion for dynamic attributes can go here */}
 
 
-                        <div className="pt-8 w-full border-t border-zinc-800/50 mt-4">
-                            <button 
-                                onClick={() => {
-                                    setAllNodes(prev => prev.filter(n => n.id !== selectedNodeId));
-                                    hasUnsavedChangesRef.current = true;
-                                    if (tenantId && tenantId !== 'GLOBAL') {
-                                        deleteDoc(doc(db, 'business_zones', selectedNodeId)).catch(console.error);
-                                    }
-                                    setSelectedNodeId(null);
-                                }}
-                                className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-xl py-2.5 font-bold text-sm transition-colors flex items-center justify-center gap-2"
-                            >
-                                <Trash2 className="w-4 h-4" /> Delete Node
-                            </button>
-                        </div>
+                        {canManage && (
+                            <div className="pt-8 w-full flex flex-col gap-3 mt-4">
+                                <button 
+                                    onClick={() => window.open('/business/manage?tab=areas', '_blank')}
+                                    className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 rounded-xl py-2.5 font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <ExternalLink className="w-4 h-4 text-accent" /> Manage Operational Data
+                                </button>
+                                <button 
+                                    onClick={() => {
+                                        if (!window.confirm("Delete this map node? The logical Area data will remain in the registry if mapped, but geometry will be destroyed.")) return;
+                                        setAllNodes(prev => prev.filter(n => n.id !== selectedNodeId));
+                                        hasUnsavedChangesRef.current = true;
+                                        if (tenantId && tenantId !== 'GLOBAL') {
+                                            deleteDoc(doc(db, 'business_zones', selectedNodeId)).catch(console.error);
+                                        }
+                                        setSelectedNodeId(null);
+                                    }}
+                                    className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-xl py-2.5 font-bold text-sm transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Trash2 className="w-4 h-4" /> Drop Node
+                                </button>
+                            </div>
+                        )}
 
                     </div>
                 </div>
@@ -1028,15 +1080,14 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                 <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="w-full max-w-sm bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl p-6 flex flex-col gap-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-white text-lg">Deploy Object</h3>
+                            <h3 className="font-bold text-white text-lg">Deploy Spatial Geometry</h3>
                             <button onClick={() => setIsObjectModalOpen(false)} className="text-zinc-500 hover:text-white"><X className="w-5 h-5"/></button>
                         </div>
-                        
-                        <div>
-                            <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Label / Name</label>
-                            <input type="text" value={objFormData.name} onChange={e => setObjFormData({...objFormData, name: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent" placeholder="e.g. Hoist 1, Front Desk" autoFocus />
-                        </div>
 
+                        <div className="bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[11px] p-3 rounded-lg leading-snug">
+                            This creates an unassigned geometric zone on the map. You MUST link this footprint to an Area in your Management Registry using the side panel in order to give it a name and type.
+                        </div>
+                        
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Width (ft)</label>
@@ -1048,27 +1099,7 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Type</label>
-                                <select value={objFormData.type} onChange={e => setObjFormData({...objFormData, type: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent">
-                                    <option value="Equipment">Equipment</option>
-                                    <option value="Bay">Service Bay</option>
-                                    <option value="Parking">Parking</option>
-                                    <option value="Office">Office</option>
-                                    <option value="Room">Storage/Room</option>
-                                    <option value="Building">Building / Structure</option>
-                                    <option value="Door - Garage">Door (Garage)</option>
-                                    <option value="Door - Man">Door (Man)</option>
-                                    <option value="Door - Misc">Door (Misc)</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Height (ft)</label>
-                                <input type="number" min="0" step="0.5" value={objFormData.wallHeight} onChange={e => setObjFormData({...objFormData, wallHeight: parseFloat(e.target.value) || 0})} className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent" />
-                            </div>
-                        </div>
+
 
                         <button onClick={confirmAddObject} className="w-full bg-accent hover:bg-accent-hover text-white rounded-xl py-3 font-bold text-sm transition-colors mt-2">
                             Deploy to Map
@@ -1080,11 +1111,11 @@ function MapCanvasCore({ tenantId, user }: { tenantId: string, user: any }) {
     );
 }
 
-export function FacilityMapTab({ tenantId }: { tenantId: string }) {
+export function FacilityMapTab({ tenantId, readOnly = false }: { tenantId: string, readOnly?: boolean }) {
     const { currentUser } = useAuth();
     return (
         <ReactFlowProvider>
-            <MapCanvasCore tenantId={tenantId} user={currentUser} />
+            <MapCanvasCore tenantId={tenantId} user={currentUser} readOnly={readOnly} />
         </ReactFlowProvider>
     );
 }

@@ -103,6 +103,25 @@ components:
         hourlyRate: { type: number }
         hireDate: { type: string, format: date }
 
+    Area:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        type: { type: string }
+        label: { type: string }
+        status: { type: string }
+        capacity: { type: string }
+        wallHeight: { type: number }
+        color: { type: string }
+        points:
+          type: array
+          items:
+            type: object
+            properties:
+              x: { type: number }
+              y: { type: number }
+
 security:
   - BearerAuth: []
 
@@ -260,6 +279,58 @@ paths:
       responses:
         '200':
           description: OK
+
+  /areas:
+    get:
+      summary: List all Areas and Map Zones
+      tags: [Areas & Facilities]
+      parameters:
+        - in: query
+          name: tenantId
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Array of Areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Area'
+    post:
+      summary: Register a new Area
+      tags: [Areas & Facilities]
+      responses:
+        '201':
+          description: Area Registered
+  
+  /areas/{id}:
+    put:
+      summary: Update Area Details
+      tags: [Areas & Facilities]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete an Area
+      tags: [Areas & Facilities]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
 
   /vehicles:
     get:

@@ -3,9 +3,12 @@ import { Users, AlertTriangle, Edit2, Plus, RefreshCw, Building2, FlaskConical, 
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import { api } from '../../../lib/api';
-import toast from 'react-hot-toast';
+import toast from 'react-hot-toast';import { usePermissions } from '../../../hooks/usePermissions';
 
 export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
+    const { checkPermission } = usePermissions();
+    const canManageCustomers = checkPermission('manage_customers');
+
     const [customers, setCustomers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -378,13 +381,15 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                     <h4 className="text-white font-bold text-sm mb-1">Delete Customer Account</h4>
                                     <p className="text-zinc-400 text-xs text-balance">Once you delete a customer, there is no going back. This will permanently erase their profile and unlink their vehicles and job history.</p>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleDeleteCustomer(selectedCustomer.id)}
-                                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
-                                >
-                                    Delete Customer
-                                </button>
+                                {canManageCustomers && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                                        className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
+                                    >
+                                        Delete Customer
+                                    </button>
+                                )}
                             </div>
                         </section>
                     )}
@@ -416,7 +421,9 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                 <div className="p-6 md:p-8 border-b border-zinc-800 bg-zinc-900/50 flex flex-col gap-6 sticky top-0 z-20 backdrop-blur-md">
                     <div className="flex items-center justify-between">
                         <button onClick={closeEditCustomer} className="text-zinc-400 hover:text-white flex items-center gap-2"><ArrowLeft className="w-4 h-4"/> Back to Customers</button>
-                        <button onClick={() => setIsEditing(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-colors border border-zinc-700"><Edit2 className="w-4 h-4"/> Edit Profile</button>
+                        {canManageCustomers && (
+                            <button onClick={() => setIsEditing(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-colors border border-zinc-700"><Edit2 className="w-4 h-4"/> Edit Profile</button>
+                        )}
                     </div>
                     <div className="flex items-start gap-4">
                         <div className="w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0 shadow-inner">
@@ -717,12 +724,14 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                     <button onClick={fetchCustomers} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
                         <RefreshCw className="w-4 h-4" />
                     </button>
-                    <button 
-                        onClick={openAddCustomer}
-                        className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
-                    >
-                        <Plus className="w-4 h-4" /> Add Customer
-                    </button>
+                    {canManageCustomers && (
+                        <button 
+                            onClick={openAddCustomer}
+                            className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
+                        >
+                            <Plus className="w-4 h-4" /> Add Customer
+                        </button>
+                    )}
                 </div>
             </div>
 

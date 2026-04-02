@@ -12,9 +12,12 @@ interface AuthContextType {
     tenantId: string | null;
     role: string | null;
     roles: string[];
+    simulatedRole: string | null;
     loading: boolean;
     signInWithGoogle: () => Promise<import('firebase/auth').UserCredential>;
     logout: () => Promise<void>;
+    startSimulation: (roleKey: string) => void;
+    endSimulation: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -32,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [tenantId, setTenantId] = useState<string | null>(null);
     const [role, setRole] = useState<string | null>(null);
     const [roles, setRoles] = useState<string[]>([]);
+    const [simulatedRole, setSimulatedRole] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -41,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     const token = await user.getIdTokenResult();
                     setTenantId(token.claims.tenantId as string || null);
                     setRole(token.claims.role as string || null);
-                    setRoles(token.claims.roles as string[] || (token.claims.role ? [token.claims.role as string] : ['staff']));
+                    setRoles(token.claims.roles as string[] || (token.claims.role ? [token.claims.role as string] : []));
                 } catch (e) {
                     console.error("Token fetch error", e);
                 }
@@ -49,6 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setTenantId(null);
                 setRole(null);
                 setRoles([]);
+                setSimulatedRole(null);
             }
             setCurrentUser(user);
             setLoading(false);
@@ -75,14 +80,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const startSimulation = (roleKey: string) => {
+        setSimulatedRole(roleKey);
+    };
+
+    const endSimulation = () => {
+        setSimulatedRole(null);
+    };
+
     const value = {
         currentUser,
         tenantId,
         role,
         roles,
+        simulatedRole,
         loading,
         signInWithGoogle,
-        logout
+        logout,
+        startSimulation,
+        endSimulation
     };
 
     return (

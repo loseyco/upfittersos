@@ -4,7 +4,12 @@ import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
 
+import { usePermissions } from '../../../hooks/usePermissions';
+
 export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
+    const { checkPermission } = usePermissions();
+    const canManageVehicles = checkPermission('manage_vehicles');
+
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [customers, setCustomers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -262,13 +267,15 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                     <h4 className="text-white font-bold text-sm mb-1">Delete Fleet Asset</h4>
                                     <p className="text-zinc-400 text-xs text-balance">Once you delete an asset, there is no going back. This will permanently erase its maintenance history and unlink installed parts.</p>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={() => handleDeleteVehicle(selectedVehicle.id)}
-                                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
-                                >
-                                    Delete Asset
-                                </button>
+                                {canManageVehicles && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleDeleteVehicle(selectedVehicle.id)}
+                                        className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
+                                    >
+                                        Delete Asset
+                                    </button>
+                                )}
                             </div>
                         </section>
                     )}
@@ -300,7 +307,9 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                 <div className="p-6 md:p-8 border-b border-zinc-800 bg-zinc-900/50 flex flex-col gap-6 sticky top-0 z-20 backdrop-blur-md">
                     <div className="flex items-center justify-between">
                         <button onClick={closeEditVehicle} className="text-zinc-400 hover:text-white flex items-center gap-2"><ArrowLeft className="w-4 h-4"/> Back to Fleet</button>
-                        <button onClick={() => setIsEditing(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-colors border border-zinc-700"><Edit2 className="w-4 h-4"/> Edit Specs</button>
+                        {canManageVehicles && (
+                            <button onClick={() => setIsEditing(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 text-sm transition-colors border border-zinc-700"><Edit2 className="w-4 h-4"/> Edit Specs</button>
+                        )}
                     </div>
                     <div className="flex items-start gap-4">
                         <div className="w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0 shadow-inner">
@@ -418,12 +427,14 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                     <button onClick={fetchVehicles} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
                         <RefreshCw className="w-4 h-4" />
                     </button>
-                    <button 
-                        onClick={openAddVehicle}
-                        className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
-                    >
-                        <Plus className="w-4 h-4" /> Register Asset
-                    </button>
+                    {canManageVehicles && (
+                        <button 
+                            onClick={openAddVehicle}
+                            className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
+                        >
+                            <Plus className="w-4 h-4" /> Register Asset
+                        </button>
+                    )}
                 </div>
             </div>
 

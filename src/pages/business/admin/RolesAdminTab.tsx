@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, Plus, Save, Trash2, Check, Lock, Edit2 } from 'lucide-react';
+import { ShieldAlert, Plus, Save, Trash2, Check, Lock, Edit2, User } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../../hooks/usePermissions';
 import { PERMISSION_LABELS } from '../../../lib/permissions';
+import { useAuth } from '../../../contexts/AuthContext';
 
 export function RolesAdminTab({ tenantId }: { tenantId: string }) {
-    const { businessRoles: remoteRoles } = usePermissions(tenantId);
+    const { startSimulation } = useAuth();
+    const { businessRoles: remoteRoles, checkPermission } = usePermissions(tenantId);
     
     // We map custom roles entirely natively
     const [roles, setRoles] = useState<Record<string, { label: string, permissions: Record<string, boolean> }>>({});
@@ -72,9 +74,10 @@ export function RolesAdminTab({ tenantId }: { tenantId: string }) {
             await api.put(`/businesses/${tenantId}`, { customRoles: roles });
             toast.success("Roles updated successfully. Changes applied to all linked staff.", { id: 'save_roles' });
             setHasUnsavedChanges(false);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save roles", error);
-            toast.error("Failed to save role configuration.", { id: 'save_roles' });
+            const backendMsg = error?.response?.data?.raw || error?.response?.data?.error || "Failed to save role configuration.";
+            toast.error(backendMsg, { id: 'save_roles', duration: 8000 });
         }
     };
 
@@ -163,6 +166,20 @@ export function RolesAdminTab({ tenantId }: { tenantId: string }) {
                                 </p>
                             </div>
                             <div className="flex items-center gap-3">
+                                {checkPermission('simulate_roles') && (
+                                    <button 
+                                        className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 px-4 py-2 rounded-xl text-amber-500 text-sm font-bold transition-all"
+                                        onClick={() => {
+                                            if (activeRoleKey) {
+                                                startSimulation(activeRoleKey);
+                                                toast.success(`Simulation Locked: ${activeDef.label}`);
+                                            }
+                                        }}
+                                        title="Impersonate logic mappings for this role globally"
+                                    >
+                                        <User className="w-4 h-4" /> View As Role
+                                    </button>
+                                )}
                                 <button className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-600 px-4 py-2 rounded-xl text-zinc-300 text-sm font-bold transition-all"
                                     onClick={() => {
                                         const rename = prompt("Rename role label:", activeDef.label);

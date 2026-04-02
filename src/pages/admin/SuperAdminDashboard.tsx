@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug } from 'lucide-react';
+import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
+import { PERMISSION_LABELS, DEFAULT_PERMISSIONS } from '../../lib/permissions';
 
 export function SuperAdminDashboard() {
     const { currentUser } = useAuth();
@@ -13,7 +14,7 @@ export function SuperAdminDashboard() {
     
     // UI States (Synched to URL for deep linking / refresh survival)
     const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings') || 'workspaces';
+    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings' | 'dictionary') || 'workspaces';
     
     const setActiveTab = (tab: string) => {
         setSearchParams(prev => {
@@ -314,6 +315,9 @@ export function SuperAdminDashboard() {
                     <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'settings' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
                         <Settings className="w-4 h-4" /> System Settings
                     </button>
+                    <button onClick={() => setActiveTab('dictionary')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'dictionary' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
+                        <Key className="w-4 h-4" /> Access Dictionary
+                    </button>
                     <button onClick={() => navigate('/business/feedback')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent !mt-8`}>
                         <Bug className="w-4 h-4" /> Idea & Bug Board
                     </button>
@@ -597,7 +601,9 @@ export function SuperAdminDashboard() {
                                                             <span className={`text-xs font-bold border px-2 py-1 rounded
                                                                 ${user.tenantId === 'unassigned' ? 'text-zinc-500 border-zinc-500 border-dashed' : 'text-zinc-300 border-zinc-600'}
                                                             `}>
-                                                                {user.tenantId}
+                                                                {user.tenantId === 'unassigned' ? 'Unassigned' : 
+                                                                 user.tenantId === 'GLOBAL' ? 'Global Platform' :
+                                                                 businesses.find(b => b.id === user.tenantId)?.name || user.tenantId}
                                                             </span>
                                                         </td>
                                                         <td className="p-4 pr-6 flex items-center justify-end gap-3 mt-1">
@@ -640,6 +646,54 @@ export function SuperAdminDashboard() {
                                 <Activity className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
                                 <h3 className="text-xl font-bold text-white mb-2">Infrastructure Controls</h3>
                                 <p className="text-zinc-500 max-w-md mx-auto">Global kill-switches, API rate limit overrides, and system-wide maintenance mode toggles.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'dictionary' && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center mb-2">
+                                <h2 className="text-2xl font-bold flex items-center gap-2">
+                                    <Key className="w-6 h-6 text-accent" /> Upfitter OS Architecture
+                                </h2>
+                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-black uppercase px-3 py-1.5 rounded-lg tracking-widest">Global Governance Active</span>
+                            </div>
+                            
+                            <p className="text-zinc-400 text-sm max-w-3xl leading-relaxed">
+                                This dictionary outlines the hardcoded platform capabilities mapped to baseline ecosystem identities. Custom Business roles stack additively on top of these defaults across individual workspaces. Super Admins bypass all flags universally.
+                            </p>
+
+                            <div className="bg-zinc-900/50 backdrop-blur-md rounded-3xl border border-white/5 overflow-hidden mt-6">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left whitespace-nowrap">
+                                        <thead className="text-xs text-zinc-500 uppercase bg-zinc-900 border-b border-zinc-800 tracking-wider">
+                                            <tr>
+                                                <th className="px-6 py-4 font-black">Capability Target</th>
+                                                <th className="px-6 py-4 text-center font-bold">Business Owner (Default)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-zinc-800/50">
+                                            {Object.entries(PERMISSION_LABELS).map(([key, info]) => {
+                                                if (key === 'super_admin_core') return null; // Skip skeleton key
+                                                return (
+                                                    <tr key={key} className="hover:bg-white/[0.02] transition-colors">
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex flex-col">
+                                                                <span className="font-bold text-zinc-200">{info.label}</span>
+                                                                <span className="text-[10px] text-zinc-500 font-mono mt-0.5">{key}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4 text-center">
+                                                            {DEFAULT_PERMISSIONS['business_owner']?.[key as keyof typeof PERMISSION_LABELS] 
+                                                                ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" /> 
+                                                                : <span className="text-zinc-700">-</span>}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     )}

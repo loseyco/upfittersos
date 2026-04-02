@@ -30,7 +30,7 @@ service cloud.firestore {
     }
     match /feedback/{docId} {
       allow read, update: if isTenant(resource.data.tenantId) || isSuperAdmin();
-      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      allow create: if (request.resource.data.tenantId == 'GLOBAL') || isTenant(request.resource.data.tenantId) || isSuperAdmin();
       // Allow delete if author OR if manager/admin within the same tenant
       allow delete: if (isTenant(resource.data.tenantId) && request.auth.uid == resource.data.authorId) 
                     || (isTenant(resource.data.tenantId) && request.auth.token.role in ['manager', 'business_owner']) 
@@ -53,6 +53,17 @@ service cloud.firestore {
     }
     match /users/{userId} {
       allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
+    }
+    match /businesses/{tenantId} {
+      allow read: if isTenant(tenantId) || isSuperAdmin();
+      allow write: if isSuperAdmin();
+      
+      match /meetings/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /canvases/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
     }
   }
 }

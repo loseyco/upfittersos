@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 
 const formatPhoneNumber = (value: string) => {
@@ -41,6 +42,7 @@ export function UserProfile() {
     const [bio, setBio] = useState('');
     const [keepScreenAwake, setKeepScreenAwake] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [businessName, setBusinessName] = useState('Loading...');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,6 +101,31 @@ export function UserProfile() {
         };
         fetchUserData();
     }, [currentUser]);
+
+    useEffect(() => {
+        if (!tenantId) {
+            setBusinessName('Unassigned Identity');
+            return;
+        }
+        if (tenantId === 'GLOBAL') {
+            setBusinessName('Global Platform');
+            return;
+        }
+        if (tenantId === 'unassigned') {
+            setBusinessName('Unassigned Identity');
+            return;
+        }
+        
+        api.get(`/businesses/${tenantId}`)
+           .then(res => {
+               if (res.data?.name) {
+                   setBusinessName(res.data.name);
+               } else {
+                   setBusinessName(`Tenant: ${tenantId}`);
+               }
+           })
+           .catch(() => setBusinessName(`Tenant: ${tenantId}`));
+    }, [tenantId]);
 
     const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const formatted = formatPhoneNumber(e.target.value);
@@ -160,6 +187,8 @@ export function UserProfile() {
                       : role === 'manager' ? 'Manager' 
                       : 'Staff Member';
 
+    const displayFullName = `${firstName} ${lastName}`.trim() || nickName || currentUser?.displayName || 'Authorized User';
+
     return (
         <div className="min-h-screen bg-zinc-950 p-4 md:p-8">
             <div className="max-w-6xl mx-auto space-y-6">
@@ -174,8 +203,8 @@ export function UserProfile() {
                             <div className="w-24 h-24 md:w-32 md:h-32 rounded-xl bg-zinc-900 border-4 border-zinc-950 shadow-2xl flex items-center justify-center text-4xl text-accent font-black overflow-hidden relative">
                                 {currentUser?.photoURL ? (
                                     <img src={currentUser.photoURL} alt="Profile" className="w-full h-full object-cover" />
-                                ) : currentUser?.displayName ? (
-                                    currentUser.displayName[0].toUpperCase()
+                                ) : displayFullName !== 'Authorized User' ? (
+                                    displayFullName[0].toUpperCase()
                                 ) : (
                                     <User className="w-12 h-12 text-zinc-600" />
                                 )}
@@ -185,13 +214,13 @@ export function UserProfile() {
                             </div>
                         </div>
                         <div className="mb-2">
-                            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight">{currentUser?.displayName || 'Authorized User'}</h1>
+                            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight">{displayFullName}</h1>
                             <div className="flex flex-wrap items-center gap-3 mt-2">
                                 <span className={`px-3 py-1 font-bold text-sm rounded-full border ${displayRole === 'Super Admin' ? 'bg-purple-500/20 text-purple-400 border-purple-500/20' : 'bg-accent/20 text-accent border-accent/20'}`}>
                                     {displayRole}
                                 </span>
                                 <span className="text-zinc-400 font-mono text-xs flex items-center gap-1">
-                                    <Building className="w-3.5 h-3.5" /> Tenant: {tenantId === 'GLOBAL' ? 'Global Platform' : tenantId || 'Unassigned'}
+                                    <Building className="w-3.5 h-3.5" /> {businessName}
                                 </span>
                             </div>
                         </div>
@@ -300,8 +329,8 @@ export function UserProfile() {
                                         <div className="w-16 h-16 rounded-xl bg-zinc-900 border-2 border-zinc-800 shadow-xl flex items-center justify-center text-xl text-accent font-black overflow-hidden">
                                             {currentUser?.photoURL ? (
                                                 <img src={currentUser?.photoURL} alt="Profile" className="w-full h-full object-cover" />
-                                            ) : currentUser?.displayName ? (
-                                                currentUser.displayName[0].toUpperCase()
+                                            ) : displayFullName !== 'Authorized User' ? (
+                                                displayFullName[0].toUpperCase()
                                             ) : (
                                                 <User className="w-8 h-8 text-zinc-600" />
                                             )}

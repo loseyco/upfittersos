@@ -31,7 +31,9 @@ import { Coworkers } from './pages/business/Coworkers'
 import { FeedbackBoard } from './pages/business/FeedbackBoard'
 import { FeedbackDetail } from './pages/business/FeedbackDetail'
 import { TasksDashboard } from './pages/business/TasksDashboard'
-
+import { FacilityMapPage } from './pages/business/FacilityMapPage'
+import { OpsMissionControl } from './pages/business/OpsMissionControl'
+import { WorkflowWhiteboards } from './pages/business/WorkflowWhiteboards'
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
@@ -79,6 +81,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/feedback" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackBoard /></ProtectedRoute>} />
             <Route path="/business/feedback/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackDetail /></ProtectedRoute>} />
             <Route path="/business/tasks" element={<ProtectedRoute><TasksDashboard /></ProtectedRoute>} />
+            <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
+            <Route path="/business/ops" element={<ProtectedRoute><OpsMissionControl /></ProtectedRoute>} />
+            <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
             
             {/* Helper Redirects & 404 Catch-All */}
             <Route path="/feedback" element={<Navigate to="/business/feedback" replace />} />
