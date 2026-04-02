@@ -8,4 +8,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    allowedHosts: ['loose-sloths-try.loca.lt', '.loca.lt'],
+  },
 })

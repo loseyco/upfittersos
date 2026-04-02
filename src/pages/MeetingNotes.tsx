@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy, limit, addDoc, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, addDoc, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -30,6 +30,7 @@ interface ActionItem {
 
 interface Meeting {
     id?: string;
+    tenantId: string;
     title: string;
     date: string;
     notes: string;
@@ -46,7 +47,7 @@ interface LogReference {
 }
 
 export function MeetingNotes() {
-    const { currentUser } = useAuth();
+    const { currentUser, tenantId } = useAuth();
     
     const [meetings, setMeetings] = useState<Meeting[]>([]);
     const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(null);
@@ -69,13 +70,18 @@ export function MeetingNotes() {
     }, []);
 
     const fetchMeetings = async () => {
+        if (!tenantId) return;
         try {
-            const q = query(collection(db, 'meetings'), orderBy('date', 'desc'));
+            const q = query(collection(db, 'meetings'), where('tenantId', '==', tenantId));
             const snapshot = await getDocs(q);
             const loadedMeetings = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             })) as Meeting[];
+            
+            // Sort client-side to avoid composite index requirement initially
+            loadedMeetings.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
             setMeetings(loadedMeetings);
             
             // Auto open the most recent meeting if none is selected
@@ -88,12 +94,18 @@ export function MeetingNotes() {
     };
 
     const fetchContextLogs = async () => {
+        if (!tenantId) return;
         try {
-            // Fetch the 5 most recent logs that are classified as ISSUE or EFFICIENCY to review in standup
-            const q = query(collection(db, 'logs'), orderBy('date', 'desc'), limit(8));
+            // Fetch the recent logs that are classified as ISSUE or EFFICIENCY to review in standup
+            const q = query(collection(db, 'daily_logs'), where('tenantId', '==', tenantId));
             const snapshot = await getDocs(q);
             const logs = snapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() } as any))
+                .sort((a,b) => {
+                    const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+                    const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+                    return timeB - timeA;
+                })
                 .filter(log => log.category === 'ISSUE' || log.category === 'EFFICIENCY')
                 .slice(0, 4) // Keep only top 4 relevant ones
                 .map(log => ({
@@ -185,6 +197,7 @@ export function MeetingNotes() {
                 // Create
                 await addDoc(collection(db, 'meetings'), {
                     ...meetingData,
+                    tenantId: tenantId,
                     createdAt: serverTimestamp()
                 });
             }

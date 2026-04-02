@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
-    onAuthStateChanged,
+    onIdTokenChanged,
     signInWithPopup,
     signOut as firebaseSignOut
 } from 'firebase/auth';
@@ -9,8 +9,11 @@ import { auth, googleProvider } from '../lib/firebase';
 
 interface AuthContextType {
     currentUser: User | null;
+    tenantId: string | null;
+    role: string | null;
+    roles: string[];
     loading: boolean;
-    signInWithGoogle: () => Promise<void>;
+    signInWithGoogle: () => Promise<import('firebase/auth').UserCredential>;
     logout: () => Promise<void>;
 }
 
@@ -26,10 +29,27 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [tenantId, setTenantId] = useState<string | null>(null);
+    const [role, setRole] = useState<string | null>(null);
+    const [roles, setRoles] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
+        const unsubscribe = onIdTokenChanged(auth, async (user) => {
+            if (user) {
+                try {
+                    const token = await user.getIdTokenResult();
+                    setTenantId(token.claims.tenantId as string || null);
+                    setRole(token.claims.role as string || null);
+                    setRoles(token.claims.roles as string[] || (token.claims.role ? [token.claims.role as string] : ['staff']));
+                } catch (e) {
+                    console.error("Token fetch error", e);
+                }
+            } else {
+                setTenantId(null);
+                setRole(null);
+                setRoles([]);
+            }
             setCurrentUser(user);
             setLoading(false);
         });
@@ -39,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signInWithGoogle = async () => {
         try {
-            await signInWithPopup(auth, googleProvider);
+            return await signInWithPopup(auth, googleProvider);
         } catch (error) {
             console.error("Error signing in with Google", error);
             throw error;
@@ -57,6 +77,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const value = {
         currentUser,
+        tenantId,
+        role,
+        roles,
         loading,
         signInWithGoogle,
         logout

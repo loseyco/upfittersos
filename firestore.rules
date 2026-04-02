@@ -1,14 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Helper function to check if the user belongs to the target tenant
+    function isTenant(tid) {
+      return request.auth != null && request.auth.token.tenantId == tid;
+    }
+
+    // Helper function for global admins
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.role == 'super_admin';
+    }
+
     match /{document=**} {
       allow read, write: if false; 
     }
+    
     match /logs/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /daily_logs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /meetings/{docId} {
-      allow read, write: if request.auth != null;
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /feedback/{docId} {
+      allow read, update: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      // Allow delete if author OR if manager/admin within the same tenant
+      allow delete: if (isTenant(resource.data.tenantId) && request.auth.uid == resource.data.authorId) 
+                    || (isTenant(resource.data.tenantId) && request.auth.token.role in ['manager', 'business_owner']) 
+                    || isSuperAdmin();
+    }
+    match /changelogs/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+    match /business_canvases/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /business_facility_maps/{tenantId} {
+      allow read, write: if isTenant(tenantId) || isSuperAdmin();
+    }
+    match /business_zones/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /users/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
     }
   }
 }

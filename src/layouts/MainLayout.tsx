@@ -1,83 +1,174 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Globe, Map, Wrench, Activity, PieChart, QrCode, LogOut, User, ClipboardList, Eye, CalendarDays } from 'lucide-react';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-
+import { useState, useEffect } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { api } from '../lib/api';
+import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
+import { useWakeLock } from '../hooks/useWakeLock';
+import { APP_NAME } from '../lib/constants';
 export function MainLayout() {
     const location = useLocation();
-    const { currentUser, logout } = useAuth();
+    const navigate = useNavigate();
+    const { currentUser, logout, tenantId, signInWithGoogle } = useAuth();
+
+    const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+    const [businessName, setBusinessName] = useState(APP_NAME);
+    const [apiVersion, setApiVersion] = useState<string>('checking...');
+    const [keepScreenAwake, setKeepScreenAwake] = useState(false);
+    
+    useWakeLock(keepScreenAwake);
+
+    const isImpersonating = sessionStorage.getItem('sae_impersonating') === 'true';
+
+    // Autoresolve the actual tenant company name for the header logo
+    useEffect(() => {
+        if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
+            api.get(`/businesses/${tenantId}`).then(res => {
+                if (res.data?.name) setBusinessName(res.data.name);
+            }).catch(() => setBusinessName(APP_NAME));
+        } else if (tenantId === 'GLOBAL') {
+            setBusinessName('Global Command');
+        } else {
+            setBusinessName(APP_NAME);
+        }
+
+        // Parallel fetch API telemetry
+        api.get('/version')
+            .then(res => setApiVersion(`api.v${res.data?.version || '?'}`))
+            .catch(() => setApiVersion('api.offline'));
+
+    }, [tenantId]);
+
+    useEffect(() => {
+        if (currentUser) {
+            // Prevent forced auth refresh if we are currently holding a delicate contextual proxy token
+            const isProxying = sessionStorage.getItem('sae_impersonating') === 'true';
+            currentUser.getIdTokenResult(!isProxying).then(res => {
+                setIsSuperAdmin(res.claims.role === 'super_admin');
+            }).catch(() => setIsSuperAdmin(false));
+
+            // Subscribe to user preferences
+            const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (docSnap) => {
+                if (docSnap.exists() && docSnap.data().keepScreenAwake) {
+                    setKeepScreenAwake(true);
+                } else {
+                    setKeepScreenAwake(false);
+                }
+            });
+
+            return () => unsubscribe();
+        } else {
+            setIsSuperAdmin(false);
+            setKeepScreenAwake(false);
+        }
+    }, [currentUser, location.pathname]);
+
+    const handleEndImpersonation = async () => {
+        try {
+            sessionStorage.removeItem('sae_impersonating');
+            await logout();
+            
+            // Immediately restore authentic Global Admin identity
+            await signInWithGoogle();
+            navigate('/admin');
+        } catch (err) {
+            console.error("Failed to terminate impersonation session", err);
+            navigate('/login');
+        }
+    };
 
     const mobileNavItems = [
-        { path: '/', icon: Globe, label: 'Public' },
-        { path: '/guide', icon: Map, label: 'Guide' },
-        { path: '/tech', icon: Wrench, label: 'Tech' },
-        { path: '/ops', icon: Activity, label: 'Ops' },
-        { path: '/sales', icon: PieChart, label: 'Sales' },
-        { path: '/logs', icon: ClipboardList, label: 'Logs' },
-        { path: '/meetings', icon: CalendarDays, label: 'Meetings' },
-        { path: '/vision', icon: Eye, label: 'Vision' },
-        { path: '/customer/demo', icon: User, label: 'Portal' },
+        { path: currentUser ? '/workspace' : '/', icon: Globe, label: currentUser ? 'Dashboard' : 'Public' },
+        { path: '/documents', icon: BookOpen, label: 'Docs' },
+        ...(currentUser && isSuperAdmin ? [{ path: '/admin', icon: Activity, label: 'Super Admin' }] : [])
     ];
 
     return (
         <div className="min-h-screen flex flex-col w-full overflow-x-hidden relative">
 
+            {/* Global Impersonation Killswitch */}
+            {isImpersonating && (
+                <div className="w-full h-12 bg-red-500 text-white z-[60] flex items-center justify-between px-6 font-bold text-sm shadow-lg shadow-red-500/20 sticky top-0">
+                    <div className="flex items-center gap-2">
+                        <ShieldAlert className="w-4 h-4" />
+                        <span className="hidden sm:inline">CRITICAL COMMAND:</span> You are currently overriding a user identity. All actions are live.
+                    </div>
+                    <button
+                        onClick={handleEndImpersonation}
+                        className="bg-black/20 hover:bg-black/40 px-3 py-1.5 rounded-md flex items-center gap-2 transition-colors border border-black/10"
+                    >
+                        <LogOut className="w-4 h-4" /> End Session
+                    </button>
+                </div>
+            )}
 
-            {/* Top Header */}
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">
-                    <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0">SAE OS</h1>
-                    <nav className="hidden md:flex items-center gap-6 ml-8">
-                        <Link to="/" className={`text-sm font-medium transition-colors ${location.pathname === '/' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Public Site</Link>
-                        <Link to="/guide" className={`text-sm font-medium transition-colors ${location.pathname === '/guide' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Platform Guide</Link>
-                        
-                        <Link to="/tech" className={`text-sm font-medium transition-colors ${location.pathname === '/tech' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Tech Portal</Link>
-                        <Link to="/ops" className={`text-sm font-medium transition-colors ${location.pathname === '/ops' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Ops Command</Link>
-                        <Link to="/sales" className={`text-sm font-medium transition-colors ${location.pathname === '/sales' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Sales Engine</Link>
-                        <Link to="/logs" className={`text-sm font-medium transition-colors ${location.pathname === '/logs' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Daily Logs</Link>
-                        <Link to="/meetings" className={`text-sm font-medium transition-colors ${location.pathname === '/meetings' ? 'text-white' : 'text-zinc-400 hover:text-white'}`}>Meetings</Link>
-                        <Link to="/vision" className={`text-sm font-bold transition-colors ${location.pathname === '/vision' ? 'text-accent' : 'text-purple-400 hover:text-accent drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]'}`}>Vision 🚀</Link>
-                        <Link to="/customer/demo" className={`text-sm font-bold transition-colors ${location.pathname === '/customer/demo' ? 'text-emerald-400' : 'text-emerald-500/70 hover:text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]'}`}>Customer Portal</Link>
-                    </nav>
-                </div>
-                <div className="flex items-center gap-2 md:gap-4">
-                    <Link to="/jobs/mock" className="flex items-center justify-center h-8 w-8 bg-zinc-800 text-zinc-400 rounded-md hover:bg-zinc-700 hover:text-white transition-colors border border-zinc-700" title="Mock QR Scan">
-                        <QrCode className="w-4 h-4" />
+                    <Link to={currentUser ? '/workspace' : '/'}>
+                        <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
                     </Link>
-
-                    {currentUser ? (
-                        <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
-                            <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
-                                <div className="hidden lg:flex flex-col items-end">
-                                    <span className="text-sm font-bold text-white leading-none">{currentUser.displayName || 'Authorized User'}</span>
-                                    <span className="text-[10px] text-zinc-500 font-medium">{currentUser.email}</span>
-                                </div>
-                                <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0">
-                                    {currentUser.displayName ? currentUser.displayName[0].toUpperCase() : <User className="w-4 h-4" />}
-                                </div>
-                            </Link>
-                            <button
-                                onClick={() => logout()}
-                                className="ml-1 p-2 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                title="Sign Out"
-                            >
-                                <LogOut className="w-4 h-4" />
-                            </button>
-                        </div>
-                    ) : (
-                        <Link
-                            to="/login"
-                            className="ml-2 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg transition-colors shadow"
-                        >
-                            Sign In
+                </div>
+                <div className="flex items-center gap-2 md:gap-4">                    {currentUser ? (
+                    <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
+                        <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
+                            <div className="hidden lg:flex flex-col items-end">
+                                <span className="text-sm font-bold text-white leading-none">{currentUser.displayName || 'Authorized User'}</span>
+                                <span className="text-[10px] text-zinc-500 font-medium">{currentUser.email}</span>
+                            </div>
+                            <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
+                                {currentUser.photoURL ? (
+                                    <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                                ) : currentUser.displayName ? (
+                                    currentUser.displayName[0].toUpperCase()
+                                ) : (
+                                    <User className="w-4 h-4" />
+                                )}
+                            </div>
                         </Link>
-                    )}
+                        <button
+                            onClick={() => logout()}
+                            className="ml-1 p-2 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            title="Sign Out"
+                        >
+                            <LogOut className="w-4 h-4" />
+                        </button>
+                    </div>
+                ) : (
+                    <Link
+                        to="/login"
+                        className="ml-2 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg transition-colors shadow"
+                    >
+                        Sign In
+                    </Link>
+                )}
                 </div>
             </header>
 
-            {/* Main Content Area (padding bottom on mobile for tab bar) */}
-            <main className="flex-1 flex flex-col relative overflow-y-auto w-full pb-[72px] md:pb-0">
+            {/* Main Content Area (padding bottom on mobile for tab bar, desktop for footer) */}
+            <main className="flex-1 flex flex-col relative overflow-y-auto w-full pb-[72px] md:pb-[32px]">
                 <Outlet />
             </main>
+
+            {/* Desktop Footer Nav */}
+            <footer className="hidden md:flex fixed bottom-0 left-0 right-0 h-[32px] bg-zinc-950 border-t border-zinc-900 z-40 items-center justify-between px-6 shrink-0 flex-wrap overflow-hidden">
+                <div className="flex items-center gap-8">
+                    <Link to="/documents" className={`text-[11px] font-medium transition-colors tracking-wide ${location.pathname.startsWith('/documents') ? 'text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'}`}>DOCUMENTATION</Link>
+                    {!currentUser && (
+                        <Link to="/" className={`text-[11px] font-medium transition-colors tracking-wide ${location.pathname === '/' ? 'text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'}`}>PUBLIC NODE</Link>
+                    )}
+                    {currentUser && isSuperAdmin && (
+                        <Link to="/admin" className={`text-[11px] font-medium transition-colors tracking-wide ${location.pathname === '/admin' ? 'text-zinc-400' : 'text-zinc-600 hover:text-zinc-400'}`}>GLOBAL COMMAND</Link>
+                    )}
+                    {currentUser && isSuperAdmin && (
+                        <a href="https://api-saegrp.web.app" target="_blank" rel="noopener noreferrer" className="text-[11px] font-medium tracking-wide text-zinc-600 hover:text-zinc-400 transition-colors">API DOCS</a>
+                    )}
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black text-zinc-700 tracking-widest font-mono uppercase">{apiVersion}</span>
+                </div>
+            </footer>
 
             {/* Mobile Bottom Tab Bar */}
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 z-50 shadow-[0_-4px_24px_rgba(0,0,0,0.5)]">
@@ -97,6 +188,8 @@ export function MainLayout() {
                     })}
                 </nav>
             </div>
+            
+            <GlobalFeedbackWidget />
         </div>
     );
 }

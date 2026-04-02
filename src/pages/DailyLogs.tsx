@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, deleteDoc, doc, writeBatch, updateDoc, arrayUnion, addDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, arrayUnion, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Printer, Trash2, Lightbulb, AlertCircle, Info, Users, Pencil, Calendar, User } from 'lucide-react';
+import { ArrowLeft, Printer, Trash2, Lightbulb, AlertCircle, Info, Users, Pencil, Calendar, User, Sparkles, MoreHorizontal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface LogNote {
@@ -15,6 +15,7 @@ interface LogNote {
 
 interface LogEntry {
     id?: string;
+    tenantId: string;
     userId: string;
     userEmail: string;
     date: string;
@@ -28,31 +29,11 @@ interface LogEntry {
     notes?: LogNote[];
 }
 
-const seedData = [
-  { date: '2026-03-26', category: 'EFFICIENCY', content: 'Mission Control for admins. shows all bays overhead, parking spots. what job is in each bay, whos working on it, and what status its in. optimized for mobile to 4k monitor depending on where its at.' },
-  { date: '2026-03-25', category: 'EFFICIENCY', content: 'Assigned cleanup schedule. Like deep floor clean each evening by different person. Snow removal etc etc', proposedFix: 'Schedule' },
-  { date: '2026-03-25', category: 'EFFICIENCY', content: 'Intake form jobs list company cam should be all one thing so scan vin or qr. no chance of of duplicate or miss typed data and saves time for everyone and data live instantly.', peopleInvolved: 'Pj', proposedFix: 'Tie it all in to vehicle management' },
-  { date: '2026-03-24', category: 'EFFICIENCY', content: 'car dolly’s to Make moving cars around easier and into tighter spots.', proposedFix: 'Purchase car dolly’s.' },
-  { date: '2026-03-24', category: 'GENERAL', content: 'We codes on all cars for easy check in. Parts needed. Jobs done you name it.' },
-  { date: '2026-03-24', category: 'GENERAL', content: 'Need a full final report sheet checklist before car leaves.', peopleInvolved: 'All', proposedFix: 'Make a full checklist for each web car' },
-  { date: '2026-03-24', category: 'ISSUE', content: 'What fuses do we need to change on the int ext of the control box and why?', timeLost: '15 mins' },
-  { date: '2026-03-24', category: 'ISSUE', content: 'Failed program on light 4 of 4. Won’t recover', peopleInvolved: 'Pj', proposedFix: 'Needs replaced' },
-  { date: '2026-03-24', category: 'EFFICIENCY', content: 'Progrmaing lights. Found out you can wire in parallel but it still programs one at a time but a bench to do a lot at once would be nice. Could walk away and work on next things.', peopleInvolved: 'PJ', proposedFix: 'A bench to quickly plug in multiple lights' },
-  { date: '2026-03-23', category: 'EFFICIENCY', content: 'GC checklist. Digitize time / labor sheet. Tools list. Speciality tools.' },
-  { date: '2026-03-23', category: 'GENERAL', content: 'Personal tools built into the app like real time tracking like when did I leave my house or did they get there? How many miles I put on my car how much fuel what tools have I bought? What tools do I own have? I haven’t hurt all the kind of stuff that you need to manage your life for work.' },
-  { date: '2026-03-23', category: 'GENERAL', content: 'Sounds like they pay every week but they still do paper check for some reason because direct deposit wasn’t working correctly. They do that on Monday night maybe Tuesday and there are a week behind it sounds like so meaning I work this week I will not get paid until two Mondays from now.' },
-  { date: '2026-03-23', category: 'HR', content: 'Should probably think about being more flexible on schedule, lunch break, etc. if you’re doing book time. I want us to say you need to keep a minimum though like you need at least 40 hours of book time to keep those benefits. How do you assign the work kind of fairly cause some jobs like a front bumper takes longer in their book time is the same so how do you guys assign that between your employees without everybody cherry picking?' },
-  { date: '2026-03-23', category: 'EFFICIENCY', content: 'Need plans for degrees of angle on plastic light shouds. Template for Tslot panel though bulk head.' },
-  { date: '2026-03-23', category: 'EFFICIENCY', content: 'iPad to remote intones to program lights so you can walk around vehicle. Premade Velcro on lighted 3d prints. Standard program for lights. Pre update firmwares.' },
-  { date: '2026-03-23', category: 'HR', content: 'Staff talked shit because garage door was broken. Owner came out fixed door and then told staff when your done sweeping go home early. (Upset in front of other staff) staff quit. Another staff member walked out after too because of the drama.', peopleInvolved: 'Owner, Staff members' },
-  { date: '2026-03-23', category: 'ISSUE', content: 'Grill passenger light was pinned wrong at light and extension at car power was broken.', proposedFix: 'Need a check for pinning before install. Small light programming build plug first then program so you test pinning at same time.', actualResolution: 're pined (2026-03-24)' }
-];
-
 export function DailyLogs() {
-    const { currentUser } = useAuth();
+    const { currentUser, tenantId } = useAuth();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [loading, setLoading] = useState(true);
-    const [seeding, setSeeding] = useState(false);
+    const [filterCategory, setFilterCategory] = useState<string>('ALL');
     
     // CRUD State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -67,11 +48,12 @@ export function DailyLogs() {
     }, [currentUser]);
 
     const fetchLogs = async () => {
-        if (!currentUser) return;
+        if (!currentUser || !tenantId) return;
         try {
             setLoading(true);
             const q = query(
                 collection(db, 'daily_logs'),
+                where('tenantId', '==', tenantId),
                 where('userEmail', '==', currentUser.email)
             );
             const querySnapshot = await getDocs(q);
@@ -92,46 +74,6 @@ export function DailyLogs() {
             console.error("Error fetching logs: ", error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleSeedData = async () => {
-        if (!currentUser) return;
-        setSeeding(true);
-        try {
-            // Fetch existing so we don't duplicate
-            const q = query(collection(db, 'daily_logs'), where('userEmail', '==', currentUser.email));
-            const snap = await getDocs(q);
-            const existingContents = snap.docs.map(d => d.data().content);
-            
-            const logsToAdd = seedData.filter(item => !existingContents.includes(item.content));
-            
-            if (logsToAdd.length === 0) {
-                alert("All logs are already seeded!");
-                setSeeding(false);
-                return;
-            }
-
-            const batch = writeBatch(db);
-            const logsRef = collection(db, 'daily_logs');
-            
-            logsToAdd.forEach((item) => {
-                const newDocRef = doc(logsRef);
-                batch.set(newDocRef, {
-                    ...item,
-                    userId: currentUser.uid,
-                    userEmail: currentUser.email,
-                    createdAt: new Date(),
-                });
-            });
-            
-            await batch.commit();
-            await fetchLogs();
-        } catch (error: any) {
-            console.error("Error seeding data: ", error);
-            alert("Error seeding data: " + error?.message);
-        } finally {
-            setSeeding(false);
         }
     };
 
@@ -160,6 +102,7 @@ export function DailyLogs() {
                     date: new Date().toISOString().split('T')[0],
                     userId: currentUser.uid,
                     userEmail: currentUser.email,
+                    tenantId: tenantId!,
                     createdAt: new Date()
                 };
                 const docRef = await addDoc(collection(db, 'daily_logs'), newDoc);
@@ -205,6 +148,8 @@ export function DailyLogs() {
             case 'EFFICIENCY': return 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20';
             case 'ISSUE': return 'bg-red-500/10 text-red-500 border-red-500/20';
             case 'HR': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+            case 'IDEA': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+            case 'OTHER': return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
             default: return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
         }
     };
@@ -214,9 +159,23 @@ export function DailyLogs() {
             case 'EFFICIENCY': return <Lightbulb className="w-4 h-4 text-yellow-500" />;
             case 'ISSUE': return <AlertCircle className="w-4 h-4 text-red-500" />;
             case 'HR': return <Users className="w-4 h-4 text-purple-400" />;
+            case 'IDEA': return <Sparkles className="w-4 h-4 text-emerald-400" />;
+            case 'OTHER': return <MoreHorizontal className="w-4 h-4 text-zinc-400" />;
             default: return <Info className="w-4 h-4 text-blue-400" />;
         }
     };
+
+    const counts = {
+        ALL: logs.length,
+        GENERAL: logs.filter(log => log.category === 'GENERAL').length,
+        EFFICIENCY: logs.filter(log => log.category === 'EFFICIENCY').length,
+        ISSUE: logs.filter(log => log.category === 'ISSUE').length,
+        HR: logs.filter(log => log.category === 'HR').length,
+        IDEA: logs.filter(log => log.category === 'IDEA').length,
+        OTHER: logs.filter(log => log.category === 'OTHER').length,
+    };
+
+    const filteredLogs = filterCategory === 'ALL' ? logs : logs.filter(log => log.category === filterCategory);
 
     return (
         <div className="min-h-[calc(100vh-64px)] bg-zinc-950 text-white font-sans p-4 md:p-8">
@@ -236,13 +195,6 @@ export function DailyLogs() {
                             <Printer className="w-4 h-4" /> Print
                         </button>
                         <button 
-                            onClick={handleSeedData}
-                            disabled={seeding}
-                            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm font-bold text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors shadow-sm disabled:opacity-50"
-                        >
-                            {seeding ? 'Seeding...' : 'Seed Data'}
-                        </button>
-                        <button 
                             onClick={() => { setEditingLog(null); setFormData({ category: 'GENERAL', content: ''}); setIsModalOpen(true); }}
                             className="flex items-center gap-2 px-5 py-2 bg-accent rounded-lg text-sm font-bold text-white hover:bg-accent-hover transition-colors shadow-sm">
                             New Log
@@ -250,20 +202,48 @@ export function DailyLogs() {
                     </div>
                 </div>
 
+                {/* Dashboard Cards / Filters */}
+                {!loading && logs.length > 0 && (
+                    <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-8">
+                        {[
+                            { id: 'ALL', label: 'All Logs', count: counts.ALL, color: 'border-zinc-700 bg-zinc-900', text: 'text-zinc-300' },
+                            { id: 'EFFICIENCY', label: 'Efficiency', count: counts.EFFICIENCY, color: 'border-yellow-500/30 bg-yellow-500/10 hover:bg-yellow-500/20', text: 'text-yellow-500' },
+                            { id: 'ISSUE', label: 'Issues', count: counts.ISSUE, color: 'border-red-500/30 bg-red-500/10 hover:bg-red-500/20', text: 'text-red-500' },
+                            { id: 'HR', label: 'HR', count: counts.HR, color: 'border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20', text: 'text-purple-400' },
+                            { id: 'GENERAL', label: 'General', count: counts.GENERAL, color: 'border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20', text: 'text-blue-400' },
+                            { id: 'IDEA', label: 'Idea', count: counts.IDEA, color: 'border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20', text: 'text-emerald-400' },
+                            { id: 'OTHER', label: 'Other', count: counts.OTHER, color: 'border-zinc-500/30 bg-zinc-500/10 hover:bg-zinc-500/20', text: 'text-zinc-400' },
+                        ].map((card) => (
+                            <button
+                                key={card.id}
+                                onClick={() => setFilterCategory(card.id)}
+                                className={`p-4 rounded-xl border text-left transition-all ${filterCategory === card.id ? `ring-2 ring-offset-2 ring-offset-zinc-950 ${card.color.split(' ')[0].replace('border-', 'ring-')}` : 'opacity-70 xl:opacity-60 hover:opacity-100'} ${card.color}`}
+                            >
+                                <div className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${card.text}`}>{card.label}</div>
+                                <div className={`text-2xl font-black ${card.text}`}>{card.count}</div>
+                            </button>
+                        ))}
+                    </div>
+                )}
+
                 {loading ? (
                     <div className="flex justify-center py-20">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                     </div>
-                ) : logs.length === 0 ? (
+                ) : filteredLogs.length === 0 ? (
                     <div className="text-center py-20 bg-zinc-900/50 rounded-2xl border border-zinc-800 shadow-sm mt-8 backdrop-blur-sm">
                         <Lightbulb className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-                        <h3 className="text-lg font-bold text-white mb-2">No logs found</h3>
-                        <p className="text-zinc-500 mb-6">You haven't recorded any daily logs yet. Use the Seed button above to insert historical records.</p>
+                        <h3 className="text-lg font-bold text-white mb-2">{logs.length === 0 ? "No logs found" : "No logs in this category"}</h3>
+                        <p className="text-zinc-500 mb-6">
+                            {logs.length === 0 
+                                ? "You haven't recorded any daily logs yet. Use the Seed button above to insert historical records."
+                                : "Try clearing your filters to see other logs."}
+                        </p>
                     </div>
                 ) : (
 
                 <div className="space-y-4">
-                    {logs.map((log) => (
+                    {filteredLogs.map((log) => (
                         <div key={log.id} className="bg-zinc-900/80 p-5 md:p-6 rounded-xl border border-zinc-800 shadow-sm hover:border-zinc-700 transition-colors backdrop-blur-sm">
                             <div className="flex justify-between items-start mb-4">
                                 <div className="flex items-center gap-3">
@@ -381,7 +361,9 @@ export function DailyLogs() {
                                         <option value="GENERAL">GENERAL</option>
                                         <option value="EFFICIENCY">EFFICIENCY</option>
                                         <option value="ISSUE">ISSUE</option>
+                                        <option value="IDEA">IDEA</option>
                                         <option value="HR">HR</option>
+                                        <option value="OTHER">OTHER</option>
                                     </select>
                                 </div>
                                 <div>
