@@ -16,7 +16,7 @@ exports.qboRoutes.get('/auth', auth_middleware_1.authenticate, (req, res) => {
         return;
     }
     const service = new qbo_service_1.QboService(tenantId);
-    res.redirect(service.getAuthorizationUrl());
+    res.json({ url: service.getAuthorizationUrl() });
 });
 // 2. OAuth Callback (Intuit redirects here after user signs in - must remain unauthenticated as it's hit by Intuit directly)
 exports.qboRoutes.get('/callback', async (req, res) => {

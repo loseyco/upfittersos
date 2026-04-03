@@ -25,6 +25,8 @@ import { AuthAction } from './pages/auth/AuthAction'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { UserProfile } from './pages/UserProfile'
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard'
+import { FeaturesPlanner } from './pages/admin/features/FeaturesPlanner'
+import { FeatureDetail } from './pages/admin/features/FeatureDetail'
 import { BusinessAdminSuite } from './pages/business/BusinessAdminSuite'
 import { WorkspaceHub } from './pages/business/WorkspaceHub'
 import { Coworkers } from './pages/business/Coworkers'
@@ -34,6 +36,11 @@ import { TasksDashboard } from './pages/business/TasksDashboard'
 import { FacilityMapPage } from './pages/business/FacilityMapPage'
 import { OpsMissionControl } from './pages/business/OpsMissionControl'
 import { WorkflowWhiteboards } from './pages/business/WorkflowWhiteboards'
+import { OAuthCallback } from './pages/business/OAuthCallback'
+import { MeetingsDashboard } from './pages/business/MeetingsDashboard'
+import { TimeClockApp } from './pages/business/TimeClockApp'
+import { TimeclockKiosk } from './pages/business/TimeclockKiosk'
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
@@ -46,6 +53,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       />
       <BrowserRouter>
         <Routes>
+          {/* Full Screen Utility Routes without MainLayout */}
+          <Route path="/business/:id/kiosk" element={<ProtectedRoute><TimeclockKiosk /></ProtectedRoute>} />
+
           <Route element={<MainLayout />}>
             {/* Public Routes */}
             <Route path="/" element={<Navigate to="/workspace" replace />} />
@@ -76,6 +86,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/workspace" element={<ProtectedRoute><WorkspaceHub /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requireSuperAdmin={true}><SuperAdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/features" element={<ProtectedRoute requireSuperAdmin={true}><FeaturesPlanner /></ProtectedRoute>} />
+            <Route path="/admin/features/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeatureDetail /></ProtectedRoute>} />
             <Route path="/business/manage" element={<ProtectedRoute><BusinessAdminSuite /></ProtectedRoute>} />
             <Route path="/business/coworkers" element={<ProtectedRoute><Coworkers /></ProtectedRoute>} />
             <Route path="/business/feedback" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackBoard /></ProtectedRoute>} />
@@ -84,6 +96,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
             <Route path="/business/ops" element={<ProtectedRoute><OpsMissionControl /></ProtectedRoute>} />
             <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
+            <Route path="/business/meetings" element={<ProtectedRoute><MeetingsDashboard /></ProtectedRoute>} />
+            <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
+            <Route path="/oauth/companycam" element={<ProtectedRoute><OAuthCallback /></ProtectedRoute>} />
             
             {/* Helper Redirects & 404 Catch-All */}
             <Route path="/feedback" element={<Navigate to="/business/feedback" replace />} />

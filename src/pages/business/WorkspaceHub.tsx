@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow } from 'lucide-react';
+import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow, Presentation, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -44,6 +44,8 @@ export function WorkspaceHub() {
     const hasAdminAccess = hasValidWorkspace && adminPermissions.some(p => checkPermission(p));
 
     const apps: any[] = [
+        { name: 'Time & Attendance', desc: 'Record hours, view your timesheet, and request time off.', icon: Clock, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'hover:border-blue-500/50', link: '/business/time', badge: '' },
+        { name: 'Meeting Workspace', desc: 'Join active business meetings, view recorded minutes, and track action items.', icon: Presentation, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'hover:border-pink-500/50', link: '/business/meetings', badge: '' },
         { name: 'My Tasks', desc: 'View and complete assigned administrative and executive tasks.', icon: ClipboardList, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'hover:border-orange-500/50', link: '/business/tasks', badge: '' },
         { name: 'Universal Scanner', desc: 'Activate your device camera to resolve physical QR stickers.', icon: ScanLine, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'hover:border-emerald-500/50', link: '/scan', badge: '' }
     ];

@@ -157,17 +157,25 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
         });
     };
 
-    const handleDeleteUser = async (uid: string, email: string) => {
-        if (!window.confirm(`Permanently remove user for ${email}?`)) return;
+    useEffect(() => {
+        if (!searchParams.get('edit') && selectedUser) {
+            setSelectedUser(null);
+        }
+    }, [searchParams.get('edit')]);
+
+    const handleDeactivateUser = async (uid: string, email: string) => {
+        if (!window.confirm(`Are you sure you want to deactivate ${email}? They will lose platform access immediately but their historical data will be preserved.`)) return;
         try {
-            await api.delete(`/businesses/${tenantId}/staff/${uid}`);
-            toast.success("User deleted.");
+            await api.post(`/businesses/${tenantId}/staff/${uid}/metadata`, {
+                status: 'inactive'
+            });
+            toast.success("User deactivated effectively.");
             if (selectedUser?.uid === uid || searchParams.get('edit') === uid) {
                 closeEditUser();
             }
             fetchStaff();
         } catch (err) {
-            toast.error("Failed to delete user.");
+            toast.error("Failed to deactivate user.");
         }
     };
 
@@ -338,6 +346,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
             });
 
             toast.success("User profile saved.");
+            setInitialEditForm(editForm);
             fetchStaff();
             closeEditUser();
         } catch (err) {
@@ -811,6 +820,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                     <option value="hourly">Hourly</option>
                                     <option value="salary">Salary</option>
                                     <option value="contractor">Contractor (1099)</option>
+                                    <option value="book_time">Book Time (Flat Rate)</option>
                                 </select>
                             </div>
                             <div>
@@ -869,20 +879,20 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
 
                     {selectedUser.role !== 'business_owner' && selectedUser.uid !== currentUser?.uid && (
                         <section className="mt-8">
-                            <h3 className="text-lg font-bold text-red-500 mb-2 flex items-center gap-2">
-                                <AlertTriangle className="w-5 h-5" /> Danger Zone
+                            <h3 className="text-lg font-bold text-amber-500 mb-2 flex items-center gap-2">
+                                <AlertTriangle className="w-5 h-5" /> Deactivate Platform Access
                             </h3>
-                            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
-                                    <h4 className="text-white font-bold text-sm mb-1">Remove User</h4>
-                                    <p className="text-zinc-400 text-xs text-balance">This action is irreversible. It will permanently delete this user account, scrub their personal data, and revoke their access to the platform.</p>
+                                    <h4 className="text-white font-bold text-sm mb-1">Deactivate User</h4>
+                                    <p className="text-zinc-400 text-xs text-balance">This will instantly revoke their access to the platform and remove them from active rosters, while securely preserving their historical data (like assigned tasks, time logs, and completed jobs) for your records.</p>
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => handleDeleteUser(selectedUser.uid, selectedUser.email)}
-                                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
+                                    onClick={() => handleDeactivateUser(selectedUser.uid, selectedUser.email)}
+                                    className="bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-500 border border-amber-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
                                 >
-                                    Delete User
+                                    Deactivate User
                                 </button>
                             </div>
                         </section>

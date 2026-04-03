@@ -24,4 +24,5 @@ dist-ssr
 *.sw?
 .env
 *.txt
+co_founder_notes.md
 .firebase/hosting.*.cache

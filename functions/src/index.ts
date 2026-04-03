@@ -15,6 +15,7 @@ import { customersRoutes } from './routes/customers.routes';
 import { vehiclesRoutes } from './routes/vehicles.routes';
 import { jobsRoutes } from './routes/jobs.routes';
 import { areasRoutes } from './routes/areas.routes';
+import { timeRoutes } from './routes/time.routes';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -670,6 +671,9 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
     return res.status(500).json({ error: 'Failed to update user identity metadata.' });
   }
 });
+
+// Mount nested routes for businesses
+app.use('/businesses', timeRoutes);
 
 // --- API: Role Management ---
 

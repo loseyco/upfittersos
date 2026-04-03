@@ -13,11 +13,11 @@ export function IdeaEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositio
         <div
           style={{
             position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            transform: `translate(${labelX}px, ${labelY}px) translate(-50%, -50%)`,
             pointerEvents: 'all',
             zIndex: 1000
           }}
-          className="flex items-center gap-1 opacity-20 hover:opacity-100 transition-opacity"
+          className="flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
         >
           <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-700 p-1 rounded-lg shadow-xl group">
               <button

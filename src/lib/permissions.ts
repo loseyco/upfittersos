@@ -20,6 +20,7 @@ export type PermissionKey =
   | 'manage_meetings'
   | 'view_areas'
   | 'manage_areas'
+  | 'bypass_kiosk_timeclock'
   | 'super_admin_core';
 
 export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, boolean>>> = {
@@ -31,7 +32,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_areas: true, manage_areas: true,
     view_inventory: true, manage_inventory: true,
     manage_canvases: true, manage_tasks: true,
-    view_meetings: true, manage_meetings: true,
+    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
     view_financials: true,
     view_facility_map: true, manage_facility_map: true, 
     simulate_roles: true
@@ -44,7 +45,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_inventory: true, manage_inventory: true,
     view_areas: true, manage_areas: true,
     manage_canvases: true, manage_tasks: true,
-    view_meetings: true, manage_meetings: true,
+    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
     view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true,
     simulate_roles: true
@@ -74,5 +75,6 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string, descripti
   view_facility_map: { label: "View Facility Map", description: "View the business interactive mapping layout." },
   manage_facility_map: { label: "Manage Facility Map", description: "Edit map geometry, add objects, and update coordinates." },
   simulate_roles: { label: "Simulate Roles", description: "Impersonate custom roles to verify permissions." },
+  bypass_kiosk_timeclock: { label: "Remote Clock-In", description: "Bypass physical barcode kiosk scanning requirements." },
   super_admin_core: { label: "Super Admin Core", description: "Global platform diagnostics." }
 };

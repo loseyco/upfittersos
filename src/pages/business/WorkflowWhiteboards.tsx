@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
 import { CanvasGalleryTab } from './admin/CanvasGalleryTab';
 import { WorkflowCanvasTab } from './admin/WorkflowCanvasTab';
@@ -10,7 +10,8 @@ export function WorkflowWhiteboards() {
     const { tenantId } = useAuth();
     const navigate = useNavigate();
     const { checkPermission, loading } = usePermissions();
-    const [activeCanvasId, setActiveCanvasId] = useState<string | null>(null);
+    const [searchParams] = useSearchParams();
+    const [activeCanvasId, setActiveCanvasId] = useState<string | null>(searchParams.get('canvasId'));
 
     const canView = checkPermission('manage_canvases');
 

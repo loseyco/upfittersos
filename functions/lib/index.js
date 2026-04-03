@@ -54,6 +54,7 @@ const customers_routes_1 = require("./routes/customers.routes");
 const vehicles_routes_1 = require("./routes/vehicles.routes");
 const jobs_routes_1 = require("./routes/jobs.routes");
 const areas_routes_1 = require("./routes/areas.routes");
+const time_routes_1 = require("./routes/time.routes");
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
@@ -644,6 +645,8 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
         return res.status(500).json({ error: 'Failed to update user identity metadata.' });
     }
 });
+// Mount nested routes for businesses
+app.use('/businesses', time_routes_1.timeRoutes);
 // --- API: Role Management ---
 // POST /roles/assign - Assign a granular role to a specific user (Business Owner / Super Admin only)
 app.post('/roles/assign', auth_middleware_1.authenticate, async (req, res) => {

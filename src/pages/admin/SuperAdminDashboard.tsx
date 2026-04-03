@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key } from 'lucide-react';
+import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key, ListChecks } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
@@ -318,8 +318,12 @@ export function SuperAdminDashboard() {
                     <button onClick={() => setActiveTab('dictionary')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'dictionary' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
                         <Key className="w-4 h-4" /> Access Dictionary
                     </button>
-                    <button onClick={() => navigate('/business/feedback')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent !mt-8`}>
-                        <Bug className="w-4 h-4" /> Idea & Bug Board
+                    
+                    <button onClick={() => navigate('/admin/features')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent !mt-8`}>
+                        <ListChecks className="w-4 h-4 text-cyan-400" /> Roadmap & Features
+                    </button>
+                    <button onClick={() => navigate('/business/feedback')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent`}>
+                        <Bug className="w-4 h-4 text-emerald-400" /> Idea & Bug Board
                     </button>
                 </nav>
             </div>

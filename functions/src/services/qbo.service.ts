@@ -61,11 +61,47 @@ export class QboService {
       qboAccessToken: tokenData.access_token,
       qboRefreshToken: tokenData.refresh_token,
       qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
+      qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
     }, { merge: true });
   }
 
+  // Refresh an expired QBO Access Token using the refresh token
+  private async refreshAccessToken(refreshToken: string): Promise<string> {
+    const tokenEndpoint = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
+    const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+
+    const response = await fetch(tokenEndpoint, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${authHeader}`
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to refresh QBO token: ${await response.text()}`);
+    }
+
+    const tokenData = await response.json();
+    
+    // Manage multi-tenant tokens inside Firestore
+    await admin.firestore().collection('businesses').doc(this.tenantId).set({
+      qboAccessToken: tokenData.access_token,
+      qboRefreshToken: tokenData.refresh_token,
+      qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
+      qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
+    }, { merge: true });
+
+    return tokenData.access_token;
+  }
+
   // 3. Retrieve Tenant's Current QBO Tokens internally
-  private async getTokens(): Promise<{ realmId: string, accessToken: string }> {
+  private async getTokens(): Promise<{ realmId: string, accessToken: string, refreshToken: string }> {
     const doc = await admin.firestore().collection('businesses').doc(this.tenantId).get();
     
     if (!doc.exists) {
@@ -77,29 +113,105 @@ export class QboService {
       throw new Error(`QuickBooks is not connected for tenant ${this.tenantId}.`);
     }
 
-    // TODO: Evaluate if Date.now() > qboTokenExpiresAt, and trigger refresh_token logic here.
+    let accessToken = data.qboAccessToken;
 
-    return { realmId: data.qboRealmId, accessToken: data.qboAccessToken };
+    // Evaluate token expiration buffers (5 minutes before actual expiry)
+    if (data.qboTokenExpiresAt && Date.now() > (data.qboTokenExpiresAt - 300000)) {
+        if (data.qboRefreshToken) {
+            accessToken = await this.refreshAccessToken(data.qboRefreshToken);
+        } else {
+            throw new Error(`QuickBooks token expired and no refresh token available for tenant ${this.tenantId}.`);
+        }
+    }
+
+    return { realmId: data.qboRealmId, accessToken, refreshToken: data.qboRefreshToken };
+  }
+
+  // Wrapped fetch method to securely attach tokens and retry if somehow a 401 slps by
+  private async apiFetch(path: string, options?: RequestInit, isRetry = false): Promise<any> {
+      const tokens = await this.getTokens();
+      
+      const response = await fetch(`${this.baseUrl}/${tokens.realmId}${path}`, {
+          ...options,
+          headers: {
+              'Authorization': `Bearer ${tokens.accessToken}`,
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              ...(options?.headers || {})
+          }
+      });
+
+      if (response.status === 401 && tokens.refreshToken && !isRetry) {
+          try {
+              await this.refreshAccessToken(tokens.refreshToken);
+              return this.apiFetch(path, options, true);
+          } catch(e) {
+              throw new Error(`Failed to auto-refresh QBO token: ${e}`);
+          }
+      }
+
+      const text = await response.text();
+      if (!response.ok) {
+          throw new Error(`QBO API Error ${response.status}: ${text}`);
+      }
+
+      return text ? JSON.parse(text) : null;
   }
 
   // 4. API Wrappers: Chart of Accounts Entities (as requested by user)
   async getAccounts(): Promise<any> {
-    const { realmId, accessToken } = await this.getTokens();
-    
-    // Querying all accounts using QBO's SQL-like Syntax over REST
     const query = encodeURIComponent('select * from Account maxresults 1000');
-    
-    const response = await fetch(`${this.baseUrl}/${realmId}/query?query=${query}`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json'
-      }
+    return this.apiFetch(`/query?query=${query}`);
+  }
+
+  // 5. API Wrapper: Sync Parts Object -> QuickBooks Products/Services
+  async syncItemToQBO(sku: string, name: string, description: string, price: number, qtyOnHand: number, assetAccountRef: string, incomeAccountRef: string, expenseAccountRef: string) {
+    const payload = {
+        "TrackQtyOnHand": true,
+        "Name": name,
+        "Sku": sku,
+        "Description": description,
+        "Active": true,
+        "Type": "Inventory",
+        "AssetAccountRef": { "value": assetAccountRef },
+        "IncomeAccountRef": { "value": incomeAccountRef },
+        "ExpenseAccountRef": { "value": expenseAccountRef },
+        "InvStartDate": new Date().toISOString().split('T')[0],
+        "QtyOnHand": qtyOnHand,
+        "UnitPrice": price
+    };
+
+    return this.apiFetch('/item', {
+        method: 'POST',
+        body: JSON.stringify(payload)
     });
+  }
 
-    if (!response.ok) {
-      throw new Error(`QBO API error: ${response.statusText}`);
-    }
+  // 6. API Wrapper: Inventory Adjustment (Increases or Decreases quantities on hand)
+  async adjustInventoryQuantity(qboItemId: string, qboAdjAccountRef: string, qtyDifference: number) {
+     if (qtyDifference === 0) return null; // No adjustment needed
+     
+     const payload = {
+         "AccountRef": {
+             "value": qboAdjAccountRef
+         },
+         "Line": [
+             {
+                 "DetailType": "ItemAdjustmentLineDetail",
+                 "ItemAdjustmentLineDetail": {
+                     "ItemRef": {
+                         "value": qboItemId
+                     },
+                     // Adjust by change amount. QtyDifference is a negative or positive offset.
+                     "QtyDiff": qtyDifference
+                 }
+             }
+         ]
+     };
 
-    return response.json();
+     return this.apiFetch('/inventoryadjustment', {
+         method: 'POST',
+         body: JSON.stringify(payload)
+     });
   }
 }

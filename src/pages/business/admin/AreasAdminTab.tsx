@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, Map, Settings2, Activity, ChevronRight, Hash, FlaskConical, Maximize, Crop } from 'lucide-react';
+import { MapPin, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, Map, Settings2, Activity, ChevronRight, FlaskConical } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';

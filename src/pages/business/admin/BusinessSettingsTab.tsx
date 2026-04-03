@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw } from 'lucide-react';
+import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle } from 'lucide-react';
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { type PermissionKey } from '../../../lib/permissions';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
@@ -20,7 +20,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         addressCity: '',
         addressState: '',
         addressZip: '',
-        customRoles: {} as Record<string, { label: string, permissions: Partial<Record<PermissionKey, boolean>> }>
+        customRoles: {} as Record<string, { label: string, permissions: Partial<Record<PermissionKey, boolean>> }>,
+        companyCamToken: '',
+        qboRealmId: ''
     });
     
     // Unsaved changes tracking
@@ -41,7 +43,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     addressCity: res.data.addressCity || '',
                     addressState: res.data.addressState || '',
                     addressZip: res.data.addressZip || '',
-                    customRoles: res.data.customRoles || {}
+                    customRoles: res.data.customRoles || {},
+                    companyCamToken: res.data.companyCamToken || '',
+                    qboRealmId: res.data.qboRealmId || ''
                 };
                 setForm(loadedForm);
                 setInitialForm(loadedForm);
@@ -71,6 +75,32 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
             toast.error("Failed to save changes.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleCompanyCamConnect = async () => {
+        try {
+            // Provide the intended redirect URI matching the catcher route
+            const redirectUri = window.location.origin + '/oauth/companycam';
+            const res = await api.get(`/companycam/oauth/url?redirectUri=${encodeURIComponent(redirectUri)}&tenantId=${tenantId}`);
+            if (res.data?.url) {
+                window.location.href = res.data.url;
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to generate CompanyCam authorization URL.");
+        }
+    };
+
+    const handleQBOConnect = async () => {
+        try {
+            const res = await api.get(`/qbo/auth?tenantId=${tenantId}`);
+            if (res.data?.url) {
+                window.location.href = res.data.url;
+            }
+        } catch (err) {
+            console.error('Failed to get QBO OAuth URL', err);
+            toast.error("Failed to generate QuickBooks authorization URL.");
         }
     };
 
@@ -169,6 +199,62 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     </div>
                 </section>
                 
+                {/* Integrations */}
+                <section>
+                    <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+                        <Link2 className="w-4 h-4 text-orange-400"/> Integrations
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h4 className="font-bold text-white">CompanyCam</h4>
+                                    <p className="text-xs text-zinc-500">Sync projects and photos</p>
+                                </div>
+                                {form.companyCamToken ? (
+                                    <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Connected</span>
+                                ) : (
+                                    <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">Not Connected</span>
+                                )}
+                            </div>
+                            
+                            {!form.companyCamToken && (
+                                <button 
+                                    type="button"
+                                    onClick={handleCompanyCamConnect}
+                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg text-sm transition-colors"
+                                >
+                                    Connect CompanyCam
+                                </button>
+                            )}
+                        </div>
+
+                        {/* QuickBooks */}
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h4 className="font-bold text-white">QuickBooks Online</h4>
+                                    <p className="text-xs text-zinc-500">Sync invoices and live inventory</p>
+                                </div>
+                                {form.qboRealmId ? (
+                                    <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Connected</span>
+                                ) : (
+                                    <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">Not Connected</span>
+                                )}
+                            </div>
+                            
+                            {!form.qboRealmId && (
+                                <button 
+                                    type="button"
+                                    onClick={handleQBOConnect}
+                                    className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 rounded-lg text-sm transition-colors"
+                                >
+                                    Connect QuickBooks
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </section>
 
                 
             </form>

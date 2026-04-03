@@ -64,12 +64,17 @@ export function usePermissions(overrideTenantId?: string) {
         for (const iterateRole of arrayRoles) {
             if (iterateRole === 'super_admin') return true;
 
-            // Check dynamic tenant roles
-            if (businessRoles[iterateRole] && businessRoles[iterateRole].permissions?.[key] === true) {
-                return true;
+            // Check dynamic tenant roles first
+            if (businessRoles[iterateRole]) {
+                if (businessRoles[iterateRole].permissions?.[key] === true) {
+                    return true;
+                }
+                // If the tenant custom role explicitly denies it, we should theoretically NOT fallback.
+                // But for safety on migration fields that are undefined, we fallback to DEFAULT_PERMISSIONS!
+                if (businessRoles[iterateRole].permissions?.[key] === false) continue;
             }
 
-            // Check hardcoded static roles
+            // Check hardcoded static roles if not explicitly handled
             if (DEFAULT_PERMISSIONS[iterateRole]?.[key] === true) {
                 return true;
             }

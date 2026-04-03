@@ -36,6 +36,9 @@ service cloud.firestore {
                     || (isTenant(resource.data.tenantId) && request.auth.token.role in ['manager', 'business_owner']) 
                     || isSuperAdmin();
     }
+    match /feedback/{docId}/comments/{commentId} {
+      allow read, write: if isTenant(get(/databases/$(database)/documents/feedback/$(docId)).data.tenantId) || isSuperAdmin();
+    }
     match /changelogs/{docId} {
       allow read: if true;
       allow write: if isSuperAdmin();
@@ -62,6 +65,12 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /canvases/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_off_requests/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
     }

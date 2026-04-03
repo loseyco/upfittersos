@@ -21,9 +21,18 @@ export const IntegrationsDoc = () => {
                         <p className="text-zinc-300 leading-relaxed text-sm mb-4">
                             Instead of relying on slow, outdated nightly batch jobs to sync data, UpfitterOS listens to live webhooks. When an action occurs on external platforms, our microservices instantly ingest and translate the data into our universal Firestore database format. 
                         </p>
-                        <p className="text-zinc-400 leading-relaxed text-sm">
+                        <p className="text-zinc-400 leading-relaxed text-sm mb-4">
                             Likewise, when an authorized user mutates a record inside UpfitterOS, we automatically broadcast that event outward to authorized external endpoints.
                         </p>
+                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-xl flex items-start gap-3 mt-6">
+                            <Workflow className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                            <div>
+                                <h4 className="text-white font-bold text-sm mb-1">Seamless connection via OAuth 2.0</h4>
+                                <p className="text-zinc-400 text-xs leading-relaxed">
+                                    Connections to supported platforms require strict, tokenized authorization. Administrators can securely link their tenant accounts to these external systems by navigating to <b>Business Suite &rarr; Settings &rarr; Integrations</b> and authenticating via the standard OAuth 2.0 protocol.
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -43,12 +52,12 @@ export const IntegrationsDoc = () => {
                                 <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Intuit QuickBooks
                             </h3>
                             <p className="text-zinc-400 text-xs leading-relaxed mb-4">
-                                Deep bidirectional sync with QuickBooks Online (QBO). Generates unified ledgers without manual double-entry.
+                                Deep bidirectional sync with QuickBooks Online (QBO). Generates unified ledgers without manual double-entry, with a specialized engine for physical inventory counts.
                             </p>
                             <ul className="text-[11px] font-mono text-zinc-500 space-y-1">
-                                <li>→ Push: Supplier Purchase Orders</li>
-                                <li>→ Push: Finalized Customer Invoices</li>
-                                <li>← Pull: Vendor Catalogs</li>
+                                <li>→ Push: Live Inventory Quantity Adjustments</li>
+                                <li>→ Push: Catalog & Parts Synchronization</li>
+                                <li>→ Push: Customer Invoices & Billing</li>
                             </ul>
                         </div>
 

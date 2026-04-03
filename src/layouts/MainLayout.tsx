@@ -6,6 +6,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
+import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { APP_NAME } from '../lib/constants';
 export function MainLayout() {
@@ -136,6 +137,9 @@ export function MainLayout() {
                     </button>
                 </div>
             )}
+
+            {/* Global Time Tracker */}
+            <GlobalTimeTracker />
 
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">

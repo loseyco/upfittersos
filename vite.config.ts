@@ -9,6 +9,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: true, // Listen on all local IPs (allow mobile network testing)
     allowedHosts: ['loose-sloths-try.loca.lt', '.loca.lt'],
   },
 })

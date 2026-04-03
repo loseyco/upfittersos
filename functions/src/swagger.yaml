@@ -122,6 +122,52 @@ components:
               x: { type: number }
               y: { type: number }
 
+    QBOItem:
+      type: object
+      properties:
+        Id: { type: string }
+        Name: { type: string }
+        Sku: { type: string }
+        Type: { type: string, enum: ['Inventory', 'NonInventory', 'Service', 'Category'] }
+        QtyOnHand: { type: number }
+        InvStartDate: { type: string, format: date }
+        IncomeAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        ExpenseAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        AssetAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+
+    QBOInventoryAdjustment:
+      type: object
+      properties:
+        Id: { type: string }
+        AdjustAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        Line:
+          type: array
+          items:
+            type: object
+            properties:
+              Id: { type: string }
+              DetailType: { type: string, enum: ['ItemAdjustmentLineDetail'] }
+              ItemAdjustmentLineDetail:
+                type: object
+                properties:
+                  ItemRef:
+                    type: object
+                    properties:
+                      value: { type: string }
+                  QtyDiff: { type: number }
+
 security:
   - BearerAuth: []
 
@@ -493,3 +539,43 @@ paths:
       responses:
         '200':
           description: OK
+
+  /qbo/inventory/items:
+    get:
+      summary: Fetch existing inventory items from QuickBooks Online
+      tags: [QuickBooks]
+      responses:
+        '200':
+          description: List of QBOItems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QBOItem'
+    post:
+      summary: Push an Upfitters OS Part to QuickBooks Online as an Inventory Item
+      tags: [QuickBooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QBOItem'
+      responses:
+        '201':
+          description: Successfully created/updated in QBO
+
+  /qbo/inventory/adjust:
+    post:
+      summary: Send an inventory adjustment to QuickBooks Online
+      tags: [QuickBooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QBOInventoryAdjustment'
+      responses:
+        '201':
+          description: Adjustment successful

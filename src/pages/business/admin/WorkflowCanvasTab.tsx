@@ -6,8 +6,9 @@ import { IdeaNode } from './canvas/IdeaNode';
 import { IdeaEdge } from './canvas/IdeaEdge';
 import { db } from '../../../lib/firebase';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { Loader2, Save, Plus, X, ArrowLeft } from 'lucide-react';
+import { Loader2, Save, Plus, X, ArrowLeft, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../../contexts/AuthContext';
 
 const nodeTypes = {
     idea: IdeaNode,
@@ -22,6 +23,7 @@ const initialNodes: Node[] = [];
 const initialEdges: Edge[] = [];
 
 export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: string, canvasId: string, onBack: () => void }) {
+    const { currentUser } = useAuth();
     const [nodes, setNodes] = useState<Node[]>(initialNodes);
     const [edges, setEdges] = useState<Edge[]>(initialEdges);
     const [canvasName, setCanvasName] = useState<string>('Loading Canvas...');
@@ -37,10 +39,10 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
     const [isSaving, setIsSaving] = useState(false);
     const [isCanvasLoaded, setIsCanvasLoaded] = useState(false);
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
-    const [prevNodeCount, setPrevNodeCount] = useState(0);
 
     // Modal state for creating new node
     const [showModal, setShowModal] = useState(false);
+    const [showInstructions, setShowInstructions] = useState(true);
     const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
     const [insertNodeTargetEdgeId, setInsertNodeTargetEdgeId] = useState<string | null>(null);
     const [quickAddSource, setQuickAddSource] = useState<string | null>(null);
@@ -82,7 +84,10 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                             onEdit: handleEditNodeClick,
                             onAddOutput: handleAddOutput,
                             onEditOutput: handleEditOutput,
-                            onDeleteOutput: handleDeleteOutput
+                            onDeleteOutput: handleDeleteOutput,
+                            onReorderOutputs: handleReorderOutputs,
+                            onOutputColorChange: handleOutputColorChange,
+                            onNodeColorChange: handleNodeColorChange
                         }
                     };
                 });
@@ -151,6 +156,9 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
             delete cleanData.onAddOutput;
             delete cleanData.onEditOutput;
             delete cleanData.onDeleteOutput;
+            delete cleanData.onReorderOutputs;
+            delete cleanData.onOutputColorChange;
+            delete cleanData.onNodeColorChange;
             return {
                 ...n,
                 data: cleanData
@@ -168,6 +176,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
             await setDoc(doc(db, 'business_canvases', canvasId), {
                 nodes: cleanNodes,
                 edges: cleanEdges,
+                updatedBy: currentUser?.displayName || currentUser?.email || 'Unknown User',
                 updatedAt: new Date()
             }, { merge: true });
             hasUnsavedChangesRef.current = false;
@@ -199,23 +208,13 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isCanvasLoaded, rfInstance]);
 
-    // Smart auto-zoom on new node additions
-    useEffect(() => {
-        if (isCanvasLoaded && rfInstance && nodes.length > prevNodeCount) {
-            setTimeout(() => {
-                rfInstance.fitView({ duration: 800, padding: 0.3 });
-            }, 100); // Small delay to let the DOM paint the new node before calculating bounds
-        }
-        setPrevNodeCount(nodes.length);
-    }, [nodes.length, isCanvasLoaded, rfInstance, prevNodeCount]);
-
     const handleDeleteNode = useCallback((id: string) => {
         setNodes((nds) => nds.filter(node => node.id !== id));
         setEdges((eds) => eds.filter(edge => edge.source !== id && edge.target !== id));
         hasUnsavedChangesRef.current = true;
     }, []);
 
-    const handleAddOutput = useCallback((nodeId: string) => {
+    const handleAddOutput = useCallback((nodeId: string, label: string = 'Action Route') => {
         setNodes((nds) => nds.map((node) => {
             if (node.id === nodeId) {
                 const currentOutputs = (node.data.outputs as any[]) || [{ id: `out_${node.id}`, label: 'Next' }];
@@ -223,7 +222,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                     ...node,
                     data: {
                         ...node.data,
-                        outputs: [...currentOutputs, { id: `out_${Date.now()}`, label: 'Action Route' }]
+                        outputs: [...currentOutputs, { id: `out_${Date.now()}`, label }]
                     }
                 };
             }
@@ -232,8 +231,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
         hasUnsavedChangesRef.current = true;
     }, []);
 
-    const handleEditOutput = useCallback((nodeId: string, outputId: string, currentLabel: string) => {
-        const newLabel = window.prompt("Define output requirement/outcome:", currentLabel);
+    const handleEditOutput = useCallback((nodeId: string, outputId: string, newLabel: string) => {
         if (newLabel && newLabel.trim().length > 0) {
             setNodes((nds) => nds.map((node) => {
                 if (node.id === nodeId) {
@@ -270,8 +268,64 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
             return node;
         }));
         // Prune orphaned edges
-        setEdges((eds) => eds.filter(edge => !(edge.source === nodeId && edge.sourceHandle === outputId)));
-        
+        setEdges((eds) => eds.filter(edge => edge.sourceHandle !== outputId));
+        hasUnsavedChangesRef.current = true;
+    }, []);
+
+    const handleReorderOutputs = useCallback((nodeId: string, newOutputs: any[]) => {
+        setNodes((nds) => nds.map((node) => {
+            if (node.id === nodeId) {
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        outputs: newOutputs
+                    }
+                };
+            }
+            return node;
+        }));
+        hasUnsavedChangesRef.current = true;
+    }, []);
+
+    const handleOutputColorChange = useCallback((nodeId: string, outputId: string, color: string) => {
+        setNodes((nds) => nds.map((node) => {
+            if (node.id === nodeId) {
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        outputs: ((node.data.outputs as any[]) || []).map((out: any) => out.id === outputId ? { ...out, color } : out)
+                    }
+                };
+            }
+            return node;
+        }));
+        setEdges((eds) => eds.map((edge) => {
+            if (edge.source === nodeId && edge.sourceHandle === outputId) {
+                return {
+                    ...edge,
+                    style: { ...edge.style, stroke: color, strokeWidth: edge.style?.strokeWidth || 2 }
+                };
+            }
+            return edge;
+        }));
+        hasUnsavedChangesRef.current = true;
+    }, []);
+
+    const handleNodeColorChange = useCallback((nodeId: string, color: string) => {
+        setNodes((nds) => nds.map((node) => {
+            if (node.id === nodeId) {
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        color
+                    }
+                };
+            }
+            return node;
+        }));
         hasUnsavedChangesRef.current = true;
     }, []);
 
@@ -293,11 +347,15 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
 
     const onConnect = useCallback(
         (params: Connection) => {
+            const sourceNode = nodesRef.current.find(n => n.id === params.source);
+            const sourcePin = ((sourceNode?.data?.outputs || []) as any[]).find(p => p.id === params.sourceHandle);
+            const routeColor = sourcePin?.color || '#0ea5e9';
+
             const newEdge = { 
                 ...params, 
                 type: 'idea',
                 animated: true, 
-                style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                style: { stroke: routeColor, strokeWidth: 2 },
                 data: { 
                     onInsertNode: handleInsertNodeClick,
                     onLabelDrag: () => { hasUnsavedChangesRef.current = true; }
@@ -356,6 +414,29 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
         }
     }, [rfInstance]);
 
+    const handleDoubleClick = useCallback((event: React.MouseEvent) => {
+        if (!rfInstance) return;
+        const target = event.target as HTMLElement;
+        // Only trigger if we clicked strictly on the empty canvas void!
+        if (!target.classList.contains('react-flow__pane')) return;
+
+        event.preventDefault();
+        
+        const position = rfInstance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+        });
+        
+        setQuickAddIsTarget(false);
+        setQuickAddSource(null);
+        setQuickAddSourceHandle(null);
+        setQuickAddPosition(position);
+        setInsertNodeTargetEdgeId(null);
+        setEditingNodeId(null);
+        setNewNodeData({ label: '', description: '', type: 'idea', priority: 'normal' });
+        setShowModal(true);
+    }, [rfInstance]);
+
     const handleSaveNode = (e: React.FormEvent) => {
         e.preventDefault();
         
@@ -393,7 +474,10 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                     onEdit: handleEditNodeClick,
                     onAddOutput: handleAddOutput,
                     onEditOutput: handleEditOutput,
-                    onDeleteOutput: handleDeleteOutput
+                    onDeleteOutput: handleDeleteOutput,
+                    onReorderOutputs: handleReorderOutputs,
+                    onOutputColorChange: handleOutputColorChange,
+                    onNodeColorChange: handleNodeColorChange
                 }
             };
             
@@ -411,7 +495,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                         target: id,
                         targetHandle: 'target', // Universal Target
                         animated: true,
-                        style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                        style: edgeToReplace.style || { stroke: '#0ea5e9', strokeWidth: 2 }, // Inherit original wire color profile
                         data: { 
                             onInsertNode: handleInsertNodeClick,
                             onLabelDrag: () => { hasUnsavedChangesRef.current = true; }
@@ -441,6 +525,10 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                 const newEdgeSourceHandle = quickAddIsTarget ? `out_${id}` : quickAddSourceHandle;
                 const newEdgeTargetHandle = 'target'; // Always injects to Universal Target!
 
+                const srcNode = nodes.find(n => n.id === newEdgeSource);
+                const outPin = ((srcNode?.data?.outputs || []) as any[]).find(p => p.id === newEdgeSourceHandle);
+                const routeColor = outPin?.color || '#0ea5e9';
+
                 setEdges(eds => addEdge({
                     id: `e_${newEdgeSource}-${newEdgeTarget}`,
                     type: 'idea',
@@ -449,7 +537,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                     target: newEdgeTarget,
                     targetHandle: newEdgeTargetHandle,
                     animated: true,
-                    style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                    style: { stroke: routeColor, strokeWidth: 2 },
                     data: { 
                         onInsertNode: handleInsertNodeClick,
                         onLabelDrag: () => { hasUnsavedChangesRef.current = true; }
@@ -480,7 +568,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
     }
 
     return (
-        <div className="w-full h-full bg-zinc-950 relative">
+        <div className="w-full h-full bg-zinc-950 relative" onDoubleClick={handleDoubleClick}>
             <div className="absolute top-4 left-4 z-10 flex gap-2 items-center">
                 <button 
                     onClick={onBack}
@@ -506,6 +594,7 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                 nodeTypes={nodeTypes}
                 edgeTypes={edgeTypes}
                 fitView
+                zoomOnDoubleClick={false}
                 className="bg-zinc-950"
                 minZoom={0.2}
                 maxZoom={4}
@@ -529,6 +618,36 @@ export function WorkflowCanvasTab({ tenantId, canvasId, onBack }: { tenantId: st
                     </div>
                 </Panel>
             </ReactFlow>
+
+            {/* Instructions Floating Panel */}
+            {showInstructions ? (
+                <div className="absolute bottom-6 left-6 z-10 w-80 bg-zinc-900/90 backdrop-blur-md border border-zinc-800/80 rounded-xl p-4 shadow-2xl flex flex-col pointer-events-auto">
+                    <div className="flex items-center justify-between mb-3 border-b border-zinc-800/80 pb-2">
+                        <div className="flex items-center gap-2 text-zinc-300 font-bold text-sm">
+                            <Info className="w-4 h-4 text-blue-400" />
+                            Canvas Controls
+                        </div>
+                        <button onClick={() => setShowInstructions(false)} className="text-zinc-500 hover:text-red-400 transition-colors p-1 bg-zinc-800/50 hover:bg-zinc-800 rounded">
+                            <X className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+                    <ul className="text-[11px] text-zinc-400 space-y-3 leading-relaxed">
+                        <li>• <strong className="text-zinc-200">Double-Click Canvas:</strong> Instantly spawn a new node.</li>
+                        <li>• <strong className="text-zinc-200">Batch Dragging:</strong> Hold <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200 border border-zinc-700">Shift</code> and drag, or <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200 border border-zinc-700">Ctrl</code> + click, to move multiple nodes at once.</li>
+                        <li>• <strong className="text-zinc-200">Drag Wires:</strong> Pull blue routing pins from the right side to create connections.</li>
+                        <li>• <strong className="text-zinc-200">Wire Actions:</strong> Hover wires and tap <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200 border border-zinc-700">+</code> to insert a node seamlessly, or <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200 border border-zinc-700">x</code> to cut.</li>
+                        <li>• <strong className="text-zinc-200">Output Pins:</strong> Click <code className="bg-zinc-800 px-1 py-0.5 rounded text-zinc-200 border border-zinc-700">+</code> on a node to add a new route. Rename pins inline, and reorder using the arrows.</li>
+                    </ul>
+                </div>
+            ) : (
+                <button 
+                    onClick={() => setShowInstructions(true)}
+                    className="absolute bottom-6 left-6 z-10 w-10 h-10 bg-zinc-900 border border-zinc-800 text-zinc-400 font-bold rounded-lg hover:bg-zinc-800 hover:text-white hover:border-zinc-700 transition-all shadow-lg items-center justify-center pointer-events-auto flex"
+                    title="Show Commands"
+                >
+                    <Info className="w-5 h-5 text-blue-400" />
+                </button>
+            )}
 
             {/* Modal for creating a node */}
             {showModal && (

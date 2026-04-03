@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, Calendar, MapPin } from 'lucide-react';
+import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StaffAdminTab } from './admin/StaffAdminTab';
 import { TasksAdminTab } from './admin/TasksAdminTab';
-import { MeetingsAdminTab } from './admin/MeetingsAdminTab';
 import { CustomersAdminTab } from './admin/CustomersAdminTab';
 import { FacilityMapTab } from './admin/FacilityMapTab';
 
@@ -17,6 +16,7 @@ import { ReportsAdminTab } from './admin/ReportsAdminTab';
 import { BusinessSettingsTab } from './admin/BusinessSettingsTab';
 import { RolesAdminTab } from './admin/RolesAdminTab';
 import { FeedbackAdminTab } from './admin/FeedbackAdminTab';
+import { TimeAdminTab } from './admin/TimeAdminTab';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
@@ -74,12 +74,12 @@ export function BusinessAdminSuite() {
         ...(checkPermission('manage_roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
         ...(checkPermission('manage_staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
         ...(checkPermission('manage_tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
-        ...(checkPermission('view_meetings') ? [{ id: 'meetings', label: 'Meetings & Notes', icon: Calendar }] : []),
         ...(checkPermission('view_customers') ? [{ id: 'customers', label: 'Customer Management', icon: Users }] : []),
         ...(checkPermission('view_vehicles') ? [{ id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck }] : []),
         ...(checkPermission('view_jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
         ...(checkPermission('view_areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
         ...(checkPermission('view_inventory') ? [{ id: 'inventory', label: 'Inventory (WMS)', icon: ScanLine }] : []),
+        ...(checkPermission('manage_timesheets') ? [{ id: 'time', label: 'Time & Payroll', icon: Clock }] : []),
         ...(checkPermission('view_financials') ? [{ id: 'finances', label: 'Finances & Billing*', icon: DollarSign }] : []),
         ...(checkPermission('view_financials') ? [{ id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 }] : []),
         ...(checkPermission('manage_settings') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
@@ -233,25 +233,18 @@ export function BusinessAdminSuite() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col bg-zinc-900 overflow-hidden relative z-0 md:shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
-                {/* Dynamic Header Toolbar */}
-                <div className="h-14 md:h-16 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 bg-zinc-900/90 backdrop-blur-md z-20 shrink-0">
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-base md:text-lg font-black text-white capitalize">{activeTab}</h1>
-                    </div>
-                </div>
-
                 {/* Dynamic Content Loading */}
                 <div className="flex-1 overflow-hidden relative">
                     {activeTab === 'settings' && <BusinessSettingsTab tenantId={tenantId} />}
                     {activeTab === 'roles' && <RolesAdminTab tenantId={tenantId} />}
                     {activeTab === 'staff' && <StaffAdminTab tenantId={tenantId} />}
                     {activeTab === 'tasks' && <TasksAdminTab tenantId={tenantId} />}
-                    {activeTab === 'meetings' && <MeetingsAdminTab tenantId={tenantId} />}
                     {activeTab === 'customers' && <CustomersAdminTab tenantId={tenantId} />}
                     { activeTab === 'vehicles' && <VehiclesAdminTab tenantId={tenantId} />}
                     { activeTab === 'jobs' && <JobsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'areas' && <AreasAdminTab tenantId={tenantId} /> }
                     { activeTab === 'inventory' && <InventoryAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'time' && <TimeAdminTab tenantId={tenantId} /> }
                     { activeTab === 'finances' && <FinancesAdminTab tenantId={tenantId} /> }
                     { activeTab === 'reports' && <ReportsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'feedback' && <FeedbackAdminTab tenantId={tenantId} /> }
