@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, Trash2, Plus, RefreshCw, X, Users, Presentation, Users as UsersIcon, Truck, Briefcase, Video, CheckSquare, Link2, ExternalLink, Bold, List, ListOrdered, Heading1 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy, Timestamp, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -42,70 +42,75 @@ export function MeetingsDashboard() {
     const canManage = checkPermission('manage_meetings');
     const canViewAll = checkPermission('view_meetings');
 
-    const fetchMeetings = async () => {
-        try {
-            setLoading(true);
-            let q;
-            if (canManage || canViewAll) {
-                q = query(
-                    collection(db, 'businesses', tenantId as string, 'meetings'),
-                    orderBy('date', 'desc')
-                );
-            } else if (currentUser) {
-                q = query(
-                    collection(db, 'businesses', tenantId as string, 'meetings'),
-                    where('staffIds', 'array-contains', currentUser.uid),
-                    orderBy('date', 'desc')
-                );
-            } else {
-                setMeetings([]);
-                setLoading(false);
-                return;
-            }
-
-            const snapshot = await getDocs(q);
-            setMeetings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load meetings.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchDependencies = async () => {
-        try {
-            // Fetch Staff
-            const staffRes = await api.get(`/businesses/${tenantId}/staff`);
-            setStaff(staffRes.data);
-
-            // Fetch Canvases
-            const canvasSnapshot = await getDocs(query(collection(db, 'business_canvases'), where('tenantId', '==', tenantId)));
-            setCanvases(canvasSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-            
-            // Try fetching others via API where possible
-            try {
-                const [custRes, vehRes, jobRes] = await Promise.all([
-                    api.get(`/customers?tenantId=${tenantId}`),
-                    api.get(`/vehicles?tenantId=${tenantId}`),
-                    api.get(`/jobs?tenantId=${tenantId}`)
-                ]);
-                setCustomers(custRes.data);
-                setVehicles(vehRes.data);
-                setJobs(jobRes.data);
-            } catch (err) {
-                console.error("Failed to load extended api dependencies", err);
-            }
-        } catch (err) {
-            console.error("Failed to load dependencies", err);
-        }
-    };
-
     useEffect(() => {
         if (!tenantId || tenantId === 'unassigned') return;
-        fetchMeetings();
-        fetchDependencies();
-    }, [tenantId]);
+
+        setLoading(true);
+
+        let meetingsQ;
+        if (canManage || canViewAll) {
+            meetingsQ = query(
+                collection(db, 'businesses', tenantId as string, 'meetings'),
+                orderBy('date', 'desc')
+            );
+        } else if (currentUser) {
+            meetingsQ = query(
+                collection(db, 'businesses', tenantId as string, 'meetings'),
+                where('staffIds', 'array-contains', currentUser.uid),
+                orderBy('date', 'desc')
+            );
+        } else {
+            setMeetings([]);
+            setLoading(false);
+            return;
+        }
+
+        const unsubMeetings = onSnapshot(meetingsQ, (snapshot) => {
+            setMeetings(snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() })));
+            setLoading(false);
+        }, (err) => {
+            console.error(err);
+            toast.error("Failed to load meetings.");
+            setLoading(false);
+        });
+
+        // Dependencies fetch - Staff (one-time)
+        api.get(`/businesses/${tenantId}/staff`)
+           .then(res => setStaff(res.data))
+           .catch(err => console.error("Failed to load staff", err));
+
+        // Realtime Canvases
+        const unsubCanvases = onSnapshot(
+            query(collection(db, 'business_canvases'), where('tenantId', '==', tenantId)),
+            snapshot => setCanvases(snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
+        );
+
+        // Realtime Customers
+        const unsubCustomers = onSnapshot(
+            query(collection(db, 'customers'), where('tenantId', '==', tenantId)),
+            snapshot => setCustomers(snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
+        );
+
+        // Realtime Vehicles
+        const unsubVehicles = onSnapshot(
+            query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)),
+            snapshot => setVehicles(snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
+        );
+
+        // Realtime Jobs
+        const unsubJobs = onSnapshot(
+            query(collection(db, 'jobs'), where('tenantId', '==', tenantId)),
+            snapshot => setJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })))
+        );
+
+        return () => {
+            unsubMeetings();
+            unsubCanvases();
+            unsubCustomers();
+            unsubVehicles();
+            unsubJobs();
+        };
+    }, [tenantId, canManage, canViewAll, currentUser]);
 
     // Debounced auto-save specifically for Meeting Notes
     useEffect(() => {
@@ -278,7 +283,6 @@ export function MeetingsDashboard() {
             }
             
             resetForm();
-            fetchMeetings();
         } catch (err) {
             console.error(err);
             toast.error("Failed to save meeting parameters");
@@ -320,7 +324,6 @@ export function MeetingsDashboard() {
         try {
             await deleteDoc(doc(db, 'businesses', tenantId as string, 'meetings', meetingId));
             toast.success("Meeting removed");
-            fetchMeetings();
         } catch (err) {
             toast.error("Failed to delete meeting");
         }
@@ -346,9 +349,9 @@ export function MeetingsDashboard() {
                     <p className="text-zinc-500 text-xs mt-0.5">Track team meetings, logical canvases, and attendee minutes.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchMeetings} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="w-8 h-8 flex items-center justify-center">
+                        {loading && <RefreshCw className="w-4 h-4 animate-spin text-zinc-500" />}
+                    </div>
                     {canManage && (
                         <button 
                             onClick={() => { resetForm(); setShowAddForm(true); }}

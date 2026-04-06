@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
-import { Clock, FileText, ArrowLeft, Play, Square, Coffee, ScanLine, Loader2 } from 'lucide-react';
+import { Clock, FileText, ArrowLeft, Play, ScanLine } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../hooks/usePermissions';
 import { Scanner } from '@yudiel/react-qr-scanner';
+import { db } from '../../lib/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export function TimeClockApp() {
     const { currentUser, tenantId } = useAuth();
@@ -31,47 +33,46 @@ export function TimeClockApp() {
     const [targetAction, setTargetAction] = useState<any>(null);
 
     useEffect(() => {
-        if (!tenantId || tenantId === 'GLOBAL') return;
-        fetchActiveLog();
-        if (activeTab === 'timesheet') fetchTimesheets();
-        if (activeTab === 'requests') fetchRequests();
-    }, [tenantId, activeTab]);
-
-    const fetchActiveLog = async () => {
-        try {
-            // Find an open punch for this user today spanning currently
-            // Instead of complex API routes, let's just query via basic API or client side mock API implementation for test if API is not built.
-            // Assuming we must use client API for firestore directly or backend route.
-            const res = await api.get(`/businesses/${tenantId}/time_logs?userId=${currentUser?.uid}&status=open`);
-            if (res.data && res.data.length > 0) {
-                setActiveLog(res.data[0]);
-            } else {
-                setActiveLog(null);
+        if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
+        
+        setLoadingClock(true);
+        const unsubLogs = onSnapshot(
+            query(collection(db, 'businesses', tenantId, 'time_logs')),
+            (snap) => {
+                let logs: any[] = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                logs = logs.filter(l => l.userId === currentUser.uid);
+                logs.sort((a, b) => new Date(b.clockIn || 0).getTime() - new Date(a.clockIn || 0).getTime());
+                
+                const openLogs = logs.filter(l => l.status === 'open');
+                setActiveLog(openLogs.length > 0 ? openLogs[0] : null);
+                setTimeLogs(logs);
+                setLoadingClock(false);
+            },
+            (err) => {
+                console.error(err);
+                setLoadingClock(false);
             }
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoadingClock(false);
-        }
-    };
+        );
 
-    const fetchTimesheets = async () => {
-        try {
-            const res = await api.get(`/businesses/${tenantId}/time_logs?userId=${currentUser?.uid}`);
-            setTimeLogs(res.data);
-        } catch (err) {
-            console.error(err);
+        let unsubRequests = () => {};
+        if (activeTab === 'requests') {
+            unsubRequests = onSnapshot(
+                collection(db, 'businesses', tenantId, 'time_off_requests'),
+                (snap) => {
+                    let reqs: any[] = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    reqs = reqs.filter(r => r.userId === currentUser.uid);
+                    reqs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                    setRequests(reqs);
+                },
+                (err) => console.error(err)
+            );
         }
-    };
 
-    const fetchRequests = async () => {
-        try {
-            const res = await api.get(`/businesses/${tenantId}/time_off_requests?userId=${currentUser?.uid}`);
-            setRequests(res.data);
-        } catch (err) {
-            console.error(err);
-        }
-    };
+        return () => {
+            unsubLogs();
+            unsubRequests();
+        };
+    }, [tenantId, activeTab, currentUser?.uid]);
 
     const handleClockAction = async (action: 'clock_in' | 'clock_out' | 'start_break' | 'end_break') => {
         try {
@@ -107,7 +108,6 @@ export function TimeClockApp() {
             }
 
             toast.success("Time recorded successfully.", { id: 'clock_action' });
-            fetchActiveLog();
             window.dispatchEvent(new Event('time_punch_updated'));
         } catch (err) {
             console.error(err);
@@ -216,7 +216,6 @@ export function TimeClockApp() {
             });
             toast.success("Request submitted.");
             setRequestForm({ type: 'pto', date: '', reason: '' });
-            fetchRequests();
         } catch (err) {
             toast.error("Failed to submit request.");
         } finally {
@@ -267,7 +266,7 @@ export function TimeClockApp() {
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                             <Clock className="w-24 h-24 text-zinc-800 mb-6" />
                             <h2 className="text-2xl font-black text-white mb-2">My Timeclock</h2>
-                            <p className="text-zinc-500 max-w-md mx-auto mb-12">Click below to record your hours or take a break. Remember to always punch out at the end of your shift.</p>
+                            <p className="text-zinc-500 max-w-md mx-auto mb-12">Click below to record your hours or take a break. Remember to always punch out at the end of your shift. <br/><span className="text-pink-500 font-mono text-[10px]">DEBUG: db length={timeLogs.length} | uid={currentUser?.uid}</span></p>
                             
                             {loadingClock ? (
                                 <div className="animate-pulse bg-zinc-800 h-16 w-64 rounded-2xl"></div>

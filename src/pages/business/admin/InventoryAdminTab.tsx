@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ScanLine, Plus, RefreshCw, ArrowLeft, Save, AlertTriangle, PackageSearch, Tag, ChevronRight, Hash, History, TrendingUp, TrendingDown, ClipboardCheck, AlertCircle, FlaskConical } from 'lucide-react';
 import { api } from '../../../lib/api';
-
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../../lib/firebase';
 
 export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
     const { checkPermission } = usePermissions();
@@ -40,18 +41,27 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
         notes: ''
     });
 
-    const fetchInventory = async () => {
-        try {
-            setLoading(true);
-            const res = await api.get(`/inventory?tenantId=${tenantId}`);
-            setItems(res.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load inventory data.");
-        } finally {
+    useEffect(() => {
+        if (!tenantId || tenantId === 'unassigned') {
             setLoading(false);
+            return;
         }
-    };
+
+        setLoading(true);
+
+        const unsubInventory = onSnapshot(query(collection(db, 'inventory'), where('tenantId', '==', tenantId)), (s) => {
+            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const nameA = a.name || '';
+                const nameB = b.name || '';
+                return nameA.localeCompare(nameB);
+            });
+            setItems(fetched);
+            setLoading(false);
+        });
+
+        return () => unsubInventory();
+    }, [tenantId]);
 
     const fetchLogs = async (itemId: string) => {
         if (!itemId || itemId === 'new') return;
@@ -67,9 +77,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
         }
     }
 
-    useEffect(() => {
-        fetchInventory();
-    }, [tenantId]);
+    // Using effect for unmount was moved up
 
     const openItemProfile = (item: any) => {
         setSelectedItem(item);
@@ -137,7 +145,6 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
                 payload.quantityOnOrder = Number(editForm.quantityOnOrder);
                 await api.post(`/inventory`, payload);
                 toast.success("Item added to catalog");
-                fetchInventory();
                 closeEditItem();
             } else {
                 // Update doesn't push quantity changes directly anymore, handles through logs
@@ -147,7 +154,6 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
                 
                 await api.put(`/inventory/${selectedItem.id}`, payload);
                 toast.success("Item characteristics updated");
-                fetchInventory();
                 closeEditItem();
             }
         } catch (err) {
@@ -166,7 +172,6 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
             if (selectedItem?.id === itemId) {
                 closeEditItem();
             }
-            fetchInventory();
         } catch (err) {
             toast.error("Failed to remove item");
         }
@@ -188,7 +193,6 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
             setLogModalOpen(false);
             setLogForm({ quantityChange: '', notes: '', targetRef: '' });
             fetchLogs(selectedItem.id);
-            fetchInventory(); // refresh list to update metrics
             
             // Re-fetch current selected item data to reflect immediately
             const res = await api.get(`/inventory/${selectedItem.id}`);
@@ -517,9 +521,10 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
                     <p className="text-zinc-500 text-xs">Manage workspace parts catalog and bin locations.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchInventory} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Live
+                    </div>
                     {canManageInventory && (
                         <button 
                             onClick={openAddItem}

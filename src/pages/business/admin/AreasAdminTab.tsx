@@ -4,6 +4,8 @@ import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../../lib/firebase';
 
 export function AreasAdminTab({ tenantId }: { tenantId: string }) {
     const { checkPermission } = usePermissions();
@@ -29,21 +31,26 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
         notes: ''
     });
 
-    const fetchAreas = async () => {
-        try {
-            setLoading(true);
-            const res = await api.get(`/areas?tenantId=${tenantId}`);
-            setAreas(res.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load map zones.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchAreas();
+        if (!tenantId || tenantId === 'unassigned') {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+
+        const unsubAreas = onSnapshot(query(collection(db, 'areas'), where('tenantId', '==', tenantId)), (s) => {
+            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const labelA = a.label || '';
+                const labelB = b.label || '';
+                return labelA.localeCompare(labelB);
+            });
+            setAreas(fetched);
+            setLoading(false);
+        });
+
+        return () => unsubAreas();
     }, [tenantId]);
 
     const openAreaProfile = (area: any) => {
@@ -99,8 +106,6 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
                 await api.put(`/areas/${selectedArea.id}`, payload);
                 toast.success("Zone updated successfully");
             }
-            
-            fetchAreas();
             closeEditArea();
         } catch (err) {
             console.error(err);
@@ -118,7 +123,6 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
             if (selectedArea?.id === areaId) {
                 closeEditArea();
             }
-            fetchAreas();
         } catch (err) {
             toast.error("Failed to remove area");
         }
@@ -391,9 +395,10 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
                     <p className="text-zinc-500 text-xs">Manage bays, parking zones, equipment boundaries, and work areas.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchAreas} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Live
+                    </div>
                     {canManageAreas && (
                         <button 
                             onClick={openAddArea}

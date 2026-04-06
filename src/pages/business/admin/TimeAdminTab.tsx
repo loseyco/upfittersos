@@ -8,8 +8,9 @@ import { useAuth } from '../../../contexts/AuthContext';
 
 export function TimeAdminTab({ tenantId }: { tenantId: string }) {
     const { currentUser } = useAuth();
-    const [activeTab, setActiveTab] = useState<'dashboard' | 'timesheets' | 'requests'>('dashboard');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'timesheets' | 'requests' | 'payroll'>('dashboard');
     const [loading, setLoading] = useState(true);
+    const [isFinalizing, setIsFinalizing] = useState(false);
     
     // Core Data State
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
@@ -25,9 +26,9 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
     // Current precise time injected into calculations for live-ticking
     const [nowTick, setNowTick] = useState(Date.now());
 
-    // 1-minute ticker to force re-renders
+    // 1-second ticker to force live re-renders for the payroll dashboard
     useEffect(() => {
-        const tick = setInterval(() => setNowTick(Date.now()), 60000);
+        const tick = setInterval(() => setNowTick(Date.now()), 1000);
         return () => clearInterval(tick);
     }, []);
 
@@ -187,38 +188,128 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
         });
     }, [timeLogs, activePayPeriod]);
 
-    // Segmented payroll calculation
+    // Segmented payroll calculation mapped down to the individual employee vector
     const payrollBreakdown = useMemo(() => {
-        let hourly = 0;
-        let salary = 0;
-        let contractor = 0;
-        let bookTime = 0;
+        let hourly = 0; let salary = 0; let contractor = 0; let bookTime = 0;
+        const employeeMap = new Map();
 
         filteredTimeLogs.forEach((log: any) => {
             const hours = computeShiftHours(log);
             const user = staffMap.get(log.userId);
-            const rate = parseFloat(user?.payRate || '0');
-            const type = user?.payType || 'hourly';
+            if (!user) return;
+            const rate = parseFloat(user.payRate || '0');
+            const type = user.payType || 'hourly';
 
-            if (type === 'hourly') hourly += (hours * rate);
-            if (type === 'contractor') contractor += (hours * rate);
+            if (!employeeMap.has(user.uid)) {
+               employeeMap.set(user.uid, { name: `${user.firstName} ${user.lastName}`, type, totalHours: 0, rate, gross: 0 });
+            }
+            const emp = employeeMap.get(user.uid);
+            emp.totalHours += hours;
+
+            if (type === 'hourly') {
+                 hourly += (hours * rate);
+                 emp.gross += (hours * rate);
+            }
+            if (type === 'contractor') {
+                 contractor += (hours * rate);
+                 emp.gross += (hours * rate);
+            }
         });
 
-        // Calculate active salary staff base amounts
+        // Calculate active salary staff base amounts (pro-rated per cycle)
         staff.forEach((user: any) => {
            if (user.payType === 'salary') {
-               salary += parseFloat(user?.payRate || '0');
+               const annual = parseFloat(user?.payRate || '0');
+               let divisor = 26; // biweekly default
+               if (payCycle === 'weekly') divisor = 52;
+               else if (payCycle === 'monthly') divisor = 12;
+               else if (payCycle === 'semimonthly') divisor = 24;
+               
+               const gross = Math.round((annual / divisor) * 100) / 100;
+               salary += gross;
+
+               if (!employeeMap.has(user.uid)) {
+                   employeeMap.set(user.uid, { name: `${user.firstName} ${user.lastName}`, type: 'salary', totalHours: 0, rate: annual, gross });
+               } else {
+                   // If they had logs for attendance, just sync gross
+                   employeeMap.get(user.uid).gross = gross;
+                   employeeMap.get(user.uid).rate = annual;
+               }
            }
         });
 
         return { 
-            hourly, 
-            salary, 
-            contractor, 
-            bookTime, 
-            total: hourly + salary + contractor + bookTime 
+            hourly, salary, contractor, bookTime, 
+            total: hourly + salary + contractor + bookTime,
+            employeeBreakdown: Array.from(employeeMap.values())
         };
-    }, [filteredTimeLogs, staffMap, staff, nowTick]);
+    }, [filteredTimeLogs, staffMap, staff, nowTick, payCycle]);
+
+    const handleFinalizePayroll = async () => {
+        if (!activePayPeriod) return;
+        
+        const openLogs = filteredTimeLogs.filter((log: any) => log.status === 'open');
+        if (openLogs.length > 0) {
+            toast.error(`Cannot finalize. There are ${openLogs.length} active time punches. Ask staff to clock out first.`, { id: 'payroll_err' });
+            return;
+        }
+
+        const unpaidLogs = filteredTimeLogs.filter((log: any) => log.status === 'closed');
+        if (unpaidLogs.length === 0) {
+            toast.error("There are no unpaid timesheets to process for this sequence.", { id: 'payroll_err' });
+            return;
+        }
+
+        try {
+            setIsFinalizing(true);
+            const toastId = toast.loading('Locking and finalizing payroll...', { id: 'payroll_process' });
+            
+            const payload = {
+                startDate: activePayPeriod.start.toISOString(),
+                endDate: activePayPeriod.end.toISOString(),
+                totals: payrollBreakdown,
+                timeLogIds: unpaidLogs.map((log: any) => log.id),
+                timeOffRequestIds: [] // PTO arrays to be added
+            };
+
+            const res = await api.post(`/businesses/${tenantId}/payroll_runs`, payload);
+            toast.success('Payroll sequence finalized and locked successfully!', { id: toastId });
+            fetchData();
+            
+            // Allow immediate jump to the new run? 
+            // In future, redirect to the View Run detail modal
+        } catch (err: any) {
+            console.error("Payroll finalization failed:", err);
+            toast.error(err.response?.data?.error || 'Failed to lock payroll records.', { id: 'payroll_process' });
+        } finally {
+            setIsFinalizing(false);
+        }
+    };
+
+    const handleExportCSV = () => {
+        const rows = [
+            ["Employee Name", "Pay Type", "Total Hours", "Pay Rate", "Gross Pay Est."]
+        ];
+
+        payrollBreakdown.employeeBreakdown.forEach((emp: any) => {
+            rows.push([
+                `"${emp.name}"`, 
+                emp.type, 
+                emp.totalHours.toFixed(2), 
+                emp.rate.toFixed(2), 
+                emp.gross.toFixed(2)
+            ]);
+        });
+
+        const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Payroll_Export_${activePayPeriod?.start.toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
 
     return (
         <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto w-full">
@@ -269,6 +360,12 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                 {requests.filter((r: any) => r.status === 'pending').length}
                             </span>
                         )}
+                    </button>
+                    <button 
+                        onClick={() => setActiveTab('payroll')}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-2 border-l border-zinc-800 ml-1 pl-5 ${activeTab === 'payroll' ? 'bg-emerald-500/10 text-emerald-400' : 'text-emerald-500 hover:bg-emerald-500/5'}`}
+                    >
+                        <Download className="w-4 h-4" /> Run Payroll
                     </button>
                 </div>
                 </div>
@@ -533,6 +630,74 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                         </div>
                                     );
                                 })}
+                            </div>
+                        )}
+
+                        {/* Payroll Finalization View */}
+                        {activeTab === 'payroll' && (
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+                                <div className="mb-6 pb-6 border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-2">
+                                            <Download className="w-5 h-5 text-emerald-500" /> Run Payroll & Export
+                                        </h3>
+                                        <p className="text-sm text-zinc-400">Finalize the active cycle to calculate exact totals (including PTO) and map to QuickBooks.</p>
+                                    </div>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <button 
+                                            onClick={handleExportCSV}
+                                            className="font-bold px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700"
+                                        >
+                                            <Download className="w-4 h-4" /> Download QBO CSV
+                                        </button>
+                                        <button 
+                                            onClick={handleFinalizePayroll}
+                                            disabled={isFinalizing}
+                                            className={`font-bold px-6 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-center gap-2 shrink-0 ${isFinalizing ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'}`}
+                                        >
+                                            <CheckCircle className="w-4 h-4" /> {isFinalizing ? 'Locking Sequence...' : 'Lock & Finalize Sequence'}
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <div className="space-y-6">
+                                    <h4 className="font-bold text-zinc-500 text-xs uppercase tracking-widest bg-zinc-950 inline-block px-3 py-1 rounded-lg border border-zinc-800">
+                                        Sequence Window: {activePayPeriod?.start.toLocaleDateString()} — {activePayPeriod?.end.toLocaleDateString()}
+                                    </h4>
+                                    
+                                    <div className="bg-zinc-950 border border-emerald-500/20 rounded-xl p-8 relative overflow-hidden">
+                                        <div className="absolute -top-12 -right-12">
+                                            <Activity className="w-48 h-48 text-emerald-500 opacity-5" />
+                                        </div>
+                                        <div className="flex flex-col md:flex-row justify-between items-center relative z-10 gap-6">
+                                            <div>
+                                                <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center gap-2"><div className="w-2 h-2 rounded-full border border-emerald-500 animate-pulse bg-emerald-500/50"></div> Total Projected Expenditures</h4>
+                                                <div className="text-5xl font-black text-emerald-400 font-mono tracking-tighter">
+                                                    ${payrollBreakdown.total.toFixed(2)}
+                                                </div>
+                                            </div>
+                                            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 w-full md:w-64">
+                                                <div className="flex justify-between items-center py-2 border-b border-zinc-800/50">
+                                                    <span className="text-xs font-bold text-zinc-500 uppercase">Hourly Pay</span>
+                                                    <span className="text-sm text-zinc-300 font-bold font-mono">${payrollBreakdown.hourly.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2 border-b border-zinc-800/50">
+                                                    <span className="text-xs font-bold text-zinc-500 uppercase">Salary (Base)</span>
+                                                    <span className="text-sm text-zinc-300 font-bold font-mono">${payrollBreakdown.salary.toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center py-2">
+                                                    <span className="text-xs font-bold text-amber-500 uppercase px-1.5 py-0.5 bg-amber-500/10 rounded">PTO Extrapolations</span>
+                                                    <span className="text-sm text-amber-500 font-bold font-mono">$0.00</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-xl p-6">
+                                        <h4 className="text-yellow-500 font-bold text-sm mb-2">Phase 10 & 11 Development Notice</h4>
+                                        <p className="text-zinc-400 text-sm">The PTO computation logic and Shift Exception (Late/Early) algorithms are currently under construction. QuickBooks Online mapping configuration options will appear here once the core logic engine is stabilized.</p>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </>

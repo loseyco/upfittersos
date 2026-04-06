@@ -3,7 +3,10 @@ import { Users, AlertTriangle, Edit2, Plus, RefreshCw, Building2, FlaskConical, 
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import { api } from '../../../lib/api';
-import toast from 'react-hot-toast';import { usePermissions } from '../../../hooks/usePermissions';
+import toast from 'react-hot-toast';
+import { usePermissions } from '../../../hooks/usePermissions';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../../lib/firebase';
 
 export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
     const { checkPermission } = usePermissions();
@@ -130,8 +133,6 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                 await api.put(`/customers/${selectedCustomer.id}`, payload);
                 toast.success("Customer updated successfully");
             }
-            
-            fetchCustomers();
             closeEditCustomer();
         } catch (err) {
             console.error(err);
@@ -157,35 +158,55 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
             tags: editForm.tags.filter(t => t !== tagToRemove)
         });
     };
-    const fetchCustomers = async () => {
-        try {
-            setLoading(true);
-            const res = await api.get(`/customers?tenantId=${tenantId}`);
-            setCustomers(res.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load customers.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchCustomers();
+        if (!tenantId || tenantId === 'unassigned') {
+            setLoading(false);
+            return;
+        }
+        
+        setLoading(true);
+
+        const unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (s) => {
+            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const nameA = (a.firstName || '') + ' ' + (a.lastName || '');
+                const nameB = (b.firstName || '') + ' ' + (b.lastName || '');
+                return nameA.localeCompare(nameB);
+            });
+            setCustomers(fetched);
+            setLoading(false);
+        });
+
+        return () => unsubCustomers();
     }, [tenantId]);
 
     // Contextual Hydration
     useEffect(() => {
         if (!selectedCustomer || selectedCustomer.id === 'new') return;
+        
+        let unsubVehicles: (() => void) | undefined;
+        let unsubJobs: (() => void) | undefined;
+
         if (activeProfileTab === 'vehicles') {
-            api.get(`/vehicles?tenantId=${tenantId}`).then(res => {
-                setCustomerVehicles(res.data.filter((v: any) => v.customerId === selectedCustomer.id));
-            }).catch(console.error);
+            unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId), where('customerId', '==', selectedCustomer.id)), (s) => {
+                setCustomerVehicles(s.docs.map(d => ({id: d.id, ...d.data()})));
+            });
         } else if (activeProfileTab === 'jobs') {
-            api.get(`/jobs?tenantId=${tenantId}`).then(res => {
-                setCustomerJobs(res.data.filter((j: any) => j.customerId === selectedCustomer.id));
-            }).catch(console.error);
+            unsubJobs = onSnapshot(query(collection(db, 'jobs'), where('tenantId', '==', tenantId), where('customerId', '==', selectedCustomer.id)), (s) => {
+                const loaded = s.docs.map(d => ({id: d.id, ...d.data()}));
+                loaded.sort((a: any, b: any) => {
+                    const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                    const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                    return timeB - timeA;
+                });
+                setCustomerJobs(loaded);
+            });
         }
+
+        return () => {
+            if (unsubVehicles) unsubVehicles();
+            if (unsubJobs) unsubJobs();
+        };
     }, [activeProfileTab, selectedCustomer, tenantId]);
 
     const handleDeleteCustomer = async (customerId: string) => {
@@ -196,7 +217,6 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
             if (selectedCustomer?.id === customerId) {
                 closeEditCustomer();
             }
-            fetchCustomers();
         } catch (err) {
             toast.error("Failed to remove customer");
         }
@@ -558,8 +578,7 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                                         return;
                                                     }
                                                     const payload = { ...quickAddJobForm, customerId: selectedCustomer.id, tenantId, status: 'Pending' };
-                                                    const res = await api.post('/jobs', payload);
-                                                    setCustomerJobs([res.data, ...customerJobs]);
+                                                    await api.post('/jobs', payload);
                                                     setShowQuickAddJob(false);
                                                     setQuickAddJobForm({ title: '', priority: 'Medium' });
                                                     toast.success("Work Order Created!");
@@ -649,8 +668,7 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                             onClick={async () => {
                                                 try {
                                                     const payload = { ...quickAddVehicleForm, customerId: selectedCustomer.id, tenantId, status: 'Active' };
-                                                    const res = await api.post('/vehicles', payload);
-                                                    setCustomerVehicles([res.data, ...customerVehicles]);
+                                                    await api.post('/vehicles', payload);
                                                     setShowQuickAddVehicle(false);
                                                     setQuickAddVehicleForm({ year: '', make: '', model: '', vin: '', licensePlate: '' });
                                                     toast.success("Vehicle registered and linked!");
@@ -721,9 +739,10 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                     <p className="text-zinc-500 text-xs">Manage client portfolios tracked in this workspace.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchCustomers} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Live
+                    </div>
                     {canManageCustomers && (
                         <button 
                             onClick={openAddCustomer}

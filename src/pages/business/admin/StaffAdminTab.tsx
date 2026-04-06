@@ -58,7 +58,6 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
         roles: [] as string[],
         customPermissions: {} as Record<string, boolean>
     });
-
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !selectedUser) return;
@@ -824,15 +823,26 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Pay Rate</label>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">
+                                    {editForm.payType === 'salary' ? 'Annual Salary' : editForm.payType === 'contractor' ? '1099 Hourly Rate' : editForm.payType === 'book_time' ? 'Flat Rate Value' : 'Hourly Rate'}
+                                </label>
                                 <div className="relative">
                                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 font-bold">$</span>
                                     <input 
-                                        type="number" 
-                                        step="0.01"
+                                        type="text"
                                         placeholder="25.50"
-                                        value={editForm.payRate}
-                                        onChange={(e) => setEditForm({...editForm, payRate: e.target.value})}
+                                        value={(() => {
+                                           if (!editForm.payRate) return '';
+                                           const parts = editForm.payRate.split('.');
+                                           parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+                                           return parts.join('.');
+                                        })()}
+                                        onChange={(e) => {
+                                           let val = e.target.value.replace(/[^0-9.]/g, '');
+                                           const parts = val.split('.');
+                                           if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                                           setEditForm({...editForm, payRate: val});
+                                        }}
                                         className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-4 py-3 text-sm focus:outline-none focus:border-emerald-400/50 text-white"
                                     />
                                 </div>

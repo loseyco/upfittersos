@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ClipboardList, Trash2, Edit2, Plus, RefreshCw, X } from 'lucide-react';
+import { ClipboardList, Trash2, Edit2, Plus, X } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../../lib/firebase';
 
 export function TasksAdminTab({ tenantId }: { tenantId: string }) {
     const [tasks, setTasks] = useState<any[]>([]);
@@ -20,33 +22,35 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
     const [editType, setEditType] = useState('Standard');
     const [editAssignee, setEditAssignee] = useState('');
 
-    const fetchTasks = async () => {
-        try {
-            const res = await api.get(`/tasks?tenantId=${tenantId}`);
-            setTasks(res.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load tasks.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const fetchStaff = async () => {
-        try {
-            const res = await api.get(`/businesses/${tenantId}/staff`);
-            setStaff(res.data);
-            if (res.data.length > 0) {
-                setTaskAssignee(res.data[0].uid);
-            }
-        } catch (err) {
-            console.error("Failed to load staff for task assignment", err);
-        }
-    };
-
     useEffect(() => {
-        fetchTasks();
-        fetchStaff();
+        if (!tenantId || tenantId === 'unassigned') {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+
+        const unsubTasks = onSnapshot(query(collection(db, 'tasks'), where('tenantId', '==', tenantId)), (s) => {
+            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                return timeB - timeA;
+            });
+            setTasks(fetched);
+            setLoading(false);
+        });
+
+        const unsubStaff = onSnapshot(collection(db, 'businesses', tenantId, 'staff'), (s) => {
+            const loadedStaff = s.docs.map(d => ({ id: d.id, ...d.data() } as any));
+            setStaff(loadedStaff);
+            setTaskAssignee(prev => prev || (loadedStaff[0]?.uid || loadedStaff[0]?.id || ''));
+        });
+
+        return () => {
+            unsubTasks();
+            unsubStaff();
+        };
     }, [tenantId]);
 
     const handleCreateTask = async (e: React.FormEvent) => {
@@ -64,7 +68,6 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
             toast.success("Task assigned successfully");
             setShowAddForm(false);
             setTaskTitle('');
-            fetchTasks();
         } catch (err) {
             console.error(err);
             toast.error("Failed to create task");
@@ -86,7 +89,6 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
             });
             toast.success("Task updated successfully");
             setEditTask(null);
-            fetchTasks();
         } catch (err) {
             console.error(err);
             toast.error("Failed to update task");
@@ -100,7 +102,6 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
         try {
             await api.put(`/tasks/${taskId}`, { status: newStatus });
             toast.success(`Task marked as ${newStatus}`);
-            fetchTasks();
         } catch (err) {
             toast.error("Failed to update task status");
         }
@@ -111,7 +112,6 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
         try {
             await api.delete(`/tasks/${taskId}`);
             toast.success("Task removed");
-            fetchTasks();
         } catch (err) {
             toast.error("Failed to remove task");
         }
@@ -130,9 +130,10 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                     <p className="text-zinc-500 text-xs mt-0.5">Manage tasks assigned to your staff.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchTasks} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Live
+                    </div>
                     <button 
                         onClick={() => setShowAddForm(!showAddForm)}
                         className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"

@@ -3,6 +3,8 @@ import { Truck, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, FileText
 import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../../lib/firebase';
 
 import { usePermissions } from '../../../hooks/usePermissions';
 
@@ -32,25 +34,33 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
         notes: ''
     });
 
-    const fetchVehicles = async () => {
-        try {
-            setLoading(true);
-            const [vehRes, custRes] = await Promise.all([
-                api.get(`/vehicles?tenantId=${tenantId}`),
-                api.get(`/customers?tenantId=${tenantId}`)
-            ]);
-            setVehicles(vehRes.data);
-            setCustomers(custRes.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load platform data.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchVehicles();
+        if (!tenantId || tenantId === 'unassigned') {
+            setLoading(false);
+            return;
+        }
+        
+        setLoading(true);
+
+        const unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (s) => {
+            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                return timeB - timeA;
+            });
+            setVehicles(fetched);
+            setLoading(false);
+        });
+
+        const unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (s) => {
+            setCustomers(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => {
+            unsubVehicles();
+            unsubCustomers();
+        };
     }, [tenantId]);
 
     const openVehicleProfile = (vehicle: any) => {
@@ -109,8 +119,6 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                 await api.put(`/vehicles/${selectedVehicle.id}`, payload);
                 toast.success("Vehicle updated successfully");
             }
-            
-            fetchVehicles();
             closeEditVehicle();
         } catch (err) {
             console.error(err);
@@ -128,7 +136,6 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             if (selectedVehicle?.id === vehicleId) {
                 closeEditVehicle();
             }
-            fetchVehicles();
         } catch (err) {
             toast.error("Failed to remove vehicle");
         }
@@ -424,9 +431,10 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                     <p className="text-zinc-500 text-xs">Manage vehicles, assets, and active upfits in the yard.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchVehicles} className="p-2 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                        <RefreshCw className="w-4 h-4" />
-                    </button>
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Live
+                    </div>
                     {canManageVehicles && (
                         <button 
                             onClick={openAddVehicle}

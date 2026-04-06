@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, deleteDoc, doc, updateDoc, arrayUnion, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, deleteDoc, doc, updateDoc, arrayUnion, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { ArrowLeft, Printer, Trash2, Lightbulb, AlertCircle, Info, Users, Pencil, Calendar, User, Sparkles, MoreHorizontal } from 'lucide-react';
@@ -44,22 +44,19 @@ export function DailyLogs() {
     const [newNoteText, setNewNoteText] = useState<{ [logId: string]: string }>({});
 
     useEffect(() => {
-        fetchLogs();
-    }, [currentUser]);
-
-    const fetchLogs = async () => {
         if (!currentUser || !tenantId) return;
-        try {
-            setLoading(true);
-            const q = query(
-                collection(db, 'daily_logs'),
-                where('tenantId', '==', tenantId),
-                where('userEmail', '==', currentUser.email)
-            );
-            const querySnapshot = await getDocs(q);
+
+        setLoading(true);
+        const q = query(
+            collection(db, 'daily_logs'),
+            where('tenantId', '==', tenantId),
+            where('userEmail', '==', currentUser.email)
+        );
+
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
             const fetchedLogs: LogEntry[] = [];
-            querySnapshot.forEach((doc) => {
-                fetchedLogs.push({ id: doc.id, ...doc.data() } as LogEntry);
+            querySnapshot.forEach((docSnap) => {
+                fetchedLogs.push({ id: docSnap.id, ...docSnap.data() } as LogEntry);
             });
             
             // Sort client-side to avoid requiring a Firestore Composite Index
@@ -70,12 +67,14 @@ export function DailyLogs() {
             });
             
             setLogs(fetchedLogs);
-        } catch (error) {
-            console.error("Error fetching logs: ", error);
-        } finally {
             setLoading(false);
-        }
-    };
+        }, (error) => {
+            console.error("Error fetching logs: ", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [currentUser, tenantId]);
 
     const handleDelete = async (id: string) => {
         if(confirm('Are you sure you want to delete this log?')) {

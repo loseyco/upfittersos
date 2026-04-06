@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { MapPolygonNode } from './canvas/MapPolygonNode';
 import { MapBackgroundNode } from './canvas/MapBackgroundNode';
 import { db } from '../../../lib/firebase';
-import { doc, setDoc, onSnapshot, deleteDoc, arrayUnion } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, deleteDoc, arrayUnion, query, collection, where } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Loader2, Save, X, Plus, Layers, Image as ImageIcon, MousePointer2, PenTool, Trash2, MapPin, Square, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -224,15 +224,12 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL') return;
-        const fetchAreas = async () => {
-            try {
-                const res = await api.get(`/areas?tenantId=${tenantId}`);
-                setAvailableAreas(res.data);
-            } catch (err) {
-                console.error("Failed to load available areas", err);
-            }
-        };
-        fetchAreas();
+        const unsub = onSnapshot(
+            query(collection(db, 'areas'), where('tenantId', '==', tenantId)),
+            (snapshot: any) => setAvailableAreas(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }))),
+            (err: any) => console.error("Failed to load available areas", err)
+        );
+        return () => unsub();
     }, [tenantId]);
 
     const handleLinkArea = async (areaId: string) => {
@@ -284,8 +281,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
         hasUnsavedChangesRef.current = true;
         toast.success(`Successfully linked geometry to ${targetArea.label || 'Area'}`);
         
-        // Refresh available areas
-        api.get(`/areas?tenantId=${tenantId}`).then(res => setAvailableAreas(res.data)).catch(console.error);
+        // Available areas are updated automatically by onSnapshot
     };
 
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, where, addDoc, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -65,18 +65,14 @@ export function MeetingNotes() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchMeetings();
-        fetchContextLogs();
-    }, []);
-
-    const fetchMeetings = async () => {
         if (!tenantId) return;
-        try {
-            const q = query(collection(db, 'meetings'), where('tenantId', '==', tenantId));
-            const snapshot = await getDocs(q);
-            const loadedMeetings = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
+
+        // Meetings listener
+        const meetingsQuery = query(collection(db, 'meetings'), where('tenantId', '==', tenantId));
+        const unsubMeetings = onSnapshot(meetingsQuery, (snapshot) => {
+            const loadedMeetings = snapshot.docs.map(docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
             })) as Meeting[];
             
             // Sort client-side to avoid composite index requirement initially
@@ -84,30 +80,28 @@ export function MeetingNotes() {
 
             setMeetings(loadedMeetings);
             
-            // Auto open the most recent meeting if none is selected
-            if (loadedMeetings.length > 0 && !activeMeeting) {
-                setActiveMeeting(loadedMeetings[0]);
-            }
-        } catch (error) {
-            console.error("Error fetching meetings:", error);
-        }
-    };
+            setActiveMeeting(prev => {
+                if (!prev && loadedMeetings.length > 0) return loadedMeetings[0];
+                if (prev) {
+                    const updated = loadedMeetings.find(m => m.id === prev.id);
+                    if (updated) return updated;
+                }
+                return prev;
+            });
+        }, (error) => console.error("Error fetching meetings:", error));
 
-    const fetchContextLogs = async () => {
-        if (!tenantId) return;
-        try {
-            // Fetch the recent logs that are classified as ISSUE or EFFICIENCY to review in standup
-            const q = query(collection(db, 'daily_logs'), where('tenantId', '==', tenantId));
-            const snapshot = await getDocs(q);
+        // Context logs listener
+        const logsQuery = query(collection(db, 'daily_logs'), where('tenantId', '==', tenantId));
+        const unsubLogs = onSnapshot(logsQuery, (snapshot) => {
             const logs = snapshot.docs
-                .map(doc => ({ id: doc.id, ...doc.data() } as any))
+                .map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as any))
                 .sort((a,b) => {
                     const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
                     const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
                     return timeB - timeA;
                 })
                 .filter(log => log.category === 'ISSUE' || log.category === 'EFFICIENCY')
-                .slice(0, 4) // Keep only top 4 relevant ones
+                .slice(0, 4)
                 .map(log => ({
                     id: log.id,
                     category: log.category,
@@ -115,12 +109,17 @@ export function MeetingNotes() {
                     date: log.date
                 }));
             setRecentLogs(logs);
-        } catch (error) {
-            console.error("Error fetching context logs:", error);
-        } finally {
             setLoading(false);
-        }
-    };
+        }, (error) => {
+            console.error("Error fetching context logs:", error);
+            setLoading(false);
+        });
+
+        return () => {
+            unsubMeetings();
+            unsubLogs();
+        };
+    }, [tenantId]);
 
     const handleNewMeeting = () => {
         setIsEditing(true);
@@ -202,7 +201,6 @@ export function MeetingNotes() {
                 });
             }
             setIsEditing(false);
-            fetchMeetings();
         } catch (error) {
             console.error("Error saving meeting:", error);
         } finally {
@@ -217,7 +215,6 @@ export function MeetingNotes() {
             await deleteDoc(doc(db, 'meetings', activeMeeting.id));
             setIsEditing(false);
             setActiveMeeting(null);
-            fetchMeetings();
         } catch (error) {
             console.error("Error deleting meeting:", error);
         } finally {

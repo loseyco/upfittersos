@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Activity, Clock, Wrench, AlertTriangle, Map as MapIcon, RefreshCw, MapPin, ArrowLeft, ShieldAlert } from 'lucide-react';
-import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
-
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -16,25 +16,45 @@ export function OpsMissionControl() {
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const fetchData = async () => {
-        try {
-            setLoading(true);
-            const [jobsRes, vehRes] = await Promise.all([
-                api.get(`/jobs?tenantId=${tenantId}`),
-                api.get(`/vehicles?tenantId=${tenantId}`)
-            ]);
-            setJobs(jobsRes.data);
-            setVehicles(vehRes.data);
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to load ops data.");
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchData();
+        if (!tenantId || tenantId === 'unassigned') {
+            setLoading(false);
+            return;
+        }
+
+        setLoading(true);
+
+        const qJobs = query(
+            collection(db, 'jobs'),
+            where('tenantId', '==', tenantId)
+        );
+
+        const unsubJobs = onSnapshot(qJobs, (snapshot) => {
+            const loadedJobs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setJobs(loadedJobs);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching jobs:", error);
+            toast.error("Failed to load live ops data");
+            setLoading(false);
+        });
+
+        const qVehicles = query(
+            collection(db, 'vehicles'),
+            where('tenantId', '==', tenantId)
+        );
+
+        const unsubVehicles = onSnapshot(qVehicles, (snapshot) => {
+            const loadedVehICLES = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setVehicles(loadedVehICLES);
+        }, (error) => {
+            console.error("Error fetching vehicles:", error);
+        });
+
+        return () => {
+            unsubJobs();
+            unsubVehicles();
+        };
     }, [tenantId]);
 
     if (permsLoading || loading) {
@@ -92,10 +112,10 @@ export function OpsMissionControl() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={fetchData} className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-500/20 transition-colors">
+                    <div className="text-xs font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-lg flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                         Live Sync
-                    </button>
+                    </div>
                 </div>
             </div>
 

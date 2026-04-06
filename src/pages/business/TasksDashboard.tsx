@@ -3,6 +3,8 @@ import { ClipboardList, CheckCircle2, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 
 export function TasksDashboard() {
     const { currentUser, tenantId } = useAuth();
@@ -14,23 +16,38 @@ export function TasksDashboard() {
     const [feedback, setFeedback] = useState({ good: '', badUgly: '', wishlist: '', positionNotes: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const fetchTasks = async () => {
-        try {
-            const res = await api.get(`/tasks?tenantId=${tenantId}`);
-            setTasks(res.data);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        if (currentUser && tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-            fetchTasks();
-        } else if (currentUser) {
+        if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
             setLoading(false);
+            return;
         }
+
+        setLoading(true);
+        const q = query(
+            collection(db, 'tasks'),
+            where('tenantId', '==', tenantId)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const loadedTasks = snapshot.docs.map(docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
+            }));
+            
+            loadedTasks.sort((a: any, b: any) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                return timeB - timeA;
+            });
+            
+            setTasks(loadedTasks);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching tasks:", error);
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
     }, [currentUser, tenantId]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -43,7 +60,6 @@ export function TasksDashboard() {
             });
             toast.success("Task securely submitted.");
             setActiveTask(null);
-            fetchTasks();
         } catch (err) {
             toast.error("Failed to submit assignment.");
         } finally {
