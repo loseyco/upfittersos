@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock } from 'lucide-react';
+import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock, Megaphone, Camera, Package } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StaffAdminTab } from './admin/StaffAdminTab';
 import { TasksAdminTab } from './admin/TasksAdminTab';
+import { TaskTemplatesAdminTab } from './admin/TaskTemplatesAdminTab';
 import { CustomersAdminTab } from './admin/CustomersAdminTab';
 import { FacilityMapTab } from './admin/FacilityMapTab';
 
@@ -14,14 +15,20 @@ import { FinancesAdminTab } from './admin/FinancesAdminTab';
 import { AreasAdminTab } from './admin/AreasAdminTab';
 import { ReportsAdminTab } from './admin/ReportsAdminTab';
 import { BusinessSettingsTab } from './admin/BusinessSettingsTab';
+import { NoticesAdminTab } from './admin/NoticesAdminTab';
 import { RolesAdminTab } from './admin/RolesAdminTab';
 import { FeedbackAdminTab } from './admin/FeedbackAdminTab';
 import { TimeAdminTab } from './admin/TimeAdminTab';
+import { CompanyCamTestTab } from './admin/CompanyCamTestTab';
+import { AuditLogsTab } from './admin/AuditLogsTab';
+import { DeliveriesAdminTab } from './admin/DeliveriesAdminTab';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { usePermissions } from '../../hooks/usePermissions';
+import { DEFAULT_FEATURE_STATE } from '../../lib/features';
+import type { FeatureVersion } from '../../lib/features';
 
 export function BusinessAdminSuite() {
     const { tenantId, role } = useAuth();
@@ -29,14 +36,16 @@ export function BusinessAdminSuite() {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
 
-    
     // Super Admin Workspace Selection State
     const [businesses, setBusinesses] = useState<any[]>([]);
     const [isLoadingSpaces, setIsLoadingSpaces] = useState(false);
     
-    // Fetch businesses if global
+    // Feature flag state
+    const [enabledFeatures, setEnabledFeatures] = useState<Record<string, FeatureVersion>>({});
+
+    // Fetch workspaces if global super admin
     useEffect(() => {
-        if (role === 'super_admin' && (tenantId === 'GLOBAL' || !tenantId)) {
+        if ((role === 'system_owner' || role === 'super_admin') && (tenantId === 'GLOBAL' || !tenantId)) {
             const fetchSpaces = async () => {
                 setIsLoadingSpaces(true);
                 try {
@@ -53,6 +62,28 @@ export function BusinessAdminSuite() {
         }
     }, [role, tenantId]);
 
+    // Fetch local workspace features
+    useEffect(() => {
+        const fetchWorkspaceFlags = async () => {
+            if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
+                try {
+                    const res = await api.get(`/businesses/${tenantId}`);
+                    if (res.data) {
+                        const isDev = window.location.hostname.includes('dev.') || window.location.hostname === 'localhost';
+                        if (isDev && res.data.enabledFeaturesDev) {
+                            setEnabledFeatures(res.data.enabledFeaturesDev);
+                        } else {
+                            setEnabledFeatures(res.data.enabledFeatures || {});
+                        }
+                    }
+                } catch (err) {
+                    console.error("Failed to load workspace flags", err);
+                }
+            }
+        };
+        fetchWorkspaceFlags();
+    }, [tenantId]);
+
     const handleJumpCommand = async (targetId: string) => {
         try {
             toast.loading("Establishing contextual proxy...", { id: 'jump' });
@@ -68,22 +99,33 @@ export function BusinessAdminSuite() {
         }
     };
     
-    // Sidebar Navigation Items conditionally loaded based on granular permissions or role defaults
-    const navItems = [
+    const isHidden = (featureId: string): boolean => {
+        if (role === 'system_owner' || role === 'super_admin') return false; // super admins bypass
+        const version = enabledFeatures[featureId] || DEFAULT_FEATURE_STATE[featureId] || 'disabled';
+        return version === 'disabled';
+    };
+
+    // Sidebar Navigation Items conditionally loaded based on granular permissions or role defaults AND deployment rings
+    const navItems: Array<{ id: string, label: string, icon: React.ElementType }> = [
         ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
-        ...(checkPermission('manage_roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
-        ...(checkPermission('manage_staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
-        ...(checkPermission('manage_tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
-        ...(checkPermission('view_customers') ? [{ id: 'customers', label: 'Customer Management', icon: Users }] : []),
-        ...(checkPermission('view_vehicles') ? [{ id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck }] : []),
-        ...(checkPermission('view_jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
-        ...(checkPermission('view_areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
-        ...(checkPermission('view_inventory') ? [{ id: 'inventory', label: 'Inventory (WMS)', icon: ScanLine }] : []),
-        ...(checkPermission('manage_timesheets') ? [{ id: 'time', label: 'Time & Payroll', icon: Clock }] : []),
-        ...(checkPermission('view_financials') ? [{ id: 'finances', label: 'Finances & Billing*', icon: DollarSign }] : []),
-        ...(checkPermission('view_financials') ? [{ id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 }] : []),
-        ...(checkPermission('manage_settings') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
-        ...(checkPermission('manage_facility_map') ? [{ id: 'facility', label: 'Facility Map Editor', icon: MapIcon }] : [])
+        ...(checkPermission('manage_roles') && !isHidden('roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
+        ...(checkPermission('manage_staff') && !isHidden('staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
+        ...(checkPermission('manage_tasks') && !isHidden('tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
+        ...(checkPermission('manage_jobs') && !isHidden('jobs') ? [{ id: 'task_templates', label: 'Service Catalog', icon: Briefcase }] : []),
+        ...(checkPermission('view_customers') && !isHidden('customers') ? [{ id: 'customers', label: 'Customer Management', icon: Users }] : []),
+        ...(checkPermission('view_vehicles') && !isHidden('vehicles') ? [{ id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck }] : []),
+        ...(checkPermission('view_jobs') && !isHidden('jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
+        ...(checkPermission('view_areas') && !isHidden('areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
+        ...(checkPermission('view_inventory') && !isHidden('inventory') ? [{ id: 'inventory', label: 'Inventory (WMS)', icon: ScanLine }] : []),
+        ...(checkPermission('manage_timesheets') && !isHidden('time') ? [{ id: 'time', label: 'Time & Payroll', icon: Clock }] : []),
+        ...(checkPermission('view_financials') && !isHidden('finances') ? [{ id: 'finances', label: 'Finances & Billing*', icon: DollarSign }] : []),
+        ...(checkPermission('view_financials') && !isHidden('reports') ? [{ id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 }] : []),
+        ...(checkPermission('manage_settings') && !isHidden('feedback') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
+        ...(checkPermission('manage_settings') && !isHidden('notices') ? [{ id: 'notices', label: 'Global Notices', icon: Megaphone }] : []),
+        ...(checkPermission('manage_settings') && !isHidden('companycam') ? [{ id: 'companycam', label: 'CompanyCam Test', icon: Camera }] : []),
+        ...(checkPermission('view_audit_logs') && !isHidden('audit') ? [{ id: 'audit', label: 'Security & Audit Logs', icon: ShieldAlert }] : []),
+        ...(checkPermission('manage_facility_map') && !isHidden('facility_map') ? [{ id: 'facility', label: 'Facility Map Editor', icon: MapIcon }] : []),
+        ...(checkPermission('view_deliveries') && !isHidden('deliveries') ? [{ id: 'deliveries', label: 'Receiving (Deliveries)', icon: Package }] : [])
     ];
 
     const hasAdminAccess = navItems.length > 0;
@@ -119,7 +161,7 @@ export function BusinessAdminSuite() {
     }
 
     if (!tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
-        if (role === 'super_admin') {
+        if (role === 'system_owner' || role === 'super_admin') {
             return (
                 <div className="min-h-screen bg-zinc-950 p-6 md:p-12 relative overflow-y-auto w-full">
                     {/* Background Detail */}
@@ -218,7 +260,7 @@ export function BusinessAdminSuite() {
                         <button
                             key={item.id}
                             onClick={() => handleTabSwitch(item.id)}
-                            className={`flex flex-1 md:w-full items-center justify-center md:justify-start gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${
+                            className={`flex shrink-0 md:w-full items-center justify-center md:justify-start gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap ${
                                 activeTab === item.id 
                                 ? 'bg-accent/10 text-accent border border-accent/20' 
                                 : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
@@ -239,6 +281,7 @@ export function BusinessAdminSuite() {
                     {activeTab === 'roles' && <RolesAdminTab tenantId={tenantId} />}
                     {activeTab === 'staff' && <StaffAdminTab tenantId={tenantId} />}
                     {activeTab === 'tasks' && <TasksAdminTab tenantId={tenantId} />}
+                    {activeTab === 'task_templates' && <TaskTemplatesAdminTab tenantId={tenantId} />}
                     {activeTab === 'customers' && <CustomersAdminTab tenantId={tenantId} />}
                     { activeTab === 'vehicles' && <VehiclesAdminTab tenantId={tenantId} />}
                     { activeTab === 'jobs' && <JobsAdminTab tenantId={tenantId} /> }
@@ -248,6 +291,10 @@ export function BusinessAdminSuite() {
                     { activeTab === 'finances' && <FinancesAdminTab tenantId={tenantId} /> }
                     { activeTab === 'reports' && <ReportsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'feedback' && <FeedbackAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'notices' && <NoticesAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'companycam' && <CompanyCamTestTab tenantId={tenantId} /> }
+                    { activeTab === 'audit' && <AuditLogsTab tenantId={tenantId} /> }
+                    { activeTab === 'deliveries' && <DeliveriesAdminTab tenantId={tenantId} /> }
 
                     {activeTab === 'facility' && <FacilityMapTab tenantId={tenantId} />}
                 </div>

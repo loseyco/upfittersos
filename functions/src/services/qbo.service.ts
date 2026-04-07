@@ -1,8 +1,9 @@
 import * as admin from 'firebase-admin';
+import axios from 'axios';
 
 export class QboService {
-  private clientId = process.env.QBO_CLIENT_ID || '';
-  private clientSecret = process.env.QBO_CLIENT_SECRET || '';
+  private clientId = process.env.QBO_CLIENT_ID || 'ABVsSlEZuGdZ5HQ8X4IqhzazxMiyvd6yqvtVWGYqoXVPbtuLnd';
+  private clientSecret = process.env.QBO_CLIENT_SECRET || 'UhNswEFsyidxRmMfKXrRCpJiTCNGYE93fonrRREv';
   private redirectUri = process.env.QBO_REDIRECT_URI || 'http://localhost:5001/saegroup-c6487/us-central1/api/qbo/callback';
   private environment = process.env.QBO_ENVIRONMENT || 'sandbox';
 
@@ -34,26 +35,20 @@ export class QboService {
     const tokenEndpoint = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
     const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
 
-    const response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${authHeader}`
-      },
-      body: new URLSearchParams({
+    try {
+      const response = await axios.post(tokenEndpoint, new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: this.redirectUri
-      })
-    });
+      }).toString(), {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${authHeader}`
+        }
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to exchange QBO token: ${errorText}`);
-    }
-
-    const tokenData = await response.json();
+      const tokenData = response.data;
     
     // Manage multi-tenant tokens inside Firestore
     await admin.firestore().collection('businesses').doc(this.tenantId).set({
@@ -63,6 +58,9 @@ export class QboService {
       qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
       qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
     }, { merge: true });
+    } catch (err: any) {
+        throw new Error(`Failed to exchange QBO token: ${err?.response?.data ? JSON.stringify(err.response.data) : err.message}`);
+    }
   }
 
   // Refresh an expired QBO Access Token using the refresh token
@@ -70,24 +68,19 @@ export class QboService {
     const tokenEndpoint = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
     const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
 
-    const response = await fetch(tokenEndpoint, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${authHeader}`
-      },
-      body: new URLSearchParams({
+    try {
+      const response = await axios.post(tokenEndpoint, new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken
-      })
-    });
+      }).toString(), {
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Basic ${authHeader}`
+        }
+      });
 
-    if (!response.ok) {
-      throw new Error(`Failed to refresh QBO token: ${await response.text()}`);
-    }
-
-    const tokenData = await response.json();
+      const tokenData = response.data;
     
     // Manage multi-tenant tokens inside Firestore
     await admin.firestore().collection('businesses').doc(this.tenantId).set({
@@ -98,6 +91,9 @@ export class QboService {
     }, { merge: true });
 
     return tokenData.access_token;
+    } catch (err: any) {
+        throw new Error(`Failed to refresh QBO token: ${err?.response?.data ? JSON.stringify(err.response.data) : err.message}`);
+    }
   }
 
   // 3. Retrieve Tenant's Current QBO Tokens internally
@@ -128,34 +124,33 @@ export class QboService {
   }
 
   // Wrapped fetch method to securely attach tokens and retry if somehow a 401 slps by
-  private async apiFetch(path: string, options?: RequestInit, isRetry = false): Promise<any> {
+  private async apiFetch(path: string, options?: any, isRetry = false): Promise<any> {
       const tokens = await this.getTokens();
       
-      const response = await fetch(`${this.baseUrl}/${tokens.realmId}${path}`, {
-          ...options,
-          headers: {
-              'Authorization': `Bearer ${tokens.accessToken}`,
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              ...(options?.headers || {})
+      try {
+        const response = await axios({
+            url: `${this.baseUrl}/${tokens.realmId}${path}`,
+            method: options?.method || 'GET',
+            data: options?.body ? JSON.parse(options.body) : undefined,
+            headers: {
+                'Authorization': `Bearer ${tokens.accessToken}`,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...(options?.headers || {})
+            }
+        });
+        return response.data;
+      } catch (err: any) {
+          if (err.response?.status === 401 && tokens.refreshToken && !isRetry) {
+              try {
+                  await this.refreshAccessToken(tokens.refreshToken);
+                  return this.apiFetch(path, options, true);
+              } catch(e) {
+                  throw new Error(`Failed to auto-refresh QBO token: ${e}`);
+              }
           }
-      });
-
-      if (response.status === 401 && tokens.refreshToken && !isRetry) {
-          try {
-              await this.refreshAccessToken(tokens.refreshToken);
-              return this.apiFetch(path, options, true);
-          } catch(e) {
-              throw new Error(`Failed to auto-refresh QBO token: ${e}`);
-          }
+          throw new Error(`QBO API Error: ${err?.response?.data ? JSON.stringify(err.response.data) : err.message}`);
       }
-
-      const text = await response.text();
-      if (!response.ok) {
-          throw new Error(`QBO API Error ${response.status}: ${text}`);
-      }
-
-      return text ? JSON.parse(text) : null;
   }
 
   // 4. API Wrappers: Chart of Accounts Entities (as requested by user)

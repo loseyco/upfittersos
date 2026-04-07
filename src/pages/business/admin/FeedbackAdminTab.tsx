@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { db } from '../../../lib/firebase';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Lightbulb, Bug, Star, Workflow, AlertTriangle, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import { MessageSquare, Lightbulb, Bug, Star, Workflow, AlertTriangle, ArrowUp, ArrowDown, Minus, FlaskConical } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Feedback {
@@ -103,6 +103,15 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
 
     return (
         <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto w-full">
+            {/* Alpha Banner */}
+            <div className="bg-orange-500/5 border-b border-orange-500/20 px-6 py-3 flex items-start gap-3 shrink-0 relative z-20">
+                <FlaskConical className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
+                <div>
+                    <h4 className="text-orange-400 font-bold text-sm">Feature Preview (Alpha Roadmap)</h4>
+                    <p className="text-orange-400/80 text-xs mt-0.5">Feedback & Ideas is currently in active development. You may start testing it now, but expect rapid updates and potential data resets prior to stable release.</p>
+                </div>
+            </div>
+
             <div className="p-6 border-b border-zinc-800 bg-zinc-900/50 flex flex-col md:flex-row items-start md:items-center justify-between sticky top-0 z-10 backdrop-blur-md gap-4">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-3">
@@ -110,7 +119,12 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
                             <MessageSquare className="w-5 h-5 text-accent" />
                         </div>
                         <div>
-                            <h2 className="text-2xl font-black text-white">Feedback & Ideas</h2>
+                            <div className="flex items-center gap-2 mb-1">
+                                <h2 className="text-2xl font-black text-white">Feedback & Ideas</h2>
+                                <span className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded mt-0.5">
+                                    Alpha Labs
+                                </span>
+                            </div>
                             <p className="text-zinc-500 font-mono text-xs uppercase tracking-widest mt-1">Submitted by your staff</p>
                         </div>
                     </div>

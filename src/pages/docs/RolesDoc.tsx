@@ -75,13 +75,37 @@ export const RolesDoc = () => {
                             <div className="bg-indigo-500/5 mx-auto w-full md:border-indigo-500/10 border border-zinc-800 rounded-xl p-4">
                                 <div className="flex items-center gap-2 mb-2">
                                     <Shield className="w-4 h-4 text-indigo-400" />
-                                    <h3 className="text-indigo-400 font-black text-[10px] tracking-widest uppercase">Global Authority</h3>
+                                    <h3 className="text-indigo-400 font-black text-[10px] tracking-widest uppercase">Global Authority (Super Admin & System Owner)</h3>
                                 </div>
                                 <p className="text-zinc-400 text-xs leading-relaxed">
-                                    Reserved exclusively for platform architects. Completely bypasses localized multi-tenancy rules to manage the root infrastructure, api integrations, and raw database clusters.
+                                    Reserved exclusively for platform architects. Both `super_admin` and `system_owner` roles completely bypass localized multi-tenancy rules to manage the root infrastructure, API integrations, global business impersonation, and raw database clusters.
                                 </p>
                             </div>
                         </div>
+                    </div>
+                </section>
+
+                {/* Section 3 */}
+                <section>
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-orange-500/20 rounded-lg border border-orange-500/30">
+                            <Lock className="w-5 h-5 text-orange-400" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white">Tiered Feature Gating</h2>
+                    </div>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 md:p-8">
+                        <p className="text-zinc-300 leading-relaxed text-sm mb-4">
+                            Not all business tenants operate the full UpfitterOS suite. Access to backend administrative modules is dynamically controlled via the Master Registry.
+                        </p>
+                        <ul className="space-y-4">
+                            <li className="flex items-start gap-3">
+                                <Network className="w-5 h-5 text-zinc-500 shrink-0 mt-0.5" />
+                                <span className="text-zinc-300 text-sm leading-relaxed">
+                                    <strong className="text-white block">Feature Flags</strong>
+                                    Modules such as CRM, Fleet Control, Areas, Inventory, Operations Management, Finances, and Reports are strictly gated. These features can only be enabled or disabled by Global Authority personnel in the Super Admin dashboard. If a tenant is not provisioned for a module, the routing engine securely denies access to both the UI and the underlying API endpoints.
+                                </span>
+                            </li>
+                        </ul>
                     </div>
                 </section>
 

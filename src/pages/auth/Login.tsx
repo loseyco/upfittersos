@@ -27,7 +27,7 @@ export function Login() {
             const tenantId = idTokenResult.claims.tenantId;
             const role = idTokenResult.claims.role;
             
-            if (role === 'super_admin') {
+            if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
                 navigate('/workspace');
@@ -102,7 +102,7 @@ export function Login() {
             const tenantId = idTokenResult.claims.tenantId;
             const role = idTokenResult.claims.role;
             
-            if (role === 'super_admin') {
+            if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
                 navigate('/workspace');

@@ -16,7 +16,7 @@ scanRoutes.get('/:qrId', authenticate, async (req: Request, res: Response): Prom
     try {
         const { qrId } = req.params;
         const caller = (req as any).user;
-        const callerTenantId = caller.role === 'super_admin' ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
 
         if (!callerTenantId) {
             return res.status(400).json({ error: 'Missing tenant assignment.' });
@@ -31,7 +31,7 @@ scanRoutes.get('/:qrId', authenticate, async (req: Request, res: Response): Prom
         const qrData = qrNodeDoc.data();
 
         // 2. Strong Tenant Isolation: Prevent scanning a code that belongs to a different workspace
-        if (qrData?.tenantId !== callerTenantId && caller.role !== 'super_admin') {
+        if (qrData?.tenantId !== callerTenantId && caller.role !== 'system_owner' && caller.role !== 'super_admin') {
             return res.status(403).json({ error: 'Forbidden. This asset belongs to a different Operational Workspace.' });
         }
 
@@ -87,7 +87,7 @@ scanRoutes.post('/register', authenticate, async (req: Request, res: Response): 
     try {
         const { qrId, entityType, entityId } = req.body;
         const caller = (req as any).user;
-        const callerTenantId = caller.role === 'super_admin' ? (req.body.tenantId || caller.tenantId) : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (req.body.tenantId || caller.tenantId) : caller.tenantId;
 
         if (!qrId || !entityType || !entityId) {
             return res.status(400).json({ error: 'Missing required mapping payload (qrId, entityType, entityId).' });

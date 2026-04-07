@@ -47,7 +47,7 @@ const getDb = () => admin.firestore();
 exports.inventoryRoutes.get('/', auth_middleware_1.authenticate, async (req, res) => {
     try {
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
+        const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
         if (!tenantId) {
             return res.status(400).json({ error: 'Tenant context required.' });
         }
@@ -68,7 +68,7 @@ exports.inventoryRoutes.post('/', auth_middleware_1.authenticate, async (req, re
     try {
         const payload = req.body;
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (payload.tenantId || caller.tenantId) : caller.tenantId;
+        const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (payload.tenantId || caller.tenantId) : caller.tenantId;
         if (!tenantId) {
             return res.status(400).json({ error: 'Workspace tenant assignment required.' });
         }
@@ -119,7 +119,7 @@ exports.inventoryRoutes.get('/:id', auth_middleware_1.authenticate, async (req, 
     try {
         const { id } = req.params;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         const itemDoc = await getDb().collection('inventory_items').doc(id).get();
         if (!itemDoc.exists)
             return res.status(404).json({ error: 'Item not found in catalog.' });
@@ -143,7 +143,7 @@ exports.inventoryRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
         const { id } = req.params;
         const payload = req.body;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         const itemRef = getDb().collection('inventory_items').doc(id);
         const itemDoc = await itemRef.get();
         if (!itemDoc.exists)
@@ -153,7 +153,7 @@ exports.inventoryRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
         }
         // Clean out tenantId if accidentally sent
         const updates = Object.assign(Object.assign({}, payload), { updatedAt: new Date().toISOString() });
-        if (!caller.role || caller.role !== 'super_admin') {
+        if (!caller.role || caller.role !== 'system_owner' && caller.role !== 'super_admin') {
             delete updates.tenantId;
         }
         await itemRef.update(updates);
@@ -172,7 +172,7 @@ exports.inventoryRoutes.delete('/:id', auth_middleware_1.authenticate, async (re
     try {
         const { id } = req.params;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         const itemRef = getDb().collection('inventory_items').doc(id);
         const itemDoc = await itemRef.get();
         if (!itemDoc.exists)
@@ -196,7 +196,7 @@ exports.inventoryRoutes.get('/:id/logs', auth_middleware_1.authenticate, async (
     try {
         const { id } = req.params;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         const itemRef = getDb().collection('inventory_items').doc(id);
         const itemDoc = await itemRef.get();
         if (!itemDoc.exists)
@@ -226,7 +226,7 @@ exports.inventoryRoutes.post('/:id/log', auth_middleware_1.authenticate, async (
         const { id } = req.params;
         const { actionType, quantityChange, notes, targetRef } = req.body;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         if (!actionType || quantityChange === undefined) {
             return res.status(400).json({ error: 'actionType and quantityChange required.' });
         }

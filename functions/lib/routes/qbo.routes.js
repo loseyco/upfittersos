@@ -10,7 +10,7 @@ const getTenantId = (req) => req.headers['x-tenant-id'] || req.query.tenantId;
 // 1. Kick-off OAuth Flow (Redirects user to Intuit)
 exports.qboRoutes.get('/auth', auth_middleware_1.authenticate, (req, res) => {
     const caller = req.user;
-    const tenantId = caller.role === 'super_admin' ? getTenantId(req) : caller.tenantId;
+    const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? getTenantId(req) : caller.tenantId;
     if (!tenantId) {
         res.status(400).json({ error: 'Missing tenantId or you are not bound to a workspace.' });
         return;
@@ -44,7 +44,7 @@ exports.qboRoutes.get('/accounts', auth_middleware_1.authenticate, async (req, r
     try {
         // With authentication in place, we extract the tenantId securely from their verified JWT token, ensuring they NEVER fetch another tenant's data.
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? getTenantId(req) : caller.tenantId;
+        const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? getTenantId(req) : caller.tenantId;
         if (!tenantId) {
             res.status(400).json({ error: 'Missing tenantId parameter or header.' });
             return;

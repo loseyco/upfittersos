@@ -7,14 +7,14 @@ const getDb = () => admin.firestore();
 
 // Helper to determine if the caller has at least "staff" access to the tenant
 const isMemberOfTenant = (caller: any, tenantId: string) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
 
 // Helper for Manager+ level access
 const isManagerOfTenant = (caller: any, tenantId: string) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantManager = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === tenantId;
     return isSuperAdmin || isTenantManager;
 };
@@ -73,7 +73,7 @@ customersRoutes.post('/', authenticate, async (req: Request, res: Response): Pro
             firstName, middleName, lastName, nickName,
             addressStreet, addressCity, addressState, addressZip,
             email, workPhone, mobilePhone, company,
-            status, notes, tags
+            status, notes, tags, taxRate
         } = req.body;
 
         const newCustomer = {
@@ -93,6 +93,7 @@ customersRoutes.post('/', authenticate, async (req: Request, res: Response): Pro
             status: status || 'Active', // e.g., Active, Lead, Inactive
             notes: notes || '',
             tags: tags || [],
+            taxRate: (taxRate !== undefined && taxRate !== '') ? String(taxRate) : '8.25',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -131,7 +132,7 @@ customersRoutes.put('/:id', authenticate, async (req: Request, res: Response): P
             firstName, middleName, lastName, nickName,
             addressStreet, addressCity, addressState, addressZip,
             email, workPhone, mobilePhone, company,
-            status, notes, tags
+            status, notes, tags, taxRate
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -151,6 +152,7 @@ customersRoutes.put('/:id', authenticate, async (req: Request, res: Response): P
         if (status !== undefined) updates.status = status;
         if (notes !== undefined) updates.notes = notes;
         if (tags !== undefined) updates.tags = tags;
+        if (taxRate !== undefined) updates.taxRate = String(taxRate);
 
         await customerRef.update(updates);
         return res.json({ id: customerId, ...customerData, ...updates });

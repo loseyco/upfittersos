@@ -29,7 +29,7 @@ export const IntegrationsDoc = () => {
                             <div>
                                 <h4 className="text-white font-bold text-sm mb-1">Seamless connection via OAuth 2.0</h4>
                                 <p className="text-zinc-400 text-xs leading-relaxed">
-                                    Connections to supported platforms require strict, tokenized authorization. Administrators can securely link their tenant accounts to these external systems by navigating to <b>Business Suite &rarr; Settings &rarr; Integrations</b> and authenticating via the standard OAuth 2.0 protocol.
+                                    Connections to supported platforms require strict, tokenized authorization. Administrators can securely link their tenant accounts to global platforms (like QuickBooks) via <b>Business Suite &rarr; Settings &rarr; Integrations</b>, while specific integrations (like CompanyCam) utilize a granular, <b>per-user authentication model</b> to ensure accurate staff attribution.
                                 </p>
                             </div>
                         </div>
@@ -66,10 +66,10 @@ export const IntegrationsDoc = () => {
                                 <div className="w-2 h-2 rounded-full bg-blue-500"></div> CompanyCam
                             </h3>
                             <p className="text-zinc-400 text-xs leading-relaxed mb-4">
-                                Autonomous synchronization of physical shop floor photography into specific UpfitterOS build profiles.
+                                Autonomous synchronization of physical shop floor photography into specific UpfitterOS build profiles. Incorporates a <b>per-user authorization model</b>, attributing uploads and synced projects directly to the authenticated staff member.
                             </p>
                             <ul className="text-[11px] font-mono text-zinc-500 space-y-1">
-                                <li>→ Push: Project Creation (VIN/Build)</li>
+                                <li>→ Push: Project Creation (VIN/Build) via User Token</li>
                                 <li>← Pull: High-Res Project Photos</li>
                                 <li>← Pull: Tagged Defects/QC Issues</li>
                             </ul>

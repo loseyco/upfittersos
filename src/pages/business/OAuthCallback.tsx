@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 import { RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export function OAuthCallback() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
+    const { tenantId } = useAuth();
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [errorMsg, setErrorMsg] = useState('');
 
@@ -20,12 +22,18 @@ export function OAuthCallback() {
         }
 
         const exchangeCode = async () => {
+            if (!tenantId) {
+                setStatus('error');
+                setErrorMsg('No tenant ID found. Please refresh the page and make sure you are logged in.');
+                return;
+            }
             try {
                 const redirectUri = window.location.origin + window.location.pathname;
 
                 await api.post('/companycam/oauth/exchange', { 
                     code,
-                    redirectUri 
+                    redirectUri,
+                    tenantId 
                 });
                 
                 setStatus('success');
@@ -43,7 +51,7 @@ export function OAuthCallback() {
         };
 
         exchangeCode();
-    }, [searchParams, navigate]);
+    }, [searchParams, navigate, tenantId]);
 
     return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">

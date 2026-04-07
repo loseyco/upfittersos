@@ -1,8 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen } from 'lucide-react';
+import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
@@ -19,6 +19,9 @@ export function MainLayout() {
     const [apiVersion, setApiVersion] = useState<string>('checking...');
     const [keepScreenAwake, setKeepScreenAwake] = useState(false);
     const [profileName, setProfileName] = useState<string>('Authorized User');
+    
+    const [activeNotice, setActiveNotice] = useState<any | null>(null);
+    const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
     
     useWakeLock(keepScreenAwake);
 
@@ -41,6 +44,38 @@ export function MainLayout() {
             .then(res => setApiVersion(`api.v${res.data?.version || '?'}`))
             .catch(() => setApiVersion('api.offline'));
 
+        // Notices logic
+        try {
+            const saved = localStorage.getItem('sae_dismissed_notices');
+            if (saved) setDismissedNotices(JSON.parse(saved));
+        } catch (e) {}
+
+        if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
+            const q = query(
+                collection(db, 'announcements'), 
+                where('tenantId', '==', tenantId),
+                where('active', '==', true)
+            );
+
+            const unsub = onSnapshot(q, (snapshot) => {
+                if (!snapshot.empty) {
+                    const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                    fetched.sort((a: any, b: any) => {
+                        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+                        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+                        return timeB - timeA;
+                    });
+                    setActiveNotice(fetched[0]);
+                } else {
+                    setActiveNotice(null);
+                }
+            });
+
+            return () => unsub();
+        } else {
+            setActiveNotice(null);
+        }
+
     }, [tenantId]);
 
     useEffect(() => {
@@ -48,7 +83,7 @@ export function MainLayout() {
             // Prevent forced auth refresh if we are currently holding a delicate contextual proxy token
             const isProxying = sessionStorage.getItem('sae_impersonating') === 'true';
             currentUser.getIdTokenResult(!isProxying).then(res => {
-                setIsSuperAdmin(res.claims.role === 'super_admin');
+                setIsSuperAdmin(res.claims.role === 'system_owner' || res.claims.role === 'super_admin');
             }).catch(() => setIsSuperAdmin(false));
 
             // Subscribe to user preferences and profile
@@ -97,6 +132,14 @@ export function MainLayout() {
         }
     };
 
+    const handleDismissNotice = () => {
+        if (activeNotice) {
+            const updated = [...dismissedNotices, activeNotice.id];
+            setDismissedNotices(updated);
+            localStorage.setItem('sae_dismissed_notices', JSON.stringify(updated));
+        }
+    };
+
     const mobileNavItems = [
         { path: currentUser ? '/workspace' : '/', icon: Globe, label: currentUser ? 'Dashboard' : 'Public' },
         { path: '/documents', icon: BookOpen, label: 'Docs' },
@@ -140,6 +183,33 @@ export function MainLayout() {
 
             {/* Global Time Tracker */}
             <GlobalTimeTracker />
+
+            {/* Global Announcement Banner */}
+            {activeNotice && !dismissedNotices.includes(activeNotice.id) && (
+                <div className="w-full bg-yellow-500/10 border-b border-yellow-500/20 text-white z-[45] flex items-center justify-between px-4 md:px-6 py-2 md:py-3 shadow-lg backdrop-blur-md relative">
+                    <div className="flex items-start md:items-center gap-3 w-full">
+                        <div className="bg-yellow-500/20 text-yellow-400 p-1.5 rounded-lg shrink-0 mt-0.5 md:mt-0 border border-yellow-500/30">
+                            <Megaphone className="w-4 h-4" />
+                        </div>
+                        <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3 flex-1 min-w-0">
+                            <span className="font-black text-xs md:text-sm uppercase tracking-wide text-yellow-500 shrink-0">{activeNotice.title}</span>
+                            <span className="hidden md:block w-1.5 h-1.5 rounded-full bg-yellow-500/50 shrink-0"></span>
+                            <span className="text-xs md:text-sm font-medium text-zinc-300 md:truncate max-w-2xl">{activeNotice.message}</span>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 md:gap-4 shrink-0 pl-2 md:pl-4">
+                        <Link to="/workspace/notices" className="hidden md:block text-xs font-bold text-yellow-500 hover:text-white transition-colors underline-offset-4 hover:underline whitespace-nowrap">
+                            View All Notices
+                        </Link>
+                        <button
+                            onClick={handleDismissNotice}
+                            className="text-zinc-500 hover:text-white p-1 hover:bg-white/10 rounded-md transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">

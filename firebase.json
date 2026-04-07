@@ -11,6 +11,21 @@
   },
   "hosting": [
     {
+      "site": "saegroup-c6487",
+      "public": "dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    {
       "site": "dev-saegrp",
       "public": "dist",
       "ignore": [

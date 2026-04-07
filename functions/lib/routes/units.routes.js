@@ -47,7 +47,7 @@ const getDb = () => admin.firestore();
 exports.unitRoutes.get('/', auth_middleware_1.authenticate, async (req, res) => {
     try {
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
+        const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (req.query.tenantId || req.headers['x-tenant-id']) : caller.tenantId;
         if (!tenantId) {
             return res.status(400).json({ error: 'Tenant context required.' });
         }
@@ -68,7 +68,7 @@ exports.unitRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
     try {
         const payload = req.body;
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (payload.tenantId || caller.tenantId) : caller.tenantId;
+        const tenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? (payload.tenantId || caller.tenantId) : caller.tenantId;
         if (!tenantId) {
             return res.status(400).json({ error: 'Workspace tenant assignment required.' });
         }
@@ -101,7 +101,7 @@ exports.unitRoutes.get('/:id', auth_middleware_1.authenticate, async (req, res) 
     try {
         const { id } = req.params;
         const caller = req.user;
-        const callerTenantId = caller.role === 'super_admin' ? null : caller.tenantId;
+        const callerTenantId = (caller.role === 'system_owner' || caller.role === 'super_admin') ? null : caller.tenantId;
         const unitDoc = await getDb().collection('units').doc(id).get();
         if (!unitDoc.exists)
             return res.status(404).json({ error: 'Unit not found.' });

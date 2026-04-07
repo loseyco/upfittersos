@@ -10,7 +10,7 @@ export function PublicHero() {
     useEffect(() => {
         if (!loading && currentUser) {
             currentUser.getIdTokenResult(true).then(res => {
-                if (res.claims.role === 'super_admin') {
+                if (res.claims.role === 'system_owner' || res.claims.role === 'super_admin') {
                     navigate('/admin', { replace: true });
                 } else {
                     navigate('/workspace', { replace: true });

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.superAdminOnly = exports.requireRole = exports.authenticate = void 0;
+exports.systemOwnerOnly = exports.superAdminOnly = exports.requireRole = exports.authenticate = void 0;
 const admin = __importStar(require("firebase-admin"));
 // --- Middleware: Core Authentication ---
 const authenticate = async (req, res, next) => {
@@ -56,8 +56,8 @@ const requireRole = (allowedRoles) => {
     return async (req, res, next) => {
         const user = req.user;
         const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
-        // Super Admins always have skeleton-key access across the entire system
-        if (userRoles.includes('super_admin')) {
+        // System Owners and Super Admins always have skeleton-key access across the system
+        if (userRoles.includes('system_owner') || userRoles.includes('super_admin')) {
             return next();
         }
         if (!userRoles.some((r) => allowedRoles.includes(r))) {
@@ -75,10 +75,20 @@ exports.requireRole = requireRole;
 const superAdminOnly = async (req, res, next) => {
     const user = req.user;
     const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
-    if (!user || !userRoles.includes('super_admin')) {
-        return res.status(403).json({ error: 'Forbidden. Super Admin access required.' });
+    if (!user || (!userRoles.includes('super_admin') && !userRoles.includes('system_owner'))) {
+        return res.status(403).json({ error: 'Forbidden. Super Admin or System Owner access required.' });
     }
     return next();
 };
 exports.superAdminOnly = superAdminOnly;
+// --- Middleware: System Owner Auth ---
+const systemOwnerOnly = async (req, res, next) => {
+    const user = req.user;
+    const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+    if (!user || !userRoles.includes('system_owner')) {
+        return res.status(403).json({ error: 'Forbidden. System Owner access required.' });
+    }
+    return next();
+};
+exports.systemOwnerOnly = systemOwnerOnly;
 //# sourceMappingURL=auth.middleware.js.map

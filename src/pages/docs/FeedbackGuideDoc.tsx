@@ -20,7 +20,7 @@ export const FeedbackGuideDoc = () => {
                     </div>
                     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 md:p-8">
                         <p className="text-zinc-300 leading-relaxed text-sm mb-6">
-                            Floating in the bottom right corner of almost every screen is the <strong>Global Feedback Widget</strong>. You can click this at any time, without losing your current work, to send a message to the engineering and management teams.
+                            Floating in the bottom right corner of almost every screen is the <strong>Global Feedback Widget</strong>. You can click this at any time, without losing your current work, to send a message to the engineering and management teams. <strong>This widget is fully accessible even on the public Login screen</strong>, allowing you to submit bug reports or lockout assistance requests before you even authenticate.
                         </p>
 
                         <div className="space-y-4">

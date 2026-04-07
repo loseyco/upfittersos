@@ -49,7 +49,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
 
         setLoading(true);
 
-        const unsubInventory = onSnapshot(query(collection(db, 'inventory'), where('tenantId', '==', tenantId)), (s) => {
+        const unsubInventory = onSnapshot(query(collection(db, 'inventory_items'), where('tenantId', '==', tenantId)), (s) => {
             const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
             fetched.sort((a: any, b: any) => {
                 const nameA = a.name || '';

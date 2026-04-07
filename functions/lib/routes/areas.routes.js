@@ -52,12 +52,12 @@ exports.areasRoutes = (0, express_1.Router)();
 const getDb = () => admin.firestore();
 // Helper to determine if the caller has access to the workspace
 const isMemberOfTenant = (caller, tenantId) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
 const isManagerOfTenant = (caller, tenantId) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantManager = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === tenantId;
     return isSuperAdmin || isTenantManager;
 };

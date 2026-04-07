@@ -62,6 +62,7 @@ export function usePermissions(overrideTenantId?: string) {
 
         // Check if ANY role in the user's role array grants the permission
         for (const iterateRole of arrayRoles) {
+            if (iterateRole === 'system_owner') return true;
             if (iterateRole === 'super_admin') return true;
 
             // Check dynamic tenant roles first

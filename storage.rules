@@ -30,6 +30,14 @@ service firebase.storage {
       );
     }
 
+    // Job Media Files
+    match /tenants/{tenantId}/jobs/{fileName} {
+      allow read: if request.auth != null && (request.auth.token.tenantId == tenantId || request.auth.token.role == 'super_admin');
+      allow create, update: if request.auth != null && (request.auth.token.tenantId == tenantId || request.auth.token.role == 'super_admin') 
+                            && request.resource.size < 30 * 1024 * 1024;
+      allow delete: if request.auth != null && (request.auth.token.tenantId == tenantId || request.auth.token.role == 'super_admin');
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

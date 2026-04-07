@@ -58,6 +58,17 @@ exports.DEFAULT_PERMISSIONS = {
         view_financials: true, super_admin_core: true,
         view_facility_map: true, manage_facility_map: true,
         simulate_roles: true
+    },
+    system_owner: {
+        manage_settings: true, manage_roles: true, manage_staff: true,
+        view_customers: true, manage_customers: true,
+        view_vehicles: true, manage_vehicles: true,
+        view_jobs: true, manage_jobs: true,
+        view_inventory: true, manage_inventory: true,
+        manage_canvases: true, manage_tasks: true,
+        view_financials: true, super_admin_core: true,
+        view_facility_map: true, manage_facility_map: true,
+        simulate_roles: true
     }
 };
 /**
@@ -69,7 +80,7 @@ exports.DEFAULT_PERMISSIONS = {
  */
 async function checkBackendPermission(callerUid, callerRolesParam, callerTenantId, permissionKey) {
     const rolesArray = Array.isArray(callerRolesParam) ? callerRolesParam : [callerRolesParam || 'staff'];
-    if (rolesArray.includes('super_admin'))
+    if (rolesArray.includes('system_owner') || rolesArray.includes('super_admin'))
         return true;
     try {
         const db = admin.firestore();

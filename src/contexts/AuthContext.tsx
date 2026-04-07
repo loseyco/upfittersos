@@ -6,6 +6,7 @@ import {
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
+import { auditLogger } from '../lib/auditLogger';
 
 interface AuthContextType {
     currentUser: User | null;
@@ -64,7 +65,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const signInWithGoogle = async () => {
         try {
-            return await signInWithPopup(auth, googleProvider);
+            const result = await signInWithPopup(auth, googleProvider);
+            auditLogger.log({
+                action: 'LOGIN',
+                resource: 'Google SSO Authentication',
+            });
+            return result;
         } catch (error) {
             console.error("Error signing in with Google", error);
             throw error;
@@ -73,6 +79,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const logout = async () => {
         try {
+            auditLogger.log({
+                action: 'LOGOUT',
+                resource: 'Session Terminated',
+            });
             await firebaseSignOut(auth);
         } catch (error) {
             console.error("Error signing out", error);

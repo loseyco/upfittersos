@@ -41,13 +41,13 @@ exports.customersRoutes = (0, express_1.Router)();
 const getDb = () => admin.firestore();
 // Helper to determine if the caller has at least "staff" access to the tenant
 const isMemberOfTenant = (caller, tenantId) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
 // Helper for Manager+ level access
 const isManagerOfTenant = (caller, tenantId) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantManager = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === tenantId;
     return isSuperAdmin || isTenantManager;
 };
@@ -93,7 +93,7 @@ exports.customersRoutes.post('/', auth_middleware_1.authenticate, async (req, re
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags } = req.body;
+        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate } = req.body;
         const newCustomer = {
             tenantId,
             firstName: firstName || '',
@@ -111,6 +111,7 @@ exports.customersRoutes.post('/', auth_middleware_1.authenticate, async (req, re
             status: status || 'Active', // e.g., Active, Lead, Inactive
             notes: notes || '',
             tags: tags || [],
+            taxRate: (taxRate !== undefined && taxRate !== '') ? String(taxRate) : '8.25',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -139,7 +140,7 @@ exports.customersRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this customer.' });
         }
-        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags } = req.body;
+        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (firstName !== undefined)
             updates.firstName = firstName;
@@ -171,6 +172,8 @@ exports.customersRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
             updates.notes = notes;
         if (tags !== undefined)
             updates.tags = tags;
+        if (taxRate !== undefined)
+            updates.taxRate = String(taxRate);
         await customerRef.update(updates);
         return res.json(Object.assign(Object.assign({ id: customerId }, customerData), updates));
     }

@@ -8,6 +8,8 @@ export function GlobalTimeTracker() {
     const { currentUser, tenantId } = useAuth();
     const [activeLog, setActiveLog] = useState<any>(null);
     const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
+    const [elapsedTaskTime, setElapsedTaskTime] = useState<string | null>(null);
+    const [activeTaskName, setActiveTaskName] = useState<string | null>(null);
     
     const fetchActiveLog = async () => {
         if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
@@ -40,15 +42,15 @@ export function GlobalTimeTracker() {
         if (!activeLog) return;
         
         const updateTimer = () => {
-            const start = new Date(activeLog.clockIn).getTime();
             const now = new Date().getTime();
             
+            // Shift Time Calculation
+            const start = new Date(activeLog.clockIn).getTime();
             let totalMs = now - start;
             
             if (activeLog.breaks && Array.isArray(activeLog.breaks)) {
                 activeLog.breaks.forEach((b: any) => {
                     const bStart = new Date(b.start).getTime();
-                    // If break is ongoing (no end), subtract from bStart to now
                     const bEnd = b.end ? new Date(b.end).getTime() : now;
                     totalMs -= (bEnd - bStart);
                 });
@@ -62,6 +64,26 @@ export function GlobalTimeTracker() {
             setElapsedTime(
                 `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
             );
+
+            // Active Task Calculation
+            if (activeLog.notes && activeLog.notes.length > 0) {
+                const lastNote = activeLog.notes[activeLog.notes.length - 1];
+                if (!lastNote.text.startsWith('Finished Task:')) {
+                    const parsedName = lastNote.text.startsWith('Started Task: ') ? lastNote.text.replace('Started Task: ', '') : lastNote.text;
+                    setActiveTaskName(parsedName.split(' - ')[0]); // Keep it short
+                    const taskDiff = Math.max(0, now - new Date(lastNote.time).getTime());
+                    const tHrs = Math.floor(taskDiff / 3600000);
+                    const tMins = Math.floor((taskDiff % 3600000) / 60000);
+                    const tSecs = Math.floor((taskDiff % 60000) / 1000);
+                    setElapsedTaskTime(`${tHrs.toString().padStart(2, '0')}:${tMins.toString().padStart(2, '0')}:${tSecs.toString().padStart(2, '0')}`);
+                } else {
+                    setElapsedTaskTime(null);
+                    setActiveTaskName(null);
+                }
+            } else {
+                setElapsedTaskTime(null);
+                setActiveTaskName(null);
+            }
         };
         
         updateTimer(); // initial
@@ -69,18 +91,56 @@ export function GlobalTimeTracker() {
         return () => clearInterval(interval);
     }, [activeLog]);
 
-    if (!activeLog) return null;
+    if (!activeLog) {
+        return (
+            <div className="w-full h-12 flex items-center justify-between px-4 sm:px-6 font-bold text-sm shadow-sm sticky top-0 z-[45] backdrop-blur-md transition-colors bg-red-500/20 text-red-500 border-b border-red-500/30">
+                <div className="flex items-center gap-2 sm:gap-6 w-full max-w-[80%]">
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <Clock className="w-4 h-4" />
+                        <div className="flex items-center gap-2">
+                            <span className="leading-none mt-0.5 uppercase tracking-wider font-black">Currently Clocked Out</span>
+                        </div>
+                    </div>
+                    
+                    <div className="hidden md:flex items-center gap-3 shrink-0 pl-6 border-l border-red-500/30 text-red-400">
+                        <span className="text-[10px] uppercase font-bold tracking-widest bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
+                            Reminder: Active assignments will not be logged until you clock in.
+                        </span>
+                    </div>
+                </div>
+                
+                <Link 
+                    to="/business/time" 
+                    className="px-4 py-1.5 rounded-md flex items-center gap-2 transition-colors shadow-lg text-xs bg-red-500 hover:bg-red-600 text-white border-b-2 border-red-700 active:border-b-0 active:translate-y-[2px]"
+                >
+                    <Play className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline font-black uppercase tracking-wider">Clock In Now</span>
+                </Link>
+            </div>
+        );
+    }
 
     const onBreak = activeLog.breaks?.length > 0 && !activeLog.breaks[activeLog.breaks.length - 1].end;
 
     return (
         <div className={`w-full h-12 flex items-center justify-between px-4 sm:px-6 font-bold text-sm shadow-sm sticky top-0 z-[45] backdrop-blur-md transition-colors ${onBreak ? 'bg-amber-500/20 text-amber-500 border-b border-amber-500/30' : 'bg-emerald-500/20 text-emerald-500 border-b border-emerald-500/30'}`}>
-            <div className="flex items-center gap-2 sm:gap-3">
-                {onBreak ? <Coffee className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4 animate-pulse" />}
-                <div className="flex items-center gap-2">
-                    <span className="hidden leading-none sm:inline mt-0.5">{onBreak ? 'ON BREAK:' : 'ACTIVE SHIFT:'}</span>
-                    <span className="font-mono text-base tracking-widest">{elapsedTime}</span>
+            <div className="flex items-center gap-2 sm:gap-6 w-full max-w-[80%]">
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                    {onBreak ? <Coffee className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4 animate-pulse" />}
+                    <div className="flex items-center gap-2">
+                        <span className="hidden leading-none sm:inline mt-0.5">{onBreak ? 'ON BREAK:' : 'ACTIVE SHIFT:'}</span>
+                        <span className="font-mono text-base tracking-widest">{elapsedTime}</span>
+                    </div>
                 </div>
+
+                {!onBreak && elapsedTaskTime && (
+                    <div className="hidden md:flex items-center gap-3 shrink-0 pl-6 border-l border-emerald-500/30 text-emerald-400">
+                        <span className="hidden lg:inline uppercase text-[10px] tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 truncate max-w-[200px]">
+                            {activeTaskName}
+                        </span>
+                        <span className="font-mono tracking-widest text-emerald-300">{elapsedTaskTime}</span>
+                    </div>
+                )}
             </div>
             
             <Link 

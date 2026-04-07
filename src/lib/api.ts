@@ -51,6 +51,25 @@ class ApiClient {
             throw { response: { status: response.status, data: responseData } };
         }
 
+        // --- INTERNAL AUDIT LOGGING ---
+        if (['POST', 'PUT', 'DELETE'].includes(method.toUpperCase())) {
+            let actionType = 'OTHER';
+            if (method.toUpperCase() === 'POST') actionType = 'CREATE';
+            if (method.toUpperCase() === 'PUT') actionType = 'UPDATE';
+            if (method.toUpperCase() === 'DELETE') actionType = 'DELETE';
+            
+            // Avoid logging auth check spam if there is one
+            if (!endpoint.includes('/auth/check')) {
+                import('./auditLogger').then(({ auditLogger }) => {
+                    auditLogger.log({
+                        action: actionType as any,
+                        resource: endpoint,
+                        details: data || {}
+                    });
+                }).catch(err => console.error("Logger import failed", err));
+            }
+        }
+
         return { data: responseData, status: response.status, headers: response.headers };
     }
 

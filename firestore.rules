@@ -9,7 +9,12 @@ service cloud.firestore {
 
     // Helper function for global admins
     function isSuperAdmin() {
-      return request.auth != null && request.auth.token.role == 'super_admin';
+      return request.auth != null && (request.auth.token.role == 'super_admin' || request.auth.token.role == 'system_owner');
+    }
+
+    // Helper function for business owners
+    function isBusinessOwner(tid) {
+      return isTenant(tid) && request.auth.token.role == 'business_owner';
     }
 
     match /{document=**} {
@@ -28,6 +33,19 @@ service cloud.firestore {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
+    match /announcements/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /report_configs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /generated_reports/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
     match /feedback/{docId} {
       allow read, update: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if (request.resource.data.tenantId == 'GLOBAL') || isTenant(request.resource.data.tenantId) || isSuperAdmin();
@@ -39,8 +57,23 @@ service cloud.firestore {
     match /feedback/{docId}/comments/{commentId} {
       allow read, write: if isTenant(get(/databases/$(database)/documents/feedback/$(docId)).data.tenantId) || isSuperAdmin();
     }
+    match /features/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+    match /auditLogs/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if request.auth != null; 
+      // Allow self-updates to gracefully handle Firebase SDK offline-retries of the identical payload
+      allow update: if request.auth != null && resource.data.actorUid == request.auth.uid;
+      allow delete: if false; 
+    }
     match /changelogs/{docId} {
       allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+    match /system_registry/{docId} {
+      allow read: if request.auth != null;
       allow write: if isSuperAdmin();
     }
     match /business_canvases/{docId} {
@@ -60,22 +93,36 @@ service cloud.firestore {
     
     // New Collections Enabled For Realtime Frontend Mirroring
     match /tasks/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /task_templates/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /jobs/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /vehicles/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /customers/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /inventory/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /inventory_items/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     match /areas/{docId} {
-      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
     
     match /businesses/{tenantId} {
@@ -85,6 +132,9 @@ service cloud.firestore {
       match /meetings/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /staff/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /canvases/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
@@ -92,6 +142,12 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /time_off_requests/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /task_time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /deliveries/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
     }

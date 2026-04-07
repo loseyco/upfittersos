@@ -21,7 +21,7 @@ export function FeaturesPlanner() {
     const [status, setStatus] = useState('planned');
 
     useEffect(() => {
-        if (role !== 'super_admin') return;
+        if (role !== 'system_owner' && role !== 'super_admin') return;
 
         const q = query(collection(db, 'site_features'), orderBy('createdAt', 'desc'));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -37,7 +37,7 @@ export function FeaturesPlanner() {
         return () => unsubscribe();
     }, [role]);
 
-    if (role !== 'super_admin') {
+    if (role !== 'system_owner' && role !== 'super_admin') {
          return (
             <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center p-6">
                 <ShieldAlert className="w-16 h-16 text-red-500/50 mb-6" />

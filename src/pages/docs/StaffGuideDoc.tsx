@@ -1,4 +1,4 @@
-import { Users, LayoutDashboard, Settings, UserCircle, Briefcase } from 'lucide-react';
+import { Users, LayoutDashboard, Settings, UserCircle, Briefcase, Layers } from 'lucide-react';
 import { APP_NAME } from '../../lib/constants';
 
 export const StaffGuideDoc = () => {
@@ -34,8 +34,8 @@ export const StaffGuideDoc = () => {
                             <li className="flex items-start gap-3">
                                 <Briefcase className="w-5 h-5 text-zinc-500 shrink-0 mt-0.5" />
                                 <span className="text-zinc-300 text-sm leading-relaxed">
-                                    <strong className="text-white block">Task Assignments</strong>
-                                    Keep an eye on the Tasks board to ensure you are up-to-date with your current responsibilities. Managers post assignments here, which update in real-time across the platform.
+                                    <strong className="text-white block">Technician Portal & Active Tasks</strong>
+                                    Keep an eye on the Technician Portal to ensure you are up-to-date with your current responsibilities. Claim work from the task pool, clock into jobs directly from the shop floor, and sync live updates to management automatically.
                                 </span>
                             </li>
                         </ul>
@@ -74,6 +74,35 @@ export const StaffGuideDoc = () => {
                                 </div>
                                 <p className="text-zinc-400 text-xs leading-relaxed">
                                     Update your avatar by selecting a new photo within your profile settings. Your personalized avatar will sync dynamically alongside your name in global directories, the Top Nav bar, and your individual task cards.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {/* Section 3 */}
+                <section>
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="p-2 bg-emerald-500/20 rounded-lg border border-emerald-500/30">
+                            <Layers className="w-5 h-5 text-emerald-400" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-white">Facility & Collaboration</h2>
+                    </div>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 md:p-8">
+                        <p className="text-zinc-300 leading-relaxed text-sm mb-6">
+                            Beyond standard tasks, you will interact with our interactive facility maps and real-time collaborative workspaces.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="bg-black/50 border border-zinc-800 rounded-xl p-4">
+                                <h3 className="text-white font-bold text-sm mb-2">Facility Map & Areas</h3>
+                                <p className="text-zinc-400 text-xs leading-relaxed">
+                                    Use the visual Facility Map to locate specific shop floor zones, identify staging areas, and determine where physical assets (like vehicles or inventory) should be routed during the day.
+                                </p>
+                            </div>
+                            <div className="bg-black/50 border border-zinc-800 rounded-xl p-4">
+                                <h3 className="text-white font-bold text-sm mb-2">Real-Time Meetings</h3>
+                                <p className="text-zinc-400 text-xs leading-relaxed">
+                                    Participate in interactive, sync-enabled Meeting Workspaces. Utilize the integrated OneNote-style rich text editor and jump straight to corresponding whiteboard canvases directly from your meeting tiles.
                                 </p>
                             </div>
                         </div>

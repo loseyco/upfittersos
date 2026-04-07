@@ -1,13 +1,38 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
-import { Clock, FileText, ArrowLeft, Play, ScanLine } from 'lucide-react';
+import { Clock, FileText, ArrowLeft, Play, ScanLine, Activity } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../hooks/usePermissions';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot, where } from 'firebase/firestore';
+
+const LiveDuration = ({ startTime }: { startTime: string }) => {
+    const [elapsed, setElapsed] = useState('');
+
+    useEffect(() => {
+        const update = () => {
+            const diff = Math.max(0, Date.now() - new Date(startTime).getTime());
+            const h = Math.floor(diff / 3600000);
+            const m = Math.floor((diff % 3600000) / 60000);
+            setElapsed(`${h}h ${m}m`);
+        };
+        update();
+        const interval = setInterval(update, 60000);
+        return () => clearInterval(interval);
+    }, [startTime]);
+
+    return <span>{elapsed}</span>;
+};
+
+const toLocalISOString = (dateStr: string) => {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const tzOffsetMs = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 16);
+};
 
 export function TimeClockApp() {
     const { currentUser, tenantId } = useAuth();
@@ -23,14 +48,28 @@ export function TimeClockApp() {
     
     // Request State
     const [requests, setRequests] = useState<any[]>([]);
-    const [requestForm, setRequestForm] = useState({ type: 'pto', date: '', reason: '' });
+    const [requestForm, setRequestForm] = useState({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', targetLogId: '' });
     const [submittingRequest, setSubmittingRequest] = useState(false);
+
+    // Shift Notes State
+    const [noteInput, setNoteInput] = useState('');
+    const [isAddingNote, setIsAddingNote] = useState(false);
+    
+    // Assigned Tasks State
+    const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
+    const [selectedTaskNote, setSelectedTaskNote] = useState('');
+    const [taskSearchQuery, setTaskSearchQuery] = useState('');
+    const [isTaskDropdownOpen, setIsTaskDropdownOpen] = useState(false);
+    const [logDisplayLimit, setLogDisplayLimit] = useState(10);
+    const [showScrollTop, setShowScrollTop] = useState(false);
+
+    // Removed Reference Data State since it's mapped directly inside the hook
 
     // Kiosk Security
     const { checkPermission } = usePermissions();
     const canRemotePunch = checkPermission('bypass_kiosk_timeclock');
     const [isScanning, setIsScanning] = useState(false);
-    const [targetAction, setTargetAction] = useState<any>(null);
+    const [targetAction, setTargetAction] = useState<{action: string, breakType?: 'paid'|'unpaid'} | null>(null);
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
@@ -68,21 +107,91 @@ export function TimeClockApp() {
             );
         }
 
+        let unsubCustomers = () => {};
+        let unsubVehicles = () => {};
+
+        const unsubJobs = onSnapshot(query(collection(db, 'jobs'), where('tenantId', '==', tenantId)), (snap) => {
+            const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            unsubVehicles();
+            unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (vSnap) => {
+                const fetchedVehicles = vSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+                
+                unsubCustomers();
+                unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (cSnap) => {
+                    const fetchedCustomers = cSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+                    const myTasks: any[] = [];
+                    fetched.filter((j: any) => !j.archived).forEach((j: any) => {
+                        if (!j.tasks) return;
+                        j.tasks.forEach((t: any, idx: number) => {
+                            if (t.status !== 'Finished' && t.assignedUids?.includes(currentUser.uid)) {
+                                const matchedVehicle = fetchedVehicles.find(v => v.id === j.vehicleId);
+                                const vehStr = matchedVehicle ? `${matchedVehicle.year||''} ${matchedVehicle.make||''} ${matchedVehicle.model||''} ${matchedVehicle.vin||''}`.trim() : 'Vehicle';
+                                
+                                const matchedCustomer = fetchedCustomers.find(c => c.id === j.customerId);
+                                const custStr = matchedCustomer ? `${matchedCustomer.firstName||''} ${matchedCustomer.lastName||''} ${matchedCustomer.company||''}`.trim() : '';
+
+                                myTasks.push({
+                                    jobId: j.id,
+                                    jobTitle: j.title || 'Untitled Job',
+                                    taskTitle: t.title,
+                                    taskIndex: idx,
+                                    bookTime: t.bookTime || 0,
+                                    vehicleName: vehStr,
+                                    customerName: custStr,
+                                    isApproved: t.isApproved
+                                });
+                            }
+                        });
+                    });
+                    setMyAssignedTasks(myTasks);
+                });
+            });
+        });
+
         return () => {
             unsubLogs();
             unsubRequests();
+            unsubJobs();
+            unsubVehicles();
+            unsubCustomers();
         };
     }, [tenantId, activeTab, currentUser?.uid]);
 
-    const handleClockAction = async (action: 'clock_in' | 'clock_out' | 'start_break' | 'end_break') => {
+    // Infinite Scroll and Scroll to Top listener
+    useEffect(() => {
+        const handleScroll = () => {
+            if (window.scrollY > 300) {
+                setShowScrollTop(true);
+            } else {
+                setShowScrollTop(false);
+            }
+
+            // Lazy load more history items when scrolling near the bottom of the page
+            if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 250) {
+                setLogDisplayLimit(prev => prev + 10);
+            }
+        };
+
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [activeLog]);
+
+    const scrollToTop = () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleClockAction = async (action: 'clock_in' | 'clock_out' | 'start_break' | 'end_break', breakType: 'unpaid' | 'paid' = 'unpaid') => {
         try {
             toast.loading("Processing punch...", { id: 'clock_action' });
             
-            // In a real application, backend ensures logic, for this scope we'll construct the object
-            // or rely on a new dedicated endpoint. We will just POST to time_logs and let backend handle or direct create.
-            // Since backend function wasn't explicitly built, we'll write directly if API supports it, or handle here.
             const now = new Date().toISOString();
             
+            const { getDocs, updateDoc, doc, collection, query, where } = await import('firebase/firestore');
+            const qTaskOpen = query(collection(db, 'businesses', tenantId as string, 'task_time_logs'), where('userId', '==', currentUser?.uid || ''), where('status', '==', 'open'));
+            const openTasksSnap = await getDocs(qTaskOpen);
+
             if (action === 'clock_in') {
                 await api.post(`/businesses/${tenantId}/time_logs`, {
                     userId: currentUser?.uid,
@@ -95,15 +204,41 @@ export function TimeClockApp() {
                     clockOut: now,
                     status: 'closed'
                 });
+                
+                // Automatically clock out of active sub-tasks
+                for (const activeTask of openTasksSnap.docs) {
+                    await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), {
+                        clockOut: now,
+                        status: 'closed'
+                    });
+                }
             } else if (action === 'start_break' && activeLog) {
                 const breaks = activeLog.breaks || [];
-                breaks.push({ start: now, end: null });
+                breaks.push({ start: now, end: null, type: breakType });
                 await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { breaks });
+                
+                // Automatically pause active sub-tasks
+                for (const activeTask of openTasksSnap.docs) {
+                    const tData = activeTask.data();
+                    const tBreaks = tData.breaks || [];
+                    tBreaks.push({ start: now, end: null, type: breakType });
+                    await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), { breaks: tBreaks });
+                }
             } else if (action === 'end_break' && activeLog) {
                 const breaks = activeLog.breaks || [];
                 if (breaks.length > 0) {
                     breaks[breaks.length - 1].end = now;
                     await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { breaks });
+                }
+                
+                // Automatically resume active sub-tasks
+                for (const activeTask of openTasksSnap.docs) {
+                    const tData = activeTask.data();
+                    const tBreaks = tData.breaks || [];
+                    if (tBreaks.length > 0) {
+                        tBreaks[tBreaks.length - 1].end = now;
+                        await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), { breaks: tBreaks });
+                    }
                 }
             }
 
@@ -112,6 +247,77 @@ export function TimeClockApp() {
         } catch (err) {
             console.error(err);
             toast.error("Failed to record time.", { id: 'clock_action' });
+        }
+    };
+
+    const handleAddNote = async (overrideText?: string) => {
+        const textToSave = overrideText || noteInput.trim();
+        if (!textToSave || !activeLog) return;
+        try {
+            setIsAddingNote(true);
+            const newNote = {
+                text: textToSave,
+                time: new Date().toISOString()
+            };
+            const updatedNotes = [...(activeLog.notes || []), newNote];
+            await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { notes: updatedNotes });
+            setNoteInput('');
+            toast.success("Note added successfully");
+        } catch (e) {
+            console.error(e);
+            toast.error("Failed to add note");
+        } finally {
+            setIsAddingNote(false);
+        }
+    };
+
+    const handleSwitchTask = async (taskStr: string) => {
+        try {
+            setIsAddingNote(true);
+            const { getDocs, addDoc, updateDoc, doc, collection, query, where } = await import('firebase/firestore');
+            const now = new Date().toISOString();
+            
+            const tInfo = JSON.parse(taskStr);
+            
+            const qTaskOpen = query(collection(db, 'businesses', tenantId as string, 'task_time_logs'), where('userId', '==', currentUser?.uid), where('status', '==', 'open'));
+            const openTasksSnap = await getDocs(qTaskOpen);
+            
+            for (const activeDoc of openTasksSnap.docs) {
+                await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeDoc.id), {
+                    clockOut: now,
+                    status: 'closed'
+                });
+            }
+
+            await addDoc(collection(db, 'businesses', tenantId as string, 'task_time_logs'), {
+                userId: currentUser?.uid,
+                jobId: tInfo.jobId,
+                taskIndex: tInfo.taskIndex,
+                taskName: tInfo.taskTitle,
+                vehicleName: tInfo.vehicleName,
+                bookTime: tInfo.bookTime,
+                clockIn: now,
+                clockOut: null,
+                status: 'open'
+            });
+
+            if (activeLog) {
+                const newNote = {
+                    text: `Started Task: ${tInfo.taskTitle} - ${tInfo.jobTitle}`,
+                    time: now
+                };
+                const updatedNotes = [...(activeLog.notes || []), newNote];
+                await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { notes: updatedNotes });
+            }
+
+            setSelectedTaskNote('');
+            toast.success("Switched Task successfully");
+            window.dispatchEvent(new Event('time_punch_updated'));
+        } catch (e) {
+            console.error(e);
+            toast.error("Failed to switch task");
+        } finally {
+            setIsAddingNote(false);
         }
     };
 
@@ -133,21 +339,33 @@ export function TimeClockApp() {
         }
     };
 
-    const handleInitiatePunch = (action: string) => {
+    const handleLogEdit = (n: any) => {
+        setActiveTab('requests');
+        setRequestForm({
+            type: 'missed_punch',
+            date: new Date(n.time).toISOString().split('T')[0],
+            reason: `Edit shift log: "${n.text}"`,
+            requestedClockIn: '',
+            requestedClockOut: '',
+            targetLogId: activeLog?.id || ''
+        });
+    };
+
+    const handleInitiatePunch = (action: string, breakType: 'unpaid'|'paid' = 'unpaid') => {
         if (canRemotePunch) {
-            handleClockAction(action as any);
+            handleClockAction(action as any, breakType);
             return;
         }
 
         const preloadedToken = getValidKioskToken();
         if (preloadedToken) {
             // We have a live, valid token pre-scanned via URL deep link!
-            handleClockAction(action as any);
+            handleClockAction(action as any, breakType);
             // Wipe the token from the URL so it can't be reused for another action later if they refresh
             setSearchParams(prev => { prev.delete('kiosk'); return prev; }, { replace: true });
         } else {
             // Fall back to opening the in-app scanner 
-            setTargetAction(action);
+            setTargetAction({ action, breakType });
             setIsScanning(true);
         }
     };
@@ -194,7 +412,7 @@ export function TimeClockApp() {
                 return;
             }
 
-            handleClockAction(targetAction as any);
+            handleClockAction(targetAction?.action as any, targetAction?.breakType);
             setTargetAction(null);
         } catch (e) {
             toast.error("Failed to read Kiosk secure code.");
@@ -211,11 +429,14 @@ export function TimeClockApp() {
                 type: requestForm.type,
                 date: requestForm.date,
                 reason: requestForm.reason,
+                requestedClockIn: requestForm.requestedClockIn ? new Date(requestForm.requestedClockIn).toISOString() : '',
+                requestedClockOut: requestForm.requestedClockOut ? new Date(requestForm.requestedClockOut).toISOString() : '',
+                targetLogId: requestForm.targetLogId,
                 status: 'pending',
                 createdAt: new Date().toISOString()
             });
             toast.success("Request submitted.");
-            setRequestForm({ type: 'pto', date: '', reason: '' });
+            setRequestForm({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', targetLogId: '' });
         } catch (err) {
             toast.error("Failed to submit request.");
         } finally {
@@ -247,13 +468,17 @@ export function TimeClockApp() {
 
                 {/* Tabs */}
                 <div className="flex items-center gap-2 p-1 bg-zinc-900/50 border border-zinc-800 rounded-xl max-w-fit">
-                    {(['clock', 'timesheet', 'requests'] as const).map(tab => (
+                    {[
+                        { id: 'clock', label: 'Clock' },
+                        { id: 'timesheet', label: 'Timesheet' },
+                        { id: 'requests', label: 'PTO & Requests' }
+                    ].map(tab => (
                         <button
-                            key={tab}
-                            onClick={() => setActiveTab(tab)}
-                            className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all ${activeTab === tab ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id as any)}
+                            className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all ${activeTab === tab.id ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
                         >
-                            {tab.replace('requests', 'Time Off')}
+                            {tab.label}
                         </button>
                     ))}
                 </div>
@@ -263,13 +488,9 @@ export function TimeClockApp() {
                     
                     {/* Timeclock Tab */}
                     {activeTab === 'clock' && (
-                        <div className="flex flex-col items-center justify-center py-12 text-center">
-                            <Clock className="w-24 h-24 text-zinc-800 mb-6" />
-                            <h2 className="text-2xl font-black text-white mb-2">My Timeclock</h2>
-                            <p className="text-zinc-500 max-w-md mx-auto mb-12">Click below to record your hours or take a break. Remember to always punch out at the end of your shift. <br/><span className="text-pink-500 font-mono text-[10px]">DEBUG: db length={timeLogs.length} | uid={currentUser?.uid}</span></p>
-                            
+                        <div className="flex flex-col py-4 w-full">
                             {loadingClock ? (
-                                <div className="animate-pulse bg-zinc-800 h-16 w-64 rounded-2xl"></div>
+                                <div className="animate-pulse bg-zinc-800 h-16 w-64 rounded-2xl mx-auto"></div>
                             ) : isScanning ? (
                                 <div className="w-full max-w-sm mx-auto aspect-square rounded-2xl overflow-hidden border-2 border-accent relative shadow-[0_0_50px_rgba(255,255,255,0.05)]">
                                     <div className="absolute top-4 left-0 right-0 z-10 flex justify-center pointer-events-none">
@@ -296,7 +517,7 @@ export function TimeClockApp() {
                                     </button>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-lg">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
                                     {!activeLog ? (
                                         <button 
                                             onClick={() => handleInitiatePunch('clock_in')}
@@ -307,12 +528,20 @@ export function TimeClockApp() {
                                     ) : (
                                         <>
                                             {!onBreak ? (
-                                                <button 
-                                                    onClick={() => handleInitiatePunch('start_break')}
-                                                    className="flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/50 text-amber-500 px-6 py-4 rounded-2xl font-bold text-lg transition-all"
-                                                >
-                                                    {!canRemotePunch && <ScanLine className="w-4 h-4" />} Break
-                                                </button>
+                                                <div className="flex gap-2">
+                                                    <button 
+                                                        onClick={() => handleInitiatePunch('start_break', 'unpaid')}
+                                                        className="flex-1 flex items-center justify-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/50 text-amber-500 px-2 py-4 rounded-2xl font-bold text-sm transition-all"
+                                                    >
+                                                        {!canRemotePunch && <ScanLine className="w-4 h-4" />} Unpaid Break (Lunch)
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleInitiatePunch('start_break', 'paid')}
+                                                        className="flex-1 flex items-center justify-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/50 text-blue-500 px-2 py-4 rounded-2xl font-bold text-sm transition-all"
+                                                    >
+                                                        {!canRemotePunch && <ScanLine className="w-4 h-4" />} Paid Rest Break
+                                                    </button>
+                                                </div>
                                             ) : (
                                                 <button 
                                                     onClick={() => handleInitiatePunch('end_break')}
@@ -333,6 +562,218 @@ export function TimeClockApp() {
                                             <div className="md:col-span-2 mt-6 text-sm font-bold text-zinc-500 flex flex-col items-center gap-1">
                                                 <span>Active Shift Started at: {new Date(activeLog.clockIn).toLocaleTimeString()}</span>
                                                 {canRemotePunch && <span className="text-emerald-500 text-[10px] uppercase tracking-widest flex items-center gap-1"><Play className="w-3 h-3" /> Remote Override Authorized</span>}
+                                            </div>
+
+                                            {/* Notes / Tasks Section */}
+                                            <div className="md:col-span-2 mt-8 text-left w-full border-t border-zinc-800/50 pt-8">
+                                                <h3 className="text-white font-bold mb-4 flex items-center gap-2"><FileText className="w-4 h-4"/> Shift Notes & Tasks</h3>
+                                                
+                                                {/* Combined Activity / Task selection block */}
+                                                {(() => {
+                                                    const activeNoteRecord = activeLog.notes && activeLog.notes.length > 0 && !activeLog.notes[activeLog.notes.length - 1].text.startsWith('Finished Task:') ? activeLog.notes[activeLog.notes.length - 1] : null;
+                                                    const activeNoteText = activeNoteRecord?.text || '';
+                                                    
+                                                    return (
+                                                        <div className="flex flex-col gap-3 mb-6 bg-emerald-500/10 border border-emerald-500/20 p-4 pt-3 rounded-xl shadow-inner">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <div className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
+                                                                    <Activity className="w-3 h-3" /> Current Activity Dashboard
+                                                                </div>
+                                                                {activeNoteRecord && (
+                                                                    <div className="text-emerald-400 font-mono font-bold text-xs bg-emerald-500/20 px-2 py-0.5 rounded shadow-sm border border-emerald-500/20">
+                                                                        <LiveDuration startTime={activeNoteRecord.time} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {myAssignedTasks.length > 0 ? (
+                                                                <div className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
+                                                                    <div className="relative flex-1 w-full sm:w-auto">
+                                                                        <div 
+                                                                            onClick={() => setIsTaskDropdownOpen(!isTaskDropdownOpen)}
+                                                                            className="w-full bg-zinc-900/80 border border-emerald-500/30 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-emerald-50 font-bold hover:border-emerald-500/50 transition-colors cursor-pointer flex justify-between items-center"
+                                                                        >
+                                                                            <span className="truncate">
+                                                                                {selectedTaskNote && selectedTaskNote !== 'OTHER' 
+                                                                                    ? (() => { try { const p = JSON.parse(selectedTaskNote); return `${p.jobTitle} → ${p.taskTitle}`; } catch { return 'Selected'; } })() 
+                                                                                    : selectedTaskNote === 'OTHER' ? 'Other (Manual Note)' : (activeNoteText || "Idle / Off Task (Select an activity)")}
+                                                                            </span>
+                                                                            <svg className={`shrink-0 w-3 h-3 ml-2 transition-transform ${isTaskDropdownOpen ? 'rotate-180 text-emerald-400' : 'text-emerald-500'}`} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                                                                        </div>
+                                                                        
+                                                                        {isTaskDropdownOpen && (
+                                                                            <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-800 border border-zinc-700/80 rounded-lg shadow-2xl z-50 overflow-hidden flex flex-col max-h-[350px]">
+                                                                                <div className="p-2 border-b border-zinc-700/50 shrink-0 sticky top-0 bg-zinc-800">
+                                                                                    <div className="relative">
+                                                                                        <input 
+                                                                                            type="text" 
+                                                                                            autoFocus
+                                                                                            placeholder="Type to filter tasks, VIN, customer..." 
+                                                                                            value={taskSearchQuery}
+                                                                                            onChange={(e) => setTaskSearchQuery(e.target.value)}
+                                                                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-md py-2.5 pl-3 pr-8 text-sm text-white focus:outline-none focus:border-emerald-500 placeholder:text-zinc-500 focus:ring-1 focus:ring-emerald-500/50"
+                                                                                        />
+                                                                                        {taskSearchQuery && (
+                                                                                            <button onClick={() => setTaskSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-white">
+                                                                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="overflow-y-auto p-1 py-1 space-y-0.5 custom-scrollbar">
+                                                                                    {taskSearchQuery.trim() === '' && (
+                                                                                        <div 
+                                                                                            onClick={() => { setSelectedTaskNote('OTHER'); setIsTaskDropdownOpen(false); setTaskSearchQuery(''); }}
+                                                                                            className="px-3 py-2.5 rounded hover:bg-emerald-500/10 hover:text-white text-sm text-zinc-300 cursor-pointer transition-colors"
+                                                                                        >
+                                                                                            Other (Manual Note)
+                                                                                        </div>
+                                                                                    )}
+                                                                                    
+                                                                                    <div className="px-3 pt-3 pb-1 text-[11px] font-bold text-zinc-400">Assigned Tasks</div>
+                                                                                    {myAssignedTasks.filter(t => {
+                                                                                        if (!taskSearchQuery) return true;
+                                                                                        const searchStr = `${t.jobTitle} ${t.taskTitle} ${t.vehicleName} ${t.customerName}`.toLowerCase();
+                                                                                        return searchStr.includes(taskSearchQuery.toLowerCase());
+                                                                                    }).map((t, idx) => (
+                                                                                        <div 
+                                                                                            key={idx}
+                                                                                            onClick={() => {
+                                                                                                if (t.isApproved !== false) {
+                                                                                                    setSelectedTaskNote(JSON.stringify(t));
+                                                                                                    setIsTaskDropdownOpen(false);
+                                                                                                    setTaskSearchQuery('');
+                                                                                                }
+                                                                                            }}
+                                                                                            className={`px-3 py-2.5 rounded text-sm flex flex-col gap-0.5 transition-colors ${t.isApproved === false ? 'opacity-50 cursor-not-allowed bg-zinc-900/30' : 'cursor-pointer hover:bg-emerald-500/10 text-white hover:text-emerald-400'}`}
+                                                                                        >
+                                                                                            <div className="flex items-center gap-1.5 font-medium">
+                                                                                                {t.isApproved === false && <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1 py-0.5 rounded uppercase font-black">Pending</span>}
+                                                                                                <span className={t.isApproved === false ? 'text-zinc-500' : ''}>{t.jobTitle} &rarr; {t.taskTitle}</span>
+                                                                                            </div>
+                                                                                            <div className="text-[10px] text-zinc-500 flex items-center gap-2">
+                                                                                                {t.customerName && <span>{t.customerName}</span>}
+                                                                                                {t.customerName && t.vehicleName && <span className="opacity-50">•</span>}
+                                                                                                {t.vehicleName && <span>{t.vehicleName}</span>}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                    {myAssignedTasks.filter(t => {
+                                                                                        if (!taskSearchQuery) return true;
+                                                                                        const searchStr = `${t.jobTitle} ${t.taskTitle} ${t.vehicleName} ${t.customerName}`.toLowerCase();
+                                                                                        return searchStr.includes(taskSearchQuery.toLowerCase());
+                                                                                    }).length === 0 && (
+                                                                                        <div className="px-3 py-4 text-center text-sm text-zinc-500 italic">No tasks match "{taskSearchQuery}"</div>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {(() => {
+                                                                        let isAlreadyActive = false;
+                                                                        if (selectedTaskNote && selectedTaskNote !== 'OTHER') {
+                                                                            try {
+                                                                                const parsed = JSON.parse(selectedTaskNote);
+                                                                                isAlreadyActive = activeNoteText.includes(parsed.taskTitle) && activeNoteText.includes(parsed.jobTitle);
+                                                                            } catch {}
+                                                                        }
+                                                                        
+                                                                        if (isAlreadyActive) {
+                                                                            return (
+                                                                                <div className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-4 py-3 rounded-lg text-sm font-bold shrink-0 whitespace-nowrap cursor-not-allowed hidden sm:block">
+                                                                                    Already Active
+                                                                                </div>
+                                                                            );
+                                                                        }
+
+                                                                        return selectedTaskNote && selectedTaskNote !== 'OTHER' && (
+                                                                            <button 
+                                                                                onClick={() => handleSwitchTask(selectedTaskNote)}
+                                                                                disabled={isAddingNote}
+                                                                                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white px-4 py-3 rounded-lg text-sm font-bold transition-colors shrink-0 whitespace-nowrap shadow-lg shadow-emerald-500/20 w-full sm:w-auto"
+                                                                            >
+                                                                                Switch to Selected
+                                                                            </button>
+                                                                        );
+                                                                    })()}
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-emerald-500/70 text-sm italic">No active tasks assigned to you.</div>
+                                                            )}
+
+                                                            {(!myAssignedTasks.length || selectedTaskNote === 'OTHER') && (
+                                                                <div className="flex gap-2 mt-2">
+                                                                    <input 
+                                                                        type="text"
+                                                                        value={noteInput}
+                                                                        onChange={(e) => setNoteInput(e.target.value)}
+                                                                        placeholder={activeNoteText ? "Type new note..." : "What are you doing now?"}
+                                                                        className="flex-1 bg-zinc-900 border border-emerald-500/30 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white"
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddNote() }}
+                                                                    />
+                                                                    <button 
+                                                                        onClick={() => handleAddNote()}
+                                                                        disabled={isAddingNote || !noteInput.trim()}
+                                                                        className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg text-sm font-bold transition-colors shrink-0 whitespace-nowrap border border-zinc-700"
+                                                                    >
+                                                                        Switch / Log Activity
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            <Link 
+                                                                to="/business/tech"
+                                                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-lg text-sm font-bold transition-colors flex items-center justify-center whitespace-nowrap shadow-lg shadow-emerald-500/20 w-full mt-2"
+                                                            >
+                                                                Open Staff Job Portal (Manage Tasks)
+                                                            </Link>
+                                                        </div>
+                                                    )
+                                                })()}
+
+                                                {/* History Log view */}
+                                                {(() => {
+                                                    const events: any[] = [];
+                                                    if (activeLog.clockIn) events.push({ time: activeLog.clockIn, text: 'Shift Started', type: 'system' });
+                                                    if (activeLog.clockOut) events.push({ time: activeLog.clockOut, text: 'Shift Ended', type: 'system' });
+                                                    if (activeLog.breaks) {
+                                                        activeLog.breaks.forEach((b: any) => {
+                                                            if (b.start) events.push({ time: b.start, text: `Started ${b.type === 'paid' ? 'Paid Rest' : 'Unpaid Meal'} Break`, type: 'system' });
+                                                            if (b.end) events.push({ time: b.end, text: `Ended ${b.type === 'paid' ? 'Paid Rest' : 'Unpaid Meal'} Break`, type: 'system' });
+                                                        });
+                                                    }
+                                                    if (activeLog.notes) {
+                                                        activeLog.notes.forEach((n: any) => {
+                                                            events.push({ time: n.time, text: n.text, type: 'note', raw: n });
+                                                        });
+                                                    }
+                                                    events.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+                                                    
+                                                    return (
+                                                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-4">
+                                                            {events.length === 0 ? (
+                                                                <div className="text-zinc-500 text-sm italic">No shift logs yet.</div>
+                                                            ) : (
+                                                                <div className="space-y-1">
+                                                                    {events.reverse().slice(0, logDisplayLimit).map((ev: any, idx: number) => (
+                                                                        <div 
+                                                                            key={idx} 
+                                                                            onClick={() => ev.type === 'note' && ev.raw ? handleLogEdit(ev.raw) : null}
+                                                                            className={`group flex gap-3 text-sm p-2 rounded-lg transition-colors items-center ${ev.type === 'note' ? 'hover:bg-zinc-800/50 cursor-pointer' : ''}`}
+                                                                        >
+                                                                            <div className="text-zinc-500 font-mono shrink-0">{new Date(ev.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                                                            <div className={`flex-1 px-3 py-1.5 rounded-lg border flex items-center ${ev.type === 'note' ? 'text-zinc-300 bg-zinc-800/50 border-zinc-700/50' : 'text-blue-400 bg-blue-500/10 border-blue-500/20 font-bold text-xs uppercase tracking-widest'}`}>
+                                                                                {ev.text}
+                                                                            </div>
+                                                                            {ev.type === 'note' && <div className="text-xs text-accent font-bold opacity-0 group-hover:opacity-100 pr-2">Request Edit</div>}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </>
                                     )}
@@ -361,7 +802,24 @@ export function TimeClockApp() {
                                                 </div>
                                             </div>
                                             <div className="mt-3 md:mt-0 flex gap-2">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${log.status === 'closed' ? 'bg-zinc-800 text-zinc-300' : 'bg-blue-500/20 text-blue-400'}`}>
+                                                <button 
+                                                    onClick={() => {
+                                                        setActiveTab('requests');
+                                                        setRequestForm(prev => ({
+                                                            ...prev, 
+                                                            type: 'missed_punch', 
+                                                            date: new Date(log.clockIn).toISOString().split('T')[0], 
+                                                            reason: `Requesting to edit timesheet on ${new Date(log.clockIn).toLocaleDateString()}:\n\n`,
+                                                            targetLogId: log.id,
+                                                            requestedClockIn: toLocalISOString(log.clockIn),
+                                                            requestedClockOut: toLocalISOString(log.clockOut)
+                                                        }));
+                                                    }} 
+                                                    className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-1 rounded-full text-xs font-bold transition-colors border border-zinc-700"
+                                                >
+                                                    Request Edit
+                                                </button>
+                                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${log.status === 'closed' ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
                                                     {log.status}
                                                 </span>
                                             </div>
@@ -376,7 +834,7 @@ export function TimeClockApp() {
                     {activeTab === 'requests' && (
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                             <div>
-                                <h2 className="text-xl font-bold text-white mb-6">Request Time Off</h2>
+                                <h2 className="text-xl font-bold text-white mb-6">Requests</h2>
                                 <form onSubmit={handleSubmitRequest} className="space-y-4">
                                     <div>
                                         <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Request Type</label>
@@ -390,24 +848,49 @@ export function TimeClockApp() {
                                             <option value="sick">Sick Leave</option>
                                             <option value="late">Late Notice</option>
                                             <option value="unpaid">Unpaid Leave</option>
+                                            <option value="missed_punch">Missed Punch / Fix Timesheet</option>
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Date</label>
-                                        <input 
-                                            type="date"
-                                            value={requestForm.date}
-                                            onChange={(e) => setRequestForm({...requestForm, date: e.target.value})}
-                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
-                                            required
-                                        />
-                                    </div>
+                                    {requestForm.type !== 'missed_punch' && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Date</label>
+                                            <input 
+                                                type="date"
+                                                value={requestForm.date}
+                                                onChange={(e) => setRequestForm({...requestForm, date: e.target.value})}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                required={requestForm.type !== 'missed_punch'}
+                                            />
+                                        </div>
+                                    )}
+                                    {requestForm.type === 'missed_punch' && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock In</label>
+                                                <input 
+                                                    type="datetime-local"
+                                                    value={requestForm.requestedClockIn}
+                                                    onChange={(e) => setRequestForm({...requestForm, requestedClockIn: e.target.value})}
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock Out</label>
+                                                <input 
+                                                    type="datetime-local"
+                                                    value={requestForm.requestedClockOut}
+                                                    onChange={(e) => setRequestForm({...requestForm, requestedClockOut: e.target.value})}
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                     <div>
                                         <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Reason</label>
                                         <textarea 
                                             value={requestForm.reason}
                                             onChange={(e) => setRequestForm({...requestForm, reason: e.target.value})}
-                                            placeholder="Provide details about your request..."
+                                            placeholder={requestForm.type === 'missed_punch' ? "Please specify your actual clock in and clock out times..." : "Provide details about your request..."}
                                             className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white min-h-[100px]"
                                             required
                                         ></textarea>
@@ -445,6 +928,18 @@ export function TimeClockApp() {
                     )}
                 </div>
             </div>
+
+            {/* Scroll to Top Button */}
+            {showScrollTop && (
+                <button
+                    onClick={scrollToTop}
+                    className="fixed bottom-6 right-6 p-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full shadow-[0_0_20px_rgba(0,0,0,0.5)] border border-zinc-700/50 transition-all z-50 group hover:scale-110"
+                    aria-label="Scroll to top"
+                >
+                    <svg className="w-6 h-6 group-hover:-translate-y-1 transition-transform" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+            )}
+
         </div>
     );
 }

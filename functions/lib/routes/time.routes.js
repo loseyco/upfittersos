@@ -41,7 +41,7 @@ exports.timeRoutes = (0, express_1.Router)({ mergeParams: true });
 const getDb = () => admin.firestore();
 // Helper to check basic tenant access
 const isMemberOfTenant = (caller, tenantId) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
@@ -165,6 +165,53 @@ exports.timeRoutes.put('/:id/time_off_requests/:requestId', auth_middleware_1.au
     catch (error) {
         console.error("Error updating time off request:", error);
         return res.status(500).json({ error: 'Failed to update time off request' });
+    }
+});
+// POST /businesses/:id/payroll_runs
+exports.timeRoutes.post('/:id/payroll_runs', auth_middleware_1.authenticate, async (req, res) => {
+    try {
+        const caller = req.user;
+        const tenantId = req.params.id;
+        // Strict Authorization: Only admin or super_admin can run payroll
+        if (!isMemberOfTenant(caller, tenantId) || (caller.role !== 'admin' && caller.role !== 'workspace_admin' && caller.role !== 'system_owner' && caller.role !== 'super_admin')) {
+            return res.status(403).json({ error: 'Forbidden. Only administrators can finalize payroll sequences.' });
+        }
+        const { startDate, endDate, totals, timeLogIds, timeOffRequestIds } = req.body;
+        const db = getDb();
+        const batch = db.batch();
+        // 1. Create the immutable Payroll Run snapshot
+        const runRef = db.collection('businesses').doc(tenantId).collection('payroll_runs').doc();
+        batch.set(runRef, {
+            startDate,
+            endDate,
+            totals,
+            timeLogIds: timeLogIds || [],
+            timeOffRequestIds: timeOffRequestIds || [],
+            createdAt: new Date().toISOString(),
+            createdBy: caller.uid,
+            status: 'locked'
+        });
+        // 2. Mark all grouped Time Logs as finalized/paid so they cannot be altered or double-paid
+        if (timeLogIds && Array.isArray(timeLogIds)) {
+            timeLogIds.forEach(id => {
+                const logRef = db.collection('businesses').doc(tenantId).collection('time_logs').doc(id);
+                batch.update(logRef, { status: 'paid', payrollRunId: runRef.id });
+            });
+        }
+        // 3. Mark all grouped Time Off Requests as paid
+        if (timeOffRequestIds && Array.isArray(timeOffRequestIds)) {
+            timeOffRequestIds.forEach(id => {
+                const reqRef = db.collection('businesses').doc(tenantId).collection('time_off_requests').doc(id);
+                batch.update(reqRef, { status: 'paid', payrollRunId: runRef.id });
+            });
+        }
+        // Execute transaction atomically
+        await batch.commit();
+        return res.status(201).json({ success: true, id: runRef.id });
+    }
+    catch (error) {
+        console.error("Error finalizing payroll:", error);
+        return res.status(500).json({ error: 'Failed to finalize payroll sequence' });
     }
 });
 //# sourceMappingURL=time.routes.js.map

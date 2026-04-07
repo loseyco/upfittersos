@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ClipboardList, Trash2, Edit2, Plus, X } from 'lucide-react';
+import { ClipboardList, Trash2, Edit2, Plus, X, FlaskConical } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import { StaffSelector } from '../../../components/EntitySelectors';
 
 export function TasksAdminTab({ tenantId }: { tenantId: string }) {
     const [tasks, setTasks] = useState<any[]>([]);
@@ -41,15 +42,14 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
             setLoading(false);
         });
 
-        const unsubStaff = onSnapshot(collection(db, 'businesses', tenantId, 'staff'), (s) => {
-            const loadedStaff = s.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        api.get(`/businesses/${tenantId}/staff`).then(res => {
+            const loadedStaff = res.data;
             setStaff(loadedStaff);
             setTaskAssignee(prev => prev || (loadedStaff[0]?.uid || loadedStaff[0]?.id || ''));
         });
 
         return () => {
             unsubTasks();
-            unsubStaff();
         };
     }, [tenantId]);
 
@@ -123,10 +123,24 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
 
     return (
         <div className="flex flex-col h-full bg-zinc-950">
-            {/* Quick Add Bar */}
-            <div className="p-4 bg-zinc-900 border-b border-zinc-800 shrink-0 flex items-center justify-between">
+            {/* Alpha Banner */}
+            <div className="bg-orange-500/5 border-b border-orange-500/20 px-6 py-3 flex items-start gap-3 shrink-0 relative z-20">
+                <FlaskConical className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
                 <div>
-                    <h3 className="text-white font-bold tracking-tight">Assigned Tasks</h3>
+                    <h4 className="text-orange-400 font-bold text-sm">Feature Preview (Alpha Roadmap)</h4>
+                    <p className="text-orange-400/80 text-xs mt-0.5">Task Assignment is currently in active development. You may start testing it now, but expect rapid updates and potential data resets prior to stable release.</p>
+                </div>
+            </div>
+
+            {/* Quick Add Bar */}
+            <div className="p-4 bg-zinc-900 border-b border-zinc-800 shrink-0 flex items-center justify-between relative z-10">
+                <div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                        <h3 className="text-white font-bold tracking-tight">Assigned Tasks</h3>
+                        <span className="bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded">
+                            Alpha Labs
+                        </span>
+                    </div>
                     <p className="text-zinc-500 text-xs mt-0.5">Manage tasks assigned to your staff.</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -190,18 +204,12 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Assign to Staff</label>
-                                        <select 
-                                            required
+                                        <StaffSelector 
                                             value={editAssignee}
-                                            onChange={e => setEditAssignee(e.target.value)}
-                                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
-                                        >
-                                            {staff.map(user => (
-                                                <option key={user.uid} value={user.uid}>
-                                                    {user.displayName || user.email} {user.jobTitle ? `(${user.jobTitle})` : ''}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            onChange={(val) => setEditAssignee(val)}
+                                            data={staff}
+                                            placeholder="Assign a Staff Member"
+                                        />
                                     </div>
                                 </div>
                             </form>
@@ -293,19 +301,12 @@ export function TasksAdminTab({ tenantId }: { tenantId: string }) {
                     </div>
                     <div className="w-full md:w-64 shrink-0 relative">
                         <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1.5 ml-1">Assign to Staff</label>
-                        <select 
-                            required
+                        <StaffSelector 
                             value={taskAssignee}
-                            onChange={e => setTaskAssignee(e.target.value)}
-                            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
-                        >
-                            <option value="" disabled>Select Staff Member</option>
-                            {staff.map(user => (
-                                <option key={user.uid} value={user.uid}>
-                                    {user.displayName || user.email} {user.jobTitle ? `(${user.jobTitle})` : ''}
-                                </option>
-                            ))}
-                        </select>
+                            onChange={(val) => setTaskAssignee(val)}
+                            data={staff}
+                            placeholder="Select Staff Member"
+                        />
                     </div>
                     <button 
                         type="submit" 

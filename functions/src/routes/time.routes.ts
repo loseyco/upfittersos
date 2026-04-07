@@ -7,7 +7,7 @@ const getDb = () => admin.firestore();
 
 // Helper to check basic tenant access
 const isMemberOfTenant = (caller: any, tenantId: string) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
@@ -151,7 +151,7 @@ timeRoutes.post('/:id/payroll_runs', authenticate, async (req: Request, res: Res
         const tenantId = req.params.id;
         
         // Strict Authorization: Only admin or super_admin can run payroll
-        if (!isMemberOfTenant(caller, tenantId) || (caller.role !== 'admin' && caller.role !== 'workspace_admin' && caller.role !== 'super_admin')) {
+        if (!isMemberOfTenant(caller, tenantId) || (caller.role !== 'admin' && caller.role !== 'workspace_admin' && caller.role !== 'system_owner' && caller.role !== 'super_admin')) {
             return res.status(403).json({ error: 'Forbidden. Only administrators can finalize payroll sequences.' });
         }
 

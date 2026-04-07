@@ -19,9 +19,9 @@ const requireTenant = (req, res, next) => {
 // --- OAUTH FLOW ENDPOINTS ---
 exports.companyCamRoutes.get('/oauth/url', auth_middleware_1.authenticate, (req, res) => {
     const caller = req.user;
-    const tenantId = caller.role === 'super_admin' ? (req.headers['x-tenant-id'] || req.query.tenantId) : caller.tenantId;
-    if (!tenantId) {
-        res.status(400).json({ error: 'Missing tenantId or you are not bound to a workspace.' });
+    // We strictly identify the user based on token. We don't need tenant validation for the OAuth URL itself.
+    if (!caller || !caller.uid) {
+        res.status(401).json({ error: 'Unauthenticated.' });
         return;
     }
     const clientId = process.env.COMPANYCAM_CLIENT_ID || 'PLACEHOLDER_CLIENT_ID';
@@ -38,17 +38,17 @@ exports.companyCamRoutes.get('/oauth/url', auth_middleware_1.authenticate, (req,
 exports.companyCamRoutes.post('/oauth/exchange', auth_middleware_1.authenticate, async (req, res) => {
     try {
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (req.headers['x-tenant-id'] || req.query.tenantId) : caller.tenantId;
-        if (!tenantId) {
-            res.status(400).json({ error: 'Missing tenantId or you are not bound to a workspace.' });
+        const userId = caller.uid;
+        if (!userId) {
+            res.status(401).json({ error: 'User mapping failed or unauthorized.' });
             return;
         }
-        const { code, redirectUri } = req.body;
-        if (!code || !redirectUri) {
-            res.status(400).json({ error: 'code and redirectUri are required in body.' });
+        const { code, redirectUri, tenantId } = req.body;
+        if (!code || !redirectUri || !tenantId) {
+            res.status(400).json({ error: 'code, redirectUri, and tenantId are required in body.' });
             return;
         }
-        await companyCam_service_1.CompanyCamService.exchangeCodeForToken(tenantId, code, redirectUri);
+        await companyCam_service_1.CompanyCamService.exchangeCodeForToken(userId, tenantId, code, redirectUri);
         res.json({ success: true });
     }
     catch (err) {
@@ -60,12 +60,13 @@ exports.companyCamRoutes.post('/oauth/exchange', auth_middleware_1.authenticate,
 exports.companyCamRoutes.get('/projects', auth_middleware_1.authenticate, async (req, res) => {
     try {
         const caller = req.user;
-        const tenantId = caller.role === 'super_admin' ? (req.headers['x-tenant-id'] || req.query.tenantId) : caller.tenantId;
-        if (!tenantId) {
-            res.status(400).json({ error: 'Missing tenantId or you are not bound to a workspace.' });
+        const userId = caller.uid;
+        const tenantId = req.query.tenantId || caller.tenantId;
+        if (!userId || !tenantId) {
+            res.status(401).json({ error: 'Missing userId or tenantId.' });
             return;
         }
-        const service = new companyCam_service_1.CompanyCamService(tenantId);
+        const service = new companyCam_service_1.CompanyCamService(userId, tenantId);
         const projects = await service.getProjects();
         res.json(projects);
     }

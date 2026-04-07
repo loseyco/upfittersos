@@ -12,12 +12,17 @@ import { DocsLayout } from './pages/docs/DocsLayout';
 import { DocsOverview } from './pages/docs/DocsOverview';
 import { ApiReferenceDoc } from './pages/docs/ApiReferenceDoc';
 import { QrProtocolDoc } from './pages/docs/QrProtocolDoc';
+import { MockJob } from './pages/MockJob';
+import { SystemPitch } from './pages/SystemPitch';
+import { PublicHero } from './pages/PublicHero';
+import { CustomerPortal } from './pages/CustomerPortal';
 import { RolesDoc } from './pages/docs/RolesDoc';
 import { IntegrationsDoc } from './pages/docs/IntegrationsDoc';
 import { StaffGuideDoc } from './pages/docs/StaffGuideDoc';
 import { FeedbackGuideDoc } from './pages/docs/FeedbackGuideDoc';
 import { ChangelogDoc } from './pages/docs/ChangelogDoc';
 import { AuthProvider } from './contexts/AuthContext'
+import { AnalyticsTracker } from './components/AnalyticsTracker'
 import { Login } from './pages/auth/Login'
 import { Register } from './pages/auth/Register'
 import { ResetPassword } from './pages/auth/ResetPassword'
@@ -40,6 +45,12 @@ import { OAuthCallback } from './pages/business/OAuthCallback'
 import { MeetingsDashboard } from './pages/business/MeetingsDashboard'
 import { TimeClockApp } from './pages/business/TimeClockApp'
 import { TimeclockKiosk } from './pages/business/TimeclockKiosk'
+import { TechPortal } from './pages/TechPortal'
+import { NoticesBoard } from './pages/business/NoticesBoard'
+import { ReportViewerPage } from './pages/business/ReportViewerPage'
+import { EstimatePrintView } from './pages/business/EstimatePrintView'
+import { EstimateHub } from './pages/business/estimates/EstimateHub'
+import { EstimateBuilder } from './pages/business/estimates/EstimateBuilder'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -52,9 +63,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         }} 
       />
       <BrowserRouter>
+        <AnalyticsTracker />
         <Routes>
           {/* Full Screen Utility Routes without MainLayout */}
           <Route path="/business/:id/kiosk" element={<ProtectedRoute><TimeclockKiosk /></ProtectedRoute>} />
+          <Route path="/business/:tenantId/estimate/:jobId/print" element={<ProtectedRoute><EstimatePrintView /></ProtectedRoute>} />
+
+          {/* Reference Demos / Public Mockups */}
+          <Route path="/example/jobs/mock" element={<MockJob />} />
+          <Route path="/example/ops" element={<OpsMissionControl />} />
+          <Route path="/example/tech" element={<TechPortal />} />
+          <Route path="/example/pitch" element={<SystemPitch />} />
+          <Route path="/example/hero" element={<PublicHero />} />
+          <Route path="/example/customer" element={<CustomerPortal />} />
 
           <Route element={<MainLayout />}>
             {/* Public Routes */}
@@ -84,6 +105,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
             {/* --- Authenticated Routes --- */}
             <Route path="/workspace" element={<ProtectedRoute><WorkspaceHub /></ProtectedRoute>} />
+            <Route path="/workspace/notices" element={<ProtectedRoute><NoticesBoard /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requireSuperAdmin={true}><SuperAdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/features" element={<ProtectedRoute requireSuperAdmin={true}><FeaturesPlanner /></ProtectedRoute>} />
@@ -98,6 +120,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
             <Route path="/business/meetings" element={<ProtectedRoute><MeetingsDashboard /></ProtectedRoute>} />
             <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
+            <Route path="/business/tech" element={<ProtectedRoute><TechPortal /></ProtectedRoute>} />
+            <Route path="/business/jobs" element={<ProtectedRoute><EstimateHub /></ProtectedRoute>} />
+            <Route path="/business/jobs/:jobId" element={<ProtectedRoute><EstimateBuilder /></ProtectedRoute>} />
+            <Route path="/business/reports/:id" element={<ProtectedRoute><ReportViewerPage /></ProtectedRoute>} />
             <Route path="/oauth/companycam" element={<ProtectedRoute><OAuthCallback /></ProtectedRoute>} />
             
             {/* Helper Redirects & 404 Catch-All */}

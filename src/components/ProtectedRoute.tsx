@@ -12,7 +12,7 @@ export function ProtectedRoute({ children, requireSuperAdmin = false }: { childr
             if (requireSuperAdmin) {
                 currentUser.getIdTokenResult(true).then(idTokenResult => {
                     const role = idTokenResult.claims.role as string;
-                    if (role === 'super_admin') {
+                    if (role === 'system_owner' || role === 'super_admin') {
                         setIsAuthorized(true);
                     } else {
                         setIsAuthorized(false);

@@ -1,20 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key, ListChecks } from 'lucide-react';
+import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key, ListChecks, Package } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
 import { auth } from '../../lib/firebase';
 import { PERMISSION_LABELS, DEFAULT_PERMISSIONS } from '../../lib/permissions';
+import { APP_FEATURES, DEFAULT_FEATURE_STATE } from '../../lib/features';
+import type { FeatureVersion } from '../../lib/features';
+import { AuditLogsTab } from '../business/admin/AuditLogsTab';
+import { BuildLogAdminTab } from './BuildLogAdminTab';
 
 export function SuperAdminDashboard() {
     const { currentUser } = useAuth();
     const navigate = useNavigate();
     
     // UI States (Synched to URL for deep linking / refresh survival)
+    // UI States (Synched to URL for deep linking / refresh survival)
     const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings' | 'dictionary') || 'workspaces';
+    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings' | 'dictionary' | 'modules' | 'analytics' | 'builds') || 'workspaces';
     
     const setActiveTab = (tab: string) => {
         setSearchParams(prev => {
@@ -203,6 +208,28 @@ export function SuperAdminDashboard() {
         }
     };
 
+    const handleUpdateFeature = async (featureId: string, version: FeatureVersion, isDevList: boolean = false) => {
+        if (!selectedWorkspace) return;
+        try {
+            const currentFeatures = selectedWorkspace.enabledFeatures || {};
+            const currentFeaturesDev = selectedWorkspace.enabledFeaturesDev || {};
+            
+            const payload: any = {};
+            if (isDevList) {
+                payload.enabledFeaturesDev = { ...currentFeaturesDev, [featureId]: version };
+            } else {
+                payload.enabledFeatures = { ...currentFeatures, [featureId]: version };
+            }
+            
+            await api.put(`/businesses/${selectedWorkspace.id}`, payload);
+            toast.success(`Feature flag updated for ${isDevList ? 'Dev' : 'Live'}.`);
+            fetchBusinesses(); // Refresh local list
+        } catch (err) {
+            console.error("Failed to update feature", err);
+            toast.error("Failed to update feature flag.");
+        }
+    };
+
     const totalActive = businesses.filter(b => b.status === 'active').length;
     const totalStaff = businesses.reduce((acc, b) => acc + (b.metrics?.totalStaff || 0), 0);
     const totalMRR = businesses.reduce((acc, b) => acc + (b.metrics?.MRR || 0), 0);
@@ -315,8 +342,17 @@ export function SuperAdminDashboard() {
                     <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'settings' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
                         <Settings className="w-4 h-4" /> System Settings
                     </button>
+                    <button onClick={() => setActiveTab('analytics')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'analytics' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
+                        <Activity className="w-4 h-4" /> Global Analytics
+                    </button>
                     <button onClick={() => setActiveTab('dictionary')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'dictionary' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
                         <Key className="w-4 h-4" /> Access Dictionary
+                    </button>
+                    <button onClick={() => setActiveTab('modules')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'modules' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
+                        <Package className="w-4 h-4" /> Module Registry
+                    </button>
+                    <button onClick={() => setActiveTab('builds')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'builds' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
+                        <ListChecks className="w-4 h-4" /> Build Logs
                     </button>
                     
                     <button onClick={() => navigate('/admin/features')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent !mt-8`}>
@@ -491,6 +527,7 @@ export function SuperAdminDashboard() {
                                                                 <option value="manager">MANAGER</option>
                                                                 <option value="department_lead">DEPARTMENT_LEAD</option>
                                                                 <option value="parts_guy">PARTS_GUY</option>
+                                                                <option value="system_owner" disabled>SYSTEM_OWNER</option>
                                                                 <option value="super_admin" disabled>SUPER_ADMIN</option>
                                                                 <option value="staff">STAFF</option>
                                                             </select>
@@ -541,6 +578,76 @@ export function SuperAdminDashboard() {
                                                     {isInviting ? 'Binding Identity...' : 'Execute Assignment'}
                                                 </button>
                                             </form>
+                                        </div>
+
+                                        {/* Feature Flags Panel */}
+                                        <div className="lg:col-span-3 bg-zinc-900 border border-white/5 rounded-3xl p-6 mt-2 relative overflow-hidden">
+                                            <div className="absolute top-0 right-0 p-8 opacity-5">
+                                                <Package className="w-48 h-48" />
+                                            </div>
+                                            <h3 className="text-lg font-bold flex items-center gap-2 mb-2 relative">
+                                                <Package className="w-5 h-5 text-accent" /> Business Application Routing
+                                            </h3>
+                                            <p className="text-zinc-500 text-sm mb-6 relative z-10 max-w-2xl">
+                                                Control which operational modules are mapped to this tenant's workspace. Applications can be completely restricted or staged via alpha/beta ring-deployments to allow isolated testing.
+                                            </p>
+                                            
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+                                                {APP_FEATURES.map(feature => {
+                                                    const businessFeatures = selectedWorkspace.enabledFeatures || {};
+                                                    const businessFeaturesDev = selectedWorkspace.enabledFeaturesDev || {};
+                                                    const currentVersion: FeatureVersion = businessFeatures[feature.id] || DEFAULT_FEATURE_STATE[feature.id] || 'disabled';
+                                                    const currentDevVersion: FeatureVersion = businessFeaturesDev[feature.id] || DEFAULT_FEATURE_STATE[feature.id] || 'disabled';
+                                                    
+                                                    const availableForThisFeature = feature.availableVersions;
+                                                    
+                                                    return (
+                                                        <div key={feature.id} className="bg-zinc-950/50 border border-zinc-800 rounded-2xl p-4 flex flex-col justify-between hover:border-zinc-700 transition-colors">
+                                                            <div>
+                                                                <h4 className="font-bold text-white text-sm mb-1">{feature.name}</h4>
+                                                                <p className="text-[10px] text-zinc-500 mb-4">{feature.description}</p>
+                                                            </div>
+                                                            {/* React HMR Trigger */}
+                                                            <div className="flex flex-col gap-3">
+                                                                <div className="flex flex-col gap-1.5">
+                                                                    <label className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">Live Ring</label>
+                                                                    <select 
+                                                                        value={currentVersion} 
+                                                                        onChange={(e) => handleUpdateFeature(feature.id, e.target.value as FeatureVersion, false)}
+                                                                        className={`w-full bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-2 text-xs font-bold outline-none cursor-pointer appearance-none transition-colors
+                                                                            ${currentVersion === 'live' ? 'text-emerald-400' : 
+                                                                              currentVersion === 'beta' ? 'text-blue-400' : 
+                                                                              currentVersion === 'alpha' ? 'text-purple-400' : 'text-zinc-500'}
+                                                                        `}
+                                                                    >
+                                                                        {availableForThisFeature.includes('disabled') && <option value="disabled">Locked (Hidden)</option>}
+                                                                        {availableForThisFeature.includes('alpha') && <option value="alpha">Alpha (Lab Mode)</option>}
+                                                                        {availableForThisFeature.includes('beta') && <option value="beta">Beta (Preview)</option>}
+                                                                        {availableForThisFeature.includes('live') && <option value="live">Live (Production)</option>}
+                                                                    </select>
+                                                                </div>
+                                                                <div className="flex flex-col gap-1.5">
+                                                                    <label className="text-[9px] font-black uppercase text-zinc-600 tracking-widest">Dev Ring</label>
+                                                                    <select 
+                                                                        value={currentDevVersion} 
+                                                                        onChange={(e) => handleUpdateFeature(feature.id, e.target.value as FeatureVersion, true)}
+                                                                        className={`w-full bg-zinc-900 border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-2 text-xs font-bold outline-none cursor-pointer appearance-none transition-colors
+                                                                            ${currentDevVersion === 'live' ? 'text-emerald-400' : 
+                                                                              currentDevVersion === 'beta' ? 'text-blue-400' : 
+                                                                              currentDevVersion === 'alpha' ? 'text-purple-400' : 'text-zinc-500'}
+                                                                        `}
+                                                                    >
+                                                                        {availableForThisFeature.includes('disabled') && <option value="disabled">Locked (Hidden)</option>}
+                                                                        {availableForThisFeature.includes('alpha') && <option value="alpha">Alpha (Lab Mode)</option>}
+                                                                        {availableForThisFeature.includes('beta') && <option value="beta">Beta (Preview)</option>}
+                                                                        {availableForThisFeature.includes('live') && <option value="live">Live (Production)</option>}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
 
                                     </div>
@@ -594,7 +701,8 @@ export function SuperAdminDashboard() {
                                                         </td>
                                                         <td className="p-4 text-center">
                                                             <span className={`inline-flex items-center justify-center text-xs font-bold px-2 py-1 rounded border min-w-[5rem] uppercase tracking-wider
-                                                                ${user.role === 'super_admin' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 
+                                                                ${user.role === 'system_owner' ? 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20' :
+                                                                user.role === 'super_admin' ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 
                                                                 user.role === 'business_owner' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 
                                                                 'bg-zinc-800 text-zinc-400 border-zinc-700'}
                                                             `}>
@@ -654,6 +762,12 @@ export function SuperAdminDashboard() {
                         </div>
                     )}
 
+                    {activeTab === 'analytics' && (
+                        <div className="h-[800px] bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                            <AuditLogsTab tenantId="SYSTEM" />
+                        </div>
+                    )}
+
                     {activeTab === 'dictionary' && (
                         <div className="space-y-6">
                             <div className="flex justify-between items-center mb-2">
@@ -699,6 +813,58 @@ export function SuperAdminDashboard() {
                                     </table>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'modules' && (
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center mb-2">
+                                <div>
+                                    <h2 className="text-2xl font-bold flex items-center gap-2">
+                                        <Package className="w-6 h-6 text-accent" /> Platform Module Registry
+                                    </h2>
+                                    <p className="text-zinc-400 mt-1 max-w-2xl">
+                                        Toggle which deployment rings (Alpha, Beta, Live) are physically available for provisioning to businesses. Enabling a ring globally allows managers to assign it.
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+                                {APP_FEATURES.map(feature => {
+                                    return (
+                                        <div key={feature.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 relative overflow-hidden group">
+                                            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full blur-[40px] -mr-10 -mt-10 group-hover:bg-accent/10 transition-colors pointer-events-none"></div>
+                                            <h3 className="text-lg font-black text-white tracking-tight mb-1 relative z-10">{feature.name}</h3>
+                                            <p className="text-xs text-zinc-500 mb-6 font-medium relative z-10">{feature.description}</p>
+                                            
+                                            <div className="space-y-2.5 relative z-10">
+                                                {['alpha', 'beta', 'live'].map((v) => {
+                                                    const ver = v as FeatureVersion;
+                                                    const isEnabled = feature.availableVersions.includes(ver);
+                                                    return (
+                                                        <div key={v} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${isEnabled ? 'bg-zinc-950/50 border-accent/30' : 'bg-zinc-950 border-zinc-800 opacity-50'}`}>
+                                                            <div className="flex justify-between items-center w-full">
+                                                                <span className={`text-[10px] uppercase font-black tracking-widest ${isEnabled ? (v === 'live' ? 'text-emerald-400' : v === 'beta' ? 'text-blue-400' : 'text-purple-400') : 'text-zinc-600'}`}>
+                                                                    {v} Ring
+                                                                </span>
+                                                                <span className={`text-[9px] font-bold uppercase tracking-widest ${isEnabled ? 'text-accent' : 'text-zinc-600'}`}>
+                                                                    {isEnabled ? 'Available' : 'Pending Build'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'builds' && (
+                        <div className="space-y-6">
+                            <BuildLogAdminTab />
                         </div>
                     )}
 

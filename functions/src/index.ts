@@ -11,6 +11,7 @@ import { qboRoutes } from './routes/qbo.routes';
 import { unitRoutes } from './routes/units.routes';
 import { inventoryRoutes } from './routes/inventory.routes';
 import { tasksRoutes } from './routes/tasks.routes';
+import { taskTemplatesRoutes } from './routes/task_templates.routes';
 import { customersRoutes } from './routes/customers.routes';
 import { vehiclesRoutes } from './routes/vehicles.routes';
 import { jobsRoutes } from './routes/jobs.routes';
@@ -142,7 +143,7 @@ app.get('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isMemberOfTenant = caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isMemberOfTenant) {
@@ -166,7 +167,7 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     
     // Check if user has explicit override permission, or if they are at least a manager (depending on architecture)
     // For now, let's allow business_owner and super_admin, or someone with manage_staff (we might want a specific manage_business permission later)
@@ -178,7 +179,8 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
 
     const {
       name, legalName, email, phone, website,
-      addressStreet, addressCity, addressState, addressZip, customRoles
+      addressStreet, addressCity, addressState, addressZip, customRoles,
+      payPeriodConfig, enabledFeatures, enabledFeaturesDev
     } = req.body;
 
     const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -192,6 +194,9 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     if (addressCity !== undefined) updates.addressCity = addressCity;
     if (addressState !== undefined) updates.addressState = addressState;
     if (addressZip !== undefined) updates.addressZip = addressZip;
+    if (payPeriodConfig !== undefined) updates.payPeriodConfig = payPeriodConfig;
+    if (enabledFeatures !== undefined && isSuperAdmin) updates.enabledFeatures = enabledFeatures;
+    if (enabledFeaturesDev !== undefined && isSuperAdmin) updates.enabledFeaturesDev = enabledFeaturesDev;
     
     if (customRoles !== undefined) {
       const sanitizedRoles = { ...customRoles };
@@ -252,6 +257,7 @@ app.post('/businesses', authenticate, superAdminOnly, async (req: Request, res: 
       ownerUid: ownerAuth ? ownerAuth.uid : null,
       status: 'active',
       subscriptionPlan: subscriptionPlan || 'free',
+      enabledFeatures: {}, // Let the UI default them to whatever when empty
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       metrics: {
         totalStaff: ownerAuth ? 1 : 0,
@@ -270,7 +276,7 @@ app.post('/businesses', authenticate, superAdminOnly, async (req: Request, res: 
         const currentClaims = ownerAuth.customClaims || {};
         await admin.auth().setCustomUserClaims(ownerAuth.uid, {
           ...currentClaims,
-          role: currentClaims.role === 'super_admin' ? 'super_admin' : 'business_owner',
+          role: currentClaims.role === 'system_owner' ? 'system_owner' : (currentClaims.role === 'super_admin' ? 'super_admin' : 'business_owner'),
           tenantId: businessId // Lock them to this specific workspace
         });
 
@@ -304,7 +310,7 @@ app.get('/businesses/:id/staff', authenticate, async (req: Request, res: Respons
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isMemberOfTenant = caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isMemberOfTenant) {
@@ -368,7 +374,7 @@ app.post('/businesses/:id/staff', authenticate, async (req: Request, res: Respon
 
   try {
     // 1. Authorization Guard
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
@@ -457,7 +463,7 @@ app.delete('/businesses/:id/staff/:uid', authenticate, async (req: Request, res:
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
@@ -493,7 +499,7 @@ app.post('/businesses/:id/staff/:uid/impersonate', authenticate, async (req: Req
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -508,7 +514,7 @@ app.post('/businesses/:id/staff/:uid/impersonate', authenticate, async (req: Req
       return res.status(403).json({ error: 'Target identity is not bound to your workspace.' });
     }
 
-    if (targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
+    if (targetClaims.role === 'system_owner' || targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
       return res.status(403).json({ error: 'Cannot impersonate equal or higher authority identities.' });
     }
 
@@ -527,7 +533,7 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
   const caller = (req as any).user;
 
   try {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
@@ -644,7 +650,7 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
     if (roles !== undefined) {
         const sanitizedRoles = Array.isArray(roles) ? roles : (role ? [role] : []);
         const filteredRoles = sanitizedRoles.filter((r: string) => 
-           isSuperAdmin || (r !== 'super_admin' && r !== 'business_owner')
+           isSuperAdmin || (r !== 'system_owner' && r !== 'super_admin' && r !== 'business_owner')
         );
 
         const targetAuth = await admin.auth().getUser(targetUid);
@@ -684,7 +690,7 @@ app.post('/roles/assign', authenticate, async (req: Request, res: Response): Pro
     const assigner = (req as any).user;
 
     // Security Check: Only Super Admins, or Business Owners within their own Tenant, can assign roles.
-    const isSuperAdmin = assigner.role === 'super_admin';
+    const isSuperAdmin = assigner.role === 'system_owner' || assigner.role === 'super_admin';
     const isOwnerOfTenant = assigner.role === 'business_owner' && assigner.tenantId === tenantId;
 
     if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -767,8 +773,15 @@ app.use('/inventory', inventoryRoutes);
 // --- QuickBooks Integration ---
 app.use('/qbo', qboRoutes);
 
+app.get('/testqbo', (req, res) => {
+    const { QboService } = require('./services/qbo.service');
+    const service = new QboService("123");
+    res.json({ url: service.getAuthorizationUrl() });
+});
+
 // --- Assigned Tasks ---
 app.use('/tasks', tasksRoutes);
+app.use('/task_templates', taskTemplatesRoutes);
 
 // --- Customers ---
 app.use('/customers', customersRoutes);
@@ -778,5 +791,13 @@ app.use('/vehicles', vehiclesRoutes);
 app.use('/jobs', jobsRoutes);
 app.use('/areas', areasRoutes);
 
-// Export the Express API as a Cloud Function
+// Export the Express API as a Cloud Function (Reload)
 export const api = functions.https.onRequest(app);
+
+// Export Scheduled System Functions
+import { generateAutomatedReports } from './reports/engine';
+export { generateAutomatedReports };
+
+// Force reload timestamp
+// trigger changed: 2026-04-07 10:43
+

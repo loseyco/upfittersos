@@ -3,28 +3,29 @@ import * as admin from 'firebase-admin';
 export class CompanyCamService {
   private baseUrl = 'https://api.companycam.com/v2';
 
-  constructor(private tenantId: string) {
-    if (!tenantId) {
-      throw new Error('CompanyCamService requires a valid tenantId.');
+  constructor(private userId: string, private tenantId: string) {
+    if (!userId || !tenantId) {
+      throw new Error('CompanyCamService requires both a valid userId and a valid tenantId.');
     }
   }
 
-  // Dynamically fetch the tenant's CompanyCam API tokens from Firestore
-  private async getTenantTokens(): Promise<{ access: string, refresh: string }> {
-    const doc = await admin.firestore().collection('businesses').doc(this.tenantId).get();
+  // Dynamically fetch the individual user's CompanyCam API tokens for the specific workspace from Firestore
+  private async getUserTokens(): Promise<{ access: string, refresh: string }> {
+    const doc = await admin.firestore().collection('users').doc(this.userId).get();
     
     if (!doc.exists) {
-      throw new Error(`Business tenant ${this.tenantId} not found.`);
+      throw new Error(`User ${this.userId} not found.`);
     }
 
     const data = doc.data();
-    if (!data?.companyCamToken) {
-      throw new Error(`CompanyCam is not configured for tenant ${this.tenantId}.`);
+    const tenantAuth = data?.companyCamAuth?.[this.tenantId];
+    if (!tenantAuth?.token) {
+      throw new Error(`CompanyCam is not configured for user ${this.userId} in this workspace.`);
     }
 
     return {
-        access: data.companyCamToken,
-        refresh: data.companyCamRefreshToken || '' // Might not exist for legacy static tokens
+        access: tenantAuth.token,
+        refresh: tenantAuth.refresh || '' 
     };
   }
 
@@ -52,17 +53,21 @@ export class CompanyCamService {
 
     const data = await response.json();
     
-    // Save new tokens
-    await admin.firestore().collection('businesses').doc(this.tenantId).update({
-        companyCamToken: data.access_token,
-        companyCamRefreshToken: data.refresh_token
-    });
+    // Save new tokens securely to the user's profile mapped to this specific tenant
+    await admin.firestore().collection('users').doc(this.userId).set({
+        companyCamAuth: {
+            [this.tenantId]: {
+                token: data.access_token,
+                refresh: data.refresh_token
+            }
+        }
+    }, { merge: true });
 
     return data.access_token;
   }
 
   private async fetch(endpoint: string, options?: RequestInit, isRetry = false): Promise<any> {
-    const tokens = await this.getTenantTokens();
+    const tokens = await this.getUserTokens();
     
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
@@ -93,7 +98,7 @@ export class CompanyCamService {
 
   // --- OAUTH HELPERS ---
   
-  static async exchangeCodeForToken(tenantId: string, code: string, redirectUri: string) {
+  static async exchangeCodeForToken(userId: string, tenantId: string, code: string, redirectUri: string) {
     const clientId = process.env.COMPANYCAM_CLIENT_ID || 'PLACEHOLDER_CLIENT_ID';
     const clientSecret = process.env.COMPANYCAM_CLIENT_SECRET || 'PLACEHOLDER_SECRET';
 
@@ -116,11 +121,15 @@ export class CompanyCamService {
 
     const data = await response.json();
 
-    // Save tokens securely in Firestore
-    await admin.firestore().collection('businesses').doc(tenantId).update({
-        companyCamToken: data.access_token,
-        companyCamRefreshToken: data.refresh_token
-    });
+    // Save tokens securely in Firestore user document isolated by tenant
+    await admin.firestore().collection('users').doc(userId).set({
+        companyCamAuth: {
+            [tenantId]: {
+                token: data.access_token,
+                refresh: data.refresh_token
+            }
+        }
+    }, { merge: true });
 
     return { success: true };
   }

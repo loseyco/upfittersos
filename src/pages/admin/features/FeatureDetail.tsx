@@ -28,7 +28,7 @@ export function FeatureDetail() {
     const commentsEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (role !== 'super_admin' || !id) return;
+        if ((role !== 'system_owner' && role !== 'super_admin') || !id) return;
         let isMounted = true;
         
         const docRef = doc(db, 'site_features', id);
@@ -58,7 +58,7 @@ export function FeatureDetail() {
         };
     }, [id, role, navigate]);
 
-    if (role !== 'super_admin') {
+    if (role !== 'system_owner' && role !== 'super_admin') {
          return (
             <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center p-6">
                 <ShieldAlert className="w-16 h-16 text-red-500/50 mb-6" />

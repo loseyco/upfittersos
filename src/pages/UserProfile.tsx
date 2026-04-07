@@ -41,9 +41,24 @@ export function UserProfile() {
     const [department, setDepartment] = useState('');
     const [bio, setBio] = useState('');
     const [keepScreenAwake, setKeepScreenAwake] = useState(false);
+    const [companyCamToken, setCompanyCamToken] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [businessName, setBusinessName] = useState('Loading...');
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleCompanyCamConnect = async () => {
+        try {
+            const redirectUri = window.location.origin + '/oauth/companycam';
+            // User-level authentication isolated by active tenant workspace
+            const res = await api.get(`/companycam/oauth/url?redirectUri=${encodeURIComponent(redirectUri)}&tenantId=${tenantId}`);
+            if (res.data?.url) {
+                window.open(res.data.url, '_blank', 'width=600,height=700,left=200,top=100');
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to generate CompanyCam authorization URL.");
+        }
+    };
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -94,6 +109,12 @@ export function UserProfile() {
                     if (data.department) setDepartment(data.department);
                     if (data.bio) setBio(data.bio);
                     if (data.keepScreenAwake !== undefined) setKeepScreenAwake(data.keepScreenAwake);
+                    if (tenantId && data.companyCamAuth?.[tenantId]?.token) {
+                        setCompanyCamToken(data.companyCamAuth[tenantId].token);
+                    } else if (data.companyCamToken) {
+                        // Legacy fallback during transition
+                        setCompanyCamToken(data.companyCamToken);
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load user document", err);
@@ -182,7 +203,7 @@ export function UserProfile() {
     };
 
     // Dynamic Role Determination
-    const displayRole = role === 'super_admin' ? 'Super Admin' 
+    const displayRole = role === 'system_owner' ? 'System Owner' : role === 'super_admin' ? 'Super Admin' 
                       : role === 'business_owner' ? 'Business Owner' 
                       : role === 'manager' ? 'Manager' 
                       : 'Staff Member';
@@ -521,6 +542,36 @@ export function UserProfile() {
                                             {bio ? `"${bio}"` : 'No biography provided.'}
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Personal Integrations */}
+                                <div className="pt-6 mt-4 border-t border-zinc-800/50">
+                                    <h3 className="text-xs font-bold text-white mb-4 uppercase tracking-widest flex items-center gap-2">
+                                        <Camera className="w-4 h-4 text-orange-400"/> Personal Apps & Integrations
+                                    </h3>
+                                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="font-bold text-white">CompanyCam</h4>
+                                                <p className="text-xs text-zinc-500">Sync projects and photos as yourself</p>
+                                            </div>
+                                            {companyCamToken ? (
+                                                <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><Check className="w-3 h-3"/> Connected</span>
+                                            ) : (
+                                                <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">Not Connected</span>
+                                            )}
+                                        </div>
+                                        
+                                        {!companyCamToken && (
+                                            <button 
+                                                type="button"
+                                                onClick={handleCompanyCamConnect}
+                                                className="w-auto ml-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors"
+                                            >
+                                                Connect Account
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 

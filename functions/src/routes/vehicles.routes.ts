@@ -7,14 +7,14 @@ const getDb = () => admin.firestore();
 
 // Helper to determine if the caller has at least "staff" access to the tenant
 const isMemberOfTenant = (caller: any, tenantId: string) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantMember = caller.tenantId === tenantId;
     return isSuperAdmin || isTenantMember;
 };
 
 // Helper for Manager+ level access
 const isManagerOfTenant = (caller: any, tenantId: string) => {
-    const isSuperAdmin = caller.role === 'super_admin';
+    const isSuperAdmin = (caller.role === 'system_owner' || caller.role === 'super_admin');
     const isTenantManager = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === tenantId;
     return isSuperAdmin || isTenantManager;
 };

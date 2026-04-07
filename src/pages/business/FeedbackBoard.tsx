@@ -46,14 +46,14 @@ export function FeedbackBoard() {
     const canEdit = (fb: Feedback) => {
         if (!currentUser) return false;
         if (currentUser.uid === fb.authorId) return true;
-        if (role && ['super_admin', 'manager', 'business_owner'].includes(role)) return true;
+        if (role && ['system_owner', 'super_admin', 'manager', 'business_owner'].includes(role)) return true;
         return false;
     };
 
     useEffect(() => {
-        if (!tenantId && role !== 'super_admin') return;
+        if (!tenantId && role !== 'super_admin' && role !== 'system_owner') return;
         
-        const q = role === 'super_admin' 
+        const q = (role === 'super_admin' || role === 'system_owner')
             ? query(collection(db, 'feedback')) 
             : query(collection(db, 'feedback'), where('tenantId', '==', tenantId));
             

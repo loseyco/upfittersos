@@ -22,8 +22,8 @@ export const requireRole = (allowedRoles: string[]) => {
     const user = (req as any).user;
     const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
     
-    // Super Admins always have skeleton-key access across the entire system
-    if (userRoles.includes('super_admin')) {
+    // System Owners and Super Admins always have skeleton-key access across the system
+    if (userRoles.includes('system_owner') || userRoles.includes('super_admin')) {
       return next();
     }
 
@@ -43,8 +43,18 @@ export const requireRole = (allowedRoles: string[]) => {
 export const superAdminOnly = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   const user = (req as any).user;
   const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
-  if (!user || !userRoles.includes('super_admin')) {
-    return res.status(403).json({ error: 'Forbidden. Super Admin access required.' });
+  if (!user || (!userRoles.includes('super_admin') && !userRoles.includes('system_owner'))) {
+    return res.status(403).json({ error: 'Forbidden. Super Admin or System Owner access required.' });
+  }
+  return next();
+};
+
+// --- Middleware: System Owner Auth ---
+export const systemOwnerOnly = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
+  const user = (req as any).user;
+  const userRoles = Array.isArray(user.roles) ? user.roles : (user.role ? [user.role] : []);
+  if (!user || !userRoles.includes('system_owner')) {
+    return res.status(403).json({ error: 'Forbidden. System Owner access required.' });
   }
   return next();
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle } from 'lucide-react';
+import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator } from 'lucide-react';
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { type PermissionKey } from '../../../lib/permissions';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
@@ -21,8 +21,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         addressState: '',
         addressZip: '',
         customRoles: {} as Record<string, { label: string, permissions: Partial<Record<PermissionKey, boolean>> }>,
-        companyCamToken: '',
-        qboRealmId: ''
+        qboRealmId: '',
+        standardShopRate: 150,
+        burdenMultiplier: 1.3
     });
     
     // Unsaved changes tracking
@@ -44,8 +45,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     addressState: res.data.addressState || '',
                     addressZip: res.data.addressZip || '',
                     customRoles: res.data.customRoles || {},
-                    companyCamToken: res.data.companyCamToken || '',
-                    qboRealmId: res.data.qboRealmId || ''
+                    qboRealmId: res.data.qboRealmId || '',
+                    standardShopRate: res.data.standardShopRate !== undefined ? Number(res.data.standardShopRate) : 150,
+                    burdenMultiplier: res.data.burdenMultiplier !== undefined ? Number(res.data.burdenMultiplier) : 1.3
                 };
                 setForm(loadedForm);
                 setInitialForm(loadedForm);
@@ -78,25 +80,12 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         }
     };
 
-    const handleCompanyCamConnect = async () => {
-        try {
-            // Provide the intended redirect URI matching the catcher route
-            const redirectUri = window.location.origin + '/oauth/companycam';
-            const res = await api.get(`/companycam/oauth/url?redirectUri=${encodeURIComponent(redirectUri)}&tenantId=${tenantId}`);
-            if (res.data?.url) {
-                window.location.href = res.data.url;
-            }
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to generate CompanyCam authorization URL.");
-        }
-    };
 
     const handleQBOConnect = async () => {
         try {
-            const res = await api.get(`/qbo/auth?tenantId=${tenantId}`);
+            const res = await api.get(`/qbo/auth?tenantId=${tenantId}&_t=${Date.now()}`);
             if (res.data?.url) {
-                window.location.href = res.data.url;
+                window.open(res.data.url, '_blank', 'width=600,height=700,left=200,top=100');
             }
         } catch (err) {
             console.error('Failed to get QBO OAuth URL', err);
@@ -205,29 +194,6 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                         <Link2 className="w-4 h-4 text-orange-400"/> Integrations
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h4 className="font-bold text-white">CompanyCam</h4>
-                                    <p className="text-xs text-zinc-500">Sync projects and photos</p>
-                                </div>
-                                {form.companyCamToken ? (
-                                    <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1"><CheckCircle className="w-3 h-3"/> Connected</span>
-                                ) : (
-                                    <span className="bg-zinc-800 text-zinc-400 text-xs font-bold px-3 py-1 rounded-full">Not Connected</span>
-                                )}
-                            </div>
-                            
-                            {!form.companyCamToken && (
-                                <button 
-                                    type="button"
-                                    onClick={handleCompanyCamConnect}
-                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 rounded-lg text-sm transition-colors"
-                                >
-                                    Connect CompanyCam
-                                </button>
-                            )}
-                        </div>
 
                         {/* QuickBooks */}
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
@@ -255,8 +221,45 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                         </div>
                     </div>
                 </section>
-
-                
+                {/* Financial & Job Settings */}
+                <section>
+                    <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+                        <Calculator className="w-4 h-4 text-amber-400"/> Financial & Cost Accrual Settings
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Standard Shop Rate</label>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-zinc-500 font-black group-focus-within:text-amber-400 transition-colors text-lg">$</span>
+                                <input 
+                                    type="number" 
+                                    min="0" 
+                                    step="1" 
+                                    value={form.standardShopRate} 
+                                    onChange={e => setForm({...form, standardShopRate: parseFloat(e.target.value) || 0})} 
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-12 py-4 text-xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-white font-mono font-black shadow-inner transition-all [&::-webkit-inner-spin-button]:appearance-none" 
+                                />
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-zinc-600 font-bold text-xs uppercase tracking-widest">/hr</span>
+                            </div>
+                            <p className="text-[10px] text-zinc-500 mt-2 px-1">Default rate billed to customers for shop labor. Editable per-job.</p>
+                        </div>
+                        <div>
+                            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Labor Burden Multiplier</label>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-zinc-500 font-black text-xl group-focus-within:text-amber-400 transition-colors">×</span>
+                                <input 
+                                    type="number" 
+                                    min="1" 
+                                    step="0.01" 
+                                    value={form.burdenMultiplier} 
+                                    onChange={e => setForm({...form, burdenMultiplier: parseFloat(e.target.value) || 1})} 
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-4 text-xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-white font-mono font-black shadow-inner transition-all [&::-webkit-inner-spin-button]:appearance-none" 
+                                />
+                            </div>
+                            <p className="text-[10px] text-zinc-500 mt-2 px-1">Multiplier on staff wages to cover employer taxes, utilities, and overhead (e.g. 1.3 = 30% burden overhead).</p>
+                        </div>
+                    </div>
+                </section>
             </form>
 
             <UnsavedChangesBanner 

@@ -50,7 +50,7 @@ exports.tasksRoutes.get('/', auth_middleware_1.authenticate, async (req, res) =>
         }
         // Security check: Only members of this tenant (or super admin) can fetch tasks
         const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
-        const isSuperAdmin = callerRoles.includes('super_admin');
+        const isSuperAdmin = (callerRoles.includes('system_owner') || callerRoles.includes('super_admin'));
         const isMemberOfTenant = caller.tenantId === tenantId;
         if (!isSuperAdmin && !isMemberOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
@@ -85,7 +85,7 @@ exports.tasksRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =
         const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
         const hasManageTasks = await (0, permissions_1.checkBackendPermission)(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
         // Further check that they are interacting within their own workspace unless they are a superadmin
-        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
+        const isTenantBoundaryValid = (callerRoles.includes('system_owner') || callerRoles.includes('super_admin')) || caller.tenantId === tenantId;
         if (!hasManageTasks || !isTenantBoundaryValid) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to assign tasks in this workspace.' });
         }
@@ -123,7 +123,7 @@ exports.tasksRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res)
         // Security check: Manager/Owner or the Assignee can update
         const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
         const hasManageTasks = await (0, permissions_1.checkBackendPermission)(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
-        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
+        const isTenantBoundaryValid = (callerRoles.includes('system_owner') || callerRoles.includes('super_admin')) || caller.tenantId === tenantId;
         const hasAdminRights = hasManageTasks && isTenantBoundaryValid;
         const isAssignee = caller.uid === taskData.assigneeUid;
         if (!hasAdminRights && !isAssignee) {
@@ -163,7 +163,7 @@ exports.tasksRoutes.delete('/:id', auth_middleware_1.authenticate, async (req, r
         // Security check: Only users with manage_tasks can delete
         const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
         const hasManageTasks = await (0, permissions_1.checkBackendPermission)(caller.uid, callerRoles, caller.tenantId, 'manage_tasks');
-        const isTenantBoundaryValid = callerRoles.includes('super_admin') || caller.tenantId === tenantId;
+        const isTenantBoundaryValid = (callerRoles.includes('system_owner') || callerRoles.includes('super_admin')) || caller.tenantId === tenantId;
         const hasAdminRights = hasManageTasks && isTenantBoundaryValid;
         if (!hasAdminRights) {
             return res.status(403).json({ error: 'Forbidden. Cannot delete this task.' });

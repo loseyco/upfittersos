@@ -32,9 +32,13 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QboService = void 0;
 const admin = __importStar(require("firebase-admin"));
+const axios_1 = __importDefault(require("axios"));
 class QboService {
     get baseUrl() {
         return this.environment === 'sandbox'
@@ -43,8 +47,8 @@ class QboService {
     }
     constructor(tenantId) {
         this.tenantId = tenantId;
-        this.clientId = process.env.QBO_CLIENT_ID || '';
-        this.clientSecret = process.env.QBO_CLIENT_SECRET || '';
+        this.clientId = process.env.QBO_CLIENT_ID || 'ABVsSlEZuGdZ5HQ8X4IqhzazxMiyvd6yqvtVWGYqoXVPbtuLnd';
+        this.clientSecret = process.env.QBO_CLIENT_SECRET || 'UhNswEFsyidxRmMfKXrRCpJiTCNGYE93fonrRREv';
         this.redirectUri = process.env.QBO_REDIRECT_URI || 'http://localhost:5001/saegroup-c6487/us-central1/api/qbo/callback';
         this.environment = process.env.QBO_ENVIRONMENT || 'sandbox';
         if (!tenantId) {
@@ -61,63 +65,64 @@ class QboService {
     }
     // 2. Handle OAuth Callback and Save to Tenant's Database
     async exchangeCodeForToken(code, realmId) {
+        var _a;
         const tokenEndpoint = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
         const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-        const response = await fetch(tokenEndpoint, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': `Basic ${authHeader}`
-            },
-            body: new URLSearchParams({
+        try {
+            const response = await axios_1.default.post(tokenEndpoint, new URLSearchParams({
                 grant_type: 'authorization_code',
                 code,
                 redirect_uri: this.redirectUri
-            })
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Failed to exchange QBO token: ${errorText}`);
+            }).toString(), {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': `Basic ${authHeader}`
+                }
+            });
+            const tokenData = response.data;
+            // Manage multi-tenant tokens inside Firestore
+            await admin.firestore().collection('businesses').doc(this.tenantId).set({
+                qboRealmId: realmId,
+                qboAccessToken: tokenData.access_token,
+                qboRefreshToken: tokenData.refresh_token,
+                qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
+                qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
+            }, { merge: true });
         }
-        const tokenData = await response.json();
-        // Manage multi-tenant tokens inside Firestore
-        await admin.firestore().collection('businesses').doc(this.tenantId).set({
-            qboRealmId: realmId,
-            qboAccessToken: tokenData.access_token,
-            qboRefreshToken: tokenData.refresh_token,
-            qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
-            qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
-        }, { merge: true });
+        catch (err) {
+            throw new Error(`Failed to exchange QBO token: ${((_a = err === null || err === void 0 ? void 0 : err.response) === null || _a === void 0 ? void 0 : _a.data) ? JSON.stringify(err.response.data) : err.message}`);
+        }
     }
     // Refresh an expired QBO Access Token using the refresh token
     async refreshAccessToken(refreshToken) {
+        var _a;
         const tokenEndpoint = 'https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer';
         const authHeader = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
-        const response = await fetch(tokenEndpoint, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': `Basic ${authHeader}`
-            },
-            body: new URLSearchParams({
+        try {
+            const response = await axios_1.default.post(tokenEndpoint, new URLSearchParams({
                 grant_type: 'refresh_token',
                 refresh_token: refreshToken
-            })
-        });
-        if (!response.ok) {
-            throw new Error(`Failed to refresh QBO token: ${await response.text()}`);
+            }).toString(), {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Authorization': `Basic ${authHeader}`
+                }
+            });
+            const tokenData = response.data;
+            // Manage multi-tenant tokens inside Firestore
+            await admin.firestore().collection('businesses').doc(this.tenantId).set({
+                qboAccessToken: tokenData.access_token,
+                qboRefreshToken: tokenData.refresh_token,
+                qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
+                qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
+            }, { merge: true });
+            return tokenData.access_token;
         }
-        const tokenData = await response.json();
-        // Manage multi-tenant tokens inside Firestore
-        await admin.firestore().collection('businesses').doc(this.tenantId).set({
-            qboAccessToken: tokenData.access_token,
-            qboRefreshToken: tokenData.refresh_token,
-            qboTokenExpiresAt: Date.now() + (tokenData.expires_in * 1000),
-            qboRefreshTokenExpiresAt: Date.now() + (tokenData.x_refresh_token_expires_in * 1000),
-        }, { merge: true });
-        return tokenData.access_token;
+        catch (err) {
+            throw new Error(`Failed to refresh QBO token: ${((_a = err === null || err === void 0 ? void 0 : err.response) === null || _a === void 0 ? void 0 : _a.data) ? JSON.stringify(err.response.data) : err.message}`);
+        }
     }
     // 3. Retrieve Tenant's Current QBO Tokens internally
     async getTokens() {
@@ -143,22 +148,29 @@ class QboService {
     }
     // Wrapped fetch method to securely attach tokens and retry if somehow a 401 slps by
     async apiFetch(path, options, isRetry = false) {
+        var _a, _b;
         const tokens = await this.getTokens();
-        const response = await fetch(`${this.baseUrl}/${tokens.realmId}${path}`, Object.assign(Object.assign({}, options), { headers: Object.assign({ 'Authorization': `Bearer ${tokens.accessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' }, ((options === null || options === void 0 ? void 0 : options.headers) || {})) }));
-        if (response.status === 401 && tokens.refreshToken && !isRetry) {
-            try {
-                await this.refreshAccessToken(tokens.refreshToken);
-                return this.apiFetch(path, options, true);
-            }
-            catch (e) {
-                throw new Error(`Failed to auto-refresh QBO token: ${e}`);
-            }
+        try {
+            const response = await (0, axios_1.default)({
+                url: `${this.baseUrl}/${tokens.realmId}${path}`,
+                method: (options === null || options === void 0 ? void 0 : options.method) || 'GET',
+                data: (options === null || options === void 0 ? void 0 : options.body) ? JSON.parse(options.body) : undefined,
+                headers: Object.assign({ 'Authorization': `Bearer ${tokens.accessToken}`, 'Accept': 'application/json', 'Content-Type': 'application/json' }, ((options === null || options === void 0 ? void 0 : options.headers) || {}))
+            });
+            return response.data;
         }
-        const text = await response.text();
-        if (!response.ok) {
-            throw new Error(`QBO API Error ${response.status}: ${text}`);
+        catch (err) {
+            if (((_a = err.response) === null || _a === void 0 ? void 0 : _a.status) === 401 && tokens.refreshToken && !isRetry) {
+                try {
+                    await this.refreshAccessToken(tokens.refreshToken);
+                    return this.apiFetch(path, options, true);
+                }
+                catch (e) {
+                    throw new Error(`Failed to auto-refresh QBO token: ${e}`);
+                }
+            }
+            throw new Error(`QBO API Error: ${((_b = err === null || err === void 0 ? void 0 : err.response) === null || _b === void 0 ? void 0 : _b.data) ? JSON.stringify(err.response.data) : err.message}`);
         }
-        return text ? JSON.parse(text) : null;
     }
     // 4. API Wrappers: Chart of Accounts Entities (as requested by user)
     async getAccounts() {

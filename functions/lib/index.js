@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.api = void 0;
+exports.generateAutomatedReports = exports.api = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 const express_1 = __importDefault(require("express"));
@@ -50,6 +50,7 @@ const qbo_routes_1 = require("./routes/qbo.routes");
 const units_routes_1 = require("./routes/units.routes");
 const inventory_routes_1 = require("./routes/inventory.routes");
 const tasks_routes_1 = require("./routes/tasks.routes");
+const task_templates_routes_1 = require("./routes/task_templates.routes");
 const customers_routes_1 = require("./routes/customers.routes");
 const vehicles_routes_1 = require("./routes/vehicles.routes");
 const jobs_routes_1 = require("./routes/jobs.routes");
@@ -167,7 +168,7 @@ app.get('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
     const businessId = req.params.id;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isMemberOfTenant = caller.tenantId === businessId;
         if (!isSuperAdmin && !isMemberOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to view this workspace metadata.' });
@@ -187,14 +188,14 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
     const businessId = req.params.id;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         // Check if user has explicit override permission, or if they are at least a manager (depending on architecture)
         // For now, let's allow business_owner and super_admin, or someone with manage_staff (we might want a specific manage_business permission later)
         const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
         if (!isSuperAdmin && !isManagerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to modify workspace metadata.' });
         }
-        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles } = req.body;
+        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles, payPeriodConfig, enabledFeatures, enabledFeaturesDev } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (name !== undefined)
             updates.name = name;
@@ -214,6 +215,12 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
             updates.addressState = addressState;
         if (addressZip !== undefined)
             updates.addressZip = addressZip;
+        if (payPeriodConfig !== undefined)
+            updates.payPeriodConfig = payPeriodConfig;
+        if (enabledFeatures !== undefined && isSuperAdmin)
+            updates.enabledFeatures = enabledFeatures;
+        if (enabledFeaturesDev !== undefined && isSuperAdmin)
+            updates.enabledFeaturesDev = enabledFeaturesDev;
         if (customRoles !== undefined) {
             const sanitizedRoles = Object.assign({}, customRoles);
             if (!isSuperAdmin) {
@@ -271,6 +278,7 @@ app.post('/businesses', auth_middleware_1.authenticate, auth_middleware_1.superA
             ownerUid: ownerAuth ? ownerAuth.uid : null,
             status: 'active',
             subscriptionPlan: subscriptionPlan || 'free',
+            enabledFeatures: {}, // Let the UI default them to whatever when empty
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             metrics: {
                 totalStaff: ownerAuth ? 1 : 0,
@@ -284,7 +292,7 @@ app.post('/businesses', auth_middleware_1.authenticate, auth_middleware_1.superA
         if (ownerAuth) {
             try {
                 const currentClaims = ownerAuth.customClaims || {};
-                await admin.auth().setCustomUserClaims(ownerAuth.uid, Object.assign(Object.assign({}, currentClaims), { role: currentClaims.role === 'super_admin' ? 'super_admin' : 'business_owner', tenantId: businessId // Lock them to this specific workspace
+                await admin.auth().setCustomUserClaims(ownerAuth.uid, Object.assign(Object.assign({}, currentClaims), { role: currentClaims.role === 'system_owner' ? 'system_owner' : (currentClaims.role === 'super_admin' ? 'super_admin' : 'business_owner'), tenantId: businessId // Lock them to this specific workspace
                  }));
                 // Generate a secure first-time password setup link
                 setupLink = await admin.auth().generatePasswordResetLink(ownerEmail);
@@ -308,7 +316,7 @@ app.get('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, res
     const businessId = req.params.id;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isMemberOfTenant = caller.tenantId === businessId;
         if (!isSuperAdmin && !isMemberOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to view staff in this workspace.' });
@@ -361,7 +369,7 @@ app.post('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, re
     const caller = req.user;
     try {
         // 1. Authorization Guard
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
         if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -439,7 +447,7 @@ app.delete('/businesses/:id/staff/:uid', auth_middleware_1.authenticate, async (
     const targetUid = req.params.uid;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
         if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -471,7 +479,7 @@ app.post('/businesses/:id/staff/:uid/impersonate', auth_middleware_1.authenticat
     const targetUid = req.params.uid;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
         if (!isSuperAdmin && !isOwnerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
@@ -482,7 +490,7 @@ app.post('/businesses/:id/staff/:uid/impersonate', auth_middleware_1.authenticat
         if (targetClaims.tenantId !== businessId) {
             return res.status(403).json({ error: 'Target identity is not bound to your workspace.' });
         }
-        if (targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
+        if (targetClaims.role === 'system_owner' || targetClaims.role === 'super_admin' || targetClaims.role === 'business_owner') {
             return res.status(403).json({ error: 'Cannot impersonate equal or higher authority identities.' });
         }
         const customToken = await admin.auth().createCustomToken(targetUid);
@@ -500,7 +508,7 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
     const targetUid = req.params.uid;
     const caller = req.user;
     try {
-        const isSuperAdmin = caller.role === 'super_admin';
+        const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
         if (!isSuperAdmin && !isManagerOfTenant) {
@@ -625,7 +633,7 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
         // Synchronize Auth Claims natively if explicitly mutated in the payload
         if (roles !== undefined) {
             const sanitizedRoles = Array.isArray(roles) ? roles : (role ? [role] : []);
-            const filteredRoles = sanitizedRoles.filter((r) => isSuperAdmin || (r !== 'super_admin' && r !== 'business_owner'));
+            const filteredRoles = sanitizedRoles.filter((r) => isSuperAdmin || (r !== 'system_owner' && r !== 'super_admin' && r !== 'business_owner'));
             const targetAuth = await admin.auth().getUser(targetUid);
             const currentClaims = targetAuth.customClaims || {};
             // Block hijacking core ownership models securely
@@ -654,7 +662,7 @@ app.post('/roles/assign', auth_middleware_1.authenticate, async (req, res) => {
         const { targetUid, role, roles, tenantId } = req.body;
         const assigner = req.user;
         // Security Check: Only Super Admins, or Business Owners within their own Tenant, can assign roles.
-        const isSuperAdmin = assigner.role === 'super_admin';
+        const isSuperAdmin = assigner.role === 'system_owner' || assigner.role === 'super_admin';
         const isOwnerOfTenant = assigner.role === 'business_owner' && assigner.tenantId === tenantId;
         if (!isSuperAdmin && !isOwnerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You cannot assign roles in this tenant.' });
@@ -722,14 +730,25 @@ app.use('/units', units_routes_1.unitRoutes);
 app.use('/inventory', inventory_routes_1.inventoryRoutes);
 // --- QuickBooks Integration ---
 app.use('/qbo', qbo_routes_1.qboRoutes);
+app.get('/testqbo', (req, res) => {
+    const { QboService } = require('./services/qbo.service');
+    const service = new QboService("123");
+    res.json({ url: service.getAuthorizationUrl() });
+});
 // --- Assigned Tasks ---
 app.use('/tasks', tasks_routes_1.tasksRoutes);
+app.use('/task_templates', task_templates_routes_1.taskTemplatesRoutes);
 // --- Customers ---
 app.use('/customers', customers_routes_1.customersRoutes);
 // --- Vehicles & Jobs & Areas ---
 app.use('/vehicles', vehicles_routes_1.vehiclesRoutes);
 app.use('/jobs', jobs_routes_1.jobsRoutes);
 app.use('/areas', areas_routes_1.areasRoutes);
-// Export the Express API as a Cloud Function
+// Export the Express API as a Cloud Function (Reload)
 exports.api = functions.https.onRequest(app);
+// Export Scheduled System Functions
+const engine_1 = require("./reports/engine");
+Object.defineProperty(exports, "generateAutomatedReports", { enumerable: true, get: function () { return engine_1.generateAutomatedReports; } });
+// Force reload timestamp
+// trigger changed: 2026-04-07 10:43
 //# sourceMappingURL=index.js.map
