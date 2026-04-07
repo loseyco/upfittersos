@@ -91,6 +91,10 @@ export function GlobalTimeTracker() {
         return () => clearInterval(interval);
     }, [activeLog]);
 
+    if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
+        return null;
+    }
+
     if (!activeLog) {
         return (
             <div className="w-full h-12 flex items-center justify-between px-4 sm:px-6 font-bold text-sm shadow-sm sticky top-0 z-[45] backdrop-blur-md transition-colors bg-red-500/20 text-red-500 border-b border-red-500/30">

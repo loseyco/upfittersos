@@ -97,11 +97,78 @@ export const generateAutomatedReports = functions.pubsub.schedule('0 * * * *').o
             summaryBullets.push(`<li><b>New Fleet Vehicles Added:</b> ${vSnap.size}</li>`);
         }
 
-        // Generate final summary HTML
+        // --- Metric: Platform Build Logs (Changelogs) ---
+        if (requestedMetrics.includes('changelogs')) {
+            const clSnap = await db.collection('changelogs')
+                .orderBy('createdAt', 'desc')
+                .limit(1)
+                .get();
+                
+            if (!clSnap.empty) {
+                const latestLog = clSnap.docs[0].data();
+                collectedData['changelogs'] = latestLog;
+                
+                let changelogHtml = `
+                    <div style="background-color: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin-top: 24px; font-family: sans-serif;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                            <h3 style="color: #a855f7; margin: 0; font-size: 18px;">🚀 Platform Build Log - ${latestLog.version || 'Latest'}</h3>
+                            <span style="background-color: #3b0764; color: #d8b4fe; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: bold;">${latestLog.date || now.toLocaleDateString()}</span>
+                        </div>
+                        <h4 style="color: #f4f4f5; margin: 0 0 12px 0; font-size: 16px;">${latestLog.title || 'System Updates'}</h4>
+                        <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">${latestLog.description || ''}</p>
+                `;
+                
+                if (latestLog.features && latestLog.features.length > 0) {
+                    changelogHtml += `<h5 style="color: #f4f4f5; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; margin: 16px 0 8px 0;">✨ System Updates & Features</h5>`;
+                    changelogHtml += `<ul style="color: #a1a1aa; font-size: 14px; line-height: 1.6; padding-left: 20px; margin: 0;">`;
+                    latestLog.features.forEach((feature: string) => {
+                        changelogHtml += `<li style="margin-bottom: 6px;">${feature}</li>`;
+                    });
+                    changelogHtml += `</ul>`;
+                }
+
+                if (latestLog.fixes && latestLog.fixes.length > 0) {
+                    changelogHtml += `<h5 style="color: #f4f4f5; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 8px 0;">🔧 Fixes & Optimizations</h5>`;
+                    changelogHtml += `<ul style="color: #a1a1aa; font-size: 14px; line-height: 1.6; padding-left: 20px; margin: 0;">`;
+                    latestLog.fixes.forEach((fix: string) => {
+                        changelogHtml += `<li style="margin-bottom: 6px;">${fix}</li>`;
+                    });
+                    changelogHtml += `</ul>`;
+                }
+                
+                changelogHtml += `</div>`;
+                summaryBullets.push(changelogHtml);
+            }
+        }
+
+        // Generate final summary HTML using a modern, premium design
+        // Extract standard bullet points vs the changelog custom HTML
+        const standardBullets = summaryBullets.filter(b => b.startsWith('<li>'));
+        const customBlocks = summaryBullets.filter(b => !b.startsWith('<li>'));
+
         let finalSummary = `
-            <p>Here is your automated report digest for ${now.toLocaleDateString()}:</p>
-            <ul>${summaryBullets.join('')}</ul>
-            <p>Data reflects the previous 24-hour period.</p>
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #09090b; padding: 40px 20px; border-radius: 16px; border: 1px solid #27272a;">
+                
+                <div style="text-align: center; margin-bottom: 32px;">
+                    <h1 style="color: #fff; font-size: 28px; margin: 0; font-weight: 800; letter-spacing: -0.5px;">Upfitters<span style="color: #a855f7;">OS</span></h1>
+                    <p style="color: #71717a; font-size: 14px; margin-top: 8px; text-transform: uppercase; letter-spacing: 2px;">Daily Operations Update</p>
+                </div>
+
+                <div style="background-color: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+                    <p style="color: #d4d4d8; font-size: 16px; line-height: 1.6; margin-top: 0;">
+                        For production tasks, continuing using <a href="https://upfittersos.com" style="color: #c084fc; text-decoration: none;">upfittersos.com</a> as the stable environment. Experimental features are at <a href="https://dev.upfittersos.com" style="color: #c084fc; text-decoration: none;">dev.upfittersos.com</a>.
+                    </p>
+                    <hr style="border: none; border-top: 1px solid #27272a; margin: 20px 0;">
+                    
+                    <h3 style="color: #f4f4f5; font-size: 16px; margin: 0 0 16px 0;">Data Snapshot (${now.toLocaleDateString()})</h3>
+                    ${standardBullets.length > 0 ? `
+                        <ul style="color: #a1a1aa; font-size: 15px; line-height: 1.8; padding-left: 20px; margin: 0;">
+                            ${standardBullets.join('')}
+                        </ul>
+                    ` : '<p style="color: #71717a; font-size: 14px; font-style: italic; margin: 0;">No 24-hour metrics requested.</p>'}
+                </div>
+
+                ${customBlocks.join('')}
         `;
 
         // Save generated report snapshot
@@ -109,7 +176,7 @@ export const generateAutomatedReports = functions.pubsub.schedule('0 * * * *').o
             tenantId,
             configId: doc.id,
             runAt: now.getTime(),
-            summary: finalSummary,
+            summary: finalSummary + '</div>', // Temporary closing for DB storage
             data: collectedData
         };
 
@@ -123,12 +190,20 @@ export const generateAutomatedReports = functions.pubsub.schedule('0 * * * *').o
 
         const emailActionHtml = `
             ${finalSummary}
-            <br>
-            <a href="${deepLinkUrl}" style="display:inline-block;padding:12px 24px;background-color:#9333ea;color:#fff;text-decoration:none;border-radius:8px;font-weight:bold;margin-top:20px;">
-                View Full Details on Upfitters OS
-            </a>
-            <br>
-            <p style="font-size:10px;color:#9ca3af;margin-top:30px;">This automated digest was generated by the System Reporting Engine on behalf of ${doc.data().creatorEmail}.</p>
+            
+            <div style="text-align: center; margin-top: 32px;">
+                <a href="${deepLinkUrl}" style="display: inline-block; padding: 14px 28px; background-color: #9333ea; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 15px; transition: background-color 0.2s;">
+                    View Full Details on Upfitters OS
+                </a>
+            </div>
+            
+            <div style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #27272a;">
+                <p style="font-size: 11px; color: #52525b; line-height: 1.5; margin: 0;">
+                    This automated digest was generated by the System Reporting Engine.<br>
+                    Sent on behalf of ${doc.data().creatorEmail || 'Upfitters OS'}.
+                </p>
+            </div>
+            </div> <!-- Close Main Container -->
         `;
 
         // Dispatch Email using Gmail API (DWD)
