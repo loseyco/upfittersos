@@ -886,7 +886,7 @@ export function EstimateBuilder() {
 
                     {/* COMPANYCAM NATIVE GALLERY */}
                     {jobId !== 'new' && (
-                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-visible">
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="text-lg font-black text-white flex items-center gap-2">
                                     <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
@@ -895,7 +895,7 @@ export function EstimateBuilder() {
                                     Job Media (CompanyCam)
                                     <div className="group relative flex items-center ml-1">
                                         <Info className="w-4 h-4 text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors" />
-                                        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block w-56 p-2.5 bg-zinc-800 text-[10px] text-zinc-300 rounded-lg shadow-xl border border-zinc-700 text-center font-normal z-50 leading-relaxed">
+                                        <div className="absolute left-0 top-full mt-2 hidden group-hover:block w-56 p-2.5 bg-zinc-800 text-[10px] text-zinc-300 rounded-lg shadow-xl border border-zinc-700 text-center font-normal z-50 leading-relaxed">
                                             Photos are actively <b>synced</b>! Any media uploaded here or in the CompanyCam app will automatically mirror in both places.
                                         </div>
                                     </div>
