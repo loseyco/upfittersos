@@ -839,27 +839,11 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
 
                                                         <div className="space-y-3">
                                                             <div className="flex gap-3">
-                                                                {req.status !== 'approved' && req.type !== 'missed_punch' && (
-                                                                    <button 
-                                                                        onClick={() => handleApproveRequest(req.id, 'approved')}
-                                                                        className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-                                                                    >
-                                                                        <CheckCircle className="w-4 h-4" /> Approve
-                                                                    </button>
-                                                                )}
-                                                                {req.status !== 'rejected' && (
-                                                                    <button 
-                                                                        onClick={() => handleApproveRequest(req.id, 'rejected')}
-                                                                        className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-                                                                    >
-                                                                        <XCircle className="w-4 h-4" /> Reject
-                                                                    </button>
-                                                                )}
                                                                 <button 
                                                                     onClick={() => handleApproveRequest(req.id, 'pending')}
                                                                     className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
                                                                 >
-                                                                    Undo
+                                                                    Move Back to Inbox
                                                                 </button>
                                                             </div>
                                                             {req.targetLogId && (
