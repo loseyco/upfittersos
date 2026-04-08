@@ -839,7 +839,7 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
 
                                                         <div className="space-y-3">
                                                             <div className="flex gap-3">
-                                                                {req.status !== 'approved' && (
+                                                                {req.status !== 'approved' && req.type !== 'missed_punch' && (
                                                                     <button 
                                                                         onClick={() => handleApproveRequest(req.id, 'approved')}
                                                                         className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
