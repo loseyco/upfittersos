@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { api } from '../../../lib/api';
-import { db } from '../../../lib/firebase';
+import { db, storage } from '../../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
-import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList } from 'lucide-react';
+import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2 } from 'lucide-react';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import { CustomerSelector, StaffSelector, InventorySelector, TaskTemplateSelector } from '../../../components/EntitySelectors';
 
@@ -48,6 +49,9 @@ export function EstimateBuilder() {
     const [allTemplates, setAllTemplates] = useState<any[]>([]);
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
     const [businessSettings, setBusinessSettings] = useState<{ burdenMultiplier: number, standardShopRate: number }>({ burdenMultiplier: 1.3, standardShopRate: 150 });
+    
+    const [ccPhotos, setCcPhotos] = useState<any[]>([]);
+    const [loadingCcPhotos, setLoadingCcPhotos] = useState(false);
 
     const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
     const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
@@ -189,6 +193,22 @@ export function EstimateBuilder() {
         });
         return () => unsub();
     }, [tenantId, jobId, db]);
+
+    useEffect(() => {
+        if (!job?.companyCamProjectId) return;
+        const fetchPhotos = async () => {
+            setLoadingCcPhotos(true);
+            try {
+                const res = await api.get(`/jobs/${jobId}/companycam-photos`);
+                setCcPhotos(res.data || []);
+            } catch (e) {
+                console.error("Failed to fetch CompanyCam photos", e);
+            } finally {
+                setLoadingCcPhotos(false);
+            }
+        };
+        fetchPhotos();
+    }, [job?.companyCamProjectId, jobId]);
 
     const handleSave = async (showToast = true) => {
         if (!tenantId) return;
@@ -402,7 +422,78 @@ export function EstimateBuilder() {
         }
     };
 
+    const [isSyncingCC, setIsSyncingCC] = useState(false);
+    const handleCompanyCamSync = async () => {
+        if (!tenantId || !jobId || jobId === 'new') return;
+        if (!job.vehicleId) {
+            toast.error("Safety Check: Please assign a Vehicle/Asset to this job before syncing.");
+            return;
+        }
+        if (hasChanges) {
+            toast.error("Please save your changes first.");
+            return;
+        }
+        setIsSyncingCC(true);
+        try {
+            const res = await api.post(`/jobs/${jobId}/companycam-sync`);
+            if (res.data._ccStatus === 'failed') {
+                toast.error(res.data._ccReason || "Failed to sync to CompanyCam");
+            } else {
+                toast.success("Successfully synced to CompanyCam!");
+                if (res.data.projectId) {
+                    setJob((prev: any) => ({ ...prev, companyCamProjectId: res.data.projectId }));
+                    setOriginalJob((prev: any) => ({ ...prev, companyCamProjectId: res.data.projectId }));
+                }
+            }
+        } catch (e: any) {
+            console.error(e);
+            toast.error(e.response?.data?.error || "Failed to sync to CompanyCam");
+        } finally {
+            setIsSyncingCC(false);
+        }
+    };
+    
+    const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+    
+    const handleUploadMedia = async (e: any) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        
+        setIsUploadingMedia(true);
+        try {
+            const uploadPromises = Array.from(files).map(async (file: any) => {
+                const storageRef = ref(storage, `job_media/${tenantId}/${jobId}/${Date.now()}_${file.name}`);
+                await uploadBytes(storageRef, file);
+                const downloadUrl = await getDownloadURL(storageRef);
+                return downloadUrl;
+            });
+            
+            const urls = await Promise.all(uploadPromises);
+            
+            // Optimistically update UI so user doesn't have to wait for CompanyCam processing
+            const optimisticPhotos = urls.map((url, i) => ({
+                id: `temp_${Date.now()}_${i}`,
+                uris: [{ uri: url }],
+                creator_name: currentUser?.displayName || 'You (Processing)'
+            }));
+            setCcPhotos(prev => [...optimisticPhotos, ...prev]);
 
+            await api.post(`/jobs/${jobId}/companycam-photos`, { urls });
+            toast.success("Photos uploaded successfully!");
+            
+            // Poll for actual photos after a slight delay to let CompanyCam ingest
+            setTimeout(async () => {
+                const res = await api.get(`/jobs/${jobId}/companycam-photos`);
+                setCcPhotos(res.data || []);
+            }, 3000);
+        } catch (err: any) {
+            console.error("Upload failed", err);
+            toast.error(err.response?.data?.error || "Failed to upload photos");
+        } finally {
+            setIsUploadingMedia(false);
+            e.target.value = ''; // Reset input
+        }
+    };
 
     if (loading) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center font-bold text-zinc-500 animate-pulse">Building Profile...</div>;
     if (!job) return <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center font-bold text-red-500">Not Found<button onClick={() => navigate('/business/jobs')} className="mt-4 bg-zinc-800 text-white px-4 py-2 rounded-lg">Go Back</button></div>;
@@ -792,6 +883,91 @@ export function EstimateBuilder() {
                             </div>
                         )}
                     </div>
+
+                    {/* COMPANYCAM NATIVE GALLERY */}
+                    {jobId !== 'new' && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                                    </svg>
+                                    Job Media (CompanyCam)
+                                    <div className="group relative flex items-center ml-1">
+                                        <Info className="w-4 h-4 text-zinc-500 hover:text-zinc-300 cursor-pointer transition-colors" />
+                                        <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover:block w-56 p-2.5 bg-zinc-800 text-[10px] text-zinc-300 rounded-lg shadow-xl border border-zinc-700 text-center font-normal z-50 leading-relaxed">
+                                            Photos are actively <b>synced</b>! Any media uploaded here or in the CompanyCam app will automatically mirror in both places.
+                                        </div>
+                                    </div>
+                                </h2>
+                                {job?.companyCamProjectId ? (
+                                    <div className="flex gap-2">
+                                        <a href={`https://app.companycam.com/projects/${job.companyCamProjectId}/photos`} target="_blank" rel="noreferrer" className="bg-blue-900/50 hover:bg-blue-800 border border-blue-500 text-blue-200 text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+                                            Open App
+                                        </a>
+                                        <label className={`bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer ${isUploadingMedia ? 'opacity-50 pointer-events-none' : ''}`}>
+                                            {isUploadingMedia ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Plus className="w-3.5 h-3.5" />
+                                            )}
+                                            {isUploadingMedia ? 'UPLOADING...' : 'UPLOAD MEDIA'}
+                                            <input type="file" multiple accept="image/*" className="hidden" onChange={handleUploadMedia} disabled={isUploadingMedia} />
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={handleCompanyCamSync}
+                                        disabled={isSyncingCC}
+                                        className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-lg transition-all tracking-widest uppercase text-[10px]"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" /></svg>
+                                        {isSyncingCC ? 'Syncing...' : 'Start Syncing With CompanyCam'}
+                                    </button>
+                                )}
+                            </div>
+
+                            {!job?.companyCamProjectId ? (
+                                <div className="bg-zinc-950/50 rounded-xl p-8 border border-zinc-800/50 border-dashed text-center">
+                                    <h3 className="text-zinc-300 font-bold mb-2">Media Sync is Idle</h3>
+                                    <p className="text-zinc-500 text-sm max-w-md mx-auto">Click the button above to securely connect this Work Order to CompanyCam and instantly enable native photo rendering.</p>
+                                </div>
+                            ) : loadingCcPhotos ? (
+                                <div className="text-center py-8 text-zinc-500 font-mono text-sm animate-pulse">
+                                    Syncing photos...
+                                </div>
+                            ) : ccPhotos.length === 0 ? (
+                                <div className="bg-zinc-950/50 rounded-xl p-8 border border-zinc-800/50 border-dashed text-center">
+                                    <p className="text-zinc-500 text-sm font-medium mb-2">No photos have been uploaded to this job yet.</p>
+                                    <p className="text-zinc-600 text-xs">Technicians can upload photos via the CompanyCam app.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {ccPhotos.map((photo: any) => (
+                                        <div key={photo.id || Math.random()} className="group relative aspect-square rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800">
+                                            {photo.uris?.[0]?.uri ? (
+                                                <img
+                                                    src={photo.uris[0].uri}
+                                                    alt="Job media"
+                                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                                />
+                                            ) : (
+                                                <div className="text-[8px] text-zinc-500 overflow-hidden font-mono p-1 break-words h-full">DEBUG: {JSON.stringify(photo).substring(0, 500)}</div>
+                                            )}
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2">
+                                                <div className="text-[9px] text-white font-mono tracking-wider truncate">Uploaded by {photo.creator_name || photo.creator?.name || 'Staff'}</div>
+                                            </div>
+                                            {photo.id?.startsWith('temp_') && (
+                                                <div className="absolute top-2 right-2 bg-indigo-600/90 backdrop-blur text-white text-[9px] font-black uppercase px-2 py-1 rounded shadow drop-shadow flex items-center gap-1 animate-pulse">
+                                                    <Loader2 className="w-3 h-3 animate-spin"/> Syncing
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
                         <div className="flex items-center justify-between mb-4">

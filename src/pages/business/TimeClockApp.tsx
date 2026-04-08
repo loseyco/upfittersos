@@ -48,7 +48,7 @@ export function TimeClockApp() {
     
     // Request State
     const [requests, setRequests] = useState<any[]>([]);
-    const [requestForm, setRequestForm] = useState({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', targetLogId: '' });
+    const [requestForm, setRequestForm] = useState({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', requestedBreakStart: '', requestedBreakEnd: '', targetLogId: '' });
     const [submittingRequest, setSubmittingRequest] = useState(false);
 
     // Shift Notes State
@@ -341,12 +341,15 @@ export function TimeClockApp() {
 
     const handleLogEdit = (n: any) => {
         setActiveTab('requests');
+        const isTask = n.text?.startsWith('Started Task');
         setRequestForm({
-            type: 'missed_punch',
+            type: isTask ? 'task_edit' : 'missed_punch',
             date: new Date(n.time).toISOString().split('T')[0],
-            reason: `Edit shift log: "${n.text}"`,
+            reason: `Requesting to edit log: "${n.text}" from ${new Date(n.time).toLocaleTimeString()}.\n\nDetails / Correction needed:\n`,
             requestedClockIn: '',
             requestedClockOut: '',
+            requestedBreakStart: '',
+            requestedBreakEnd: '',
             targetLogId: activeLog?.id || ''
         });
     };
@@ -431,12 +434,14 @@ export function TimeClockApp() {
                 reason: requestForm.reason,
                 requestedClockIn: requestForm.requestedClockIn ? new Date(requestForm.requestedClockIn).toISOString() : '',
                 requestedClockOut: requestForm.requestedClockOut ? new Date(requestForm.requestedClockOut).toISOString() : '',
+                requestedBreakStart: requestForm.requestedBreakStart ? new Date(requestForm.requestedBreakStart).toISOString() : '',
+                requestedBreakEnd: requestForm.requestedBreakEnd ? new Date(requestForm.requestedBreakEnd).toISOString() : '',
                 targetLogId: requestForm.targetLogId,
                 status: 'pending',
                 createdAt: new Date().toISOString()
             });
             toast.success("Request submitted.");
-            setRequestForm({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', targetLogId: '' });
+            setRequestForm({ type: 'pto', date: '', reason: '', requestedClockIn: '', requestedClockOut: '', requestedBreakStart: '', requestedBreakEnd: '', targetLogId: '' });
         } catch (err) {
             toast.error("Failed to submit request.");
         } finally {
@@ -812,7 +817,9 @@ export function TimeClockApp() {
                                                             reason: `Requesting to edit timesheet on ${new Date(log.clockIn).toLocaleDateString()}:\n\n`,
                                                             targetLogId: log.id,
                                                             requestedClockIn: toLocalISOString(log.clockIn),
-                                                            requestedClockOut: toLocalISOString(log.clockOut)
+                                                            requestedClockOut: toLocalISOString(log.clockOut),
+                                                            requestedBreakStart: log.breaks && log.breaks.length > 0 ? toLocalISOString(log.breaks[0].start) : '',
+                                                            requestedBreakEnd: log.breaks && log.breaks.length > 0 ? toLocalISOString(log.breaks[0].end) : ''
                                                         }));
                                                     }} 
                                                     className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-1 rounded-full text-xs font-bold transition-colors border border-zinc-700"
@@ -849,6 +856,7 @@ export function TimeClockApp() {
                                             <option value="late">Late Notice</option>
                                             <option value="unpaid">Unpaid Leave</option>
                                             <option value="missed_punch">Missed Punch / Fix Timesheet</option>
+                                            <option value="task_edit">Task Correction</option>
                                         </select>
                                     </div>
                                     {requestForm.type !== 'missed_punch' && (
@@ -864,26 +872,48 @@ export function TimeClockApp() {
                                         </div>
                                     )}
                                     {requestForm.type === 'missed_punch' && (
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock In</label>
-                                                <input 
-                                                    type="datetime-local"
-                                                    value={requestForm.requestedClockIn}
-                                                    onChange={(e) => setRequestForm({...requestForm, requestedClockIn: e.target.value})}
-                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
-                                                />
+                                        <>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock In</label>
+                                                    <input 
+                                                        type="datetime-local"
+                                                        value={requestForm.requestedClockIn}
+                                                        onChange={(e) => setRequestForm({...requestForm, requestedClockIn: e.target.value})}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock Out</label>
+                                                    <input 
+                                                        type="datetime-local"
+                                                        value={requestForm.requestedClockOut}
+                                                        onChange={(e) => setRequestForm({...requestForm, requestedClockOut: e.target.value})}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                    />
+                                                </div>
                                             </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Clock Out</label>
-                                                <input 
-                                                    type="datetime-local"
-                                                    value={requestForm.requestedClockOut}
-                                                    onChange={(e) => setRequestForm({...requestForm, requestedClockOut: e.target.value})}
-                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
-                                                />
+                                            <div className="grid grid-cols-2 gap-4 mt-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Break Start</label>
+                                                    <input 
+                                                        type="datetime-local"
+                                                        value={requestForm.requestedBreakStart}
+                                                        onChange={(e) => setRequestForm({...requestForm, requestedBreakStart: e.target.value})}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Requested Break End</label>
+                                                    <input 
+                                                        type="datetime-local"
+                                                        value={requestForm.requestedBreakEnd}
+                                                        onChange={(e) => setRequestForm({...requestForm, requestedBreakEnd: e.target.value})}
+                                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white [color-scheme:dark]"
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
+                                        </>
                                     )}
                                     <div>
                                         <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Reason</label>

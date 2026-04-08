@@ -38,6 +38,16 @@ service firebase.storage {
       allow delete: if request.auth != null && (request.auth.token.tenantId == tenantId || request.auth.token.role == 'super_admin');
     }
 
+    // CompanyCam Media Mirror / Direct Job Uploads
+    match /job_media/{tenantId}/{jobId}/{fileName} {
+      allow read: if true; // CompanyCam needs public URLs to ingest them
+      allow create, update, delete: if request.auth != null && (
+        request.auth.token.tenantId == tenantId || 
+        request.auth.token.role == 'super_admin' || 
+        request.auth.token.role == 'system_owner'
+      );
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -56,13 +56,13 @@ jobsRoutes.get('/', authenticate, async (req: Request, res: Response): Promise<R
 
 // Helper to attempt CompanyCam sync if status is correct and link actual customer address
 async function tryCompanyCamSync(jobRef: admin.firestore.DocumentReference, newJobData: any, callerUid: string, tenantId: string) {
-    // Only push when the job transitions out of Pending/Estimate
-    if (newJobData.status === 'Pending' || newJobData.status === 'Estimate' || newJobData.status === 'Completed') {
-        return { status: 'bypassed', reason: `Awaiting status change from ${newJobData.status}` };
-    }
-    
     if (newJobData.skipCompanyCamSync) {
         return { status: 'bypassed', reason: 'Sync opted out by user' };
+    }
+
+    // Safety: only push to CompanyCam if it is a vehicle job, ignoring pure internal projects (like 'Website')
+    if (!newJobData.vehicleId) {
+        return { status: 'bypassed', reason: 'Safety Check: Job is missing an assigned vehicle.' };
     }
 
     // If we already linked it, we don't need to recreate it.
@@ -104,7 +104,7 @@ async function tryCompanyCamSync(jobRef: admin.firestore.DocumentReference, newJ
         
         if (ccProj && ccProj.id) {
             await jobRef.update({ companyCamProjectId: String(ccProj.id) });
-            return { status: 'success', reason: 'Project created successfully' };
+            return { status: 'success', reason: 'Project created successfully', projectId: String(ccProj.id) };
         }
     } catch (ccErr: any) {
         console.log(`[Push] CompanyCam sync failed for job ${jobRef.id}:`, ccErr.message);
@@ -163,14 +163,9 @@ jobsRoutes.post('/', authenticate, async (req: Request, res: Response): Promise<
 
         const docRef = await getDb().collection('jobs').add(newJob);
 
-        // Intelligently execute conditional sync
-        const syncResult = await tryCompanyCamSync(docRef, newJob, caller.uid, tenantId);
-
         return res.status(201).json({ 
             id: docRef.id, 
-            ...newJob, 
-            _ccStatus: syncResult.status, 
-            _ccReason: syncResult.reason 
+            ...newJob
         });
     } catch (error) {
         console.error("Error creating job:", error);
@@ -231,17 +226,11 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
 
         await jobRef.update(updates);
         
-        // Re-construct the full job data for the sync logic
         const updatedJobData = { ...jobData, ...updates };
-        
-        // Let the intelligent sync decide if it needs to push (e.g. status changed from Pending to In Progress)
-        const syncResult = await tryCompanyCamSync(jobRef, updatedJobData, caller.uid, tenantId);
 
         return res.json({ 
             id: jobId, 
-            ...updatedJobData,
-            _ccStatus: syncResult.status,
-            _ccReason: syncResult.reason
+            ...updatedJobData
         });
     } catch (error) {
         console.error("Error updating job:", error);
@@ -306,9 +295,90 @@ jobsRoutes.post('/:id/companycam-sync', authenticate, async (req: Request, res: 
             return res.status(400).json({ error: syncResult.reason });
         }
 
-        return res.json({ message: 'Sync successful', _ccStatus: syncResult.status, _ccReason: syncResult.reason });
+        return res.json({ message: 'Sync successful', _ccStatus: syncResult.status, _ccReason: syncResult.reason, projectId: (syncResult as any).projectId });
     } catch (error) {
         console.error("Error manual syncing job:", error);
         return res.status(500).json({ error: 'Failed to trigger sync' });
+    }
+});
+
+// GET /jobs/:id/companycam-photos - Fetch photos from the linked CompanyCam project
+jobsRoutes.get('/:id/companycam-photos', authenticate, async (req: Request, res: Response): Promise<Response> => {
+    try {
+        const caller = (req as any).user;
+        const jobId = req.params.id;
+
+        const jobRef = getDb().collection('jobs').doc(jobId);
+        const jobDoc = await jobRef.get();
+
+        if (!jobDoc.exists) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const jobData = jobDoc.data()!;
+        const tenantId = jobData.tenantId;
+
+        if (!isMemberOfTenant(caller, tenantId)) {
+            return res.status(403).json({ error: 'Forbidden. Cannot view photos for this job.' });
+        }
+
+        if (!jobData.companyCamProjectId) {
+            return res.status(400).json({ error: 'This job is not synced to CompanyCam.' });
+        }
+
+        const ccService = new CompanyCamService(caller.uid, tenantId);
+        const photos = await ccService.getProjectPhotos(jobData.companyCamProjectId);
+
+        return res.json(photos);
+    } catch (error: any) {
+        console.error("Error fetching job photos:", error);
+        return res.status(500).json({ error: error.message || 'Failed to fetch photos' });
+    }
+});
+
+// POST /jobs/:id/companycam-photos - Push photo URLs to CompanyCam
+jobsRoutes.post('/:id/companycam-photos', authenticate, async (req: Request, res: Response): Promise<Response> => {
+    try {
+        const caller = (req as any).user;
+        const jobId = req.params.id;
+        const { urls } = req.body;
+
+        if (!urls || !Array.isArray(urls) || urls.length === 0) {
+            return res.status(400).json({ error: 'Missing or invalid photo URLs' });
+        }
+
+        const jobRef = getDb().collection('jobs').doc(jobId);
+        const jobDoc = await jobRef.get();
+
+        if (!jobDoc.exists) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const jobData = jobDoc.data()!;
+        const tenantId = jobData.tenantId;
+
+        if (!isMemberOfTenant(caller, tenantId)) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        if (!jobData.companyCamProjectId) {
+            return res.status(400).json({ error: 'Job not synced to CompanyCam' });
+        }
+
+        // 1. Send to CompanyCam
+        const ccService = new CompanyCamService(caller.uid, tenantId);
+        const result = await ccService.createPhotos(jobData.companyCamProjectId, urls);
+
+        // 2. Safely sync native URLs directly to the Job document in Firestore 
+        // as a long-term transition off CompanyCam
+        const { FieldValue } = require('firebase-admin/firestore');
+        await jobRef.update({
+            media: FieldValue.arrayUnion(...urls)
+        });
+
+        return res.json({ message: 'Upload initiated successfully', result });
+    } catch (error: any) {
+        console.error("Error uploading photos:", error);
+        return res.status(500).json({ error: error.message || 'Failed to upload photos' });
     }
 });

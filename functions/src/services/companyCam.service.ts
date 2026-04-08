@@ -145,4 +145,26 @@ export class CompanyCamService {
       body: JSON.stringify(payload),
     });
   }
+
+  async getProjectPhotos(projectId: string) {
+    return this.fetch(`/projects/${projectId}/photos`);
+  }
+
+  async createPhotos(projectId: string, uris: string[]) {
+    // CompanyCam API accepts one photo per POST payload structured as { photo: { uri: "...", captured_at: epoch } }
+    const uploadPromises = uris.map(uri => {
+      const payload = { 
+        photo: { 
+            uri,
+            captured_at: Math.floor(Date.now() / 1000)
+        } 
+      };
+      return this.fetch(`/projects/${projectId}/photos`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    });
+    
+    return Promise.all(uploadPromises);
+  }
 }

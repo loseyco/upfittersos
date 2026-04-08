@@ -107,7 +107,7 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
         }
     };
 
-    const handleApproveRequest = async (id: string, status: 'approved' | 'rejected') => {
+    const handleApproveRequest = async (id: string, status: 'approved' | 'rejected' | 'pending') => {
         try {
             await api.put(`/businesses/${tenantId}/time_off_requests/${id}`, { status });
             toast.success(`Request ${status}.`);
@@ -833,6 +833,54 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                                                 <span className="block text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Reason provided</span>
                                                                 "{req.reason}"
                                                             </div>
+                                                        </div>
+
+                                                        <div className="space-y-3">
+                                                            <div className="flex gap-3">
+                                                                {req.status !== 'approved' && (
+                                                                    <button 
+                                                                        onClick={() => handleApproveRequest(req.id, 'approved')}
+                                                                        className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+                                                                    >
+                                                                        <CheckCircle className="w-4 h-4" /> Approve
+                                                                    </button>
+                                                                )}
+                                                                {req.status !== 'rejected' && (
+                                                                    <button 
+                                                                        onClick={() => handleApproveRequest(req.id, 'rejected')}
+                                                                        className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+                                                                    >
+                                                                        <XCircle className="w-4 h-4" /> Reject
+                                                                    </button>
+                                                                )}
+                                                                <button 
+                                                                    onClick={() => handleApproveRequest(req.id, 'pending')}
+                                                                    className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+                                                                >
+                                                                    Undo
+                                                                </button>
+                                                            </div>
+                                                            {req.targetLogId && (
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        const existingLog = timeLogs.find(l => l.id === req.targetLogId);
+                                                                        setEditingLog({ 
+                                                                            id: req.targetLogId, 
+                                                                            clockIn: req.requestedClockIn ? toLocalISOString(req.requestedClockIn) : (existingLog?.clockIn ? toLocalISOString(existingLog.clockIn) : ''), 
+                                                                            clockOut: req.requestedClockOut ? toLocalISOString(req.requestedClockOut) : (existingLog?.clockOut ? toLocalISOString(existingLog.clockOut) : ''), 
+                                                                            requestId: req.id,
+                                                                            breaks: existingLog ? (existingLog.breaks || []).map((b: any) => ({
+                                                                                start: b.start ? toLocalISOString(b.start) : '',
+                                                                                end: b.end ? toLocalISOString(b.end) : ''
+                                                                            })) : []
+                                                                        });
+                                                                        setShowManageModal(true);
+                                                                    }}
+                                                                    className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+                                                                >
+                                                                    <Settings className="w-4 h-4" /> Open Inspector
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 );
