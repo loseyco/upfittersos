@@ -756,12 +756,14 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
 
                                                     <div className="space-y-3">
                                                         <div className="flex gap-3">
-                                                            <button 
-                                                                onClick={() => handleApproveRequest(req.id, 'approved')}
-                                                                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
-                                                            >
-                                                                <CheckCircle className="w-4 h-4" /> Approve
-                                                            </button>
+                                                            {req.type !== 'missed_punch' && (
+                                                                <button 
+                                                                    onClick={() => handleApproveRequest(req.id, 'approved')}
+                                                                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
+                                                                >
+                                                                    <CheckCircle className="w-4 h-4" /> Approve
+                                                                </button>
+                                                            )}
                                                             <button 
                                                                 onClick={() => handleApproveRequest(req.id, 'rejected')}
                                                                 className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
@@ -787,7 +789,7 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                                                 }}
                                                                 className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/50 font-bold py-2 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm"
                                                             >
-                                                                <Settings className="w-4 h-4" /> Apply Fix
+                                                                <Settings className="w-4 h-4" /> Review Fix
                                                             </button>
                                                         )}
                                                     </div>
