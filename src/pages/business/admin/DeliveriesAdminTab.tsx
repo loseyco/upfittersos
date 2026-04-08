@@ -3,6 +3,7 @@ import { Package, Plus, PackageCheck, PackageOpen, Undo2, Search, Loader2 } from
 import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import type { Delivery, DeliveryCarrier, DeliveryStatus } from '../../../types/deliveries';
+import { PackageTracker } from '../../../components/PackageTracker';
 import { useAuth } from '../../../contexts/AuthContext';
 import { usePermissions } from '../../../hooks/usePermissions';
 import toast from 'react-hot-toast';
@@ -21,6 +22,7 @@ export function DeliveriesAdminTab({ tenantId }: { tenantId: string }) {
     const [newTracking, NEWTracking] = useState('');
     const [newCarrier, setNewCarrier] = useState<DeliveryCarrier>('UPS');
     const [newRecipient, setNewRecipient] = useState('');
+    const [newPoId, setNewPoId] = useState('');
     const [newNotes, setNewNotes] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -61,6 +63,7 @@ export function DeliveriesAdminTab({ tenantId }: { tenantId: string }) {
                 trackingNumber: newTracking.trim(),
                 carrier: newCarrier,
                 recipientName: newRecipient.trim(),
+                poId: newPoId.trim() || undefined,
                 status: 'Arrived',
                 notes: newNotes.trim(),
                 createdAt: new Date() as any,
@@ -75,6 +78,7 @@ export function DeliveriesAdminTab({ tenantId }: { tenantId: string }) {
             // Reset form
             NEWTracking('');
             setNewRecipient('');
+            setNewPoId('');
             setNewNotes('');
             setNewCarrier('UPS');
             setIsAddModalOpen(false);
@@ -206,11 +210,15 @@ export function DeliveriesAdminTab({ tenantId }: { tenantId: string }) {
                                     </span>
                                 </div>
                                 <h3 className="text-lg font-bold text-white mb-1 truncate" title={delivery.recipientName}>
-                                    {delivery.recipientName || 'Unknown Recipient'}
+                                    {delivery.recipientName || 'Unknown Recipient'} {delivery.poId && <span className="text-xs text-orange-400 font-mono">({delivery.poId})</span>}
                                 </h3>
-                                <p className="text-sm text-zinc-400 font-mono bg-zinc-950 px-2 py-1 rounded truncate mb-4 select-all">
+                                <p className="text-sm text-zinc-400 font-mono bg-zinc-950 px-2 py-1 rounded truncate mb-2 select-all">
                                     {delivery.trackingNumber}
                                 </p>
+                                
+                                <div className="mb-4">
+                                    <PackageTracker deliveryId={delivery.id} trackingNumber={delivery.trackingNumber} carrier={delivery.carrier} />
+                                </div>
                                 
                                 {delivery.notes && (
                                     <p className="text-xs text-zinc-500 mb-4 line-clamp-2 italic border-l-2 border-zinc-800 pl-2">
@@ -310,6 +318,16 @@ export function DeliveriesAdminTab({ tenantId }: { tenantId: string }) {
                                     onChange={(e) => setNewNotes(e.target.value)}
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-accent"
                                     placeholder="Damaged box, left at back door..."
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1.5">Linked PO (Optional)</label>
+                                <input 
+                                    type="text" 
+                                    value={newPoId}
+                                    onChange={(e) => setNewPoId(e.target.value)}
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 text-white font-mono focus:outline-none focus:border-accent"
+                                    placeholder="PO-XXXX"
                                 />
                             </div>
                             

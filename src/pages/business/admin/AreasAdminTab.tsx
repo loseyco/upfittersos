@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, Map, Settings2, Activity, ChevronRight, FlaskConical } from 'lucide-react';
+import { MapPin, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, Map, Settings2, Activity, ChevronRight, FlaskConical, ExternalLink } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
@@ -39,7 +39,7 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
 
         setLoading(true);
 
-        const unsubAreas = onSnapshot(query(collection(db, 'areas'), where('tenantId', '==', tenantId)), (s) => {
+        const unsubAreas = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => {
             const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
             fetched.sort((a: any, b: any) => {
                 const labelA = a.label || '';
@@ -168,9 +168,16 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
                                 <MapPin className="w-5 h-5 text-white" />
                             </div>
                             <div>
-                                <h2 className="text-2xl font-black text-white">
-                                    {selectedArea.id === 'new' ? 'Register New Area & Zone' : (editForm.label || 'Unnamed Area')}
-                                </h2>
+                                <div className="flex items-center gap-3">
+                                    <h2 className="text-2xl font-black text-white">
+                                        {selectedArea.id === 'new' ? 'Register New Area & Zone' : (editForm.label || 'Unnamed Area')}
+                                    </h2>
+                                    {selectedArea.id !== 'new' && (
+                                        <a href={`/business/areas/${selectedArea.id}`} target="_blank" rel="noreferrer" className="text-xs bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 border border-indigo-500/30 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-colors font-bold uppercase tracking-widest mt-1">
+                                            <ExternalLink className="w-3.5 h-3.5" /> Dashboard
+                                        </a>
+                                    )}
+                                </div>
                                 <p className="text-zinc-500 font-mono text-sm">{selectedArea.id}</p>
                             </div>
                         </div>

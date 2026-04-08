@@ -468,10 +468,11 @@ export function StaffSelector({ value, onChange, data, disabled, label, trigger,
 // ============================================
 interface InventorySelectorProps extends SelectorProps<any> {
     alreadyInTaskIds?: string[];
+    autoOpen?: boolean;
 }
 
-export function InventorySelector({ value, onChange, data, disabled, label, placeholder = 'Search Inventory...', alreadyInTaskIds = [] }: InventorySelectorProps) {
-    const [isOpen, setIsOpen] = useState(false);
+export function InventorySelector({ value, onChange, data, disabled, label, placeholder = 'Search Inventory...', alreadyInTaskIds = [], autoOpen = false }: InventorySelectorProps) {
+    const [isOpen, setIsOpen] = useState(autoOpen);
     const [search, setSearch] = useState('');
     const [previewEntity, setPreviewEntity] = useState<any | null>(null);
 
@@ -506,16 +507,6 @@ export function InventorySelector({ value, onChange, data, disabled, label, plac
                         <span className="text-zinc-500 text-sm truncate">{placeholder}</span>
                     )}
                 </div>
-                {selected && (
-                    <button
-                        type="button"
-                        title="Clear Part Data"
-                        onClick={(e) => { e.stopPropagation(); onChange('custom', null); }}
-                        className="p-1 hover:bg-red-500/10 hover:text-red-400 text-zinc-500 rounded transition-colors shrink-0"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
-                )}
                 {!selected && <Search className="w-4 h-4 text-zinc-600 shrink-0" />}
             </div>
 

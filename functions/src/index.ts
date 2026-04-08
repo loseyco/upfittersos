@@ -1,5 +1,29 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+
+// TEMPORARY MIGRATION
+export const runOneTimeMigration = functions.https.onRequest(async (req, res) => {
+    try {
+        const jobsSnap = await admin.firestore().collection('jobs').get();
+        let updatedJobs = 0;
+        const updatesArr: Promise<any>[] = [];
+        for (const doc of jobsSnap.docs) {
+            const data = doc.data();
+            let needsUpdate = false;
+            const updates: any = {};
+            if (data.sopSupplies === undefined) { updates.sopSupplies = 0; needsUpdate = true; }
+            if (data.shipping === undefined) { updates.shipping = 0; needsUpdate = true; }
+            if (needsUpdate) {
+                updatesArr.push(doc.ref.update(updates));
+                updatedJobs++;
+            }
+        }
+        await Promise.all(updatesArr);
+        res.status(200).send(`Migrated ${updatedJobs} jobs successfully.`);
+    } catch (e: any) {
+        res.status(500).send(e.toString());
+    }
+});
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
@@ -17,6 +41,8 @@ import { vehiclesRoutes } from './routes/vehicles.routes';
 import { jobsRoutes } from './routes/jobs.routes';
 import { areasRoutes } from './routes/areas.routes';
 import { timeRoutes } from './routes/time.routes';
+import { purchaseOrdersRoutes } from './routes/purchase_orders.routes';
+import { deliveriesRoutes } from './routes/deliveries.routes';
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -180,7 +206,8 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     const {
       name, legalName, email, phone, website,
       addressStreet, addressCity, addressState, addressZip, customRoles,
-      payPeriodConfig, enabledFeatures, enabledFeaturesDev
+      payPeriodConfig, enabledFeatures, enabledFeaturesDev,
+      defaultSopSupplies, defaultShipping, departments, easyPostApiKey
     } = req.body;
 
     const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -197,6 +224,10 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     if (payPeriodConfig !== undefined) updates.payPeriodConfig = payPeriodConfig;
     if (enabledFeatures !== undefined && isSuperAdmin) updates.enabledFeatures = enabledFeatures;
     if (enabledFeaturesDev !== undefined && isSuperAdmin) updates.enabledFeaturesDev = enabledFeaturesDev;
+    if (defaultSopSupplies !== undefined) updates.defaultSopSupplies = defaultSopSupplies;
+    if (defaultShipping !== undefined) updates.defaultShipping = defaultShipping;
+    if (departments !== undefined) updates.departments = departments;
+    if (easyPostApiKey !== undefined) updates.easyPostApiKey = easyPostApiKey;
     
     if (customRoles !== undefined) {
       const sanitizedRoles = { ...customRoles };
@@ -680,6 +711,10 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
 
 // Mount nested routes for businesses
 app.use('/businesses', timeRoutes);
+
+// Mount core business entity routes
+app.use('/purchase-orders', purchaseOrdersRoutes);
+app.use('/deliveries', deliveriesRoutes);
 
 // --- API: Role Management ---
 

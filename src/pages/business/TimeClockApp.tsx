@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
-import { Clock, FileText, ArrowLeft, Play, ScanLine, Activity } from 'lucide-react';
+import { Clock, FileText, ArrowLeft, Play, ScanLine, Activity, Briefcase } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -43,6 +43,31 @@ export function TimeClockApp() {
     const [activeLog, setActiveLog] = useState<any>(null);
     const [loadingClock, setLoadingClock] = useState(true);
     
+    // Payroll State
+    const [payCycle, setPayCycle] = useState('biweekly');
+    const [anchorDate, setAnchorDate] = useState('');
+    const [nowTick, setNowTick] = useState(Date.now());
+    const [jobs, setJobs] = useState<any[]>([]);
+
+    useEffect(() => {
+        const tick = setInterval(() => setNowTick(Date.now()), 60000);
+        return () => clearInterval(tick);
+    }, []);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        const fetchConfig = async () => {
+            try {
+                const busRes = await api.get(`/businesses/${tenantId}`);
+                if (busRes.data?.payPeriodConfig) {
+                    setPayCycle(busRes.data.payPeriodConfig.cycle || 'biweekly');
+                    setAnchorDate(busRes.data.payPeriodConfig.anchorDate || '');
+                }
+            } catch(e) {}
+        };
+        fetchConfig();
+    }, [tenantId]);
+    
     // Timesheet State
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
     
@@ -54,6 +79,7 @@ export function TimeClockApp() {
     // Shift Notes State
     const [noteInput, setNoteInput] = useState('');
     const [isAddingNote, setIsAddingNote] = useState(false);
+    const [isDiscoveryNote, setIsDiscoveryNote] = useState(false);
     
     // Assigned Tasks State
     const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
@@ -112,6 +138,7 @@ export function TimeClockApp() {
 
         const unsubJobs = onSnapshot(query(collection(db, 'jobs'), where('tenantId', '==', tenantId)), (snap) => {
             const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            setJobs(fetched.filter((j: any) => !j.archived));
             
             unsubVehicles();
             unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (vSnap) => {
@@ -158,6 +185,81 @@ export function TimeClockApp() {
             unsubCustomers();
         };
     }, [tenantId, activeTab, currentUser?.uid]);
+
+    const activePayPeriod = useMemo(() => {
+        if (!anchorDate || !payCycle) return null;
+        
+        const now = new Date(nowTick);
+        const anchor = new Date(anchorDate + "T00:00:00");
+        let start = new Date(anchor);
+        let end = new Date(anchor);
+        
+        if (payCycle === 'weekly') {
+            const msInWeek = 7 * 24 * 60 * 60 * 1000;
+            const diff = now.getTime() - anchor.getTime();
+            const weeks = Math.floor(diff / msInWeek);
+            start = new Date(anchor.getTime() + weeks * msInWeek);
+            end = new Date(start.getTime() + msInWeek - 1000);
+        } else if (payCycle === 'biweekly') {
+            const msInBiweek = 14 * 24 * 60 * 60 * 1000;
+            const diff = now.getTime() - anchor.getTime();
+            const biweeks = Math.floor(diff / msInBiweek);
+            start = new Date(anchor.getTime() + biweeks * msInBiweek);
+            end = new Date(start.getTime() + msInBiweek - 1000);
+        } else if (payCycle === 'monthly') {
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+            end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        } else if (payCycle === 'semimonthly') {
+            if (now.getDate() <= 15) {
+                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                end = new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59);
+            } else {
+                start = new Date(now.getFullYear(), now.getMonth(), 16);
+                end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+            }
+        }
+        
+        return { start, end };
+    }, [anchorDate, payCycle, nowTick]);
+
+    const computeShiftHours = (log: any): number => {
+        if (!log.clockIn) return 0;
+        let totalMs = 0;
+        const outTime = log.clockOut ? new Date(log.clockOut).getTime() : nowTick;
+        totalMs = outTime - new Date(log.clockIn).getTime();
+
+        if (log.breaks && Array.isArray(log.breaks)) {
+            log.breaks.forEach((b: any) => {
+                if (b.start && b.type !== 'paid') {
+                    const bEnd = b.end ? new Date(b.end).getTime() : nowTick;
+                    totalMs -= (bEnd - new Date(b.start).getTime());
+                }
+            });
+        }
+        return Math.max(0, totalMs / (1000 * 60 * 60));
+    };
+
+    const actuallyClockedInHours = useMemo(() => {
+        if (!activePayPeriod) return 0;
+        const logsInPeriod = timeLogs.filter((log: any) => {
+            const logTime = new Date(log.clockIn).getTime();
+            return logTime >= activePayPeriod.start.getTime() && logTime <= activePayPeriod.end.getTime();
+        });
+        return logsInPeriod.reduce((acc, log) => acc + computeShiftHours(log), 0);
+    }, [timeLogs, activePayPeriod, nowTick]);
+
+    const cycleBookTime = useMemo(() => {
+        if (!currentUser?.uid) return 0;
+        return jobs.reduce((acc, j) => {
+            if (!j.tasks) return acc;
+            return acc + j.tasks.reduce((tAcc: number, t: any) => {
+                if (t.status === 'Finished' && t.assignedUids?.includes(currentUser.uid)) {
+                    return tAcc + (Number(t.bookTime) || 0);
+                }
+                return tAcc;
+            }, 0);
+        }, 0);
+    }, [jobs, currentUser?.uid]);
 
     // Infinite Scroll and Scroll to Top listener
     useEffect(() => {
@@ -255,13 +357,15 @@ export function TimeClockApp() {
         if (!textToSave || !activeLog) return;
         try {
             setIsAddingNote(true);
+            const prefix = isDiscoveryNote && !overrideText ? "[R&D / Discovery] " : "";
             const newNote = {
-                text: textToSave,
+                text: prefix + textToSave,
                 time: new Date().toISOString()
             };
             const updatedNotes = [...(activeLog.notes || []), newNote];
             await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { notes: updatedNotes });
             setNoteInput('');
+            setIsDiscoveryNote(false);
             toast.success("Note added successfully");
         } catch (e) {
             console.error(e);
@@ -471,21 +575,40 @@ export function TimeClockApp() {
                     </div>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex items-center gap-2 p-1 bg-zinc-900/50 border border-zinc-800 rounded-xl max-w-fit">
-                    {[
-                        { id: 'clock', label: 'Clock' },
-                        { id: 'timesheet', label: 'Timesheet' },
-                        { id: 'requests', label: 'PTO & Requests' }
-                    ].map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
-                            className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all ${activeTab === tab.id ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
+                {/* Tabs & Stats */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 p-1 bg-zinc-900/50 border border-zinc-800 rounded-xl max-w-fit">
+                        {[
+                            { id: 'clock', label: 'Clock' },
+                            { id: 'timesheet', label: 'Timesheet' },
+                            { id: 'requests', label: 'PTO & Requests' }
+                        ].map(tab => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={`px-6 py-2.5 rounded-lg text-sm font-bold capitalize transition-all ${activeTab === tab.id ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-4 bg-zinc-900/50 border border-zinc-800 rounded-xl px-4 py-2">
+                        <div className="flex flex-col items-end pr-4 border-r border-zinc-800/50">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5">Pay Period Clocked</span>
+                            <div className="flex items-baseline gap-1">
+                                <span className="text-xl font-black text-blue-400">{actuallyClockedInHours.toFixed(1)}</span>
+                                <span className="text-xs font-bold text-zinc-500">hrs</span>
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-start pl-2">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-0.5 flex items-center gap-1"><Briefcase className="w-3 h-3 text-emerald-500"/> Finished Book</span>
+                            <div className="flex items-baseline gap-1">
+                                <span className="text-xl font-black text-emerald-400">{cycleBookTime.toFixed(1)}</span>
+                                <span className="text-xs font-bold text-zinc-500">hrs</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* Content */}
@@ -708,22 +831,33 @@ export function TimeClockApp() {
                                                             )}
 
                                                             {(!myAssignedTasks.length || selectedTaskNote === 'OTHER') && (
-                                                                <div className="flex gap-2 mt-2">
-                                                                    <input 
-                                                                        type="text"
-                                                                        value={noteInput}
-                                                                        onChange={(e) => setNoteInput(e.target.value)}
-                                                                        placeholder={activeNoteText ? "Type new note..." : "What are you doing now?"}
-                                                                        className="flex-1 bg-zinc-900 border border-emerald-500/30 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white"
-                                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddNote() }}
-                                                                    />
-                                                                    <button 
-                                                                        onClick={() => handleAddNote()}
-                                                                        disabled={isAddingNote || !noteInput.trim()}
-                                                                        className="bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg text-sm font-bold transition-colors shrink-0 whitespace-nowrap border border-zinc-700"
-                                                                    >
-                                                                        Switch / Log Activity
-                                                                    </button>
+                                                                <div className="flex flex-col gap-2 mt-2">
+                                                                    <div className="flex gap-2">
+                                                                        <input 
+                                                                            type="text"
+                                                                            value={noteInput}
+                                                                            onChange={(e) => setNoteInput(e.target.value)}
+                                                                            placeholder={activeNoteText ? "Type new note..." : "What are you doing now?"}
+                                                                            className={`flex-1 bg-zinc-900 border ${isDiscoveryNote ? 'border-amber-500/50 focus:border-amber-500 text-amber-50' : 'border-emerald-500/30 focus:border-emerald-500 text-white'} rounded-lg px-4 py-3 text-sm focus:outline-none transition-colors`}
+                                                                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddNote() }}
+                                                                        />
+                                                                        <button 
+                                                                            onClick={() => handleAddNote()}
+                                                                            disabled={isAddingNote || !noteInput.trim()}
+                                                                            className={`hover:bg-zinc-700 disabled:opacity-50 text-white px-6 py-3 rounded-lg text-sm font-bold transition-colors shrink-0 whitespace-nowrap border ${isDiscoveryNote ? 'bg-amber-600 border-amber-500 hover:bg-amber-500 text-white' : 'bg-zinc-800 border-zinc-700'}`}
+                                                                        >
+                                                                            {isDiscoveryNote ? 'Log R&D Note' : 'Switch / Log Activity'}
+                                                                        </button>
+                                                                    </div>
+                                                                    <label className="flex items-center gap-2 text-xs font-bold text-zinc-400 cursor-pointer ml-1 mt-1 w-fit">
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={isDiscoveryNote} 
+                                                                            onChange={(e) => setIsDiscoveryNote(e.target.checked)}
+                                                                            className="rounded bg-zinc-900 border-zinc-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-950 w-4 h-4 cursor-pointer"
+                                                                        />
+                                                                        Mark as Discovery / R&D Time
+                                                                    </label>
                                                                 </div>
                                                             )}
                                                             

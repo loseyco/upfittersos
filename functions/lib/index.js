@@ -36,9 +36,39 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateAutomatedReports = exports.api = void 0;
+exports.generateAutomatedReports = exports.api = exports.runOneTimeMigration = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
+// TEMPORARY MIGRATION
+exports.runOneTimeMigration = functions.https.onRequest(async (req, res) => {
+    try {
+        const jobsSnap = await admin.firestore().collection('jobs').get();
+        let updatedJobs = 0;
+        const updatesArr = [];
+        for (const doc of jobsSnap.docs) {
+            const data = doc.data();
+            let needsUpdate = false;
+            const updates = {};
+            if (data.sopSupplies === undefined) {
+                updates.sopSupplies = 0;
+                needsUpdate = true;
+            }
+            if (data.shipping === undefined) {
+                updates.shipping = 0;
+                needsUpdate = true;
+            }
+            if (needsUpdate) {
+                updatesArr.push(doc.ref.update(updates));
+                updatedJobs++;
+            }
+        }
+        await Promise.all(updatesArr);
+        res.status(200).send(`Migrated ${updatedJobs} jobs successfully.`);
+    }
+    catch (e) {
+        res.status(500).send(e.toString());
+    }
+});
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
@@ -56,6 +86,8 @@ const vehicles_routes_1 = require("./routes/vehicles.routes");
 const jobs_routes_1 = require("./routes/jobs.routes");
 const areas_routes_1 = require("./routes/areas.routes");
 const time_routes_1 = require("./routes/time.routes");
+const purchase_orders_routes_1 = require("./routes/purchase_orders.routes");
+const deliveries_routes_1 = require("./routes/deliveries.routes");
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
@@ -195,7 +227,7 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
         if (!isSuperAdmin && !isManagerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to modify workspace metadata.' });
         }
-        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles, payPeriodConfig, enabledFeatures, enabledFeaturesDev } = req.body;
+        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles, payPeriodConfig, enabledFeatures, enabledFeaturesDev, defaultSopSupplies, defaultShipping, departments, easyPostApiKey } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (name !== undefined)
             updates.name = name;
@@ -221,6 +253,14 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
             updates.enabledFeatures = enabledFeatures;
         if (enabledFeaturesDev !== undefined && isSuperAdmin)
             updates.enabledFeaturesDev = enabledFeaturesDev;
+        if (defaultSopSupplies !== undefined)
+            updates.defaultSopSupplies = defaultSopSupplies;
+        if (defaultShipping !== undefined)
+            updates.defaultShipping = defaultShipping;
+        if (departments !== undefined)
+            updates.departments = departments;
+        if (easyPostApiKey !== undefined)
+            updates.easyPostApiKey = easyPostApiKey;
         if (customRoles !== undefined) {
             const sanitizedRoles = Object.assign({}, customRoles);
             if (!isSuperAdmin) {
@@ -655,6 +695,9 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
 });
 // Mount nested routes for businesses
 app.use('/businesses', time_routes_1.timeRoutes);
+// Mount core business entity routes
+app.use('/purchase-orders', purchase_orders_routes_1.purchaseOrdersRoutes);
+app.use('/deliveries', deliveries_routes_1.deliveriesRoutes);
 // --- API: Role Management ---
 // POST /roles/assign - Assign a granular role to a specific user (Business Owner / Super Admin only)
 app.post('/roles/assign', auth_middleware_1.authenticate, async (req, res) => {

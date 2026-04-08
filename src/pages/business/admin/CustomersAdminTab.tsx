@@ -46,7 +46,9 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
         addressZip: '',
         status: 'Active',
         notes: '',
-        tags: [] as string[]
+        tags: [] as string[],
+        defaultDiscount: 0,
+        website: ''
     });
 
     const openCustomerProfile = (customer: any) => {
@@ -68,7 +70,9 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
             addressZip: customer.addressZip || '',
             status: customer.status || 'Active',
             notes: customer.notes || '',
-            tags: customer.tags || []
+            tags: customer.tags || [],
+            defaultDiscount: customer.defaultDiscount || 0,
+            website: customer.website || ''
         };
         setEditForm(initialFormValues);
         setInitialEditCustomer(initialFormValues);
@@ -93,7 +97,9 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
             addressZip: '',
             status: 'Active',
             notes: '',
-            tags: []
+            tags: [],
+            defaultDiscount: 0,
+            website: ''
         };
         setEditForm(initialFormValues);
         setInitialEditCustomer(initialFormValues);
@@ -283,7 +289,7 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                 <input type="text" placeholder="JD" value={editForm.nickName} onChange={(e) => setEditForm({...editForm, nickName: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white" />
                             </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Company</label>
                                 <div className="relative">
@@ -303,8 +309,12 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Email</label>
                                 <input type="email" placeholder="jane@example.com" value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white" />
                             </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Website URL</label>
+                                <input type="url" placeholder="https://example.com" value={editForm.website} onChange={(e) => setEditForm({...editForm, website: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white" />
+                            </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Mobile Phone</label>
                                 <input type="text" placeholder="(555) 123-4567" value={editForm.mobilePhone} onChange={(e) => setEditForm({...editForm, mobilePhone: formatPhone(e.target.value)})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white" />
@@ -312,6 +322,20 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Work Phone (Ext)</label>
                                 <input type="text" placeholder="(555) 987-6543" value={editForm.workPhone} onChange={(e) => setEditForm({...editForm, workPhone: formatPhone(e.target.value)})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white" />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1 shadow-sm text-green-400 flex items-center gap-1">Default Discount (%)</label>
+                                <div className="relative group">
+                                    <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-zinc-500 font-black group-focus-within:text-green-400 transition-colors text-lg">%</span>
+                                    <input 
+                                        type="number" 
+                                        min="0" 
+                                        max="100"
+                                        value={editForm.defaultDiscount || 0} 
+                                        onChange={(e) => setEditForm({...editForm, defaultDiscount: Math.max(0, Math.min(100, Number(e.target.value)))})} 
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 font-mono text-sm focus:outline-none focus:border-green-500/50 text-white transition-all shadow-inner focus:ring-1 focus:ring-green-500/50" 
+                                    />
+                                </div>
                             </div>
                         </div>
                     </section>
@@ -499,6 +523,10 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
                                          <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Work Phone</p><p className="text-zinc-300 font-medium font-mono">
                                             {editForm.workPhone ? <a className="text-accent underline" href={`tel:${unformatPhone(editForm.workPhone)}`}>{editForm.workPhone}</a> : '—'}
                                          </p></div>
+                                         <div className="pt-2 border-t border-zinc-800/50 mt-2">
+                                             <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1 text-green-500/80">Default Discount</p>
+                                             <p className="text-green-400 font-black text-lg font-mono">{editForm.defaultDiscount ? `${editForm.defaultDiscount}%` : '0%'}</p>
+                                         </div>
                                      </div>
                                  </div>
                                  {/* Address Box */}

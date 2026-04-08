@@ -7,7 +7,6 @@ import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'fire
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
-import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import { CustomerSelector, StaffSelector, InventorySelector, TaskTemplateSelector } from '../../../components/EntitySelectors';
 
 const toDateTimeLocal = (val: any) => {
@@ -25,7 +24,7 @@ const toDateTimeLocal = (val: any) => {
     return localDate.toISOString().slice(0, 16);
 };
 
-export function EstimateBuilder() {
+export function EstimateBuilderV2() {
     const { tenantId, currentUser } = useAuth();
     const { jobId } = useParams();
     const navigate = useNavigate();
@@ -37,12 +36,16 @@ export function EstimateBuilder() {
     const [vehicle, setVehicle] = useState<any>(null);
     const [originalVehicle, setOriginalVehicle] = useState<any>(null);
 
+    const [historyStack, setHistoryStack] = useState<{ job: any, customer: any, vehicle: any }[]>([]);
+
     const [allCustomers, setAllCustomers] = useState<any[]>([]);
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('new');
 
     const [allVehicles, setAllVehicles] = useState<any[]>([]);
     const [selectedVehicleId, setSelectedVehicleId] = useState<string>('new');
 
+    const [customerJobs, setCustomerJobs] = useState<any[]>([]);
+    const [vehicleJobs, setVehicleJobs] = useState<any[]>([]);
 
     const [allStaff, setAllStaff] = useState<any[]>([]);
     const [allInventory, setAllInventory] = useState<any[]>([]);
@@ -71,7 +74,11 @@ export function EstimateBuilder() {
         if (!window.confirm("Promote this task and its R&D notes to a global SOP Template?")) return;
         try {
             const combinedNotes = (task.discoveryNotes || []).map((dn: any) => `${dn.authorName}: ${dn.text}`).join('\n\n');
-            const newSopsTxt = task.sops ? `${task.sops}\n\n-- R&D Learnings --\n${combinedNotes}` : `-- R&D Learnings --\n${combinedNotes}`;
+            const newSopsTxt = task.sops ? `${task.sops}
+
+-- R&D Learnings --
+${combinedNotes}` : `-- R&D Learnings --
+${combinedNotes}`;
             
             const templateParts = (task.parts || []).map((p: any) => ({
                 inventoryId: p.inventoryId || '',
@@ -110,7 +117,7 @@ export function EstimateBuilder() {
             if (!tenantId || !jobId) return;
 
             if (jobId === 'new') {
-                const newJob = { title: 'New Job Intake', description: '', status: 'Estimate', tasks: [] };
+                const newJob = { title: 'New Job Intake', description: '', status: 'Estimate', tasks: [], desiredDropoffDate: '', desiredPickupDate: '', salesNotes: '', customerMeetingNotes: '', salesQuestions: [] };
                 setJob(newJob);
                 setOriginalJob(JSON.parse(JSON.stringify(newJob)));
 
@@ -135,7 +142,12 @@ export function EstimateBuilder() {
                         id: jSnap.id,
                         tasks: data.tasks || [],
                         dropoffEta: data.dropoffEta ? toDateTimeLocal(data.dropoffEta) : '',
-                        completionEta: data.completionEta ? toDateTimeLocal(data.completionEta) : ''
+                        completionEta: data.completionEta ? toDateTimeLocal(data.completionEta) : '',
+                        desiredDropoffDate: data.desiredDropoffDate ? toDateTimeLocal(data.desiredDropoffDate) : '',
+                        desiredPickupDate: data.desiredPickupDate ? toDateTimeLocal(data.desiredPickupDate) : '',
+                        salesNotes: data.salesNotes || '',
+                        customerMeetingNotes: data.customerMeetingNotes || '',
+                        salesQuestions: data.salesQuestions || []
                     };
                     setJob(formatted);
                     setOriginalJob(JSON.parse(JSON.stringify(formatted)));
@@ -193,8 +205,15 @@ export function EstimateBuilder() {
                 const invSnap = await getDocs(invQ);
                 setAllInventory(invSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
 
+                const tmplQ = query(collection(db, 'task_templates'), where('tenantId', '==', tenantId));
                 const tmplSnap = await getDocs(tmplQ);
                 setAllTemplates(tmplSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
+
+                const areasQ = query(collection(db, 'business_zones'), where('tenantId', '==', tenantId));
+                getDocs(areasQ).then(aSnap => {
+                    setAllAreas(aSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
+                });
+
 
                 try {
                     const sRes = await api.get(`/businesses/${tenantId}/staff`);
@@ -235,6 +254,38 @@ export function EstimateBuilder() {
     }, [tenantId]);
 
     useEffect(() => {
+        const fetchHistory = async () => {
+            if (!tenantId) return;
+
+            if (selectedCustomerId && selectedCustomerId !== 'new') {
+                const q = query(collection(db, 'jobs'), where('tenantId', '==', tenantId), where('customerId', '==', selectedCustomerId));
+                const snap = await getDocs(q);
+                // @ts-ignore
+                const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+                    .filter((x: any) => x.id !== jobId) // exclude current job
+                    .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                setCustomerJobs(list);
+            } else {
+                setCustomerJobs([]);
+            }
+
+            if (selectedVehicleId && selectedVehicleId !== 'new') {
+                const q = query(collection(db, 'jobs'), where('tenantId', '==', tenantId), where('vehicleId', '==', selectedVehicleId));
+                const snap = await getDocs(q);
+                // @ts-ignore
+                const list = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+                    .filter((x: any) => x.id !== jobId) // exclude current job
+                    .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+                setVehicleJobs(list);
+            } else {
+                setVehicleJobs([]);
+            }
+        };
+        fetchHistory();
+    }, [tenantId, selectedCustomerId, selectedVehicleId, jobId]);
+
+
+    useEffect(() => {
         if (!tenantId || !jobId || jobId === 'new') return;
         const q = query(
             collection(db, 'businesses', tenantId, 'task_time_logs'),
@@ -266,6 +317,53 @@ export function EstimateBuilder() {
         };
         fetchPhotos();
     }, [job?.companyCamProjectId, jobId]);
+
+    const isLocked = !['Estimate', 'Draft'].includes(job?.status);
+
+    // Auto-Save Effect
+    useEffect(() => {
+        // Skip for new jobs until manually created once
+        if (jobId === 'new' || isLocked) return;
+
+        // Determine if we actually have edits. We don't want to auto-save if everything is identical to original state.
+        const custChanged = JSON.stringify(customer) !== JSON.stringify(originalCustomer);
+        const vehChanged = JSON.stringify(vehicle) !== JSON.stringify(originalVehicle);
+        const jobChanged = JSON.stringify(job) !== JSON.stringify(originalJob);
+        
+        const hasUnsavedEdits = custChanged || vehChanged || jobChanged;
+        
+        if (!hasUnsavedEdits) return;
+
+        const timeoutId = setTimeout(() => {
+            setHistoryStack(prev => {
+                const newStack = [...prev, { 
+                    job: JSON.parse(JSON.stringify(originalJob)), 
+                    customer: JSON.parse(JSON.stringify(originalCustomer)), 
+                    vehicle: JSON.parse(JSON.stringify(originalVehicle)) 
+                }];
+                // Keep max 10 steps of undo history to prevent memory bloat
+                if (newStack.length > 10) newStack.shift(); 
+                return newStack;
+            });
+            handleSave(false);
+        }, 2500); // 2.5 second debounce
+
+        return () => clearTimeout(timeoutId);
+    }, [job, customer, vehicle, isLocked, jobId, originalJob, originalCustomer, originalVehicle]);
+
+    const handleUndo = () => {
+        if (historyStack.length === 0) return;
+        const lastState = historyStack[historyStack.length - 1];
+        setHistoryStack(prev => prev.slice(0, prev.length - 1));
+        
+        setJob(lastState.job);
+        setCustomer(lastState.customer);
+        setVehicle(lastState.vehicle);
+        // By intentionally NOT setting the original* states, the auto-save effect will treat the 
+        // reverted state as "hasChanges" relative to the current database state, effectively pushing the 
+        // bad state into the undo stack ("redo") and overwriting Firestore with the good state.
+        toast('Action Undone', { icon: '↩️' });
+    };
 
     const handleSave = async (showToast = true) => {
         if (!tenantId) return;
@@ -387,6 +485,11 @@ export function EstimateBuilder() {
                 dropoffEta: job.dropoffEta,
                 pickupEta: job.pickupEta,
                 completionEta: job.completionEta,
+                desiredDropoffDate: job.desiredDropoffDate || null,
+                desiredPickupDate: job.desiredPickupDate || null,
+                salesNotes: job.salesNotes || '',
+                customerMeetingNotes: job.customerMeetingNotes || '',
+                salesQuestions: job.salesQuestions || [],
                 currentLocationId: job.currentLocationId || null,
                 customerId: finalCustId,
                 vehicleId: finalVehId,
@@ -409,6 +512,11 @@ export function EstimateBuilder() {
                         dropoffEta: payload.dropoffEta || null,
                         pickupEta: payload.pickupEta || null,
                         completionEta: payload.completionEta || null,
+                        desiredDropoffDate: payload.desiredDropoffDate || null,
+                        desiredPickupDate: payload.desiredPickupDate || null,
+                        salesNotes: payload.salesNotes || '',
+                        customerMeetingNotes: payload.customerMeetingNotes || '',
+                        salesQuestions: payload.salesQuestions || [],
                         currentLocationId: payload.currentLocationId || null,
                         sopSupplies: payload.sopSupplies,
                         shipping: payload.shipping,
@@ -429,6 +537,11 @@ export function EstimateBuilder() {
                         dropoffEta: payload.dropoffEta || null,
                         pickupEta: payload.pickupEta || null,
                         completionEta: payload.completionEta || null,
+                        desiredDropoffDate: payload.desiredDropoffDate || null,
+                        desiredPickupDate: payload.desiredPickupDate || null,
+                        salesNotes: payload.salesNotes || '',
+                        customerMeetingNotes: payload.customerMeetingNotes || '',
+                        salesQuestions: payload.salesQuestions || [],
                         currentLocationId: payload.currentLocationId || null,
                         sopSupplies: payload.sopSupplies,
                         shipping: payload.shipping,
@@ -469,7 +582,9 @@ export function EstimateBuilder() {
                 tasks: [],
                 status: 'In Progress',
                 title: `[REWORK] ${job.title}`,
-                description: `Rework ticket originally for Job #${jobId}\n\n${job.description || ''}`,
+                description: `Rework ticket originally for Job #${jobId}
+
+${job.description || ''}`,
                 customerId: job.customerId || selectedCustomerId,
                 vehicleId: job.vehicleId || selectedVehicleId,
                 tenantId,
@@ -515,6 +630,33 @@ export function EstimateBuilder() {
             return tAcc + (Number(task.bookTime) * Number(task.laborRate || 0));
         }, 0) || 0;
         return legacyLabor + tasksLabor;
+    };
+
+    const handleSendForApproval = async () => {
+        if (!window.confirm("Lock this estimate and mark it as Pending Customer Approval?")) return;
+        if (hasChanges) await handleSave(false);
+        if (jobId === 'new') return;
+        try {
+            const lockedTaxRate = customer?.taxRate !== undefined && customer?.taxRate !== '' ? customer.taxRate : '8.25';
+            await api.put(`/jobs/${jobId}`, { status: 'Pending Approval', lockedTaxRate, tenantId });
+            setJob((prev: any) => ({ ...prev, status: 'Pending Approval', lockedTaxRate }));
+            setOriginalJob((prev: any) => ({ ...prev, status: 'Pending Approval', lockedTaxRate }));
+            toast.success("Estimate sent for approval! Inputs are now locked.");
+        } catch (e) {
+            toast.error("Failed to update status");
+        }
+    };
+
+    const handleReviseEstimate = async () => {
+        if (!window.confirm("Unlock this estimate to make revisions? This will return it to Draft/Estimate status.")) return;
+        try {
+            await api.put(`/jobs/${jobId}`, { status: 'Estimate', tenantId });
+            setJob((prev: any) => ({ ...prev, status: 'Estimate' }));
+            setOriginalJob((prev: any) => ({ ...prev, status: 'Estimate' }));
+            toast.success("Estimate unlocked for revisions.");
+        } catch (e) {
+            toast.error("Failed to update status");
+        }
     };
 
     const handleApprove = async () => {
@@ -643,7 +785,8 @@ export function EstimateBuilder() {
     const subTotal = partsTotal + laborTotal + (Number(job.sopSupplies) || 0) + (Number(job.shipping) || 0);
     const discountAmount = subTotal * ((Number(job.discount) || 0) / 100);
     const subTotalAfterDiscount = subTotal - discountAmount;
-    const txRateDecimal = customer?.taxRate !== undefined && customer?.taxRate !== '' ? (Number(customer.taxRate) / 100) : 0.0825;
+    const txRateVal = job.lockedTaxRate ? Number(job.lockedTaxRate) : (customer?.taxRate !== undefined && customer?.taxRate !== '' ? Number(customer.taxRate) : 8.25);
+    const txRateDecimal = txRateVal / 100;
     const taxes = subTotalAfterDiscount * txRateDecimal;
     const grandTotal = subTotalAfterDiscount + taxes;
 
@@ -687,6 +830,58 @@ export function EstimateBuilder() {
     const actualSubTotalAfterDiscount = actualSubTotal - actualDiscountAmount;
     const actualTaxes = actualSubTotalAfterDiscount * txRateDecimal;
     const actualGrandTotal = actualSubTotalAfterDiscount + actualTaxes;
+
+    const calculateAutoETA = () => {
+        const totalHoursStr = job?.tasks?.reduce((acc: number, t: any) => acc + (Number(t.bookTime) || 0), 0) || 0;
+        const totalHours = Number(totalHoursStr);
+        if (totalHours <= 0) {
+            toast('Add tasks with estimated hours first to calculate ETA.', { icon: 'ℹ️' });
+            return;
+        }
+
+        // Start from either dropoff date or now
+        let currentDate = job?.desiredDropoffDate ? new Date(job.desiredDropoffDate) : new Date();
+
+        // Push forward if weekend
+        while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+            currentDate.setDate(currentDate.getDate() + 1);
+            currentDate.setHours(8, 0, 0, 0);
+        }
+
+        if (currentDate.getHours() < 8) currentDate.setHours(8, 0, 0, 0);
+        
+        if (currentDate.getHours() >= 17) {
+            currentDate.setDate(currentDate.getDate() + 1);
+            currentDate.setHours(8, 0, 0, 0);
+            while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        }
+
+        let remainingHours = totalHours;
+
+        while (remainingHours > 0) {
+            const currentHour = currentDate.getHours() + (currentDate.getMinutes() / 60);
+            const hoursLeftToday = 17 - currentHour;
+
+            if (remainingHours <= hoursLeftToday) {
+                currentDate.setMinutes(currentDate.getMinutes() + (remainingHours * 60));
+                remainingHours = 0;
+            } else {
+                remainingHours -= hoursLeftToday;
+                currentDate.setDate(currentDate.getDate() + 1);
+                currentDate.setHours(8, 0, 0, 0);
+                while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+                    currentDate.setDate(currentDate.getDate() + 1);
+                }
+            }
+        }
+
+        const offset = currentDate.getTimezoneOffset() * -60000;
+        const localISO = new Date(currentDate.getTime() + offset).toISOString().slice(0, 16);
+        setJob({ ...job, completionEta: localISO });
+        toast.success(`Automatically mapped ${totalHours.toFixed(2)}h working time!`);
+    };
 
     return (
         <div className="min-h-screen bg-zinc-950 flex flex-col relative pb-32">
@@ -737,18 +932,7 @@ export function EstimateBuilder() {
                     </div>
                 </div>
             )}
-            {hasChanges && <UnsavedChangesBanner hasChanges={hasChanges} onSave={handleSave} onDiscard={() => {
-                if (window.confirm("Discard changes?")) {
-                    const origJ = JSON.parse(JSON.stringify(originalJob));
-                    const origC = JSON.parse(JSON.stringify(originalCustomer));
-                    const origV = JSON.parse(JSON.stringify(originalVehicle));
-                    setJob(origJ);
-                    setCustomer(origC);
-                    setVehicle(origV);
-                    setSelectedCustomerId(origC?.id || 'new');
-                    setSelectedVehicleId(origV?.id || 'new');
-                }
-            }} />}
+            
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
             <div className="sticky top-0 z-20 bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/80 shadow-2xl">
@@ -768,6 +952,7 @@ export function EstimateBuilder() {
                                 <div className="relative inline-block">
                                     <select
                                         value={job.status}
+                                        disabled={['Estimate', 'Draft', 'Pending Approval', 'Approved'].includes(job.status)}
                                         onChange={(e) => {
                                             setJob({ ...job, status: e.target.value });
                                             // Handle fast convert if they move from Estimate to anything else without hitting the specific button
@@ -775,19 +960,20 @@ export function EstimateBuilder() {
                                                 toast.success(`Converted to ${e.target.value}! Please save to confirm.`);
                                             }
                                         }}
-                                        className={`appearance-none text-xs font-black uppercase tracking-widest px-4 py-2 pr-8 rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-lg transition-all ${
-                                            job.status === 'Estimate' ? 'bg-zinc-800 text-zinc-300 border-zinc-700 hover:bg-zinc-700' :
-                                            job.status === 'Approved' ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500 hover:bg-indigo-600/30' :
-                                            job.status === 'In Progress' ? 'bg-blue-600/20 text-blue-300 border-blue-500 hover:bg-blue-600/30' :
-                                            (job.status === 'Ready for QC' || job.status === 'Ready for Delivery') ? 'bg-amber-500/20 text-amber-300 border-amber-500 hover:bg-amber-500/30' :
-                                            (job.status === 'Completed' || job.status === 'Delivered') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500 hover:bg-emerald-500/30' :
+                                        className={`appearance-none text-xs font-black uppercase tracking-widest px-4 py-2 pr-8 rounded-lg border-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all ${['Estimate', 'Draft', 'Pending Approval', 'Approved'].includes(job.status) ? 'opacity-90 cursor-not-allowed' : 'cursor-pointer shadow-lg hover:brightness-110'} ${
+                                            job.status === 'Estimate' ? 'bg-zinc-800 text-zinc-300 border-zinc-700' :
+                                            job.status === 'Pending Approval' ? 'bg-amber-600/20 text-amber-300 border-amber-500/50' :
+                                            job.status === 'Approved' ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500' :
+                                            job.status === 'In Progress' ? 'bg-blue-600/20 text-blue-300 border-blue-500' :
+                                            (job.status === 'Ready for QC' || job.status === 'Ready for Delivery') ? 'bg-amber-500/20 text-amber-300 border-amber-500' :
+                                            (job.status === 'Completed' || job.status === 'Delivered') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' :
                                             job.status === 'Archived' || job.status === 'archived' ? 'bg-zinc-900 text-zinc-500 border-zinc-800' :
                                             'bg-zinc-800 text-zinc-400 border-zinc-700'
                                         }`}
                                     >
-                                        {['Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Archived'].map(s => (
+                                        {['Estimate', 'Pending Approval', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Archived'].map(s => (
                                             <option key={s} value={s} className="bg-zinc-900 text-white font-mono text-xs my-1">
-                                                {s === 'Estimate' ? 'DRAFT JOB / ESTIMATE' : s.toUpperCase()}
+                                                {s === 'Estimate' || s === 'Draft' ? 'DRAFT JOB / ESTIMATE' : s.toUpperCase()}
                                             </option>
                                         ))}
                                     </select>
@@ -827,7 +1013,7 @@ export function EstimateBuilder() {
                                 <Printer className="w-4 h-4" /> Preview
                             </a>
                         )}
-                        {jobId !== 'new' && (
+                        {jobId !== 'new' && !['Draft', 'Estimate'].includes(job.status) && (
                             <button
                                 onClick={handleDuplicateAsRework}
                                 disabled={isSaving}
@@ -837,7 +1023,7 @@ export function EstimateBuilder() {
                                 <Copy className="w-4 h-4" /> Duplicate as Rework
                             </button>
                         )}
-                        {job.status === 'Estimate' && jobId !== 'new' && (
+                        {job.status === 'Pending Approval' && jobId !== 'new' && (
                             <button
                                 onClick={handleApprove}
                                 className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all font-mono tracking-widest uppercase text-xs"
@@ -845,34 +1031,58 @@ export function EstimateBuilder() {
                                 <CheckCircle className="w-4 h-4" /> Approve & Convert
                             </button>
                         )}
-                        <button
-                            onClick={() => handleSave(true)}
-                            disabled={!hasChanges || isSaving}
-                            className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all font-mono tracking-widest uppercase text-xs"
-                        >
-                            <Save className="w-4 h-4" /> {isSaving ? 'Saving...' : (jobId === 'new' ? 'Create Job' : 'Save')}
-                        </button>
+                        {jobId === 'new' ? (
+                            <button
+                                onClick={() => handleSave(true)}
+                                disabled={!hasChanges || isSaving}
+                                className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition-all font-mono tracking-widest uppercase text-xs"
+                            >
+                                <Save className="w-4 h-4" /> {isSaving ? 'Creating...' : 'Create Job Profile'}
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-4 bg-zinc-900/80 px-4 py-2 rounded-xl border border-zinc-800 backdrop-blur">
+                                {historyStack.length > 0 && (
+                                    <button onClick={handleUndo} className="flex items-center gap-1.5 text-zinc-400 hover:text-white transition-colors border-r border-zinc-700/50 pr-4 mr-2" title="Undo last change">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10 5 5 0 010-10zm0 0l4-4m-4 4l4 4" /></svg>
+                                        <span className="text-[10px] font-black uppercase tracking-widest">Undo</span>
+                                    </button>
+                                )}
+                                <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-colors ${isSaving ? 'text-amber-400' : hasChanges ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                                    {isSaving ? (
+                                        <><Loader2 className="w-4 h-4 animate-spin" /> Auto-Saving...</>
+                                    ) : hasChanges ? (
+                                        <><CloudOff className="w-4 h-4" /> Unsaved Edits</>
+                                    ) : (
+                                        <><CheckCircle className="w-4 h-4" /> Saved</>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-                <div className="max-w-7xl mx-auto w-full p-4 md:p-6 grid grid-cols-1 xl:grid-cols-3 gap-8 mt-4 relative z-10">
-                <div className="xl:col-span-2 space-y-8">
-                    {/* QUOTE TOTALS (Moved to Top Left) */}
-                    <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl p-6 shadow-xl border border-indigo-500 text-white relative overflow-hidden">
+            <div className="max-w-[1600px] mx-auto w-full p-4 md:p-6 grid grid-cols-1 xl:grid-cols-12 gap-8 mt-4 relative z-10 items-start">
+                
+                {/* --- MAIN WORK COLUMN (LEFT) --- */}
+                <div className="xl:col-span-8 flex flex-col gap-8 min-w-0">
+
+                    {/* CUSTOMER CONTEXT */}
+                    {/* END MAIN WORK COLUMN (Wait, Customer + Vehicle were here. Moved to right column.) */}
+<div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl p-6 shadow-xl border border-indigo-500 text-white relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-[60px] pointer-events-none translate-x-1/2 -translate-y-1/2"></div>
                         <h3 className="text-xs font-black uppercase tracking-widest text-indigo-200 mb-6 flex items-center gap-2">{job.status === 'Estimate' ? 'Quote Totals' : 'Project Financials'}</h3>
 
                         <div className="space-y-3 font-mono mb-8">
-                            <div className="flex justify-between items-center text-sm font-bold text-indigo-100">
+                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
                                 <span>Total Parts:</span>
                                 <span>${partsTotal.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-center text-sm font-bold text-indigo-100">
+                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
                                 <span>{job.status === 'Estimate' ? 'Total Labor:' : 'Quoted Labor:'}</span>
                                 <span>${laborTotal.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-center text-sm font-bold text-indigo-100 group">
+                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100 group">
                                 <span className="flex items-center gap-2">Shop Supplies:</span>
                                 <div className="flex items-center relative">
                                     <span className="absolute left-2 text-indigo-300 opacity-50">$</span>
@@ -880,13 +1090,14 @@ export function EstimateBuilder() {
                                         type="number"
                                         step="0.01"
                                         min="0"
+                                        disabled={isLocked}
                                         value={job.sopSupplies !== undefined ? job.sopSupplies : (businessSettings.defaultSopSupplies || 0)}
                                         onChange={(e) => setJob({...job, sopSupplies: parseFloat(e.target.value) || 0})}
-                                        className="bg-indigo-900/30 border border-transparent hover:border-indigo-500/50 focus:border-indigo-400 rounded px-2 pl-5 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        className="bg-indigo-900/30 border border-transparent hover:border-indigo-500/50 focus:border-indigo-400 rounded px-2 pl-5 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-75"
                                     />
                                 </div>
                             </div>
-                            <div className="flex justify-between items-center text-sm font-bold text-indigo-100 group">
+                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100 group">
                                 <span className="flex items-center gap-2">Shipping/Freight:</span>
                                 <div className="flex items-center relative">
                                     <span className="absolute left-2 text-indigo-300 opacity-50">$</span>
@@ -894,13 +1105,14 @@ export function EstimateBuilder() {
                                         type="number"
                                         step="0.01"
                                         min="0"
+                                        disabled={isLocked}
                                         value={job.shipping !== undefined ? job.shipping : (businessSettings.defaultShipping || 0)}
                                         onChange={(e) => setJob({...job, shipping: parseFloat(e.target.value) || 0})}
-                                        className="bg-indigo-900/30 border border-transparent hover:border-indigo-500/50 focus:border-indigo-400 rounded px-2 pl-5 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        className="bg-indigo-900/30 border border-transparent hover:border-indigo-500/50 focus:border-indigo-400 rounded px-2 pl-5 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-75"
                                     />
                                 </div>
                             </div>
-                            <div className="flex justify-between items-center text-sm font-bold text-green-400 group pt-2">
+                            <div className="flex justify-between items-center text-xs font-bold text-green-400 group pt-1">
                                 <span className="flex items-center gap-2">Discount (%):</span>
                                 <div className="flex items-center relative">
                                     <span className="absolute right-2 text-green-500/50 opacity-80">%</span>
@@ -909,9 +1121,10 @@ export function EstimateBuilder() {
                                         step="0.1"
                                         min="0"
                                         max="100"
+                                        disabled={isLocked}
                                         value={job.discount || 0}
                                         onChange={(e) => setJob({...job, discount: parseFloat(e.target.value) || 0})}
-                                        className="bg-indigo-900/30 border border-transparent hover:border-green-500/50 focus:border-green-400 rounded px-2 text-green-400 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono shadow-inner pr-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        className="bg-indigo-900/30 border border-transparent hover:border-green-500/50 focus:border-green-400 rounded px-2 text-green-400 py-0.5 w-24 text-right focus:outline-none focus:bg-indigo-900/50 transition-all font-mono shadow-inner pr-6 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-75"
                                     />
                                 </div>
                             </div>
@@ -920,102 +1133,73 @@ export function EstimateBuilder() {
                                     (-${discountAmount.toFixed(2)})
                                 </div>
                             )}
-                            <div className="flex justify-between items-center text-sm font-bold text-indigo-100 pb-3 border-b border-indigo-400/30">
-                                <span>Est. Tax ({customer?.taxRate !== undefined && customer?.taxRate !== '' ? customer.taxRate : '8.25'}%):</span>
+                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100 pb-3 border-b border-indigo-400/30">
+                                <span>Est. Tax ({job.lockedTaxRate || (customer?.taxRate !== undefined && customer?.taxRate !== '' ? customer.taxRate : '8.25')}%):</span>
                                 <span>${taxes.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-end pt-1 pb-2">
+                            <div className="flex justify-between items-end pt-1">
                                 <span className={`text-base font-black tracking-wide ${job.status === 'Estimate' ? 'text-indigo-50' : 'text-indigo-200/80'}`}>{job.status === 'Estimate' ? 'GRAND TOTAL' : 'QUOTED TOTAL'}</span>
                                 <span className={`${job.status === 'Estimate' ? 'text-4xl' : 'text-2xl text-indigo-200/80'} font-black`}>${grandTotal.toFixed(2)}</span>
                             </div>
 
                             {job.status !== 'Estimate' && (
                                 <div className="mt-4 pt-4 border-t-2 border-indigo-500/50 space-y-3">
-                                    <div className="flex justify-between items-start text-sm font-bold text-indigo-100">
+                                    <div className="flex justify-between items-start text-xs font-bold text-indigo-100">
                                         <span>Tracked Labor:</span>
                                         <div className="flex flex-col items-end">
                                             <span>${actualLaborTotal.toFixed(2)}</span>
-                                            <span className="text-[10px] font-normal text-indigo-300">({actualStandardLaborTotal > 0 ? 'std' : '0'}) + ({actualRnDLaborTotal > 0 ? 'r&d' : '0'})</span>
-                                            <span className="text-[9px] text-indigo-400 font-normal italic max-w-[120px] text-right mt-0.5">Calculated using true burdened cost</span>
+                                            {actualRnDLaborTotal > 0 && (
+                                                <div className="flex items-center gap-1 mt-0.5" title="R&D Tracked Labor Component">
+                                                    <span className="text-[9px] text-amber-300 font-black tracking-widest uppercase bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">Includes ${actualRnDLaborTotal.toFixed(2)} R&D</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="flex justify-between items-end pt-1">
-                                        <span className="text-base font-black tracking-wide text-indigo-50">ACTUAL COST</span>
-                                        <div className="flex items-center gap-3">
-                                            {actualGrandTotal > grandTotal ? (
-                                                <div className="flex items-center gap-1 text-[10px] text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 font-black">
-                                                    <TrendingUp className="w-3 h-3" />
-                                                    OVBG +${(actualGrandTotal - grandTotal).toFixed(2)}
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-1 text-[10px] text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 font-black">
-                                                    <TrendingDown className="w-3 h-3" />
-                                                    UNBG -${(grandTotal - actualGrandTotal).toFixed(2)}
-                                                </div>
-                                            )}
-                                            <span className="text-2xl text-white font-black">${actualGrandTotal.toFixed(2)}</span>
-                                        </div>
+                                        <span className="text-base font-black tracking-wide text-indigo-50 leading-tight">ACTUAL COST<br/><span className="text-[9px] text-indigo-200 opacity-60 font-sans tracking-normal uppercase relative -top-0.5">Parts + Actual Tracked Labor</span></span>
+                                        <span className={`text-4xl font-black ${actualGrandTotal > grandTotal ? 'text-amber-300' : 'text-white'}`}>${actualGrandTotal.toFixed(2)}</span>
                                     </div>
-                                    {grandTotal > 0 && (
-                                        <div className="flex justify-end">
-                                            <span className="text-[10px] text-indigo-200/80 text-right mt-1 pt-1 border-t border-indigo-400/20 inline-block">
-                                                Profit Margin: 
-                                                <span className={`ml-1 font-black ${grandTotal > actualGrandTotal ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                    {((grandTotal - actualGrandTotal) / grandTotal * 100).toFixed(1)}%
-                                                </span>
-                                            </span>
-                                        </div>
-                                    )}
+                                    <div className="text-[9px] text-indigo-200/80 text-right mt-0.5 pt-0.5">
+                                        Margin Delta: <span className={grandTotal - actualGrandTotal >= 0 ? 'text-emerald-300' : 'text-amber-300'}>${(grandTotal - actualGrandTotal).toFixed(2)}</span>
+                                    </div>
                                 </div>
                             )}
                         </div>
 
-                        {/* STATUS WORKFLOW BUTTONS */}
-                        <div className="mt-8 pt-4 border-t border-indigo-400/30">
-                            {job.status === 'Estimate' ? (
-                                <button className="w-full bg-white text-indigo-900 hover:bg-zinc-100 font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <CheckCircle className="w-4 h-4" /> Convert to Work Order
-                                </button>
-                            ) : job.status === 'Quote / Estimate' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('In Progress');
-                                }} disabled={isSaving} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <PlayCircle className="w-4 h-4" /> Dispatch Job (Mark In Progress)
-                                </button>
-                            ) : job.status === 'In Progress' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('Finished');
-                                }} disabled={isSaving} className="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <CheckCircle className="w-4 h-4" /> Mark Job Finished
-                                </button>
-                            ) : job.status === 'Finished' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('Invoiced');
-                                }} disabled={isSaving} className="w-full bg-purple-500 hover:bg-purple-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <FileText className="w-4 h-4" /> Prepare Invoice
-                                </button>
-                            ) : null}
-                            <div className="mt-3 flex gap-2">
-                                {/* <button className="flex-1 bg-indigo-900/50 hover:bg-indigo-800 border border-indigo-500/50 text-indigo-200 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono">
-                                    <MessageSquare className="w-3.5 h-3.5" /> Text Approvals
-                                </button> */}
-                                <button onClick={handleSendEmail} disabled={isSendingEmail || isSaving} className="flex-1 bg-indigo-900/50 hover:bg-indigo-800 border border-indigo-500/50 text-indigo-200 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono disabled:opacity-50">
-                                    {isSendingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} 
-                                    {isSendingEmail ? 'Sending...' : 'Email Estimate / Invoice'}
+                        {job.status === 'Estimate' ? (
+                            <button onClick={handleSendForApproval} className="w-full py-4 rounded-xl bg-white text-indigo-600 font-black tracking-widest uppercase text-sm shadow-xl flex justify-center items-center gap-2 hover:bg-indigo-50 transition-colors">
+                                Send for Approval (Lock Quoted Value)
+                            </button>
+                        ) : job.status === 'Pending Approval' ? (
+                            <div className="space-y-3">
+                                <div className="w-full py-2.5 rounded-xl bg-amber-900/40 border border-amber-500/30 text-amber-300 font-black tracking-widest uppercase text-xs shadow-inner flex justify-center items-center gap-1.5 opacity-80">
+                                    <AlertTriangle className="w-4 h-4" /> Pending Customer Review
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={handleReviseEstimate} className="w-full py-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all">
+                                        Revise Estimate (Unlock)
+                                    </button>
+                                    <button onClick={handleApprove} className="w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all">
+                                        Approve & Convert to WO
+                                    </button>
+                                </div>
+                            </div>
+                        ) : job.status === 'Approved' ? (
+                            <div className="space-y-3">
+                                <div className="w-full py-2.5 rounded-xl bg-emerald-900/40 border border-emerald-500/30 text-emerald-300 font-black tracking-widest uppercase text-xs shadow-inner flex justify-center items-center gap-1.5 opacity-80">
+                                    <CheckCircle className="w-4 h-4" /> Approved Work Order
+                                </div>
+                                <button onClick={handleDispatch} className="w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black tracking-widest uppercase text-sm shadow-xl flex justify-center items-center gap-2 transition-all">
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                                    Dispatch Job (Mark In Progress)
                                 </button>
                             </div>
-                            
-                            {job.status !== 'Estimate' && job.status !== 'Quote / Estimate' && job.status !== 'Draft' && (
-                                <button 
-                                    onClick={() => handleStatusChange('Quote / Estimate')}
-                                    disabled={isSaving}
-                                    className="w-full mt-3 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-700/50 text-zinc-400 hover:text-white font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono disabled:opacity-50"
-                                >
-                                    <RefreshCcw className="w-3.5 h-3.5" /> Revert to Quote (Pending Approval)
-                                </button>
-                            )}
-                        </div>
-                    </div>                    {/* COMPACT CUSTOMER CARD */}
+                        ) : (
+                            <div className="w-full py-4 rounded-xl bg-zinc-900/80 border border-zinc-700 text-zinc-400 font-black tracking-widest uppercase text-sm shadow-inner flex justify-center items-center gap-2">
+                                {job.status} Work Order
+                            </div>
+                        )}
+                    </div>
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
                         {isCustomerModalOpen && (
                             <div className="fixed inset-0 z-[100] bg-black/80 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
@@ -1142,7 +1326,7 @@ export function EstimateBuilder() {
                                 <User className="w-5 h-5 text-indigo-400" />
                                 Customer Context
                             </h2>
-                            <button onClick={() => setIsCustomerModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+                            <button disabled={isLocked} onClick={() => setIsCustomerModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 {(!customer?.firstName && !customer?.company) ? '+ SET CUSTOMER' : 'EDIT / SWAP'}
                             </button>
                         </div>
@@ -1166,6 +1350,28 @@ export function EstimateBuilder() {
                                         <div>
                                             <span className="text-zinc-600 mr-2 text-[10px] uppercase font-bold tracking-wider">Address</span>
                                             {customer.addressStreet}, {customer.addressCity} {customer.addressState} {customer.addressZip}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {customerJobs.length > 0 && (
+                                    <div className="text-zinc-400 text-sm mt-4 pt-4 border-t border-zinc-800/50">
+                                        <span className="text-zinc-600 mb-2 flex items-center justify-between text-[10px] uppercase font-bold tracking-wider">
+                                            <span>Past Jobs (Last 3)</span>
+                                            <span className="text-zinc-700 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded shadow-inner">{customerJobs.length} Total</span>
+                                        </span>
+                                        <div className="space-y-2">
+                                            {customerJobs.slice(0, 3).map((cj: any) => (
+                                                <a key={cj.id} href={`/business/estimates/${cj.id}`} target="_blank" rel="noreferrer" className="flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800 border border-zinc-800/40 hover:border-indigo-500/50 rounded-lg p-2.5 transition-all text-xs group">
+                                                    <div>
+                                                        <div className="font-bold text-indigo-300 group-hover:text-indigo-400 inline-flex items-center gap-1">
+                                                            {cj.title || 'Untitled Job'} <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </div>
+                                                        <div className="text-zinc-500 text-[10px] uppercase tracking-wider">{new Date(cj.createdAt || 0).toLocaleDateString()} &middot; {cj.status}</div>
+                                                    </div>
+                                                    <div className="font-mono text-zinc-300 font-bold">${((cj.grandTotal || 0)).toFixed(2)}</div>
+                                                </a>
+                                            ))}
                                         </div>
                                     </div>
                                 )}
@@ -1253,7 +1459,7 @@ export function EstimateBuilder() {
                                 <Car className="w-5 h-5 text-indigo-400" />
                                 Vehicle / Asset Context
                             </h2>
-                            <button onClick={() => setIsVehicleModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors">
+                            <button disabled={isLocked} onClick={() => setIsVehicleModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                                 {(!vehicle?.make && !vehicle?.model) ? '+ SET VEHICLE' : 'EDIT / SWAP'}
                             </button>
                         </div>
@@ -1288,6 +1494,27 @@ export function EstimateBuilder() {
                                         />
                                     </div>
                                 </div>
+                                {vehicleJobs.length > 0 && (
+                                    <div className="text-zinc-400 text-sm mt-4 pt-4 border-t border-zinc-800/50">
+                                        <span className="text-zinc-600 mb-2 flex items-center justify-between text-[10px] uppercase font-bold tracking-wider">
+                                            <span>Past Jobs (Last 3)</span>
+                                            <span className="text-zinc-700 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded shadow-inner">{vehicleJobs.length} Total</span>
+                                        </span>
+                                        <div className="space-y-2">
+                                            {vehicleJobs.slice(0, 3).map((vj: any) => (
+                                                <a key={vj.id} href={`/business/estimates/${vj.id}`} target="_blank" rel="noreferrer" className="flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800 border border-zinc-800/40 hover:border-amber-500/50 rounded-lg p-2.5 transition-all text-xs group">
+                                                    <div>
+                                                        <div className="font-bold text-amber-300 group-hover:text-amber-400 inline-flex items-center gap-1">
+                                                            {vj.title || 'Untitled Job'} <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </div>
+                                                        <div className="text-zinc-500 text-[10px] uppercase tracking-wider">{new Date(vj.createdAt || 0).toLocaleDateString()} &middot; {vj.status}</div>
+                                                    </div>
+                                                    <div className="font-mono text-zinc-300 font-bold">${((vj.grandTotal || 0)).toFixed(2)}</div>
+                                                </a>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="mt-4 bg-zinc-950/50 rounded-xl p-6 border border-zinc-800/50 border-dashed text-center text-zinc-500 text-sm font-medium">
@@ -1295,6 +1522,12 @@ export function EstimateBuilder() {
                             </div>
                         )}
                     </div>
+
+                    
+
+
+
+
 
                     {/* COMPANYCAM NATIVE GALLERY */}
                     {jobId !== 'new' && (
@@ -1369,7 +1602,7 @@ export function EstimateBuilder() {
                                     <p className="text-zinc-600 text-xs">Technicians can upload photos via the CompanyCam app.</p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-h-[400px] overflow-y-auto pr-2 no-scrollbar">
                                     {ccPhotos.map((photo: any, index: number) => (
                                         <div key={photo.id || Math.random()} className="group relative aspect-square rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 cursor-pointer" onClick={() => { setLightboxIndex(index); setLightboxZoom(1); }}>
                                             {photo.uris?.[0]?.uri ? (
@@ -1425,6 +1658,7 @@ export function EstimateBuilder() {
                                 <TaskTemplateSelector
                                     data={allTemplates}
                                     onSelect={(template) => {
+                                        if (isLocked) return;
                                         const newTask = {
                                             title: template.title || template.name || 'New Task from Template',
                                             status: 'Not Started',
@@ -1441,8 +1675,8 @@ export function EstimateBuilder() {
                                         setJob({ ...job, tasks: [...job.tasks, newTask] });
                                     }}
                                     trigger={
-                                        <button
-                                            className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase border border-indigo-500/30"
+                                        <button disabled={isLocked}
+                                            className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase border border-indigo-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             <ClipboardList className="w-3.5 h-3.5" /> Template Task
                                         </button>
@@ -1452,10 +1686,22 @@ export function EstimateBuilder() {
                                     onClick={() => {
                                         setJob({ ...job, tasks: [...job.tasks, { title: '', status: 'Not Started', bookTime: 1, actualTime: 0, laborRate: businessSettings.standardShopRate, assignedUids: [], parts: [], notes: '', sops: '', directions: '', isApproved: job.status === 'Quote / Estimate' }] });
                                     }}
-                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase"
+                                    disabled={isLocked}
+                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Plus className="w-3.5 h-3.5" /> Custom Task
                                 </button>
+                                {isLocked && job.status !== 'Pending Approval' && (
+                                    <button
+                                        onClick={() => {
+                                            if (!window.confirm("Add a new Supplemental Finding? This will add an additional task outside the original baseline approval.")) return;
+                                            setJob({ ...job, tasks: [...job.tasks, { title: '', status: 'Not Started', bookTime: 1, actualTime: 0, laborRate: businessSettings.standardShopRate, assignedUids: [], parts: [], notes: '', sops: '', directions: '', isSupplement: true, isApproved: false }] });
+                                        }}
+                                        className="bg-amber-600/20 hover:bg-amber-600/40 text-amber-500 font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
+                                    >
+                                        <PlusCircle className="w-3.5 h-3.5" /> Add Supplement
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -1466,14 +1712,21 @@ export function EstimateBuilder() {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                {job.tasks.map((task: any, tIdx: number) => (
-                                    <div key={tIdx} className="bg-zinc-950 border border-zinc-800 hover:border-zinc-700 transition-colors rounded-2xl overflow-hidden shadow-lg group">
+                                {job.tasks.map((task: any, tIdx: number) => {
+                                    const isTaskLocked = isLocked && !task.isSupplement;
+                                    return (
+                                    <div key={tIdx} className={`bg-zinc-950 border ${task.isSupplement ? 'border-amber-500/50 hover:border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.1)] relative' : 'border-zinc-800 hover:border-zinc-700'} transition-colors rounded-2xl overflow-hidden shadow-lg group`}>
+                                        {task.isSupplement && (
+                                            <div className="absolute top-0 right-0 bg-amber-500/20 border-b border-l border-amber-500/50 px-3 py-1 rounded-bl-xl text-amber-500 text-[9px] font-black uppercase tracking-widest z-10 flex items-center gap-1 backdrop-blur-sm">
+                                                <AlertTriangle className="w-3 h-3" /> Supplemental
+                                            </div>
+                                        )}
                                         <div className="bg-zinc-900/50 p-4 border-b border-zinc-800/60 flex flex-col gap-4">
                                             <div className="w-full">
                                                 <div className="flex items-center justify-between mb-1">
                                                     <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest shadow-sm">Task Name / Procedure</label>
                                                     <div className="flex items-center gap-2">
-                                                        {(!task.status || task.status === 'Not Started' || task.status === 'Pending') && (
+                                                        {(!task.status || task.status === 'Not Started' || task.status === 'Pending') && !isTaskLocked && (
                                                             <button
                                                                 type="button"
                                                                 onClick={(e) => {
@@ -1490,31 +1743,34 @@ export function EstimateBuilder() {
                                                                 <Trash2 className="w-3.5 h-3.5" />
                                                             </button>
                                                         )}
-                                                        <button 
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const t = [...job.tasks];
-                                                                t[tIdx].isApproved = !(task.isApproved !== false);
-                                                                setJob({ ...job, tasks: t });
-                                                            }}
-                                                            className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border ${
-                                                                task.isApproved !== false 
-                                                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
-                                                                    : 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
-                                                            }`}
-                                                        >
-                                                            {task.isApproved !== false ? '✓ Customer Approved' : '⏳ Pending Approval'}
-                                                        </button>
+                                                        {!['Estimate', 'Draft'].includes(job.status) && (
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const t = [...job.tasks];
+                                                                    t[tIdx].isApproved = !(task.isApproved !== false);
+                                                                    setJob({ ...job, tasks: t });
+                                                                }}
+                                                                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border ${
+                                                                    task.isApproved !== false 
+                                                                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
+                                                                        : 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
+                                                                }`}
+                                                            >
+                                                                {task.isApproved !== false ? '✓ Customer Approved' : '⏳ Pending Approval'}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                                 <input
                                                     type="text"
                                                     value={task.title}
+                                                    disabled={isTaskLocked}
                                                     placeholder="e.g. Install Suspension Kit"
                                                     onChange={e => {
                                                         const t = [...job.tasks]; t[tIdx].title = e.target.value; setJob({ ...job, tasks: t });
                                                     }}
-                                                    className="w-full bg-zinc-950 border border-zinc-800/60 rounded-xl px-4 py-3 text-lg text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-black placeholder:text-zinc-700 shadow-inner"
+                                                    className="w-full bg-zinc-950 border border-zinc-800/60 rounded-xl px-4 py-3 text-lg text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-black placeholder:text-zinc-700 shadow-inner disabled:opacity-75"
                                                 />
                                             </div>
                                             
@@ -1557,10 +1813,11 @@ export function EstimateBuilder() {
                                                             type="number"
                                                             min="0" step="0.5"
                                                             value={task.bookTime}
+                                                            disabled={isTaskLocked}
                                                             onChange={e => {
                                                                 const t = [...job.tasks]; t[tIdx].bookTime = parseFloat(e.target.value) || 0; setJob({ ...job, tasks: t });
                                                             }}
-                                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-center"
+                                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-center disabled:opacity-75"
                                                         />
                                                     </div>
                                                     <div className="w-28 pl-6 border-l border-zinc-800/60">
@@ -1645,20 +1902,20 @@ export function EstimateBuilder() {
                                                     <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-xl p-4 flex gap-4 items-center text-sm font-mono text-zinc-500">
                                                         No parts added.
                                                         <div className="flex gap-2">
-                                                            <button type="button" onClick={() => {
+                                                            <button type="button" disabled={isTaskLocked} onClick={() => {
                                                                 const t = [...job.tasks];
                                                                 if (!t[tIdx].parts) t[tIdx].parts = [];
                                                                 t[tIdx].parts.push({ name: '', quantity: 1, cost: 0, price: 0, discount: 0, providedBy: 'Shop' });
                                                                 setJob({ ...job, tasks: t });
-                                                            }} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-3 py-1.5 rounded transition-colors text-xs font-mono tracking-widest uppercase flex items-center gap-2">
+                                                            }} className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-3 py-1.5 rounded transition-colors text-xs font-mono tracking-widest uppercase flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                 <PlusCircle className="w-3 h-3" /> Part from Inventory
                                                             </button>
-                                                            <button type="button" onClick={() => {
+                                                            <button type="button" disabled={isTaskLocked} onClick={() => {
                                                                 const t = [...job.tasks];
                                                                 if (!t[tIdx].parts) t[tIdx].parts = [];
                                                                 t[tIdx].parts.push({ name: '', quantity: 1, cost: 0, price: 0, discount: 0, providedBy: 'Customer' });
                                                                 setJob({ ...job, tasks: t });
-                                                            }} className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold px-3 py-1.5 rounded transition-colors text-xs font-mono tracking-widest uppercase flex items-center gap-2 border border-amber-500/20">
+                                                            }} className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 font-bold px-3 py-1.5 rounded transition-colors text-xs font-mono tracking-widest uppercase flex items-center gap-2 border border-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                 <UserPlus className="w-3 h-3" /> + Customer Part
                                                             </button>
                                                         </div>
@@ -1678,17 +1935,19 @@ export function EstimateBuilder() {
                                                                             <input
                                                                                 type="text"
                                                                                 value={part.name}
+                                                                                disabled={isTaskLocked}
                                                                                 onChange={e => {
                                                                                     const t = [...job.tasks];
                                                                                     t[tIdx].parts[pIdx].name = e.target.value;
                                                                                     setJob({ ...job, tasks: t });
                                                                                 }}
                                                                                 placeholder="Describe customer part..."
-                                                                                className="w-full bg-transparent border-none text-sm text-white focus:outline-none h-8 px-2"
+                                                                                className="w-full bg-transparent border-none text-sm text-white focus:outline-none h-8 px-2 disabled:opacity-75"
                                                                             />
                                                                         ) : (
                                                                             <InventorySelector
                                                                                 data={allInventory}
+                                                                                disabled={isTaskLocked}
                                                                                 autoOpen={!part.inventoryId && !part.name && part.price === 0}
                                                                                 onChange={(_, invItem) => {
                                                                                     if (!invItem) return;
@@ -1718,15 +1977,15 @@ export function EstimateBuilder() {
                                                                 <div className="w-16 border-l border-zinc-800 pl-2">
                                                                     <div className="flex flex-col">
                                                                         <span className="text-[9px] text-zinc-600 font-bold tracking-widest uppercase px-1">Qty</span>
-                                                                        <input type="number" min="1" value={part.quantity} onChange={e => {
+                                                                        <input type="number" min="1" value={part.quantity} disabled={isTaskLocked} onChange={e => {
                                                                             const t = [...job.tasks]; t[tIdx].parts[pIdx].quantity = parseFloat(e.target.value) || 0; setJob({ ...job, tasks: t });
-                                                                        }} className="w-full bg-transparent border-none px-1 py-1 text-sm text-white font-mono focus:outline-none text-left" />
+                                                                        }} className="w-full bg-transparent border-none px-1 py-1 text-sm text-white font-mono focus:outline-none text-left disabled:opacity-75" />
                                                                     </div>
                                                                 </div>
                                                                 <div className="w-20 border-l border-zinc-800 pl-2">
                                                                     <div className="flex flex-col">
                                                                         <span className="text-[9px] text-zinc-600 font-bold tracking-widest uppercase px-1">Cost($)</span>
-                                                                        <input type="number" min="0" step="0.01" disabled={part.providedBy === 'Customer'} value={part.cost || 0} onChange={e => {
+                                                                        <input type="number" min="0" step="0.01" disabled={isTaskLocked || part.providedBy === 'Customer'} value={part.cost || 0} onChange={e => {
                                                                             const t = [...job.tasks]; t[tIdx].parts[pIdx].cost = parseFloat(e.target.value) || 0; setJob({ ...job, tasks: t });
                                                                         }} className="w-full bg-transparent border-none px-1 py-1 text-sm text-zinc-400 font-mono focus:outline-none text-left disabled:opacity-50" />
                                                                     </div>
@@ -1734,7 +1993,7 @@ export function EstimateBuilder() {
                                                                 <div className="w-24 border-l border-zinc-800 pl-2">
                                                                     <div className="flex flex-col">
                                                                         <span className="text-[9px] text-zinc-600 font-bold tracking-widest uppercase px-1">Price($)</span>
-                                                                        <input type="number" min="0" step="0.01" disabled={part.providedBy === 'Customer'} value={part.price} onChange={e => {
+                                                                        <input type="number" min="0" step="0.01" disabled={isTaskLocked || part.providedBy === 'Customer'} value={part.price} onChange={e => {
                                                                             const t = [...job.tasks]; t[tIdx].parts[pIdx].price = parseFloat(e.target.value) || 0; setJob({ ...job, tasks: t });
                                                                         }} className="w-full bg-transparent border-none px-1 py-1 text-sm text-white font-mono focus:outline-none text-left disabled:opacity-50" />
                                                                     </div>
@@ -1742,7 +2001,7 @@ export function EstimateBuilder() {
                                                                 <div className="w-16 border-l border-zinc-800 pl-2">
                                                                     <div className="flex flex-col">
                                                                         <span className="text-[9px] text-zinc-600 font-bold tracking-widest uppercase px-1">Disc(%)</span>
-                                                                        <input type="number" min="0" max="100" disabled={part.providedBy === 'Customer'} value={part.discount || 0} onChange={e => {
+                                                                        <input type="number" min="0" max="100" disabled={isTaskLocked || part.providedBy === 'Customer'} value={part.discount || 0} onChange={e => {
                                                                             const t = [...job.tasks]; t[tIdx].parts[pIdx].discount = parseFloat(e.target.value) || 0; setJob({ ...job, tasks: t });
                                                                         }} className="w-full bg-transparent border-none px-1 py-1 text-sm text-amber-400 font-mono focus:outline-none text-left disabled:opacity-50" />
                                                                     </div>
@@ -1750,26 +2009,28 @@ export function EstimateBuilder() {
                                                                 <div className="font-mono text-zinc-300 font-black text-sm w-24 text-right pr-2">
                                                                     ${((Number(part.price) * (1 - (Number(part.discount || 0) / 100))) * Number(part.quantity)).toFixed(2)}
                                                                 </div>
-                                                                <button type="button" onClick={() => {
-                                                                    const t = [...job.tasks]; t[tIdx].parts.splice(pIdx, 1); setJob({ ...job, tasks: t });
-                                                                }} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-colors opacity-0 group-hover/part:opacity-100">
-                                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                                </button>
+                                                                {!isTaskLocked && (
+                                                                    <button type="button" onClick={() => {
+                                                                        const t = [...job.tasks]; t[tIdx].parts.splice(pIdx, 1); setJob({ ...job, tasks: t });
+                                                                    }} className="p-1.5 bg-zinc-800 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-colors opacity-0 group-hover/part:opacity-100">
+                                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         ))}
                                                         <div className="pt-2 flex gap-2">
-                                                            <button type="button" onClick={() => {
+                                                            <button type="button" disabled={isTaskLocked} onClick={() => {
                                                                 const t = [...job.tasks];
                                                                 t[tIdx].parts.push({ name: '', quantity: 1, cost: 0, price: 0, discount: 0, providedBy: 'Shop' });
                                                                 setJob({ ...job, tasks: t });
-                                                            }} className="text-[10px] text-zinc-400 hover:text-white font-black font-mono tracking-widest uppercase flex items-center gap-1.5 transition-colors border border-zinc-800 px-3 py-1.5 rounded-lg hover:bg-zinc-800">
+                                                            }} className="text-[10px] text-zinc-400 hover:text-white font-black font-mono tracking-widest uppercase flex items-center gap-1.5 transition-colors border border-zinc-800 px-3 py-1.5 rounded-lg hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                 <PlusCircle className="w-3 h-3" /> Part from Inventory
                                                             </button>
-                                                            <button type="button" onClick={() => {
+                                                            <button type="button" disabled={isTaskLocked} onClick={() => {
                                                                 const t = [...job.tasks];
                                                                 t[tIdx].parts.push({ name: '', quantity: 1, cost: 0, price: 0, discount: 0, providedBy: 'Customer' });
                                                                 setJob({ ...job, tasks: t });
-                                                            }} className="text-[10px] text-amber-500/70 hover:text-amber-400 font-black font-mono tracking-widest uppercase flex items-center gap-1.5 transition-colors border border-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/5">
+                                                            }} className="text-[10px] text-amber-500/70 hover:text-amber-400 font-black font-mono tracking-widest uppercase flex items-center gap-1.5 transition-colors border border-amber-500/10 px-3 py-1.5 rounded-lg hover:bg-amber-500/5 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                 <UserPlus className="w-3 h-3" /> + Customer Part
                                                             </button>
                                                         </div>
@@ -1777,11 +2038,13 @@ export function EstimateBuilder() {
                                                 )}
                                             </div>
 
-                                        <div className="p-4 bg-zinc-950 border-t border-zinc-800/50">
-                                            <div className="flex items-center justify-between mb-3">
-                                                <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest flex items-center gap-2">
-                                                    <User className="w-3.5 h-3.5" /> Assigned Techs
-                                                </span>
+                                        {!['Estimate', 'Draft'].includes(job.status) && (
+                                            <>
+                                                <div className="p-4 bg-zinc-950 border-t border-zinc-800/50">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest flex items-center gap-2">
+                                                        <User className="w-3.5 h-3.5" /> Assigned Techs
+                                                    </span>
                                                 <StaffSelector
                                                     data={allStaff}
                                                     value={task.assignedUids || []}
@@ -1873,7 +2136,7 @@ export function EstimateBuilder() {
                                                     <span className="text-[9px] text-zinc-500 font-black uppercase tracking-widest flex items-center gap-2 mb-3">
                                                         <ClipboardList className="w-3 h-3" /> Time Activity Log
                                                     </span>
-                                                    <div className="max-h-48 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
+                                                    <div className="max-h-48 overflow-y-auto pr-2 space-y-1.5 no-scrollbar">
                                                         {timeLogs.filter((l: any) => l.taskIndex === tIdx)
                                                             .sort((a: any, b: any) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime())
                                                             .slice(0, 10)
@@ -1902,6 +2165,8 @@ export function EstimateBuilder() {
                                                 </div>
                                             )}
                                         </div>
+                                        </>
+                                        )}
 
                                         <div className="p-4 bg-zinc-950 border-t border-zinc-800/50 space-y-4">
                                             <div>
@@ -1915,19 +2180,21 @@ export function EstimateBuilder() {
                                                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 min-h-[80px] resize-y shadow-inner"
                                                 />
                                             </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                <button disabled className="w-full bg-zinc-900/30 border border-zinc-800 border-dashed rounded-xl px-4 py-4 flex flex-col items-center justify-center gap-1.5 cursor-not-allowed group">
-                                                    <span className="text-xs text-zinc-600 font-bold uppercase tracking-widest">SOPs / Directives</span>
-                                                    <span className="text-[9px] text-zinc-700 font-black uppercase tracking-widest bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800/50 group-hover:bg-zinc-800/50 transition-colors">Coming Soon</span>
-                                                </button>
-                                                <button disabled className="w-full bg-zinc-900/30 border border-zinc-800 border-dashed rounded-xl px-4 py-4 flex flex-col items-center justify-center gap-1.5 cursor-not-allowed group">
-                                                    <span className="text-xs text-zinc-600 font-bold uppercase tracking-widest">Tech Directions</span>
-                                                    <span className="text-[9px] text-zinc-700 font-black uppercase tracking-widest bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800/50 group-hover:bg-zinc-800/50 transition-colors">Coming Soon</span>
-                                                </button>
-                                            </div>
+                                            {!['Estimate', 'Draft'].includes(job.status) && (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <button disabled className="w-full bg-zinc-900/30 border border-zinc-800 border-dashed rounded-xl px-4 py-4 flex flex-col items-center justify-center gap-1.5 cursor-not-allowed group">
+                                                        <span className="text-xs text-zinc-600 font-bold uppercase tracking-widest">SOPs / Directives</span>
+                                                        <span className="text-[9px] text-zinc-700 font-black uppercase tracking-widest bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800/50 group-hover:bg-zinc-800/50 transition-colors">Coming Soon</span>
+                                                    </button>
+                                                    <button disabled className="w-full bg-zinc-900/30 border border-zinc-800 border-dashed rounded-xl px-4 py-4 flex flex-col items-center justify-center gap-1.5 cursor-not-allowed group">
+                                                        <span className="text-xs text-zinc-600 font-bold uppercase tracking-widest">Tech Directions</span>
+                                                        <span className="text-[9px] text-zinc-700 font-black uppercase tracking-widest bg-zinc-900/50 px-2 py-0.5 rounded border border-zinc-800/50 group-hover:bg-zinc-800/50 transition-colors">Coming Soon</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {/* R&D / DISCOVERY & SOP PROMOTION */}
+                                        {/* END OF TASKS LOOP */}
                                         {(task.discoveryNotes?.length > 0 || task.mediaUrls?.length > 0) && (
                                             <div className="p-4 bg-amber-500/5 border-t border-amber-500/20">
                                                 <div className="flex items-center justify-between mb-3 border-b border-amber-500/20 pb-3">
@@ -1963,7 +2230,7 @@ export function EstimateBuilder() {
                                                 )}
 
                                                 {task.mediaUrls && task.mediaUrls.length > 0 && (
-                                                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                                    <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
                                                         {task.mediaUrls.map((url: string, i: number) => (
                                                             <a key={i} href={url} target="_blank" rel="noreferrer" className="block relative w-20 h-20 rounded-xl overflow-hidden border border-amber-500/30 flex-shrink-0 group shadow-lg">
                                                                 <img src={url} alt={`Task linked media ${i}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
@@ -1974,18 +2241,115 @@ export function EstimateBuilder() {
                                             </div>
                                         )}
                                     </div>
-                                ))}
+                                );
+                            })}
                             </div>
                         )}
                     </div>
                 </div>
+                {/* --- CONTEXT & METADATA COLUMN (RIGHT) --- */}
+                <div className="xl:col-span-4 flex flex-col gap-8 min-w-0 xl:sticky xl:top-24 pb-32 xl:pb-32">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 pb-8 shadow-xl flex flex-col shrink-0">
 
-                <div className="xl:col-span-1 space-y-6 order-first xl:order-last">
+                    {/* SALES & INTAKE INFORMATION */}
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden shrink-0">
+                        <div className="flex items-center justify-between mb-6">
+                            <h2 className="text-lg font-black text-white flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-teal-400"></div> Sales & Intake Tools
+                            </h2>
+                        </div>
+                        <div className="flex flex-col gap-8">
+                            
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-teal-500 mb-2">Customer Meeting Notes</h3>
+                                <p className="text-[10px] text-zinc-500 mb-3 font-medium">Customer-facing notes summarizing requirements, concerns, or requests gathered directly from the client.</p>
+                                <textarea
+                                    value={job.customerMeetingNotes || ''}
+                                    onChange={(e) => setJob({ ...job, customerMeetingNotes: e.target.value })}
+                                    placeholder="- Requested to save old parts
+- Concerned about rust on chassis 
+- Needs vehicle back by Friday for vacaton"
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 focus:outline-none focus:border-teal-500 resize-y min-h-[120px] shadow-inner transition-colors"
+                                />
+                            </div>
 
+                            <div>
+                                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-2 flex items-center gap-2"><div className="w-1.5 h-1.5 bg-zinc-600 rounded-full"></div> Internal Sales Notes</h3>
+                                <p className="text-[10px] text-zinc-600 mb-3 font-medium">Private staff notes regarding sale strategy, budget caps, pricing history, or warnings.</p>
+                                <textarea
+                                    value={job.salesNotes || ''}
+                                    onChange={(e) => setJob({ ...job, salesNotes: e.target.value })}
+                                    placeholder="- Has a strict $4,000 budget
+- Previous customer, gave 5% loyalty discount
+- Verify part compatibility before ordering"
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400 focus:outline-none focus:border-zinc-500 resize-y min-h-[120px] shadow-inner transition-colors"
+                                />
+                            </div>
 
+                            <div className="border-t border-zinc-800/80 pt-6">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-indigo-400 mb-2 flex items-center justify-between">
+                                    <span>Internal Q&A Board</span>
+                                    <button 
+                                        onClick={() => {
+                                            const qs = job.salesQuestions || [];
+                                            setJob({ ...job, salesQuestions: [...qs, { question: '', answer: '', askedBy: currentUser?.displayName || 'Staff' }] });
+                                        }}
+                                        className="bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 text-[9px] px-2 py-1 rounded transition-colors"
+                                    >+ Ask Question</button>
+                                </h3>
+                                <p className="text-[10px] text-zinc-500 mb-4 font-medium">Have a question for the shop foreman or parts manager while writing this estimate? Ask it here.</p>
+                                
+                                {!(job.salesQuestions?.length) ? (
+                                    <div className="text-xs font-mono text-zinc-600 text-center py-4 border border-zinc-800 border-dashed rounded-xl">No active questions.</div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {job.salesQuestions.map((q: any, i: number) => (
+                                            <div key={i} className="bg-zinc-950 border border-indigo-500/20 rounded-xl p-4 relative group">
+                                                <button onClick={() => {
+                                                    const qs = [...job.salesQuestions];
+                                                    qs.splice(i, 1);
+                                                    setJob({ ...job, salesQuestions: qs});
+                                                }} className="absolute top-3 right-3 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3.5 h-3.5" /></button>
+                                                
+                                                <div className="mb-3">
+                                                    <label className="text-[9px] uppercase tracking-widest text-indigo-500 font-bold">Q: {q.askedBy}</label>
+                                                    <input 
+                                                        type="text"
+                                                        value={q.question || ''}
+                                                        onChange={(e) => {
+                                                            const qs = [...job.salesQuestions];
+                                                            qs[i].question = e.target.value;
+                                                            setJob({ ...job, salesQuestions: qs });
+                                                        }}
+                                                        placeholder="Type your question..."
+                                                        className="w-full bg-transparent border-b border-zinc-800 pb-1 text-sm text-indigo-100 focus:outline-none focus:border-indigo-500 mt-1 placeholder-zinc-700"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] uppercase tracking-widest text-amber-500 font-bold">A: {q.answeredBy || 'Awaiting Answer'}</label>
+                                                    <input 
+                                                        type="text"
+                                                        value={q.answer || ''}
+                                                        onChange={(e) => {
+                                                            const qs = [...job.salesQuestions];
+                                                            qs[i].answer = e.target.value;
+                                                            if (e.target.value.length > 0 && !q.answeredBy) qs[i].answeredBy = currentUser?.displayName || 'Staff';
+                                                            if (e.target.value.length === 0) qs[i].answeredBy = null;
+                                                            setJob({ ...job, salesQuestions: qs });
+                                                        }}
+                                                        placeholder="Type answer..."
+                                                        className="w-full bg-transparent border-b border-zinc-800 pb-1 text-sm text-amber-100 focus:outline-none focus:border-amber-500 mt-1 placeholder-zinc-700"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    
 
-
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl flex flex-col max-h-[800px]">
                         <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">Internal Scope Note</h3>
                         <textarea
                             value={job.description || ''}
@@ -1999,7 +2363,7 @@ export function EstimateBuilder() {
                                 <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4 flex items-center gap-2">
                                     <ClipboardList className="w-4 h-4 text-zinc-600" /> Edit History
                                 </h4>
-                                <div className="space-y-5 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-zinc-800 flex-1">
+                                <div className="space-y-5 overflow-y-auto pr-2 no-scrollbar flex-1">
                                     {[...(job.editLog as any[])].reverse().map((log, idx) => (
                                         <div key={idx} className="flex flex-col border-l-2 border-indigo-500/50 pl-3.5 py-1 group bg-zinc-950/30 rounded-r-lg">
                                             <div className="flex items-center justify-between mb-1.5">
@@ -2013,18 +2377,41 @@ export function EstimateBuilder() {
                             </div>
                         )}
                     </div>
+
                 </div>
             </div>
 
             {/* Mobile save button at bottom */}
             <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-zinc-950/90 backdrop-blur border-t border-zinc-800 z-50">
-                <button
-                    onClick={() => handleSave(true)}
-                    disabled={!hasChanges || isSaving}
-                    className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-bold px-6 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all font-mono tracking-widest uppercase text-sm"
-                >
-                    <Save className="w-4 h-4" /> {isSaving ? 'Saving...' : (jobId === 'new' ? 'Create Job' : 'Save Changes')}
-                </button>
+                {jobId === 'new' ? (
+                    <button
+                        onClick={() => handleSave(true)}
+                        disabled={!hasChanges || isSaving}
+                        className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-bold px-6 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 transition-all font-mono tracking-widest uppercase text-sm"
+                    >
+                        <Save className="w-4 h-4" /> {isSaving ? 'Creating...' : 'Create Job'}
+                    </button>
+                ) : (
+                    <div className="flex items-center justify-between bg-zinc-900 border border-zinc-700 px-4 py-3 rounded-xl">
+                        {historyStack.length > 0 ? (
+                            <button onClick={handleUndo} className="flex items-center gap-1.5 text-zinc-300 hover:text-white transition-colors" title="Undo last change">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 010 10 5 5 0 010-10zm0 0l4-4m-4 4l4 4" /></svg>
+                                <span className="text-xs font-bold uppercase tracking-widest">Undo</span>
+                            </button>
+                        ) : (
+                            <div className="text-xs font-bold uppercase tracking-widest text-zinc-500">Auto-Save Active</div>
+                        )}
+                        <div className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-colors ${isSaving ? 'text-amber-400' : hasChanges ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                            {isSaving ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
+                            ) : hasChanges ? (
+                                <><CloudOff className="w-4 h-4" /> Edit mode</>
+                            ) : (
+                                <><CheckCircle className="w-4 h-4" /> Saved</>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
             {lightboxIndex !== null && (
                 <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur flex items-center justify-center">
@@ -2052,9 +2439,9 @@ export function EstimateBuilder() {
 
                     <div className="w-full h-full p-4 flex items-center justify-center overflow-auto cursor-pointer"
                          onClick={() => setLightboxIndex(null)}>
-                        {ccPhotos[lightboxIndex]?.uris?.[0]?.uri ? (
+                        {ccPhotos[lightboxIndex as number]?.uris?.[0]?.uri ? (
                             <img 
-                                src={ccPhotos[lightboxIndex].uris[0].uri} 
+                                src={ccPhotos[lightboxIndex as number].uris[0].uri} 
                                 alt="Job Media Full" 
                                 style={{ transform: `scale(${lightboxZoom})`, transition: 'transform 0.2s ease-out' }}
                                 className="max-w-[90vw] max-h-[90vh] object-contain origin-center cursor-default filter drop-shadow-2xl"
@@ -2071,9 +2458,9 @@ export function EstimateBuilder() {
                     </button>
 
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white font-mono text-sm bg-zinc-900/80 px-6 py-2 rounded-full border border-zinc-700 flex flex-col items-center gap-1 backdrop-blur z-50 shadow-xl">
-                        <span className="font-bold">{lightboxIndex + 1} / {ccPhotos.length}</span>
+                        <span className="font-bold">{(lightboxIndex as number) + 1} / {ccPhotos.length}</span>
                         <span className="text-[10px] text-zinc-400 tracking-wider">
-                            {ccPhotos[lightboxIndex]?.creator_name ? `UPLOADED BY ${ccPhotos[lightboxIndex].creator_name}` : ''}
+                            {ccPhotos[lightboxIndex as number]?.creator_name ? `UPLOADED BY ${ccPhotos[lightboxIndex as number].creator_name}` : ''}
                         </span>
                     </div>
                 </div>

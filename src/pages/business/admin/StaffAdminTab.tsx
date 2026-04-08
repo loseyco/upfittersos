@@ -16,6 +16,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
     const [staff, setStaff] = useState<any[]>([]);
+    const [departments, setDepartments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Invite Logic
@@ -94,6 +95,15 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
         try {
             const res = await api.get(`/businesses/${tenantId}/staff`);
             setStaff(res.data);
+            
+            try {
+                const bizRes = await api.get(`/businesses/${tenantId}`);
+                if (bizRes.data?.departments) {
+                    setDepartments(bizRes.data.departments);
+                }
+            } catch (err) {
+                console.error("Failed to load departments", err);
+            }
             
             // Hydrate from deep-link URL on initial load
             const urlEditUid = searchParams.get('edit');
@@ -525,13 +535,26 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                             </div>
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Department</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="Service Area B"
-                                    value={editForm.department}
-                                    onChange={(e) => setEditForm({...editForm, department: e.target.value})}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
-                                />
+                                {departments.length > 0 ? (
+                                    <select
+                                        value={editForm.department}
+                                        onChange={(e) => setEditForm({...editForm, department: e.target.value})}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
+                                    >
+                                        <option value="" disabled>Select Department</option>
+                                        {departments.map((d: any) => (
+                                            <option key={d.id} value={d.name}>{d.name}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input 
+                                        type="text" 
+                                        placeholder="Service Area B"
+                                        value={editForm.department}
+                                        onChange={(e) => setEditForm({...editForm, department: e.target.value})}
+                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
+                                    />
+                                )}
                             </div>
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Work Phone Ext</label>

@@ -40,6 +40,7 @@ import { FeedbackDetail } from './pages/business/FeedbackDetail'
 import { TasksDashboard } from './pages/business/TasksDashboard'
 import { FacilityMapPage } from './pages/business/FacilityMapPage'
 import { OpsMissionControl } from './pages/business/OpsMissionControl'
+import { AreaProfilePage } from './pages/business/areas/AreaProfilePage'
 import { WorkflowWhiteboards } from './pages/business/WorkflowWhiteboards'
 import { OAuthCallback } from './pages/business/OAuthCallback'
 import { MeetingsDashboard } from './pages/business/MeetingsDashboard'
@@ -51,6 +52,7 @@ import { ReportViewerPage } from './pages/business/ReportViewerPage'
 import { EstimatePrintView } from './pages/business/EstimatePrintView'
 import { EstimateHub } from './pages/business/estimates/EstimateHub'
 import { EstimateBuilder } from './pages/business/estimates/EstimateBuilder'
+import { EstimateBuilderV2 } from './pages/business/estimates/EstimateBuilderV2'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -116,13 +118,15 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/feedback/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackDetail /></ProtectedRoute>} />
             <Route path="/business/tasks" element={<ProtectedRoute><TasksDashboard /></ProtectedRoute>} />
             <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
+            <Route path="/business/areas/:areaId" element={<ProtectedRoute><AreaProfilePage /></ProtectedRoute>} />
             <Route path="/business/ops" element={<ProtectedRoute><OpsMissionControl /></ProtectedRoute>} />
             <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
             <Route path="/business/meetings" element={<ProtectedRoute><MeetingsDashboard /></ProtectedRoute>} />
             <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
             <Route path="/business/tech" element={<ProtectedRoute><TechPortal /></ProtectedRoute>} />
             <Route path="/business/jobs" element={<ProtectedRoute><EstimateHub /></ProtectedRoute>} />
-            <Route path="/business/jobs/:jobId" element={<ProtectedRoute><EstimateBuilder /></ProtectedRoute>} />
+            <Route path="/business/jobs/:jobId" element={<ProtectedRoute><EstimateBuilderV2 /></ProtectedRoute>} />
+            <Route path="/business/jobs/:jobId/v1" element={<ProtectedRoute><EstimateBuilder /></ProtectedRoute>} />
             <Route path="/business/reports/:id" element={<ProtectedRoute><ReportViewerPage /></ProtectedRoute>} />
             <Route path="/oauth/companycam" element={<ProtectedRoute><OAuthCallback /></ProtectedRoute>} />
             

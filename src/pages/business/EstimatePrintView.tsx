@@ -101,7 +101,7 @@ export function EstimatePrintView() {
             </div>
 
             {/* Entity Info */}
-            <div className="grid grid-cols-2 gap-12 mb-12">
+            <div className="grid grid-cols-2 gap-12 mb-12 print:break-inside-avoid">
                 <div>
                     <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-200 pb-2 mb-4">Customer Summary</h3>
                     {customer ? (
@@ -161,7 +161,7 @@ export function EstimatePrintView() {
                             return (
                                 <React.Fragment key={`t-${idx}`}>
                                     {/* Task Labor Row */}
-                                    <tr className="border-b border-zinc-100/50">
+                                    <tr className="border-b border-zinc-100/50 print:break-inside-avoid">
                                         <td className="py-3 px-2 font-bold">{t.title || 'General Task Labor'} <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded ml-2 uppercase tracking-widest">Labor</span></td>
                                         <td className="py-3 px-2 font-mono text-zinc-600">{t.bookTime || 0}</td>
                                         <td className="py-3 px-2 font-mono text-zinc-600">${Number(t.laborRate || 0).toFixed(2)}</td>
@@ -169,7 +169,7 @@ export function EstimatePrintView() {
                                     </tr>
                                     {/* Task Parts */}
                                     {t.parts?.map((p: any, pIdx: number) => (
-                                        <tr key={`tp-${idx}-${pIdx}`} className="border-b border-zinc-100/50">
+                                        <tr key={`tp-${idx}-${pIdx}`} className="border-b border-zinc-100/50 print:break-inside-avoid">
                                             <td className="py-2 px-2 pl-6 text-zinc-600 flex items-center justify-between">
                                                 <span>↳ {p.name || 'Unnamed Part'}</span>
                                                 <span className="text-[10px] border border-zinc-200 text-zinc-500 font-bold px-1.5 py-0.5 rounded ml-2 uppercase tracking-widest">Part</span>
@@ -185,7 +185,7 @@ export function EstimatePrintView() {
 
                         {/* Legacy Labor */}
                         {job.laborLines?.map((l: any, idx: number) => (
-                            <tr key={`ll-${idx}`} className="border-b border-zinc-100/50">
+                            <tr key={`ll-${idx}`} className="border-b border-zinc-100/50 print:break-inside-avoid">
                                 <td className="py-3 px-2 font-bold">{l.description || 'Legacy Labor'} <span className="text-[10px] bg-indigo-100 text-indigo-700 font-bold px-1.5 py-0.5 rounded ml-2 uppercase tracking-widest">Labor</span></td>
                                 <td className="py-3 px-2 font-mono text-zinc-600">{l.hours}</td>
                                 <td className="py-3 px-2 font-mono text-zinc-600">${Number(l.rate).toFixed(2)}</td>
@@ -195,7 +195,7 @@ export function EstimatePrintView() {
 
                         {/* Legacy Parts */}
                         {job.parts?.map((p: any, pIdx: number) => (
-                            <tr key={`lp-${pIdx}`} className="border-b border-zinc-100/50">
+                            <tr key={`lp-${pIdx}`} className="border-b border-zinc-100/50 print:break-inside-avoid">
                                 <td className="py-2 px-2 text-zinc-600 flex items-center justify-between">
                                     <span>{p.name || 'Legacy Part'}</span>
                                     <span className="text-[10px] border border-zinc-200 text-zinc-500 font-bold px-1.5 py-0.5 rounded ml-2 uppercase tracking-widest">Part</span>
@@ -217,7 +217,7 @@ export function EstimatePrintView() {
             </div>
 
             {/* Totals Section */}
-            <div className="flex justify-end mb-16">
+            <div className="flex justify-end mb-16 print:break-inside-avoid">
                 <div className="w-1/2">
                     <div className="flex justify-between py-2 border-b border-zinc-100">
                         <span className="font-bold text-zinc-500 uppercase text-xs tracking-widest">Subtotal (Parts)</span>
@@ -239,7 +239,7 @@ export function EstimatePrintView() {
             </div>
 
             {/* Authorization Block */}
-            <div className="mt-24 pt-8 border-t border-zinc-200">
+            <div className="mt-24 pt-8 border-t border-zinc-200 print:break-inside-avoid">
                 <h3 className="font-black text-sm uppercase tracking-widest mb-4 flex items-center gap-2"><FileText className="w-4 h-4 text-zinc-400"/> General Authorization</h3>
                 <p className="text-zinc-500 text-xs text-balance mb-12">
                     By signing below, I authorize the work outlined in this document to be performed. An express mechanic's lien is acknowledged on the vehicle to secure the amount of repairs thereto. 

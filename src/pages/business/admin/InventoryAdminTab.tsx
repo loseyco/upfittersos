@@ -35,6 +35,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
         quantityOnHand: 0 as number | string,
         quantityAllocated: 0 as number | string,
         quantityOnOrder: 0 as number | string,
+        cost: 0 as number | string,
         price: 0 as number | string,
         location: '',
         status: 'In Stock',
@@ -90,6 +91,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
             quantityOnHand: item.quantityOnHand || 0,
             quantityAllocated: item.quantityAllocated || 0,
             quantityOnOrder: item.quantityOnOrder || 0,
+            cost: item.cost || 0,
             price: item.price || 0,
             location: item.location || '',
             status: item.status || 'In Stock',
@@ -111,6 +113,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
             quantityOnHand: 0,
             quantityAllocated: 0,
             quantityOnOrder: 0,
+            cost: 0,
             price: 0,
             location: '',
             status: 'In Stock',
@@ -134,6 +137,7 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
             setIsSaving(true);
             const payload = { 
                 ...editForm, 
+                cost: Number(editForm.cost),
                 price: Number(editForm.price),
                 tenantId 
             };
@@ -269,13 +273,17 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
                         <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2 border-b border-zinc-800 pb-2">
                             <Tag className="w-5 h-5 text-indigo-400" /> Initial Inventory
                         </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Initial Qty</label>
                                 <input type="number" required placeholder="0" value={editForm.quantityOnHand} onChange={(e) => setEditForm({...editForm, quantityOnHand: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 text-white font-mono" />
                             </div>
                             <div>
-                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Price ($)</label>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Cost ($)</label>
+                                <input type="number" step="0.01" required value={editForm.cost} onChange={(e) => setEditForm({...editForm, cost: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 text-white font-mono" />
+                            </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Retail Price ($)</label>
                                 <input type="number" step="0.01" required value={editForm.price} onChange={(e) => setEditForm({...editForm, price: e.target.value === '' ? '' : Number(e.target.value)})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 text-white font-mono" />
                             </div>
                             <div>
@@ -383,7 +391,11 @@ export function InventoryAdminTab({ tenantId }: { tenantId: string }) {
                                     <input type="text" value={editForm.sku} onChange={(e) => {setEditForm({...editForm, sku: e.target.value.toUpperCase()}); setIsEditing(true);}} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white uppercase font-mono" />
                                 </div>
                                 <div>
-                                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Unit Price ($)</label>
+                                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Unit Cost ($)</label>
+                                    <input type="number" step="0.01" value={editForm.cost} onChange={(e) => {setEditForm({...editForm, cost: e.target.value === '' ? '' : Number(e.target.value)}); setIsEditing(true);}} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white font-mono" />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Retail Price ($)</label>
                                     <input type="number" step="0.01" value={editForm.price} onChange={(e) => {setEditForm({...editForm, price: e.target.value === '' ? '' : Number(e.target.value)}); setIsEditing(true);}} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white font-mono" />
                                 </div>
                                 <div>

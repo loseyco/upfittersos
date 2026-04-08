@@ -93,7 +93,11 @@ export class CompanyCamService {
       throw new Error(`CompanyCam API error: ${response.statusText}`);
     }
 
-    return response.json();
+    if (response.status === 204) return null; // No Content
+    
+    // Check if body is empty before parsing JSON
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
   }
 
   // --- OAUTH HELPERS ---

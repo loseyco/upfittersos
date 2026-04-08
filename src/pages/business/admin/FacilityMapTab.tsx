@@ -34,7 +34,7 @@ const computeBoundingBox = (points: {x: number, y: number}[]) => {
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
 };
 
-function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string, user: any, readOnly?: boolean }) {
+function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId: string, user: any, readOnly?: boolean, focusId?: string }) {
     const { screenToFlowPosition } = useReactFlow();
     const transform = useStore((s) => s.transform);
     const { checkPermission } = usePermissions();
@@ -46,8 +46,11 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
     const [floors, setFloors] = useState<{id: string, name: string}[]>([{id: 'default', name: 'Ground Floor'}]);
     const [baseImages, setBaseImages] = useState<Record<string, string>>({});
     const [availableAreas, setAvailableAreas] = useState<any[]>([]);
+    const [activeJobs, setActiveJobs] = useState<any[]>([]);
     
     // Aux Context State
+    const [allVehicles, setAllVehicles] = useState<any[]>([]);
+    const [allStaff, setAllStaff] = useState<any[]>([]);
 
     
     // Helper for Auto Coloring
@@ -145,15 +148,63 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
     const renderNodes = useMemo(() => {
         return allNodes
             .filter(n => n.data.floorId === activeFloorId)
-            .map(n => ({
-                ...n,
-                draggable: canManage && n.id === selectedNodeId,
-                data: {
-                    ...n.data,
-                    onPointsUpdated: canManage ? handlePointsUpdate : () => {}
+            .filter(n => !focusId || n.id === focusId)
+            .map(n => {
+                const jobAtLoc = activeJobs.find(j => j.currentLocationId === n.id);
+                let jobData = {};
+                if (jobAtLoc) {
+                    let vehicleName = 'No Vehicle Assigned';
+                    if (jobAtLoc.vehicleId) {
+                        const v = allVehicles.find(x => x.id === jobAtLoc.vehicleId);
+                        if (v) vehicleName = `${v.year} ${v.make} ${v.model}`.trim();
+                        else vehicleName = `Vehicle Linked`;
+                    }
+
+                    let assignedStaffStr = 'No Staff Assigned';
+                    if (jobAtLoc.tasks && jobAtLoc.tasks.length > 0) {
+                        const staffIds = new Set<string>();
+                        jobAtLoc.tasks.forEach((t: any) => {
+                            if (t.assignedTechId) staffIds.add(t.assignedTechId);
+                        });
+                        const names: string[] = [];
+                        staffIds.forEach(id => {
+                            const staff = allStaff.find(s => s.id === id);
+                            if (staff) {
+                                const parts = (staff.displayName || staff.name || '').split(' ');
+                                if (parts.length > 1) {
+                                    names.push(`${parts[0]} ${parts[parts.length - 1][0]}.`);
+                                } else if (parts.length === 1 && parts[0]) {
+                                    names.push(parts[0]);
+                                }
+                            }
+                        });
+                        if (names.length > 0) {
+                            assignedStaffStr = names.join(', ');
+                        }
+                    }
+
+                    jobData = {
+                        jobName: jobAtLoc.title || `Job ${jobAtLoc.id.substring(0, 8)}`,
+                        currentVehicle: vehicleName,
+                        assignedTech: assignedStaffStr,
+                        status: jobAtLoc.status || 'Active'
+                    };
                 }
-            }));
-    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate, canManage]);
+
+                return {
+                    ...n,
+                    draggable: canManage && n.id === selectedNodeId,
+                    data: {
+                        ...n.data,
+                        ...jobData,
+                        tenantId,
+                        canManage,
+                        disableTooltip: !!focusId,
+                        onPointsUpdated: canManage ? handlePointsUpdate : () => {}
+                    }
+                };
+            });
+    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate, canManage, activeJobs, allVehicles, allStaff]);
     // Add Object Modal State
     const [isObjectModalOpen, setIsObjectModalOpen] = useState(false);
     const [objFormData, setObjFormData] = useState({ name: 'New Object', widthFt: 10, lengthFt: 10, type: 'Equipment', wallHeight: 8 });
@@ -230,6 +281,33 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
             (err: any) => console.error("Failed to load available areas", err)
         );
         return () => unsub();
+    }, [tenantId]);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        const unsub = onSnapshot(
+            query(collection(db, 'jobs'), where('tenantId', '==', tenantId), where('status', 'in', ['Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery'])),
+            (snapshot: any) => {
+                const jobs = snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+                setActiveJobs(jobs.filter((j: any) => j.currentLocationId));
+            },
+            (err: any) => console.error("Failed to load active jobs", err)
+        );
+        return () => unsub();
+    }, [tenantId]);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        
+        api.get(`/businesses/${tenantId}/staff`)
+           .then(res => setAllStaff(res.data || []))
+           .catch(err => console.error("Failed to load staff", err));
+
+        const unsubVehicles = onSnapshot(
+            query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)),
+            (snap: any) => setAllVehicles(snap.docs.map((d: any) => ({ id: d.id, ...d.data() })))
+        );
+        return () => unsubVehicles();
     }, [tenantId]);
 
     const handleLinkArea = async (areaId: string) => {
@@ -351,11 +429,20 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
         if (!hasFittedViewRef.current && isCanvasLoaded && rfInstance && allNodes.length > 0) {
             // Short timeout lets the DOM correctly calculate SVG bounds if they just rendered
             setTimeout(() => {
-                rfInstance.fitView({ padding: 0.8, maxZoom: 1.0, duration: 800 });
+                if (focusId) {
+                    const focusNode = allNodes.find(n => n.id === focusId);
+                    if (focusNode) {
+                        rfInstance.fitView({ nodes: [focusNode], padding: 0.5, maxZoom: 1.5, duration: 800 });
+                    } else {
+                        rfInstance.fitView({ padding: 0.8, maxZoom: 1.0, duration: 800 });
+                    }
+                } else {
+                    rfInstance.fitView({ padding: 0.8, maxZoom: 1.0, duration: 800 });
+                }
             }, 100);
             hasFittedViewRef.current = true;
         }
-    }, [isCanvasLoaded, rfInstance, allNodes.length]);
+    }, [isCanvasLoaded, rfInstance, allNodes.length, focusId]);
 
     // Handle clicking the canvas to draw
     const onPaneClick = useCallback((event: React.MouseEvent) => {
@@ -1107,11 +1194,11 @@ function MapCanvasCore({ tenantId, user, readOnly = false }: { tenantId: string,
     );
 }
 
-export function FacilityMapTab({ tenantId, readOnly = false }: { tenantId: string, readOnly?: boolean }) {
+export function FacilityMapTab({ tenantId, readOnly = false, focusId }: { tenantId: string, readOnly?: boolean, focusId?: string }) {
     const { currentUser } = useAuth();
     return (
         <ReactFlowProvider>
-            <MapCanvasCore tenantId={tenantId} user={currentUser} readOnly={readOnly} />
+            <MapCanvasCore tenantId={tenantId} user={currentUser} readOnly={readOnly} focusId={focusId} />
         </ReactFlowProvider>
     );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wrench, PlayCircle, PauseCircle, CheckCircle2 } from 'lucide-react';
+import { Wrench, PlayCircle, PauseCircle, CheckCircle2, SearchCode, X, Plus, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { collection, onSnapshot, query, where, doc, updateDoc, getDoc } from 'firebase/firestore';
@@ -13,7 +13,11 @@ export function TechPortal() {
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [customers, setCustomers] = useState<any[]>([]);
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
+    const [areas, setAreas] = useState<any[]>([]);
+    const [taskTimeLogs, setTaskTimeLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [discoveryModal, setDiscoveryModal] = useState<{jobId: string, taskIndex: number, originalTask: any, isOpen: boolean, note: string} | null>(null);
+    const [unplannedModal, setUnplannedModal] = useState({ jobId: '', isOpen: false, title: '', description: '' });
 
     useEffect(() => {
         if (!tenantId || tenantId === 'unassigned') {
@@ -35,10 +39,18 @@ export function TechPortal() {
             setCustomers(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
+        const unsubAreas = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => {
+            setAreas(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         let unsubLogs = () => {};
+        let unsubTaskLogs = () => {};
         if (currentUser?.uid) {
             unsubLogs = onSnapshot(query(collection(db, 'businesses', tenantId, 'time_logs'), where('userId', '==', currentUser.uid)), (s) => {
                 setTimeLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
+            });
+            unsubTaskLogs = onSnapshot(query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open')), (s) => {
+                setTaskTimeLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
             });
         }
 
@@ -47,6 +59,8 @@ export function TechPortal() {
             unsubVehicles();
             unsubCustomers();
             unsubLogs();
+            unsubTaskLogs();
+            unsubAreas();
         };
     }, [tenantId, currentUser?.uid]);
 
@@ -60,6 +74,134 @@ export function TechPortal() {
         const c = customers.find(x => x.id === cId);
         if (!c) return '—';
         return [c.firstName, c.lastName].filter(Boolean).join(' ') || c.company || 'Unknown Customer';
+    };
+
+    const getAreaName = (aId?: string) => {
+        if (!aId) return null;
+        const a = areas.find(x => x.id === aId);
+        return a?.label || aId;
+    };
+
+    const submitDiscoveryNote = async () => {
+        if (!discoveryModal || !discoveryModal.note.trim()) return;
+        try {
+            const { jobId, taskIndex, note } = discoveryModal;
+            const jobRef = doc(db, 'jobs', jobId);
+            const jobSnap = await getDoc(jobRef);
+            if (!jobSnap.exists()) return;
+
+            const jobData = jobSnap.data();
+            const updatedTasks = [...jobData.tasks];
+            
+            const discoveryEntry = {
+                text: note.trim(),
+                time: new Date().toISOString(),
+                authorName: currentUser?.displayName || currentUser?.email || 'Tech'
+            };
+
+            updatedTasks[taskIndex].discoveryNotes = [...(updatedTasks[taskIndex].discoveryNotes || []), discoveryEntry];
+            updatedTasks[taskIndex].hasDiscoveryTime = true;
+            
+            await updateDoc(jobRef, { tasks: updatedTasks });
+            toast.success("Discovery note saved!");
+            setDiscoveryModal(null);
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to save discovery note");
+        }
+    };
+
+    const handleCreateUnplannedTask = async () => {
+        if (!unplannedModal.title || !unplannedModal.description) return toast.error("Title and description are required.");
+        try {
+            const jobRef = doc(db, 'jobs', unplannedModal.jobId);
+            const jobSnap = await getDoc(jobRef);
+            if (!jobSnap.exists()) return;
+            const jobData = jobSnap.data();
+            const newTask = {
+                title: unplannedModal.title,
+                description: unplannedModal.description,
+                type: 'Diagnostic',
+                status: 'In Progress',
+                assignedUids: [currentUser?.uid],
+                isRnD: true,
+                straightTime: true,
+                bookTime: 0
+            };
+            
+            const tasks = [...(jobData.tasks || []), newTask];
+            await updateDoc(jobRef, { tasks });
+            
+            toast.success("R&D Task added to job.");
+            setUnplannedModal({ jobId: '', isOpen: false, title: '', description: '' });
+        } catch (e) {
+            toast.error("Failed to add task");
+            console.error(e);
+        }
+    };
+
+    const handleToggleDiscoveryClock = async (jobId: string, taskIndex: number, currentTask: any) => {
+        if (!currentUser || !tenantId) return;
+        try {
+            const { getDocs, addDoc } = await import('firebase/firestore');
+            const now = new Date().toISOString();
+            
+            const qTaskOpen = query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open'));
+            const openTasksSnap = await getDocs(qTaskOpen);
+            
+            let wasDiscoveryOpen = false;
+            for (const activeDoc of openTasksSnap.docs) {
+                const data = activeDoc.data();
+                if (data.isDiscovery && data.jobId === jobId && data.taskIndex === taskIndex) {
+                    wasDiscoveryOpen = true;
+                }
+                
+                await updateDoc(doc(db, 'businesses', tenantId, 'task_time_logs', activeDoc.id), {
+                    clockOut: now,
+                    status: 'closed'
+                });
+            }
+
+            const jobData = jobs.find(j => j.id === jobId);
+            if (!jobData) return;
+            
+            await addDoc(collection(db, 'businesses', tenantId, 'task_time_logs'), {
+                userId: currentUser.uid,
+                jobId: jobId,
+                taskIndex: taskIndex,
+                taskName: `${wasDiscoveryOpen ? '' : '[R&D] '}${currentTask.title}`,
+                vehicleName: getVehicleName(jobData.vehicleId),
+                bookTime: currentTask.bookTime || 0,
+                clockIn: now,
+                clockOut: null,
+                status: 'open',
+                isDiscovery: !wasDiscoveryOpen
+            });
+            
+            const qObj = query(collection(db, 'businesses', tenantId, 'time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open'));
+            const activeTimeLogSnap = await getDocs(qObj);
+            if (!activeTimeLogSnap.empty) {
+                const activeLogDoc = activeTimeLogSnap.docs[0];
+                const activeLog = activeLogDoc.data();
+                const prefix = wasDiscoveryOpen ? 'Resumed Book Time' : 'Started Discovery / R&D';
+                const newNote = {
+                    text: `${prefix}: ${currentTask.title} - ${getVehicleName(jobData.vehicleId)}`,
+                    time: now
+                };
+                const updatedNotes = [...(activeLog.notes || []), newNote];
+                await updateDoc(doc(db, 'businesses', tenantId, 'time_logs', activeLogDoc.id), { notes: updatedNotes });
+            }
+            
+            if (!wasDiscoveryOpen) {
+                 setDiscoveryModal({jobId, taskIndex, originalTask: currentTask, isOpen: true, note: ''});
+                 toast.success("Started Discovery time clock");
+            } else {
+                 toast.success("Resumed normal book time");
+            }
+        } catch (e) {
+            console.error(e);
+            toast.error("Failed to toggle discovery time");
+        }
     };
 
     const handleUpdateTaskStatus = async (jobId: string, taskIndex: number, newStatus: string) => {
@@ -284,21 +426,36 @@ export function TechPortal() {
                                             <Link to={`/admin/jobs?id=${job.id}`} className="text-sm font-mono text-accent bg-accent/10 px-2 py-0.5 rounded border border-accent/20 hover:bg-accent/20 transition-colors">{job.title}</Link>
                                             <span className="text-xs text-zinc-400 font-medium">{getCustomerName(job.customerId)}</span>
                                         </div>
-                                        <h4 className="text-lg font-bold text-white">{getVehicleName(job.vehicleId)}</h4>
+                                        <div className="flex items-center gap-3 mt-1">
+                                            <h4 className="text-lg font-bold text-white">{getVehicleName(job.vehicleId)}</h4>
+                                            {job.currentLocationId && (
+                                                <button onClick={() => window.open(`/business/areas/${job.currentLocationId}`, '_blank')} className="text-[10px] text-indigo-400 font-bold hover:text-indigo-300 flex items-center gap-1 uppercase tracking-widest bg-indigo-500/10 px-2 py-1 rounded transition-colors" title="Open Live Area Dashboard">
+                                                    <MapPin className="w-3 h-3" /> {getAreaName(job.currentLocationId)}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="text-right flex-shrink-0">
+                                    <div className="text-right flex-shrink-0 flex flex-col items-end">
                                         <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">Due Date</p>
                                         <p className="text-sm font-bold text-white">{job.dueDate || 'Unscheduled'}</p>
+                                        <button 
+                                            onClick={() => setUnplannedModal({ jobId: job.id, isOpen: true, title: '', description: '' })}
+                                            className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 px-2.5 py-1.5 rounded-lg flex items-center justify-center gap-1.5 font-bold uppercase tracking-widest transition-colors mt-2 whitespace-nowrap"
+                                        >
+                                            <Plus className="w-3 h-3" /> Add R&D Task
+                                        </button>
                                     </div>
                                 </div>
 
                                 <div className="p-4 space-y-3">
-                                    {job.myTasks.map((t: any, idx: number) => (
-                                        <div key={idx} className={`rounded-xl border p-4 ${t.status === 'In Progress' ? 'bg-zinc-800 border-l-2 border-l-accent border-y-zinc-700/50 border-r-zinc-700/50' : 'bg-zinc-800/30 border-zinc-700/50'}`}>
+                                    {job.myTasks.map((t: any, idx: number) => {
+                                        const isTaskDiscovery = taskTimeLogs.some(log => log.jobId === job.id && log.taskIndex === t.originalIndex && log.isDiscovery);
+                                        return (
+                                        <div key={idx} className={`rounded-xl border p-4 ${t.status === 'In Progress' ? (isTaskDiscovery ? 'bg-amber-950/30 border-l-2 border-l-amber-500 border-y-amber-500/20 border-r-amber-500/20' : 'bg-zinc-800 border-l-2 border-l-accent border-y-zinc-700/50 border-r-zinc-700/50') : 'bg-zinc-800/30 border-zinc-700/50'}`}>
                                             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                                                 <div className="flex items-start gap-3">
                                                     {t.status === 'In Progress' ? (
-                                                        <PlayCircle className="w-5 h-5 text-accent mt-0.5 shrink-0 animate-pulse" />
+                                                        <PlayCircle className={`w-5 h-5 ${isTaskDiscovery ? 'text-amber-500' : 'text-accent'} mt-0.5 shrink-0 animate-pulse`} />
                                                     ) : (
                                                         <div className="w-5 h-5 rounded-full border-2 border-zinc-600 mt-0.5 shrink-0" />
                                                     )}
@@ -315,7 +472,23 @@ export function TechPortal() {
                                                         {t.description}
                                                     </div>
                                                 )}
+                                                {t.discoveryNotes && t.discoveryNotes.length > 0 && (
+                                                    <div className="mt-3 text-sm text-amber-400 bg-amber-500/10 p-3 rounded-lg border border-amber-500/20 whitespace-pre-wrap">
+                                                        <div className="font-bold text-xs uppercase tracking-widest mb-1">R&D / Discovery Logs</div>
+                                                        {t.discoveryNotes.map((dn: any, i: number) => (
+                                                            <div key={i} className="mb-2 last:mb-0">
+                                                                <span className="font-bold">{dn.authorName}</span>: {dn.text}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
+                                            {isTaskDiscovery && (
+                                                <div className="mt-4 bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+                                                    <h5 className="text-amber-500 font-bold mb-1 flex items-center gap-2"><SearchCode className="w-5 h-5"/> R&D Mode Active</h5>
+                                                    <p className="text-amber-500/80 text-sm">Please take detailed photos of your findings using the <strong className="text-amber-400">CompanyCam</strong> mobile app, and document your process deeply to help us build Standard Operating Procedures (SOPs) for future jobs!</p>
+                                                </div>
+                                            )}
                                             <div className="mt-4 pt-3 border-t border-zinc-700/50 flex flex-wrap gap-2">
                                                 {t.status !== 'In Progress' && (
                                                     <button 
@@ -329,12 +502,20 @@ export function TechPortal() {
                                                 {t.status === 'In Progress' && (
                                                     <button onClick={() => handleUpdateTaskStatus(job.id, t.originalIndex, 'Finished')} className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 py-2 px-3 rounded text-xs font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap"><CheckCircle2 className="w-4 h-4"/> Mark Finished</button>
                                                 )}
+                                                {t.status === 'In Progress' && (
+                                                    <button 
+                                                        onClick={() => handleToggleDiscoveryClock(job.id, t.originalIndex, t)} 
+                                                        className={`flex-1 ${isTaskDiscovery ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500 shadow-lg shadow-amber-500/20' : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border-amber-500/20'} py-2 px-3 rounded text-xs font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap`}
+                                                    >
+                                                        {isTaskDiscovery ? <><PlayCircle className="w-4 h-4" /> Resume Book Time</> : <><SearchCode className="w-4 h-4" /> Clock R&D Time</>}
+                                                    </button>
+                                                )}
                                                 <button onClick={() => {
                                                     alert("To request an edit for this task or shift, please use the Time Off & Requests tab in the Timeclock app.");
                                                 }} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 border border-zinc-700 py-2 px-4 rounded text-xs font-bold transition-colors flex items-center justify-center whitespace-nowrap">Edit Request</button>
                                             </div>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             </div>
                         ))}
@@ -371,6 +552,66 @@ export function TechPortal() {
                     </div>
                 </div>
             </div>
+
+            {/* Discovery Modal */}
+            {discoveryModal && discoveryModal.isOpen && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative">
+                        <button onClick={() => setDiscoveryModal(null)} className="absolute top-4 right-4 text-zinc-500 hover:text-white transition-colors">
+                            <X className="w-5 h-5"/>
+                        </button>
+                        <h3 className="text-xl font-bold text-white mb-2">Log Discovery / R&D Information</h3>
+                        <p className="text-sm text-zinc-400 mb-6 font-mono">For task: <span className="text-accent">{discoveryModal.originalTask?.title}</span></p>
+                        
+                        <textarea 
+                            value={discoveryModal.note}
+                            onChange={(e) => setDiscoveryModal({...discoveryModal, note: e.target.value})}
+                            placeholder="What did you discover? What parts or procedures were non-standard? This information will help us build SOPs."
+                            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white h-32 resize-none mb-4"
+                        />
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setDiscoveryModal(null)} className="px-5 py-2.5 rounded-lg text-sm font-bold text-zinc-400 hover:bg-zinc-800 transition-colors">Skip for now</button>
+                            <button 
+                                onClick={submitDiscoveryNote}
+                                disabled={!discoveryModal.note.trim()}
+                                className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-5 py-2.5 rounded-lg text-sm font-bold transition-colors"
+                            >
+                                Save Discovery Note
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Unplanned Task Modal */}
+            {unplannedModal.isOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                    <div className="bg-zinc-900 border border-amber-500/30 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden shadow-amber-500/10 relative">
+                        <div className="p-6 border-b border-zinc-800 flex justify-between items-center bg-zinc-900/50">
+                            <div>
+                                <h3 className="text-xl font-black text-amber-500 tracking-tight flex items-center gap-2">
+                                    <SearchCode className="w-5 h-5" /> Add Unplanned Task (R&D)
+                                </h3>
+                                <p className="text-xs text-amber-500/80 font-bold uppercase tracking-wider mt-1">Straight Time / Guaranteed Hourly</p>
+                            </div>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1.5 ml-1">Task Title <span className="text-red-500">*</span></label>
+                                <input value={unplannedModal.title} onChange={e => setUnplannedModal(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Broken Chassis Bolt Extraction" className="w-full bg-zinc-950 border border-zinc-800 focus:border-amber-500 rounded-lg p-3 text-sm text-white focus:outline-none transition-colors" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1.5 ml-1">Scope / Reason <span className="text-red-500">*</span></label>
+                                <textarea value={unplannedModal.description} onChange={e => setUnplannedModal(p => ({ ...p, description: e.target.value }))} placeholder="State what was discovered and what needs to be solved..." className="w-full min-h-[100px] align-top bg-zinc-950 border border-zinc-800 focus:border-amber-500 rounded-lg p-3 text-sm text-white focus:outline-none transition-colors" />
+                            </div>
+                        </div>
+                        <div className="p-6 border-t border-zinc-800 flex justify-end gap-3 bg-zinc-900">
+                            <button onClick={() => setUnplannedModal({ jobId: '', isOpen: false, title: '', description: '' })} className="px-6 py-2.5 rounded-xl font-bold text-sm text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">Cancel</button>
+                            <button onClick={handleCreateUnplannedTask} className="bg-amber-600 hover:bg-amber-500 text-white font-black py-2.5 px-6 rounded-xl transition-all shadow-lg text-sm">Add Task to Job</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

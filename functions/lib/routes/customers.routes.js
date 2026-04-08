@@ -93,7 +93,7 @@ exports.customersRoutes.post('/', auth_middleware_1.authenticate, async (req, re
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate } = req.body;
+        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate, defaultDiscount, website } = req.body;
         const newCustomer = {
             tenantId,
             firstName: firstName || '',
@@ -110,8 +110,10 @@ exports.customersRoutes.post('/', auth_middleware_1.authenticate, async (req, re
             company: company || '',
             status: status || 'Active', // e.g., Active, Lead, Inactive
             notes: notes || '',
+            website: website || '',
             tags: tags || [],
             taxRate: (taxRate !== undefined && taxRate !== '') ? String(taxRate) : '8.25',
+            defaultDiscount: (defaultDiscount !== undefined && defaultDiscount !== '') ? Number(defaultDiscount) : 0,
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
@@ -140,7 +142,7 @@ exports.customersRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this customer.' });
         }
-        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate } = req.body;
+        const { firstName, middleName, lastName, nickName, addressStreet, addressCity, addressState, addressZip, email, workPhone, mobilePhone, company, status, notes, tags, taxRate, defaultDiscount, website } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (firstName !== undefined)
             updates.firstName = firstName;
@@ -170,10 +172,14 @@ exports.customersRoutes.put('/:id', auth_middleware_1.authenticate, async (req, 
             updates.status = status;
         if (notes !== undefined)
             updates.notes = notes;
+        if (website !== undefined)
+            updates.website = website;
         if (tags !== undefined)
             updates.tags = tags;
         if (taxRate !== undefined)
             updates.taxRate = String(taxRate);
+        if (defaultDiscount !== undefined)
+            updates.defaultDiscount = Number(defaultDiscount);
         await customerRef.update(updates);
         return res.json(Object.assign(Object.assign({ id: customerId }, customerData), updates));
     }
