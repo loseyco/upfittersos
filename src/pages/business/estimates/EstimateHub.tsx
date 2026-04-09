@@ -85,7 +85,11 @@ export function EstimateHub() {
         } else if (statusFilter === 'Archived') {
             if (!isArchived) return false;
         } else {
-            if (e.status !== statusFilter) return false;
+            if (statusFilter === 'Estimate') {
+                if (!['Estimate', 'Draft', 'Pending Approval'].includes(e.status)) return false;
+            } else if (e.status !== statusFilter) {
+                return false;
+            }
         }
         
         return (e.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -94,8 +98,8 @@ export function EstimateHub() {
                e.id.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
-    const displayActive = filteredEstimates.filter(e => e.status !== 'Archived' && e.status !== 'archived');
-    const displayArchived = filteredEstimates.filter(e => e.status === 'Archived' || e.status === 'archived');
+    const displayActive = filteredEstimates.filter(e => !['Archived', 'archived', 'Declined', 'declined'].includes(e.status));
+    const displayArchived = filteredEstimates.filter(e => ['Archived', 'archived', 'Declined', 'declined'].includes(e.status));
 
     return (
         <div className="min-h-screen bg-zinc-950 p-4 md:p-8 flex flex-col relative">
@@ -126,10 +130,16 @@ export function EstimateHub() {
                         </div>
                         
                         <div className="flex bg-zinc-950 border border-zinc-800 p-1 rounded-xl overflow-x-auto custom-scrollbar">
-                            {['All', 'Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Archived'].map(status => {
+                            {['All', 'Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Declined', 'Archived'].map(status => {
                                 const count = status === 'All' 
-                                    ? estimates.filter(e => e.status !== 'Archived' && e.status !== 'archived').length 
-                                    : (status === 'Archived' ? estimates.filter(e => e.status === 'Archived' || e.status === 'archived').length : estimates.filter(e => e.status === status).length);
+                                    ? estimates.filter(e => !['Archived', 'archived', 'Declined', 'declined'].includes(e.status)).length 
+                                    : (status === 'Archived' 
+                                        ? estimates.filter(e => ['Archived', 'archived'].includes(e.status)).length 
+                                        : (status === 'Declined'
+                                            ? estimates.filter(e => ['Declined', 'declined'].includes(e.status)).length
+                                            : (status === 'Estimate'
+                                                ? estimates.filter(e => ['Estimate', 'Draft', 'Pending Approval'].includes(e.status)).length
+                                                : estimates.filter(e => e.status === status).length)));
                                 
                                 return (
                                 <button
@@ -220,12 +230,12 @@ export function EstimateHub() {
                                 </div>
                             )}
 
-                            {displayArchived.length > 0 && (statusFilter === 'All' || statusFilter === 'Archived') && (
+                            {displayArchived.length > 0 && (statusFilter === 'All' || statusFilter === 'Archived' || statusFilter === 'Declined') && (
                                 <div className="space-y-4">
                                     {statusFilter === 'All' && (
                                         <div className="flex items-center gap-4">
                                             <div className="flex-1 h-px bg-zinc-800"></div>
-                                            <h3 className="text-zinc-500 font-bold font-mono text-sm tracking-widest uppercase">Archived Jobs</h3>
+                                            <h3 className="text-zinc-500 font-bold font-mono text-sm tracking-widest uppercase">Archived & Declined</h3>
                                             <div className="flex-1 h-px bg-zinc-800"></div>
                                         </div>
                                     )}
@@ -237,13 +247,23 @@ export function EstimateHub() {
                                                 className="bg-zinc-950/50 border border-zinc-800/50 hover:border-indigo-500/50 rounded-2xl p-5 cursor-pointer group transition-all hover:shadow-2xl hover:shadow-indigo-500/10 flex flex-col"
                                             >
                                                 <div className="flex justify-between items-start mb-4">
-                                                    <div className="font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md border bg-zinc-900/50 text-zinc-500 border-zinc-800">
-                                                        ARCHIVED
+                                                    <div className={`font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md border bg-zinc-900/50 ${job.status === 'Declined' || job.status === 'declined' ? 'text-red-400 border-red-500/20' : 'text-zinc-500 border-zinc-800'}`}>
+                                                        {job.status === 'Declined' || job.status === 'declined' ? 'DECLINED' : 'ARCHIVED'}
                                                     </div>
-                                                    <span className="text-zinc-600 font-mono text-xs">#{job.id.substring(0,6).toUpperCase()}</span>
+                                                    <span className="text-zinc-500/50 font-mono text-xs">#{job.id.substring(0,6).toUpperCase()}</span>
                                                 </div>
-                                                <h3 className="text-lg font-black text-zinc-400 mb-1 group-hover:text-indigo-400 transition-colors line-clamp-1">{job.title || 'Untitled'}</h3>
-                                                <p className="text-zinc-600 text-xs mb-4 line-clamp-2 min-h-[32px]">{job.description || 'No description provided.'}</p>
+                                                <h3 className="text-lg font-black text-white mb-1 group-hover:text-indigo-400 transition-colors line-clamp-1">{job.title || 'Untitled'}</h3>
+                                                <p className="text-zinc-500 text-xs mb-4 line-clamp-2 min-h-[32px]">{job.description || 'No description provided.'}</p>
+                                                
+                                                {job.revivedToJobId && (
+                                                    <div className="mb-4 bg-indigo-500/10 border border-indigo-500/20 rounded-lg py-2 px-3 flex items-center gap-2">
+                                                        <ArrowRight className="w-4 h-4 text-indigo-400" />
+                                                        <div>
+                                                            <div className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest leading-none">Revived As</div>
+                                                            <div className="text-xs text-white font-mono mt-0.5">#{job.revivedToJobId.substring(0, 6).toUpperCase()}</div>
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 
                                                 <div className="flex-1 space-y-2 mb-4">
                                                     <div className="flex items-center gap-2 text-zinc-500 text-xs font-medium bg-zinc-900/50 px-3 py-2 rounded-lg border border-zinc-800/50">

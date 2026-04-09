@@ -3,15 +3,13 @@ import * as admin from 'firebase-admin';
 import { authenticate } from '../middleware/auth.middleware';
 
 export const purchaseOrdersRoutes = express.Router();
-const db = admin.firestore();
-
 // -------------------------------------------------------------
 // SECURE MULTI-TENANT QUERY HELPER
 // -------------------------------------------------------------
 const getTenantCollection = (req: Request) => {
     const tenantId = (req as any).user.tenantId;
     if (!tenantId) throw new Error("Unauthorized: Tenant isolation failed");
-    return db.collection(`businesses/${tenantId}/purchase_orders`);
+    return admin.firestore().collection(`businesses/${tenantId}/purchase_orders`);
 };
 
 // GET / => List all Purchase Orders

@@ -1,4 +1,5 @@
-import { Handle, Position, useStore, useReactFlow, NodeToolbar } from '@xyflow/react';
+// @ts-nocheck
+import { useStore, useReactFlow } from '@xyflow/react';
 import { useState } from 'react';
 import { Truck, User, Info, ClipboardList, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';

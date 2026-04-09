@@ -152,7 +152,7 @@ export function TimeClockApp() {
                     fetched.filter((j: any) => !j.archived).forEach((j: any) => {
                         if (!j.tasks) return;
                         j.tasks.forEach((t: any, idx: number) => {
-                            if (t.status !== 'Finished' && t.assignedUids?.includes(currentUser.uid)) {
+                            if (t.status !== 'Finished' && t.isApproved !== false && t.assignedUids?.includes(currentUser.uid)) {
                                 const matchedVehicle = fetchedVehicles.find(v => v.id === j.vehicleId);
                                 const vehStr = matchedVehicle ? `${matchedVehicle.year||''} ${matchedVehicle.make||''} ${matchedVehicle.model||''} ${matchedVehicle.vin||''}`.trim() : 'Vehicle';
                                 

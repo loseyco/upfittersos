@@ -3,18 +3,16 @@ import * as admin from 'firebase-admin';
 import { authenticate } from '../middleware/auth.middleware';
 
 export const deliveriesRoutes = express.Router();
-const db = admin.firestore();
-
 // -------------------------------------------------------------
 // SECURE MULTI-TENANT QUERY HELPER
 // -------------------------------------------------------------
 const getTenantCollection = (req: Request) => {
     const tenantId = (req as any).user.tenantId;
     if (!tenantId) throw new Error("Unauthorized: Tenant isolation failed");
-    return db.collection(`businesses/${tenantId}/deliveries`);
+    return admin.firestore().collection(`businesses/${tenantId}/deliveries`);
 };
 
-const getBusinessCollection = () => db.collection('businesses');
+const getBusinessCollection = () => admin.firestore().collection('businesses');
 
 // GET / => List all Deliveries
 deliveriesRoutes.get('/', authenticate, async (req: Request, res: Response): Promise<Response> => {

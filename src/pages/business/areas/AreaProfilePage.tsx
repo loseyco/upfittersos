@@ -126,7 +126,7 @@ export function AreaProfilePage() {
                             </span>
                         </div>
                         <div className="flex-1 relative">
-                            <FacilityMapTab tenantId={tenantId} readOnly={true} focusId={areaId || ''} />
+                            <FacilityMapTab tenantId={tenantId!} readOnly={true} focusId={areaId || ''} />
                         </div>
                     </div>
                 )}

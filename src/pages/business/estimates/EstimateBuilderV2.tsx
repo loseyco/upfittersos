@@ -6,9 +6,9 @@ import { db, storage } from '../../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
-import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
+import { Save, ArrowLeft, ArrowRight, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, Archive } from 'lucide-react';
 import { CustomerSelector, StaffSelector, InventorySelector, TaskTemplateSelector } from '../../../components/EntitySelectors';
-
+import { PrintPreviewModal } from './PrintPreviewModal';
 const toDateTimeLocal = (val: any) => {
     if (!val) return '';
     // If it's already a local-compatible ISO string from a previous save, return it as-is
@@ -50,9 +50,24 @@ export function EstimateBuilderV2() {
     const [allStaff, setAllStaff] = useState<any[]>([]);
     const [allInventory, setAllInventory] = useState<any[]>([]);
     const [allTemplates, setAllTemplates] = useState<any[]>([]);
-    const [allAreas, setAllAreas] = useState<any[]>([]);
+
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
-    const [businessSettings, setBusinessSettings] = useState<{ burdenMultiplier: number, standardShopRate: number, defaultSopSupplies?: number, defaultShipping?: number, departments?: any[] }>({ burdenMultiplier: 1.3, standardShopRate: 150, defaultSopSupplies: 0, defaultShipping: 0, departments: [] });
+    const [businessSettings, setBusinessSettings] = useState<{ 
+        name?: string,
+        phone?: string,
+        addressStreet?: string,
+        addressCity?: string,
+        addressState?: string,
+        addressZip?: string,
+        email?: string,
+        website?: string,
+        burdenMultiplier: number, 
+        standardShopRate: number, 
+        averageStaffHourlyCost?: number, 
+        defaultSopSupplies?: number, 
+        defaultShipping?: number, 
+        departments?: any[] 
+    }>({ burdenMultiplier: 1.3, standardShopRate: 150, averageStaffHourlyCost: 25, defaultSopSupplies: 0, defaultShipping: 0, departments: [] });
     
     const [ccPhotos, setCcPhotos] = useState<any[]>([]);
     const [loadingCcPhotos, setLoadingCcPhotos] = useState(false);
@@ -69,7 +84,7 @@ export function EstimateBuilderV2() {
     const [linkingPhotosTaskIdx, setLinkingPhotosTaskIdx] = useState<number | null>(null);
 
     const [highlightedRates, setHighlightedRates] = useState<Record<number, boolean>>({});
-
+    const [showPrintPreview, setShowPrintPreview] = useState(false);
     const handlePromoteToSOP = async (task: any) => {
         if (!window.confirm("Promote this task and its R&D notes to a global SOP Template?")) return;
         try {
@@ -209,10 +224,6 @@ ${combinedNotes}`;
                 const tmplSnap = await getDocs(tmplQ);
                 setAllTemplates(tmplSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
 
-                const areasQ = query(collection(db, 'business_zones'), where('tenantId', '==', tenantId));
-                getDocs(areasQ).then(aSnap => {
-                    setAllAreas(aSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
-                });
 
 
                 try {
@@ -225,8 +236,17 @@ ${combinedNotes}`;
                 try {
                     const bRes = await api.get(`/businesses/${tenantId}`);
                     setBusinessSettings({
+                        name: bRes.data.name || '',
+                        phone: bRes.data.phone || '',
+                        addressStreet: bRes.data.addressStreet || '',
+                        addressCity: bRes.data.addressCity || '',
+                        addressState: bRes.data.addressState || '',
+                        addressZip: bRes.data.addressZip || '',
+                        email: bRes.data.email || '',
+                        website: bRes.data.website || '',
                         burdenMultiplier: bRes.data.burdenMultiplier !== undefined ? Number(bRes.data.burdenMultiplier) : 1.3,
                         standardShopRate: bRes.data.standardShopRate !== undefined ? Number(bRes.data.standardShopRate) : 150,
+                        averageStaffHourlyCost: bRes.data.averageStaffHourlyCost !== undefined ? Number(bRes.data.averageStaffHourlyCost) : 25,
                         defaultSopSupplies: bRes.data.defaultSopSupplies !== undefined ? Number(bRes.data.defaultSopSupplies) : 0,
                         defaultShipping: bRes.data.defaultShipping !== undefined ? Number(bRes.data.defaultShipping) : 0,
                         departments: bRes.data.departments || []
@@ -323,7 +343,7 @@ ${combinedNotes}`;
     // Auto-Save Effect
     useEffect(() => {
         // Skip for new jobs until manually created once
-        if (jobId === 'new' || isLocked) return;
+        if (jobId === 'new') return;
 
         // Determine if we actually have edits. We don't want to auto-save if everything is identical to original state.
         const custChanged = JSON.stringify(customer) !== JSON.stringify(originalCustomer);
@@ -574,47 +594,42 @@ ${combinedNotes}`;
         }
     };
 
-    const handleDuplicateAsRework = async () => {
-        if (!window.confirm("Create a clean Rework ticket from this job? This will duplicate the core job details (removing tasks) and link it for isolated financial tracking.")) return;
-        try {
-            setIsSaving(true);
-            const payload = {
-                tasks: [],
-                status: 'In Progress',
-                title: `[REWORK] ${job.title}`,
-                description: `Rework ticket originally for Job #${jobId}
 
-${job.description || ''}`,
-                customerId: job.customerId || selectedCustomerId,
-                vehicleId: job.vehicleId || selectedVehicleId,
-                tenantId,
-                isRework: true,
-                originalJobId: jobId,
-                editLog: [{
-                    timestamp: new Date().toISOString(),
-                    userName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'System User',
-                    uid: currentUser?.uid || 'system',
-                    details: `Created as a Rework ticket from Job #${jobId}`
-                }]
-            };
 
-            const res = await api.post('/jobs', payload);
-            toast.success("Rework Job created successfully!");
-            navigate(`/business/jobs/${res.data.id || res.data.jobId}`);
-        } catch (err) {
-            console.error("Failed to duplicate as rework", err);
-            toast.error("Failed to create Rework Job.");
-            setIsSaving(false);
+    const customEquals = (a: any, b: any) => {
+        const cleanA = JSON.parse(JSON.stringify(a || {}));
+        const cleanB = JSON.parse(JSON.stringify(b || {}));
+        
+        // Strip out any dynamic frontend-only properties that might cause trivial mismatches
+        if (cleanA && cleanA.tasks) {
+            cleanA.tasks.forEach((t: any) => {
+                if (!t.assignedUids) t.assignedUids = [];
+                if (!t.parts) t.parts = [];
+                if (!t.mediaUrls) t.mediaUrls = [];
+                if (t.isApproved === null) delete t.isApproved;
+            });
         }
+        if (cleanB && cleanB.tasks) {
+            cleanB.tasks.forEach((t: any) => {
+                if (!t.assignedUids) t.assignedUids = [];
+                if (!t.parts) t.parts = [];
+                if (!t.mediaUrls) t.mediaUrls = [];
+                if (t.isApproved === null) delete t.isApproved;
+            });
+        }
+
+        return JSON.stringify(cleanA) === JSON.stringify(cleanB);
     };
 
-    const hasChanges = JSON.stringify(job) !== JSON.stringify(originalJob) ||
-        JSON.stringify(customer) !== JSON.stringify(originalCustomer) ||
-        JSON.stringify(vehicle) !== JSON.stringify(originalVehicle);
+    const hasChanges = !customEquals(job, originalJob) ||
+        !customEquals(customer, originalCustomer) ||
+        !customEquals(vehicle, originalVehicle);
+
 
     const calculatePartsTotal = () => {
         const legacyParts = job?.parts?.reduce((acc: any, part: any) => acc + (Number(part.price) * Number(part.quantity)), 0) || 0;
         const tasksParts = job?.tasks?.reduce((tAcc: any, task: any) => {
+            if (task.isApproved === false) return tAcc;
             return tAcc + (task.parts || []).reduce((pAcc: any, part: any) => {
                 const discount = Number(part.discount || 0);
                 const discountedPrice = Number(part.price) * (1 - (discount / 100));
@@ -627,6 +642,7 @@ ${job.description || ''}`,
     const calculateLaborTotal = () => {
         const legacyLabor = job?.laborLines?.reduce((acc: any, line: any) => acc + (Number(line.rate) * Number(line.hours)), 0) || 0;
         const tasksLabor = job?.tasks?.reduce((tAcc: any, task: any) => {
+            if (task.isApproved === false) return tAcc;
             return tAcc + (Number(task.bookTime) * Number(task.laborRate || 0));
         }, 0) || 0;
         return legacyLabor + tasksLabor;
@@ -662,14 +678,118 @@ ${job.description || ''}`,
     const handleApprove = async () => {
         if (!window.confirm("Approve quote? This converts the Estimate into an active Work Order.")) return;
         if (hasChanges) await handleSave(false);
-        if (jobId === 'new') return; // Wait until navigated
+        if (jobId === 'new') return;
         try {
-            await api.put(`/jobs/${jobId}`, { status: 'Approved', tenantId });
-            setJob((prev: any) => ({ ...prev, status: 'Approved' }));
-            setOriginalJob((prev: any) => ({ ...prev, status: 'Approved' }));
-            toast.success("Quote Approved! Converted to Work Order.");
+            if (job.isChangeOrder) {
+                toast.loading("Merging Change Order into Parent Project...", { id: 'merge' });
+                await api.post(`/jobs/${jobId}/merge`);
+                setJob((prev: any) => ({ ...prev, status: 'Merged' }));
+                setOriginalJob((prev: any) => ({ ...prev, status: 'Merged' }));
+                toast.success("Change Order Approved & Merged!", { id: 'merge' });
+                setTimeout(() => navigate(`/business/jobs/${job.parentJobId}`), 1500);
+            } else {
+                await api.put(`/jobs/${jobId}`, { status: 'Approved', tenantId });
+                setJob((prev: any) => ({ ...prev, status: 'Approved' }));
+                setOriginalJob((prev: any) => ({ ...prev, status: 'Approved' }));
+                toast.success("Quote Approved! Converted to Work Order.");
+            }
         } catch (e) {
-            toast.error("Failed to convert");
+            toast.error("Failed to process approval.");
+        }
+    };
+
+    const handleDenyEstimate = async () => {
+        if (!window.confirm("Mark this estimate as Denied? This will move it to the Archive pipeline.")) return;
+        if (hasChanges) await handleSave(false);
+        if (jobId === 'new') return;
+        try {
+            await api.put(`/jobs/${jobId}`, { status: 'Declined', tenantId });
+            setJob((prev: any) => ({ ...prev, status: 'Declined' }));
+            setOriginalJob((prev: any) => ({ ...prev, status: 'Declined' }));
+            toast.success("Estimate Denied & Archived.");
+        } catch (e) {
+            toast.error("Failed to archive estimate");
+        }
+    };
+
+    const handleDuplicateRevive = async () => {
+        if (!window.confirm("Clone this archived record into a brand new Draft Estimate? This will create a new Job ID for tracking.")) return;
+        try {
+            const payload = {
+                ...job,
+                status: 'Estimate',
+                title: job.title ? `[Revived] ${job.title}` : 'Revived Estimate',
+                editLog: [],
+                tenantId
+            };
+            // Strip the explicit auto-identifiers so Firebase issues a fresh one
+            delete payload.id;
+            delete payload.createdAt;
+            delete payload.updatedAt;
+            
+            toast.loading("Cloning estimate data...", { id: 'cloning' });
+            const res = await api.post('/jobs', payload);
+            const nId = res.data.id || res.data.jobId;
+            
+            // Post the backwards-reference connection to the old record
+            await api.put(`/jobs/${jobId}`, { revivedToJobId: nId, tenantId });
+            setJob((prev: any) => ({ ...prev, revivedToJobId: nId }));
+
+            toast.success("Successfully cloned into new Estimate!", { id: 'cloning' });
+            
+            navigate(`/business/jobs/${nId}?revived=true`);
+        } catch (err) {
+            console.error("Clone error", err);
+            toast.error("Failed to clone estimate.", { id: 'cloning' });
+        }
+    };
+
+    const handleCreateChangeOrder = async () => {
+        if (!window.confirm("Add a new Supplemental Finding? This will create an isolated Change Order estimate linked to this job.")) return;
+        try {
+            toast.loading("Sequencing Change Order...", { id: 'co_create' });
+            const res = await api.post('/jobs', {
+                tenantId,
+                title: `Change Order - ${job.title || 'Supplement'}`,
+                status: 'Estimate',
+                isChangeOrder: true,
+                parentJobId: job.id,
+                parentJobRefNum: job.id.substring(job.id.length - 4),
+                customerId: job.customerId,
+                vehicleId: job.vehicleId,
+                skipCompanyCamSync: true
+            });
+            toast.success("Change Order drafted successfully!", { id: 'co_create' });
+            // Redirect asynchronously
+            setTimeout(() => {
+                navigate(`/business/jobs/${res.data.id}?co=true`);
+            }, 1000);
+        } catch (e) {
+            toast.error("Failed to sequence Change Order", { id: 'co_create' });
+        }
+    };
+
+    const handleMarkAsDeclined = async () => {
+        if (!window.confirm("Switch this Archived record to the 'Declined' status? This helps accurate loss tracking.")) return;
+        try {
+            await api.put(`/jobs/${jobId}`, { status: 'Declined', tenantId });
+            setJob((prev: any) => ({ ...prev, status: 'Declined' }));
+            setOriginalJob((prev: any) => ({ ...prev, status: 'Declined' }));
+            toast.success("Record marked as Declined.");
+        } catch (e) {
+            toast.error("Failed to update status");
+        }
+    };
+
+    const handleDeleteJob = async () => {
+        if (!window.confirm("WARNING: Are you absolutely sure you want to PERMANENTLY DELETE this job record? This cannot be undone.")) return;
+        try {
+            toast.loading("Deleting Job Record...", { id: 'delete_job' });
+            await api.delete(`/jobs/${jobId}`);
+            toast.success("Job Permanently Deleted.", { id: 'delete_job' });
+            setTimeout(() => navigate('/business/jobs'), 500);
+        } catch (e: any) {
+            toast.error(e.response?.data?.error || "Failed to delete job record", { id: 'delete_job' });
         }
     };
 
@@ -792,6 +912,25 @@ ${job.description || ''}`,
 
     const computeLaborCost = (isDiscoveryFilter: boolean) => {
         return job?.tasks?.reduce((tAcc: number, _task: any, tIdx: number) => {
+            if (_task.isApproved === false) return tAcc; // Exclude explicitly declined tasks
+            
+            // If the job is still unassigned/unapproved, mathematically forecast labor costs
+            if (['Estimate', 'Draft', 'Pending Approval'].includes(job?.status)) {
+                if (isDiscoveryFilter) return tAcc; // Cannot forecast RnD
+                const hours = Number(_task.bookTime || 0);
+                let multiplier = businessSettings.burdenMultiplier;
+                const dept = businessSettings.departments?.find((d: any) => d.id === _task.departmentId);
+                if (dept && dept.burdenMultiplier) multiplier = dept.burdenMultiplier;
+                
+                const avgTechWage = (dept && dept.averageStaffHourlyCost !== undefined && dept.averageStaffHourlyCost > 0) 
+                    ? dept.averageStaffHourlyCost 
+                    : (businessSettings.averageStaffHourlyCost !== undefined ? businessSettings.averageStaffHourlyCost : 25);
+                    
+                const trueHourlyCost = avgTechWage * multiplier;
+                return tAcc + (hours * trueHourlyCost);
+            }
+
+            // Once approved and in-progress, rely strictly on tracked time events
             const actualTaskCost = timeLogs.filter((l: any) => l.taskIndex === tIdx && (isDiscoveryFilter ? l.isDiscovery : !l.isDiscovery)).reduce((acc: number, log: any) => {
                 const end = log.clockOut ? new Date(log.clockOut).getTime() : currentTime;
                 const hours = ((end - new Date(log.clockIn).getTime()) / (1000 * 60 * 60));
@@ -801,8 +940,14 @@ ${job.description || ''}`,
                 
                 const dept = businessSettings.departments?.find((d: any) => d.id === _task.departmentId);
                 
-                if (staffMember && Number(staffMember.hourlyRate) > 0) {
-                    rawRate = Number(staffMember.hourlyRate);
+                if (staffMember) {
+                    // Check if the staff member has a specific wage for this task's department
+                    const override = (staffMember.departmentRoles || []).find((dr: any) => dr.departmentName === dept?.name);
+                    if (override && Number(override.payRate) > 0) {
+                        rawRate = Number(override.payRate);
+                    } else if (Number(staffMember.payRate) > 0) {
+                        rawRate = Number(staffMember.payRate); // Fallback to global payRate (fixed missing property key!)
+                    }
                 } else if (dept && dept.standardShopRate > 0) {
                     rawRate = dept.standardShopRate;
                 }
@@ -823,68 +968,42 @@ ${job.description || ''}`,
     const actualRnDLaborTotal = computeLaborCost(true);
     const actualLaborTotal = actualStandardLaborTotal + actualRnDLaborTotal;
     
-    
+    const actualPartsCost = (() => {
+        const legacyPartsCost = job?.parts?.reduce((acc: any, part: any) => acc + (Number(part.cost || 0) * Number(part.quantity || 1)), 0) || 0;
+        const tasksPartsCost = job?.tasks?.reduce((tAcc: any, task: any) => {
+            if (task.isApproved === false) return tAcc; // Exclude explicitly declined tasks from projections
+            return tAcc + (task.parts || []).reduce((pAcc: any, part: any) => pAcc + (Number(part.cost || 0) * Number(part.quantity || 1)), 0);
+        }, 0) || 0;
+        return legacyPartsCost + tasksPartsCost;
+    })();
+
     // Add legacy actual labor if any (though legacy had no tracking, so just use legacy string hours if needed, or 0)
-    const actualSubTotal = partsTotal + actualLaborTotal + (Number(job?.sopSupplies) || 0) + (Number(job?.shipping) || 0);
+    const effectiveShopSupplies = Number(job?.sopSupplies) || 0;
+    const effectiveShipping = Number(job?.shipping) || 0;
+
+    const actualSubTotal = actualPartsCost + actualLaborTotal + effectiveShopSupplies + effectiveShipping;
     const actualDiscountAmount = actualSubTotal * ((Number(job.discount) || 0) / 100);
     const actualSubTotalAfterDiscount = actualSubTotal - actualDiscountAmount;
-    const actualTaxes = actualSubTotalAfterDiscount * txRateDecimal;
-    const actualGrandTotal = actualSubTotalAfterDiscount + actualTaxes;
+    const actualGrandTotal = actualSubTotalAfterDiscount; // Never accrue customer sales tax into internal cost margin computations
 
-    const calculateAutoETA = () => {
-        const totalHoursStr = job?.tasks?.reduce((acc: number, t: any) => acc + (Number(t.bookTime) || 0), 0) || 0;
-        const totalHours = Number(totalHoursStr);
-        if (totalHours <= 0) {
-            toast('Add tasks with estimated hours first to calculate ETA.', { icon: 'ℹ️' });
-            return;
-        }
-
-        // Start from either dropoff date or now
-        let currentDate = job?.desiredDropoffDate ? new Date(job.desiredDropoffDate) : new Date();
-
-        // Push forward if weekend
-        while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
-            currentDate.setDate(currentDate.getDate() + 1);
-            currentDate.setHours(8, 0, 0, 0);
-        }
-
-        if (currentDate.getHours() < 8) currentDate.setHours(8, 0, 0, 0);
-        
-        if (currentDate.getHours() >= 17) {
-            currentDate.setDate(currentDate.getDate() + 1);
-            currentDate.setHours(8, 0, 0, 0);
-            while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
-                currentDate.setDate(currentDate.getDate() + 1);
-            }
-        }
-
-        let remainingHours = totalHours;
-
-        while (remainingHours > 0) {
-            const currentHour = currentDate.getHours() + (currentDate.getMinutes() / 60);
-            const hoursLeftToday = 17 - currentHour;
-
-            if (remainingHours <= hoursLeftToday) {
-                currentDate.setMinutes(currentDate.getMinutes() + (remainingHours * 60));
-                remainingHours = 0;
-            } else {
-                remainingHours -= hoursLeftToday;
-                currentDate.setDate(currentDate.getDate() + 1);
-                currentDate.setHours(8, 0, 0, 0);
-                while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
-                    currentDate.setDate(currentDate.getDate() + 1);
-                }
-            }
-        }
-
-        const offset = currentDate.getTimezoneOffset() * -60000;
-        const localISO = new Date(currentDate.getTime() + offset).toISOString().slice(0, 16);
-        setJob({ ...job, completionEta: localISO });
-        toast.success(`Automatically mapped ${totalHours.toFixed(2)}h working time!`);
-    };
 
     return (
         <div className="min-h-screen bg-zinc-950 flex flex-col relative pb-32">
+            {showPrintPreview && (
+                <PrintPreviewModal 
+                    job={job}
+                    jobId={jobId}
+                    customer={customer}
+                    vehicle={vehicle}
+                    businessSettings={businessSettings}
+                    partsTotal={partsTotal}
+                    laborTotal={laborTotal}
+                    discountAmount={discountAmount}
+                    taxes={taxes}
+                    grandTotal={grandTotal}
+                    onClose={() => setShowPrintPreview(false)}
+                />
+            )}
             {linkingPhotosTaskIdx !== null && (
                 <div className="fixed inset-0 z-[200] bg-black/80 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-4xl shadow-2xl p-6 relative flex flex-col max-h-[90vh]">
@@ -936,11 +1055,17 @@ ${job.description || ''}`,
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
             <div className="sticky top-0 z-20 bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/80 shadow-2xl">
+                {job.isChangeOrder && (
+                    <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-500 text-xs font-black uppercase tracking-widest text-center py-2 flex items-center justify-center gap-2">
+                        <AlertTriangle className="w-4 h-4" /> Change Order for Original Work Order #{job.parentJobRefNum}
+                    </div>
+                )}
                 <div className="max-w-7xl mx-auto w-full p-4 md:p-6 flex items-center justify-between">
                     <div className="flex items-center gap-4 w-full md:w-auto">
                         <button
                             onClick={() => {
                                 if (hasChanges && !window.confirm("You have unsaved changes. Discard?")) return;
+                                if (job.isChangeOrder && job.parentJobId) return navigate(`/business/jobs/${job.parentJobId}`);
                                 navigate('/business/jobs');
                             }}
                             className="w-10 h-10 shrink-0 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
@@ -1004,33 +1129,14 @@ ${job.description || ''}`,
                     </div>
                     <div className="hidden md:flex items-center gap-3">
                         {jobId !== 'new' && (
-                            <a
-                                href={`/business/${tenantId}/estimate/${jobId}/print`}
-                                target="_blank"
-                                rel="noreferrer"
+                            <button
+                                onClick={() => setShowPrintPreview(true)}
                                 className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all font-mono tracking-widest uppercase text-xs"
                             >
                                 <Printer className="w-4 h-4" /> Preview
-                            </a>
-                        )}
-                        {jobId !== 'new' && !['Draft', 'Estimate'].includes(job.status) && (
-                            <button
-                                onClick={handleDuplicateAsRework}
-                                disabled={isSaving}
-                                className="bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all font-mono tracking-widest uppercase text-xs border border-orange-500/30"
-                                title="Duplicate as Rework"
-                            >
-                                <Copy className="w-4 h-4" /> Duplicate as Rework
                             </button>
                         )}
-                        {job.status === 'Pending Approval' && jobId !== 'new' && (
-                            <button
-                                onClick={handleApprove}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition-all font-mono tracking-widest uppercase text-xs"
-                            >
-                                <CheckCircle className="w-4 h-4" /> Approve & Convert
-                            </button>
-                        )}
+
                         {jobId === 'new' ? (
                             <button
                                 onClick={() => handleSave(true)}
@@ -1047,11 +1153,11 @@ ${job.description || ''}`,
                                         <span className="text-[10px] font-black uppercase tracking-widest">Undo</span>
                                     </button>
                                 )}
-                                <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-colors ${isSaving ? 'text-amber-400' : hasChanges ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                                <div className={`flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-colors ${isSaving ? 'text-amber-400' : hasChanges ? 'text-indigo-400' : 'emerald-400'}`}>
                                     {isSaving ? (
                                         <><Loader2 className="w-4 h-4 animate-spin" /> Auto-Saving...</>
                                     ) : hasChanges ? (
-                                        <><CloudOff className="w-4 h-4" /> Unsaved Edits</>
+                                        <><CloudOff className="w-4 h-4" /> Unsaved Edits...</>
                                     ) : (
                                         <><CheckCircle className="w-4 h-4" /> Saved</>
                                     )}
@@ -1067,6 +1173,51 @@ ${job.description || ''}`,
                 {/* --- MAIN WORK COLUMN (LEFT) --- */}
                 <div className="xl:col-span-8 flex flex-col gap-8 min-w-0">
 
+                    {jobId !== 'new' && job?.tasks?.length > 0 && !['Draft', 'Estimate'].includes(job.status) && (
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 md:p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-[60px] pointer-events-none translate-x-1/2 -translate-y-1/2"></div>
+                            
+                            <div className="flex items-center gap-4 relative z-10 w-full sm:w-auto">
+                                <div className="p-3 bg-indigo-500/10 rounded-2xl border border-indigo-500/20">
+                                    <ClipboardList className="w-6 h-6 text-indigo-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-white font-black uppercase tracking-widest text-sm">Line-Item Scope Approvals</h3>
+                                    <p className="text-xs text-zinc-400 font-mono mt-1">
+                                        {(job.tasks || []).filter((t: any) => t.isApproved === true).length} of {job.tasks?.length || 0} Tasks Approved
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-3 w-full sm:w-auto justify-end relative z-10 shrink-0 flex-wrap">
+                                <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl flex items-center gap-3">
+                                    <span className="text-emerald-500/70 text-[10px] uppercase font-bold tracking-widest">Accepted</span>
+                                    <span className="text-emerald-500 text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === true).length}</span>
+                                </div>
+                                <div className={`border px-4 py-2 rounded-xl flex items-center gap-3 ${
+                                    (job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length > 0 
+                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' 
+                                    : 'bg-zinc-950 border-zinc-800/50 text-zinc-600'
+                                }`}>
+                                    <span className={`text-[10px] uppercase font-bold tracking-widest ${
+                                        (job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length > 0 ? 'text-amber-500/70' : 'text-zinc-600'
+                                    }`}>Pending</span>
+                                    <span className="text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length}</span>
+                                </div>
+                                <div className={`border px-4 py-2 rounded-xl flex items-center gap-3 ${
+                                    (job.tasks || []).filter((t: any) => t.isApproved === false).length > 0 
+                                    ? 'bg-rose-500/10 border-rose-500/20 text-rose-500' 
+                                    : 'bg-zinc-950 border-zinc-800/50 text-zinc-600'
+                                }`}>
+                                    <span className={`text-[10px] uppercase font-bold tracking-widest ${
+                                        (job.tasks || []).filter((t: any) => t.isApproved === false).length > 0 ? 'text-rose-500/70' : 'text-zinc-600'
+                                    }`}>Declined</span>
+                                    <span className="text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === false).length}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* CUSTOMER CONTEXT */}
                     {/* END MAIN WORK COLUMN (Wait, Customer + Vehicle were here. Moved to right column.) */}
 <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-3xl p-6 shadow-xl border border-indigo-500 text-white relative overflow-hidden">
@@ -1074,13 +1225,25 @@ ${job.description || ''}`,
                         <h3 className="text-xs font-black uppercase tracking-widest text-indigo-200 mb-6 flex items-center gap-2">{job.status === 'Estimate' ? 'Quote Totals' : 'Project Financials'}</h3>
 
                         <div className="space-y-3 font-mono mb-8">
-                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
-                                <span>Total Parts:</span>
-                                <span>${partsTotal.toFixed(2)}</span>
+                            <div className="flex flex-col mb-2">
+                                <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
+                                    <span>Total Parts:</span>
+                                    <span>${partsTotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] text-indigo-300 font-mono mt-0.5 opacity-80 border-b border-indigo-500/20 pb-1.5 mb-1.5">
+                                    <span>Actual Cost: ${actualPartsCost.toFixed(2)}</span>
+                                    <span className={partsTotal - actualPartsCost >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>Margin: ${(partsTotal - actualPartsCost).toFixed(2)}</span>
+                                </div>
                             </div>
-                            <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
-                                <span>{job.status === 'Estimate' ? 'Total Labor:' : 'Quoted Labor:'}</span>
-                                <span>${laborTotal.toFixed(2)}</span>
+                            <div className="flex flex-col mb-2">
+                                <div className="flex justify-between items-center text-xs font-bold text-indigo-100">
+                                    <span>{job.status === 'Estimate' ? 'Total Labor:' : 'Quoted Labor:'}</span>
+                                    <span>${laborTotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-[10px] text-indigo-300 font-mono mt-0.5 opacity-80 border-b border-indigo-500/20 pb-1.5 mb-1.5">
+                                    <span>Actual Cost: ${actualLaborTotal.toFixed(2)}</span>
+                                    <span className={laborTotal - actualLaborTotal >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>Margin: ${(laborTotal - actualLaborTotal).toFixed(2)}</span>
+                                </div>
                             </div>
                             <div className="flex justify-between items-center text-xs font-bold text-indigo-100 group">
                                 <span className="flex items-center gap-2">Shop Supplies:</span>
@@ -1137,33 +1300,38 @@ ${job.description || ''}`,
                                 <span>Est. Tax ({job.lockedTaxRate || (customer?.taxRate !== undefined && customer?.taxRate !== '' ? customer.taxRate : '8.25')}%):</span>
                                 <span>${taxes.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between items-end pt-1">
-                                <span className={`text-base font-black tracking-wide ${job.status === 'Estimate' ? 'text-indigo-50' : 'text-indigo-200/80'}`}>{job.status === 'Estimate' ? 'GRAND TOTAL' : 'QUOTED TOTAL'}</span>
-                                <span className={`${job.status === 'Estimate' ? 'text-4xl' : 'text-2xl text-indigo-200/80'} font-black`}>${grandTotal.toFixed(2)}</span>
+                            <div className="flex justify-between items-end pt-4 pb-2">
+                                <span className="text-sm font-black tracking-wide text-indigo-50 leading-tight opacity-80 uppercase">Quoted Total</span>
+                                <span className={`text-5xl font-black tracking-tight text-white drop-shadow-md`}>${grandTotal.toFixed(2)}</span>
                             </div>
 
-                            {job.status !== 'Estimate' && (
-                                <div className="mt-4 pt-4 border-t-2 border-indigo-500/50 space-y-3">
-                                    <div className="flex justify-between items-start text-xs font-bold text-indigo-100">
-                                        <span>Tracked Labor:</span>
-                                        <div className="flex flex-col items-end">
-                                            <span>${actualLaborTotal.toFixed(2)}</span>
-                                            {actualRnDLaborTotal > 0 && (
-                                                <div className="flex items-center gap-1 mt-0.5" title="R&D Tracked Labor Component">
-                                                    <span className="text-[9px] text-amber-300 font-black tracking-widest uppercase bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">Includes ${actualRnDLaborTotal.toFixed(2)} R&D</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex justify-between items-end pt-1">
-                                        <span className="text-base font-black tracking-wide text-indigo-50 leading-tight">ACTUAL COST<br/><span className="text-[9px] text-indigo-200 opacity-60 font-sans tracking-normal uppercase relative -top-0.5">Parts + Actual Tracked Labor</span></span>
-                                        <span className={`text-4xl font-black ${actualGrandTotal > grandTotal ? 'text-amber-300' : 'text-white'}`}>${actualGrandTotal.toFixed(2)}</span>
-                                    </div>
-                                    <div className="text-[9px] text-indigo-200/80 text-right mt-0.5 pt-0.5">
-                                        Margin Delta: <span className={grandTotal - actualGrandTotal >= 0 ? 'text-emerald-300' : 'text-amber-300'}>${(grandTotal - actualGrandTotal).toFixed(2)}</span>
+                            <div className="mt-4 pt-4 border-t-2 border-indigo-500/50 space-y-3">
+                                <div className="flex justify-between items-start text-[10px] font-bold text-indigo-200/60 uppercase tracking-widest">
+                                    <span>Tracked Labor Component:</span>
+                                    <div className="flex flex-col items-end">
+                                        <span>${actualLaborTotal.toFixed(2)}</span>
+                                        {actualRnDLaborTotal > 0 && (
+                                            <div className="flex items-center gap-1 mt-0.5" title="R&D Tracked Labor Component">
+                                                <span className="text-[9px] text-amber-300 font-black tracking-widest uppercase bg-amber-500/10 px-1 py-0.5 rounded border border-amber-500/20">Includes ${actualRnDLaborTotal.toFixed(2)} R&D</span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            )}
+                                <div className="flex items-center justify-between pt-2 gap-4">
+                                    <div className="flex-1 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 flex flex-col pt-2 shadow-inner">
+                                        <span className="text-[10px] text-rose-400 font-bold tracking-widest uppercase mb-1">Actual Cost</span>
+                                        <span className="text-2xl font-black text-rose-300">${actualGrandTotal.toFixed(2)}</span>
+                                        <span className="text-[8px] text-rose-400/60 font-sans tracking-wide uppercase leading-none mt-1">Parts + Labor + Overhead</span>
+                                    </div>
+                                    <div className="flex-1 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3 flex flex-col pt-2 shadow-inner">
+                                        <span className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase mb-1">Margin Delta</span>
+                                        <span className={`text-2xl font-black ${subTotalAfterDiscount - actualGrandTotal >= 0 ? 'text-emerald-300' : 'text-amber-400'}`}>
+                                            ${(subTotalAfterDiscount - actualGrandTotal).toFixed(2)}
+                                        </span>
+                                        <span className="text-[8px] text-emerald-400/60 font-sans tracking-wide uppercase leading-none mt-1">Net Gain/Loss</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         {job.status === 'Estimate' ? (
@@ -1183,6 +1351,9 @@ ${job.description || ''}`,
                                         Approve & Convert to WO
                                     </button>
                                 </div>
+                                <button onClick={handleDenyEstimate} className="w-full py-3 rounded-xl bg-red-950/30 hover:bg-red-900/50 text-red-500 hover:text-red-400 border border-red-900/50 font-black tracking-widest uppercase text-xs flex justify-center items-center gap-2 transition-all mt-2">
+                                    <X className="w-4 h-4" /> Customer Denied Estimate (Archive)
+                                </button>
                             </div>
                         ) : job.status === 'Approved' ? (
                             <div className="space-y-3">
@@ -1194,11 +1365,36 @@ ${job.description || ''}`,
                                     Dispatch Job (Mark In Progress)
                                 </button>
                             </div>
+                        ) : ['Archived', 'Declined'].includes(job.status) ? (
+                            <div className="space-y-3">
+                                <div className={`w-full py-4 rounded-xl ${job.status === 'Declined' ? 'bg-red-950/50 border-red-900/50 text-red-500' : 'bg-zinc-900/80 border-zinc-700 text-zinc-400'} border font-black tracking-widest uppercase text-sm shadow-inner flex flex-col justify-center items-center gap-1`}>
+                                    <div className="flex items-center gap-2">
+                                        <Archive className="w-4 h-4" /> {job.status === 'Declined' ? 'DECLINED RECORD' : 'ARCHIVED RECORD'}
+                                    </div>
+                                    {job.revivedToJobId && (
+                                        <button onClick={() => navigate(`/business/jobs/${job.revivedToJobId}`)} className="mt-2 text-[10px] text-indigo-400 hover:text-indigo-300 font-bold tracking-widest uppercase flex items-center gap-1 transition-colors">
+                                            Revived as: #{job.revivedToJobId.substring(0,6).toUpperCase()} <ArrowRight className="w-3 h-3" />
+                                        </button>
+                                    )}
+                                </div>
+                                <button onClick={handleDuplicateRevive} className="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-900 to-indigo-800 hover:from-indigo-800 hover:to-indigo-700 text-indigo-300 font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all border border-indigo-700/50">
+                                    <Copy className="w-4 h-4" /> Duplicate & Revive Quote
+                                </button>
+                                {job.status === 'Archived' && (
+                                    <button onClick={handleMarkAsDeclined} className="w-full text-center text-[10px] text-zinc-500 hover:text-red-400 font-bold uppercase tracking-widest transition-colors mt-2">
+                                        Mark as "Declined" instead of Archived
+                                    </button>
+                                )}
+                            </div>
                         ) : (
                             <div className="w-full py-4 rounded-xl bg-zinc-900/80 border border-zinc-700 text-zinc-400 font-black tracking-widest uppercase text-sm shadow-inner flex justify-center items-center gap-2">
                                 {job.status} Work Order
                             </div>
                         )}
+
+                        <button onClick={handleDeleteJob} className="w-full mt-4 py-3 rounded-xl bg-red-950/20 hover:bg-red-950/50 text-red-500 hover:text-red-400 border border-red-900/40 font-black tracking-widest uppercase text-[10px] flex justify-center items-center gap-1.5 transition-all opacity-80 hover:opacity-100">
+                            <Trash2 className="w-3.5 h-3.5" /> Permanent Delete Record
+                        </button>
                     </div>
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl relative overflow-hidden">
                         {isCustomerModalOpen && (
@@ -1326,9 +1522,11 @@ ${job.description || ''}`,
                                 <User className="w-5 h-5 text-indigo-400" />
                                 Customer Context
                             </h2>
-                            <button disabled={isLocked} onClick={() => setIsCustomerModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                {(!customer?.firstName && !customer?.company) ? '+ SET CUSTOMER' : 'EDIT / SWAP'}
-                            </button>
+                            {!job.isChangeOrder && (
+                                <button disabled={isLocked} onClick={() => setIsCustomerModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    {(!customer?.firstName && !customer?.company) ? '+ SET CUSTOMER' : 'EDIT / SWAP'}
+                                </button>
+                            )}
                         </div>
 
                         {(customer?.firstName || customer?.company) ? (
@@ -1459,9 +1657,11 @@ ${job.description || ''}`,
                                 <Car className="w-5 h-5 text-indigo-400" />
                                 Vehicle / Asset Context
                             </h2>
-                            <button disabled={isLocked} onClick={() => setIsVehicleModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                                {(!vehicle?.make && !vehicle?.model) ? '+ SET VEHICLE' : 'EDIT / SWAP'}
-                            </button>
+                            {!job.isChangeOrder && (
+                                <button disabled={isLocked} onClick={() => setIsVehicleModalOpen(true)} className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                    {(!vehicle?.make && !vehicle?.model) ? '+ SET VEHICLE' : 'EDIT / SWAP'}
+                                </button>
+                            )}
                         </div>
 
                         {(vehicle?.make || vehicle?.model || vehicle?.year) ? (
@@ -1472,28 +1672,30 @@ ${job.description || ''}`,
                                         <div><span className="text-zinc-600 mr-2 text-[10px] uppercase font-bold tracking-wider">VIN</span><span className="font-mono">{vehicle.vin}</span></div>
                                     </div>
                                 )}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                                    <div>
-                                        <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 shadow-sm">Vehicle Drop-Off ETA</label>
-                                        <input
-                                            type="datetime-local"
-                                            value={job.dropoffEta || ''}
-                                            onClick={(e) => { try { (e.target as any).showPicker(); } catch (e) { } }}
-                                            onChange={e => setJob({ ...job, dropoffEta: e.target.value })}
-                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
-                                        />
+                                {!job.isChangeOrder && (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                                        <div>
+                                            <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 shadow-sm">Vehicle Drop-Off ETA</label>
+                                            <input
+                                                type="datetime-local"
+                                                value={job.dropoffEta || ''}
+                                                onClick={(e) => { try { (e.target as any).showPicker(); } catch (e) { } }}
+                                                onChange={e => setJob({ ...job, dropoffEta: e.target.value })}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 shadow-sm">Target Pick-Up ETA</label>
+                                            <input
+                                                type="datetime-local"
+                                                value={job.pickupEta || ''}
+                                                onClick={(e) => { try { (e.target as any).showPicker(); } catch (e) { } }}
+                                                onChange={e => setJob({ ...job, pickupEta: e.target.value })}
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 shadow-sm">Target Pick-Up ETA</label>
-                                        <input
-                                            type="datetime-local"
-                                            value={job.pickupEta || ''}
-                                            onClick={(e) => { try { (e.target as any).showPicker(); } catch (e) { } }}
-                                            onChange={e => setJob({ ...job, pickupEta: e.target.value })}
-                                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
-                                        />
-                                    </div>
-                                </div>
+                                )}
                                 {vehicleJobs.length > 0 && (
                                     <div className="text-zinc-400 text-sm mt-4 pt-4 border-t border-zinc-800/50">
                                         <span className="text-zinc-600 mb-2 flex items-center justify-between text-[10px] uppercase font-bold tracking-wider">
@@ -1659,6 +1861,19 @@ ${job.description || ''}`,
                                     data={allTemplates}
                                     onSelect={(template) => {
                                         if (isLocked) return;
+                                        const liveParts = ((template.parts || template.defaultParts) || []).map((tp: any) => {
+                                            const matchingInv = allInventory.find((inv: any) => inv.id === tp.inventoryId || inv.id === tp.id);
+                                            if (matchingInv) {
+                                                return {
+                                                    ...tp,
+                                                    price: matchingInv.price,
+                                                    cost: matchingInv.cost || 0,
+                                                    name: matchingInv.name
+                                                };
+                                            }
+                                            return tp;
+                                        });
+
                                         const newTask = {
                                             title: template.title || template.name || 'New Task from Template',
                                             status: 'Not Started',
@@ -1666,11 +1881,11 @@ ${job.description || ''}`,
                                             actualTime: 0,
                                             laborRate: template.laborRate || businessSettings.standardShopRate,
                                             assignedUids: [],
-                                            parts: (template.parts || template.defaultParts) ? [...(template.parts || template.defaultParts)] : [],
+                                            parts: liveParts,
                                             notes: template.notes || '',
                                             sops: template.sops || '',
                                             directions: template.techDirections || template.directions || '',
-                                            isApproved: job.status === 'Quote / Estimate'
+                                            isApproved: null
                                         };
                                         setJob({ ...job, tasks: [...job.tasks, newTask] });
                                     }}
@@ -1684,22 +1899,19 @@ ${job.description || ''}`,
                                 />
                                 <button
                                     onClick={() => {
-                                        setJob({ ...job, tasks: [...job.tasks, { title: '', status: 'Not Started', bookTime: 1, actualTime: 0, laborRate: businessSettings.standardShopRate, assignedUids: [], parts: [], notes: '', sops: '', directions: '', isApproved: job.status === 'Quote / Estimate' }] });
+                                        setJob({ ...job, tasks: [...job.tasks, { title: '', status: 'Not Started', bookTime: 1, actualTime: 0, laborRate: businessSettings.standardShopRate, assignedUids: [], parts: [], notes: '', sops: '', directions: '', isApproved: null }] });
                                     }}
                                     disabled={isLocked}
                                     className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Plus className="w-3.5 h-3.5" /> Custom Task
                                 </button>
-                                {isLocked && job.status !== 'Pending Approval' && (
+                                {isLocked && job.status !== 'Pending Approval' && !job.isChangeOrder && (
                                     <button
-                                        onClick={() => {
-                                            if (!window.confirm("Add a new Supplemental Finding? This will add an additional task outside the original baseline approval.")) return;
-                                            setJob({ ...job, tasks: [...job.tasks, { title: '', status: 'Not Started', bookTime: 1, actualTime: 0, laborRate: businessSettings.standardShopRate, assignedUids: [], parts: [], notes: '', sops: '', directions: '', isSupplement: true, isApproved: false }] });
-                                        }}
+                                        onClick={handleCreateChangeOrder}
                                         className="bg-amber-600/20 hover:bg-amber-600/40 text-amber-500 font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-xs font-mono tracking-widest uppercase border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
                                     >
-                                        <PlusCircle className="w-3.5 h-3.5" /> Add Supplement
+                                        <PlusCircle className="w-3.5 h-3.5" /> Create Change Order
                                     </button>
                                 )}
                             </div>
@@ -1712,10 +1924,22 @@ ${job.description || ''}`,
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                {job.tasks.map((task: any, tIdx: number) => {
-                                    const isTaskLocked = isLocked && !task.isSupplement;
+                                {job.tasks.map((task: any, tIdx: number) => ({ task, originalIndex: tIdx }))
+                                    .sort((a: any, b: any) => {
+                                        // Move fully rejected tasks to the bottom of the list visually
+                                        if (a.task.isApproved === false && b.task.isApproved !== false) return 1;
+                                        if (a.task.isApproved !== false && b.task.isApproved === false) return -1;
+                                        return a.originalIndex - b.originalIndex;
+                                    })
+                                    .map(({ task, originalIndex: tIdx }: { task: any, originalIndex: number }) => {
+                                    // A task blocks cost/qty changes if it's explicitly locked or specifically approved
+                                    const isTaskLocked = (isLocked && !task.isSupplement) || (isLocked && (task.isApproved === true || task.isApproved === false));
                                     return (
-                                    <div key={tIdx} className={`bg-zinc-950 border ${task.isSupplement ? 'border-amber-500/50 hover:border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.1)] relative' : 'border-zinc-800 hover:border-zinc-700'} transition-colors rounded-2xl overflow-hidden shadow-lg group`}>
+                                    <div key={tIdx} className={`border ${
+                                        task.isApproved === false ? 'bg-zinc-950/50 border-rose-500/50 hover:border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.1)] opacity-75 grayscale-[0.2]' :
+                                        task.isSupplement ? 'bg-zinc-950 border-amber-500/50 hover:border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.1)] relative' : 
+                                        'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                                    } transition-all duration-300 rounded-2xl overflow-hidden shadow-lg group`}>
                                         {task.isSupplement && (
                                             <div className="absolute top-0 right-0 bg-amber-500/20 border-b border-l border-amber-500/50 px-3 py-1 rounded-bl-xl text-amber-500 text-[9px] font-black uppercase tracking-widest z-10 flex items-center gap-1 backdrop-blur-sm">
                                                 <AlertTriangle className="w-3 h-3" /> Supplemental
@@ -1743,22 +1967,36 @@ ${job.description || ''}`,
                                                                 <Trash2 className="w-3.5 h-3.5" />
                                                             </button>
                                                         )}
-                                                        {!['Estimate', 'Draft'].includes(job.status) && (
+                                                        {job.status === 'Pending Approval' ? (
                                                             <button 
                                                                 type="button"
                                                                 onClick={() => {
                                                                     const t = [...job.tasks];
-                                                                    t[tIdx].isApproved = !(task.isApproved !== false);
+                                                                    if (task.isApproved === null || task.isApproved === undefined) {
+                                                                        t[tIdx].isApproved = true;
+                                                                    } else if (task.isApproved === true) {
+                                                                        t[tIdx].isApproved = false;
+                                                                    } else {
+                                                                        t[tIdx].isApproved = null;
+                                                                    }
                                                                     setJob({ ...job, tasks: t });
                                                                 }}
-                                                                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border ${
-                                                                    task.isApproved !== false 
+                                                                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border cursor-pointer ${
+                                                                    task.isApproved === true 
                                                                         ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]' 
-                                                                        : 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]'
+                                                                        : task.isApproved === false 
+                                                                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.1)]'
+                                                                        : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700 shadow-inner'
                                                                 }`}
                                                             >
-                                                                {task.isApproved !== false ? '✓ Customer Approved' : '⏳ Pending Approval'}
+                                                                {task.isApproved === true ? '✓ Customer Approved' : task.isApproved === false ? '❌ Customer Declined' : '⚪ Pending Review'}
                                                             </button>
+                                                        ) : (
+                                                            task.isApproved === false ? (
+                                                                <div className="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border pointer-events-none bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.1)]">
+                                                                    ❌ Customer Declined
+                                                                </div>
+                                                            ) : null
                                                         )}
                                                     </div>
                                                 </div>
@@ -1772,6 +2010,20 @@ ${job.description || ''}`,
                                                     }}
                                                     className="w-full bg-zinc-950 border border-zinc-800/60 rounded-xl px-4 py-3 text-lg text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-black placeholder:text-zinc-700 shadow-inner disabled:opacity-75"
                                                 />
+                                                {task.isApproved === false && (
+                                                    <div className="mt-3 bg-rose-500/5 rounded-xl border border-rose-500/20 p-3 flex flex-col gap-1.5 shadow-inner">
+                                                        <label className="text-[10px] text-rose-500/80 font-black uppercase tracking-widest flex items-center gap-1.5"><AlertTriangle className="w-3 h-3" /> Decline Reason & Follow-up Notes</label>
+                                                        <input
+                                                            type="text"
+                                                            value={task.declineReason || ''}
+                                                            onChange={e => {
+                                                                const t = [...job.tasks]; t[tIdx].declineReason = e.target.value; setJob({ ...job, tasks: t });
+                                                            }}
+                                                            placeholder="Why did the customer decline? (e.g. 'Too expensive right now', 'Will do next month')"
+                                                            className="w-full bg-transparent border-b border-rose-500/30 pb-1 text-sm text-rose-100 focus:outline-none focus:border-rose-500 placeholder-rose-500/30"
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
                                             
                                             <div className="flex flex-col md:flex-row justify-between gap-4 pt-1">
@@ -1873,20 +2125,6 @@ ${job.description || ''}`,
                                                             </>
                                                         );
                                                     })()}
-                                                    <div className="flex items-center h-full pt-4">
-                                                        {timeLogs.some((l: any) => l.taskIndex === tIdx) || task.status === 'Finished' || task.status === 'In Progress' ? (
-                                                            <div className="p-3 bg-zinc-950/50 text-zinc-700 border border-zinc-800/30 rounded-xl cursor-not-allowed" title="Active tasks cannot be removed">
-                                                                <Trash2 className="w-5 h-5 opacity-30" />
-                                                            </div>
-                                                        ) : (
-                                                            <button type="button" onClick={() => {
-                                                                if (!window.confirm("Remove this task group?")) return;
-                                                                const t = [...job.tasks]; t.splice(tIdx, 1); setJob({ ...job, tasks: t });
-                                                            }} className="p-3 bg-zinc-950 hover:bg-red-500/10 text-zinc-500 hover:text-red-500 border border-zinc-800 hover:border-red-500/30 rounded-xl transition-all group-hover:opacity-100 opacity-50" title="Remove Task">
-                                                                <Trash2 className="w-5 h-5" />
-                                                            </button>
-                                                        )}
-                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2038,7 +2276,7 @@ ${job.description || ''}`,
                                                 )}
                                             </div>
 
-                                        {!['Estimate', 'Draft'].includes(job.status) && (
+                                        {!['Estimate', 'Draft', 'Pending Approval'].includes(job.status) && (
                                             <>
                                                 <div className="p-4 bg-zinc-950 border-t border-zinc-800/50">
                                                     <div className="flex items-center justify-between mb-3">
@@ -2046,7 +2284,34 @@ ${job.description || ''}`,
                                                         <User className="w-3.5 h-3.5" /> Assigned Techs
                                                     </span>
                                                 <StaffSelector
-                                                    data={allStaff}
+                                                    onOpen={async () => {
+                                                        if (!tenantId) return;
+                                                        try {
+                                                            const sRes = await api.get(`/businesses/${tenantId}/staff`);
+                                                            setAllStaff(sRes.data || []);
+                                                        } catch (e) {
+                                                            console.error("Failed to refresh staff", e);
+                                                        }
+                                                    }}
+                                                    data={allStaff.filter((s: any) => {
+                                                        if (!task.departmentId) return true;
+                                                        const isAssigned = (task.assignedUids || []).includes(s.uid || s.id);
+                                                        if (isAssigned) return true;
+                                                        
+                                                        const taskDept = businessSettings.departments?.find((d: any) => String(d.id) === String(task.departmentId));
+                                                        const taskDeptName = taskDept?.name || '';
+                                                        
+                                                        if (String(s.department) === String(task.departmentId)) return true;
+                                                        if (taskDeptName && String(s.department) === taskDeptName) return true;
+                                                        
+                                                        if (s.departmentRoles) {
+                                                            if (s.departmentRoles.some((dr: any) => String(dr.departmentId) === String(task.departmentId) || String(dr.departmentName) === taskDeptName)) {
+                                                                return true;
+                                                            }
+                                                        }
+                                                        return false;
+                                                    })}
+                                                    emptyMessage={task.departmentId ? `No staff members found assigned to the ${businessSettings.departments?.find((d: any) => String(d.id) === String(task.departmentId))?.name || 'selected'} department.` : 'No staff found.'}
                                                     value={task.assignedUids || []}
                                                     onChange={(uid) => {
                                                         const t = [...job.tasks];
@@ -2064,7 +2329,7 @@ ${job.description || ''}`,
                                                         setJob({ ...job, tasks: t });
                                                     }}
                                                     trigger={
-                                                        <button className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold">
+                                                        <button disabled={task.isApproved === false} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold disabled:opacity-30 disabled:cursor-not-allowed">
                                                             <PlusCircle className="w-3.5 h-3.5" /> Assign Staff
                                                         </button>
                                                     }

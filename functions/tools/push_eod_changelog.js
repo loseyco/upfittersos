@@ -11,23 +11,20 @@ async function pushChangelog() {
     try {
         console.log("Pushing End-of-Day Changelog via Admin SDK...");
         await db.collection('changelogs').add({
-            version: 'v0.1.9-beta',
+            version: 'v0.1.10-beta',
             date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            title: 'Advanced Job Pipelines & Time Telemetry',
-            description: 'Significant expansion into core business workflows including full Estimate building, active Job ticket management, and granular shop floor time syncing.',
+            title: 'Purchase Orders, Facility Mapping & Quoting Upgrades',
+            description: 'Major feature additions to the estimating workflow, interactive facility map navigation, logistics coordination, and comprehensive staff tracking elements.',
             features: [
-                'Deployed the complete Estimate Builder mapping nested Tasks, Parts, and Tech assignments into actionable Work Orders.',
-                'Finalized the internal Payroll Management system with real-time currency formatting and secure timesheet locking.',
-                'Implemented per-user CompanyCam OAuth syncing and robust QuickBooks Online integration for accurate per-tenant isolation.',
-                'Added internal Receiving (Deliveries) module for automated tracking of incoming packages.',
-                'Launched the Automated Reporting Engine enabling dynamic business intelligence digests and telemetry data.',
-                'Expanded the Blueprint Logic Engine with multi-node manipulation and precise visual state tracking.',
-                'Implemented customizable Staff Dashboards enabling personalized card favoriting and reordering.'
+                'Introduced complete Purchase Order tracking workflow with dynamic delivery receiving integration.',
+                'Overhauled the Estimate Builder into an optimized 2-column layout for smoother part cost editing and profit tracking.',
+                'Deployed granular Facility Area Profiles allowing interactive real-time map occupancy reporting and deep-linking.',
+                'Completed native CompanyCam integration facilitating user-uploaded images and instantaneous optimistic syncs within job profiles.',
+                'Updated the TimeClock app to report transparent Pay Period statistics alongside comprehensive staff department routing.',
+                'Built new wholesale cost matrices and conditional line-item discounts enhancing robust financial planning for all projects.'
             ],
             fixes: [
-                'Resolved critical multi-tenant Firestore permission failures across auditLogs and deliveries collections.',
-                'Patched Estimate Builder state persistence to prevent data loss during extensive job scope edits.',
-                'Fixed CompanyCam per-job sync opt-out logic responding to `skipCompanyCamSync` flags.'
+                'Resolved compilation boundaries generated during complex CSS structure modifications of core interfaces.'
             ],
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });

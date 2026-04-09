@@ -148,7 +148,7 @@ exports.jobsRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, dropoffEta, completionEta, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions } = req.body;
+        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, dropoffEta, completionEta, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions, isChangeOrder, parentJobId, parentJobRefNum } = req.body;
         const newJob = {
             tenantId,
             title: title || 'Untitled Job',
@@ -177,6 +177,9 @@ exports.jobsRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
             customerMeetingNotes: customerMeetingNotes || '',
             salesQuestions: salesQuestions || [],
             notes: notes || '',
+            isChangeOrder: typeof isChangeOrder === 'boolean' ? isChangeOrder : false,
+            parentJobId: parentJobId || null,
+            parentJobRefNum: parentJobRefNum || null,
             editLog: [],
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -205,7 +208,7 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this job.' });
         }
-        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, archived, dropoffEta, completionEta, editLog, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions, lockedTaxRate } = req.body;
+        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, archived, dropoffEta, completionEta, editLog, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions, lockedTaxRate, isChangeOrder, parentJobId, parentJobRefNum } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (title !== undefined)
             updates.title = title;
@@ -265,6 +268,12 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
             updates.salesQuestions = salesQuestions;
         if (lockedTaxRate !== undefined)
             updates.lockedTaxRate = lockedTaxRate;
+        if (isChangeOrder !== undefined)
+            updates.isChangeOrder = isChangeOrder;
+        if (parentJobId !== undefined)
+            updates.parentJobId = parentJobId;
+        if (parentJobRefNum !== undefined)
+            updates.parentJobRefNum = parentJobRefNum;
         await jobRef.update(updates);
         const updatedJobData = Object.assign(Object.assign({}, jobData), updates);
         return res.json(Object.assign({ id: jobId }, updatedJobData));
@@ -272,6 +281,60 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
     catch (error) {
         console.error("Error updating job:", error);
         return res.status(500).json({ error: 'Failed to update job' });
+    }
+});
+// POST /jobs/:id/merge - Merge a Change Order into its Parent Job
+exports.jobsRoutes.post('/:id/merge', auth_middleware_1.authenticate, async (req, res) => {
+    try {
+        const caller = req.user;
+        const changeOrderId = req.params.id;
+        const db = getDb();
+        const changeOrderRef = db.collection('jobs').doc(changeOrderId);
+        const changeOrderDoc = await changeOrderRef.get();
+        if (!changeOrderDoc.exists) {
+            return res.status(404).json({ error: 'Change order not found' });
+        }
+        const changeOrderData = changeOrderDoc.data();
+        const tenantId = changeOrderData.tenantId;
+        if (!isMemberOfTenant(caller, tenantId)) {
+            return res.status(403).json({ error: 'Forbidden. Cannot merge this job.' });
+        }
+        if (!changeOrderData.isChangeOrder || !changeOrderData.parentJobId) {
+            return res.status(400).json({ error: 'This is not a valid change order with a parent job.' });
+        }
+        if (changeOrderData.status === 'Merged') {
+            return res.status(400).json({ error: 'This change order has already been merged.' });
+        }
+        const parentRef = db.collection('jobs').doc(changeOrderData.parentJobId);
+        const parentDoc = await parentRef.get();
+        if (!parentDoc.exists) {
+            return res.status(404).json({ error: 'Parent job not found' });
+        }
+        const parentData = parentDoc.data();
+        // Merge Tasks
+        const childTasks = changeOrderData.tasks || [];
+        // Map tasks to ensure they are marked as supplements
+        const tasksToMerge = childTasks.map((t) => (Object.assign(Object.assign({}, t), { isSupplement: true, isApproved: true // Implicitly approved since the change order itself is approved
+         })));
+        const mergedTasks = [...(parentData.tasks || []), ...tasksToMerge];
+        // Aggregate totals
+        const newBookTime = (parentData.bookTimeTotal || 0) + (changeOrderData.bookTimeTotal || 0);
+        await db.runTransaction(async (t) => {
+            t.update(parentRef, {
+                tasks: mergedTasks,
+                bookTimeTotal: newBookTime,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            t.update(changeOrderRef, {
+                status: 'Merged',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+        return res.json({ success: true, message: 'Change order merged successfully.' });
+    }
+    catch (error) {
+        console.error("Error merging change order:", error);
+        return res.status(500).json({ error: 'Failed to merge change order' });
     }
 });
 // DELETE /jobs/:id - Delete a job

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock, Megaphone, Camera, Package } from 'lucide-react';
+import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock, Megaphone, Camera, Package, FolderKanban } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StaffAdminTab } from './admin/StaffAdminTab';
@@ -15,6 +15,7 @@ import { FinancesAdminTab } from './admin/FinancesAdminTab';
 import { AreasAdminTab } from './admin/AreasAdminTab';
 import { ReportsAdminTab } from './admin/ReportsAdminTab';
 import { BusinessSettingsTab } from './admin/BusinessSettingsTab';
+import { DepartmentsAdminTab } from './admin/DepartmentsAdminTab';
 import { NoticesAdminTab } from './admin/NoticesAdminTab';
 import { RolesAdminTab } from './admin/RolesAdminTab';
 import { FeedbackAdminTab } from './admin/FeedbackAdminTab';
@@ -107,25 +108,33 @@ export function BusinessAdminSuite() {
 
     // Sidebar Navigation Items conditionally loaded based on granular permissions or role defaults AND deployment rings
     const navItems: Array<{ id: string, label: string, icon: React.ElementType }> = [
-        ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
-        ...(checkPermission('manage_roles') && !isHidden('roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
-        ...(checkPermission('manage_staff') && !isHidden('staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
-        ...(checkPermission('manage_tasks') && !isHidden('tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
+        // Core Operations
+        ...(checkPermission('view_jobs') && !isHidden('jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
         ...(checkPermission('manage_jobs') && !isHidden('jobs') ? [{ id: 'task_templates', label: 'Service Catalog', icon: Briefcase }] : []),
+        ...(checkPermission('manage_tasks') && !isHidden('tasks') ? [{ id: 'tasks', label: 'Assigned Tasks', icon: ClipboardList }] : []),
+        // Customers & Assets
         ...(checkPermission('view_customers') && !isHidden('customers') ? [{ id: 'customers', label: 'Customer Management', icon: Users }] : []),
         ...(checkPermission('view_vehicles') && !isHidden('vehicles') ? [{ id: 'vehicles', label: 'Fleet & Vehicles', icon: Truck }] : []),
-        ...(checkPermission('view_jobs') && !isHidden('jobs') ? [{ id: 'jobs', label: 'Job Management', icon: Briefcase }] : []),
-        ...(checkPermission('view_areas') && !isHidden('areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
+        // Supply Chain
         ...(checkPermission('view_inventory') && !isHidden('inventory') ? [{ id: 'inventory', label: 'Inventory (WMS)', icon: ScanLine }] : []),
+        ...(checkPermission('view_deliveries') && !isHidden('deliveries') ? [{ id: 'deliveries', label: 'Receiving (Deliveries)', icon: Package }] : []),
+        // Logistics & Finance
         ...(checkPermission('manage_timesheets') && !isHidden('time') ? [{ id: 'time', label: 'Time & Payroll', icon: Clock }] : []),
         ...(checkPermission('view_financials') && !isHidden('finances') ? [{ id: 'finances', label: 'Finances & Billing*', icon: DollarSign }] : []),
         ...(checkPermission('view_financials') && !isHidden('reports') ? [{ id: 'reports', label: 'Reports & Analytics*', icon: BarChart3 }] : []),
-        ...(checkPermission('manage_settings') && !isHidden('feedback') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
-        ...(checkPermission('manage_settings') && !isHidden('notices') ? [{ id: 'notices', label: 'Global Notices', icon: Megaphone }] : []),
-        ...(checkPermission('manage_settings') && !isHidden('companycam') ? [{ id: 'companycam', label: 'CompanyCam Test', icon: Camera }] : []),
-        ...(checkPermission('view_audit_logs') && !isHidden('audit') ? [{ id: 'audit', label: 'Security & Audit Logs', icon: ShieldAlert }] : []),
+        // Facilities
+        ...(checkPermission('view_areas') && !isHidden('areas') ? [{ id: 'areas', label: 'Area Management', icon: MapPin }] : []),
         ...(checkPermission('manage_facility_map') && !isHidden('facility_map') ? [{ id: 'facility', label: 'Facility Map Editor', icon: MapIcon }] : []),
-        ...(checkPermission('view_deliveries') && !isHidden('deliveries') ? [{ id: 'deliveries', label: 'Receiving (Deliveries)', icon: Package }] : [])
+        // HR & Infrastructure
+        ...(checkPermission('manage_staff') && !isHidden('staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
+        ...(checkPermission('manage_settings') ? [{ id: 'departments', label: 'Departments', icon: FolderKanban }] : []),
+        ...(checkPermission('manage_roles') && !isHidden('roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
+        ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
+        // Global & Utilities
+        ...(checkPermission('manage_settings') && !isHidden('notices') ? [{ id: 'notices', label: 'Global Notices', icon: Megaphone }] : []),
+        ...(checkPermission('manage_settings') && !isHidden('feedback') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
+        ...(checkPermission('view_audit_logs') && !isHidden('audit') ? [{ id: 'audit', label: 'Security & Audit Logs', icon: ShieldAlert }] : []),
+        ...(checkPermission('manage_settings') && !isHidden('companycam') ? [{ id: 'companycam', label: 'CompanyCam Test', icon: Camera }] : [])
     ];
 
     const hasAdminAccess = navItems.length > 0;
@@ -278,6 +287,7 @@ export function BusinessAdminSuite() {
                 {/* Dynamic Content Loading */}
                 <div className="flex-1 overflow-hidden relative">
                     {activeTab === 'settings' && <BusinessSettingsTab tenantId={tenantId} />}
+                    {activeTab === 'departments' && <DepartmentsAdminTab tenantId={tenantId} />}
                     {activeTab === 'roles' && <RolesAdminTab tenantId={tenantId} />}
                     {activeTab === 'staff' && <StaffAdminTab tenantId={tenantId} />}
                     {activeTab === 'tasks' && <TasksAdminTab tenantId={tenantId} />}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key, ListChecks, Package } from 'lucide-react';
+import { Building2, Users, Database, Activity, PlusCircle, ChevronRight, ShieldAlert, CheckCircle2, X, Settings, CreditCard, LayoutDashboard, Trash2, Eye, Bug, Key, ListChecks, Package, Mail } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import { APP_FEATURES, DEFAULT_FEATURE_STATE } from '../../lib/features';
 import type { FeatureVersion } from '../../lib/features';
 import { AuditLogsTab } from '../business/admin/AuditLogsTab';
 import { BuildLogAdminTab } from './BuildLogAdminTab';
+import { ChangelogAdminTab } from './ChangelogAdminTab';
 
 export function SuperAdminDashboard() {
     const { currentUser } = useAuth();
@@ -19,7 +20,7 @@ export function SuperAdminDashboard() {
     // UI States (Synched to URL for deep linking / refresh survival)
     // UI States (Synched to URL for deep linking / refresh survival)
     const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings' | 'dictionary' | 'modules' | 'analytics' | 'builds') || 'workspaces';
+    const activeTab = (searchParams.get('tab') as 'workspaces' | 'users' | 'pricing' | 'settings' | 'dictionary' | 'modules' | 'analytics' | 'builds' | 'changelogs') || 'workspaces';
     
     const setActiveTab = (tab: string) => {
         setSearchParams(prev => {
@@ -353,6 +354,9 @@ export function SuperAdminDashboard() {
                     </button>
                     <button onClick={() => setActiveTab('builds')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'builds' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
                         <ListChecks className="w-4 h-4" /> Build Logs
+                    </button>
+                    <button onClick={() => setActiveTab('changelogs')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm ${activeTab === 'changelogs' ? 'bg-accent/10 text-accent border border-accent/20' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent'}`}>
+                        <Mail className="w-4 h-4" /> Platform Updates
                     </button>
                     
                     <button onClick={() => navigate('/admin/features')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all text-sm text-zinc-400 hover:bg-white/5 hover:text-zinc-200 border border-transparent !mt-8`}>
@@ -766,6 +770,14 @@ export function SuperAdminDashboard() {
                         <div className="h-[800px] bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
                             <AuditLogsTab tenantId="SYSTEM" />
                         </div>
+                    )}
+
+                    {activeTab === 'builds' && (
+                        <BuildLogAdminTab />
+                    )}
+
+                    {activeTab === 'changelogs' && (
+                        <ChangelogAdminTab />
                     )}
 
                     {activeTab === 'dictionary' && (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera, Eye } from 'lucide-react';
+import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera, Eye, UserX } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -57,6 +57,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
         certificates: [] as any[],
         role: '',
         roles: [] as string[],
+        departmentRoles: [] as { departmentName: string, payRate: number | string }[],
         customPermissions: {} as Record<string, boolean>
     });
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -136,6 +137,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                         certificates: urlMatch.certificates || [],
                         role: (urlMatch.roles && urlMatch.roles.length > 0 ? urlMatch.roles[0] : urlMatch.role) || 'staff',
                         roles: urlMatch.roles && urlMatch.roles.length > 0 ? urlMatch.roles : (urlMatch.role ? [urlMatch.role] : []),
+                        departmentRoles: urlMatch.departmentRoles || [],
                         customPermissions: urlMatch.customPermissions || {}
                     });
                 }
@@ -252,6 +254,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
             certificates: user.certificates || [],
             role: (user.roles && user.roles.length > 0 ? user.roles[0] : user.role) || '',
             roles: user.roles && user.roles.length > 0 ? user.roles : (user.role ? [user.role] : []),
+            departmentRoles: user.departmentRoles || [],
             customPermissions: user.customPermissions || {}
         };
         setEditForm(initialFormValues);
@@ -351,13 +354,14 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                 certificates: editForm.certificates,
                 customPermissions: editForm.customPermissions,
                 role: editForm.role,
-                roles: editForm.roles
+                roles: editForm.roles,
+                departmentRoles: editForm.departmentRoles
             });
 
             toast.success("User profile saved.");
             setInitialEditForm(editForm);
             fetchStaff();
-            closeEditUser();
+            // closeEditUser(); // Allow them to keep editing
         } catch (err) {
             toast.error("Failed to save user profile.");
         } finally {
@@ -533,50 +537,68 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                     className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
                                 />
                             </div>
-                            <div>
-                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Department</label>
-                                {departments.length > 0 ? (
-                                    <select
-                                        value={editForm.department}
-                                        onChange={(e) => setEditForm({...editForm, department: e.target.value})}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white appearance-none cursor-pointer"
-                                    >
-                                        <option value="" disabled>Select Department</option>
-                                        {departments.map((d: any) => (
-                                            <option key={d.id} value={d.name}>{d.name}</option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <input 
-                                        type="text" 
-                                        placeholder="Service Area B"
-                                        value={editForm.department}
-                                        onChange={(e) => setEditForm({...editForm, department: e.target.value})}
-                                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
-                                    />
-                                )}
-                            </div>
-                            <div>
-                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Work Phone Ext</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="(555) 123-4567"
-                                    value={editForm.workPhone}
-                                    onChange={(e) => handlePhoneChange('workPhone', e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Mobile Phone</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="(555) 987-6543"
-                                    value={editForm.mobilePhone}
-                                    onChange={(e) => handlePhoneChange('mobilePhone', e.target.value)}
-                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent text-white"
-                                />
-                            </div>
                             <div className="md:col-span-2">
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-3 ml-1">Department Access & Pay Rates</label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {departments.length === 0 && (
+                                         <div className="text-zinc-500 font-bold text-xs p-3">No departments configured in Business Settings.</div>
+                                    )}
+                                    {departments.map((d: any) => {
+                                        const drIndex = (editForm.departmentRoles || []).findIndex((dr: any) => dr.departmentName === d.name);
+                                        const isAssigned = drIndex !== -1;
+                                        const dr = isAssigned ? editForm.departmentRoles[drIndex] : null;
+                                        
+                                        return (
+                                            <div 
+                                                key={d.id} 
+                                                className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+                                                    isAssigned 
+                                                        ? 'bg-accent/10 border-accent/30' 
+                                                        : 'bg-zinc-900 border-zinc-800 opacity-60 hover:opacity-100 hover:border-zinc-700'
+                                                }`}
+                                            >
+                                                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isAssigned}
+                                                        onChange={(e) => {
+                                                            let newDRs = [...(editForm.departmentRoles || [])];
+                                                            if (e.target.checked) {
+                                                                newDRs.push({ departmentName: d.name, payRate: editForm.payRate || '' });
+                                                            } else {
+                                                                newDRs = newDRs.filter((r: any) => r.departmentName !== d.name);
+                                                            }
+                                                            setEditForm({...editForm, departmentRoles: newDRs});
+                                                        }}
+                                                        className="w-4 h-4 rounded bg-zinc-950 border-zinc-700 text-accent focus:ring-accent focus:ring-offset-zinc-900 cursor-pointer"
+                                                    />
+                                                    <span className={`text-sm font-bold truncate ${isAssigned ? 'text-accent' : 'text-zinc-400'}`}>
+                                                        {d.name}
+                                                    </span>
+                                                </label>
+                                                
+                                                {isAssigned && (
+                                                    <div className="relative w-28 shrink-0 ml-2">
+                                                        <span className="absolute left-2.5 top-1.5 text-accent font-black text-xs">$</span>
+                                                        <input
+                                                            type="number"
+                                                            value={dr?.payRate || ''}
+                                                            onChange={e => {
+                                                                const newDRs = [...editForm.departmentRoles];
+                                                                newDRs[drIndex].payRate = parseFloat(e.target.value) || 0;
+                                                                setEditForm({ ...editForm, departmentRoles: newDRs });
+                                                            }}
+                                                            placeholder="Base/hr"
+                                                            className="w-full bg-zinc-950/50 border border-accent/20 rounded-lg py-1.5 pl-6 pr-2 text-xs font-bold focus:outline-none focus:border-accent text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <div className="md:col-span-2 mt-4 pt-4 border-t border-zinc-800/50">
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-3 ml-1">Profile Photo</label>
                                 <div className="flex items-center gap-6 bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
                                     <div 
@@ -912,10 +934,10 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
 
                     {selectedUser.role !== 'business_owner' && selectedUser.uid !== currentUser?.uid && (
                         <section className="mt-8">
-                            <h3 className="text-lg font-bold text-amber-500 mb-2 flex items-center gap-2">
+                            <h3 className="text-lg font-bold text-red-500 mb-2 flex items-center gap-2">
                                 <AlertTriangle className="w-5 h-5" /> Deactivate Platform Access
                             </h3>
-                            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div>
                                     <h4 className="text-white font-bold text-sm mb-1">Deactivate User</h4>
                                     <p className="text-zinc-400 text-xs text-balance">This will instantly revoke their access to the platform and remove them from active rosters, while securely preserving their historical data (like assigned tasks, time logs, and completed jobs) for your records.</p>
@@ -923,7 +945,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                 <button
                                     type="button"
                                     onClick={() => handleDeactivateUser(selectedUser.uid, selectedUser.email)}
-                                    className="bg-amber-500/10 hover:bg-amber-500 hover:text-black text-amber-500 border border-amber-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
+                                    className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 font-bold px-6 py-2.5 rounded-lg text-sm transition-colors whitespace-nowrap"
                                 >
                                     Deactivate User
                                 </button>
@@ -1073,6 +1095,15 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                     >
                                         <Edit2 className="w-4 h-4" />
                                     </button>
+                                    {user.role !== 'business_owner' && user.uid !== currentUser?.uid && (
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); handleDeactivateUser(user.uid, user.email); }}
+                                            title="Deactivate User"
+                                            className="p-2 text-red-500 hover:text-white hover:bg-red-500/20 rounded transition-colors"
+                                        >
+                                            <UserX className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

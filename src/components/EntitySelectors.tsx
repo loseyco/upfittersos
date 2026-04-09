@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, X, User, Truck, Package, CheckCircle2, ChevronRight, Building, Mail, Phone, Hash, ClipboardList, Info, Wrench } from 'lucide-react';
+import { Search, X, User, Truck, Package, CheckCircle2, ChevronRight, Building, Mail, Phone, Hash, ClipboardList, Info, Wrench, RefreshCw } from 'lucide-react';
 
 interface SelectorProps<T> {
     label?: string;
@@ -9,6 +9,8 @@ interface SelectorProps<T> {
     disabled?: boolean;
     placeholder?: string;
     trigger?: React.ReactNode;
+    emptyMessage?: React.ReactNode;
+    onOpen?: () => void;
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -36,7 +38,8 @@ function SelectorModal({
     children,
     searchValue,
     onSearchChange,
-    hideSearch
+    hideSearch,
+    onRefresh
 }: {
     isOpen: boolean,
     onClose: () => void,
@@ -45,8 +48,11 @@ function SelectorModal({
     children: React.ReactNode,
     searchValue: string,
     onSearchChange: (v: string) => void,
-    hideSearch?: boolean
+    hideSearch?: boolean,
+    onRefresh?: () => void
 }) {
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    
     if (!isOpen) return null;
 
     return (
@@ -75,16 +81,35 @@ function SelectorModal({
                 {/* Search Bar */}
                 {!hideSearch && (
                     <div className="p-4 border-b border-zinc-800 bg-zinc-900/20 shrink-0">
-                        <div className="relative">
-                            <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
-                            <input
-                                type="text"
-                                autoFocus
-                                placeholder="Type to search..."
-                                value={searchValue}
-                                onChange={(e) => onSearchChange(e.target.value)}
-                                className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-sm text-white focus:outline-none focus:border-accent transition-colors shadow-inner"
-                            />
+                        <div className="flex items-center gap-3">
+                            <div className="relative flex-1">
+                                <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    placeholder="Type to search..."
+                                    value={searchValue}
+                                    onChange={(e) => onSearchChange(e.target.value)}
+                                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl pl-10 pr-4 py-3 text-sm text-white focus:outline-none focus:border-accent transition-colors shadow-inner"
+                                />
+                            </div>
+                            {onRefresh && (
+                                <button
+                                    onClick={async () => {
+                                        if (isRefreshing) return;
+                                        setIsRefreshing(true);
+                                        try {
+                                            await onRefresh();
+                                        } finally {
+                                            setTimeout(() => setIsRefreshing(false), 500);
+                                        }
+                                    }}
+                                    className="p-3 bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 hover:border-zinc-500 rounded-xl text-zinc-400 hover:text-white transition-all flexitems-center justify-center shrink-0"
+                                    title="Refresh List"
+                                >
+                                    <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-accent' : ''}`} />
+                                </button>
+                            )}
                         </div>
                     </div>
                 )}
@@ -271,7 +296,7 @@ export function VehicleSelector({ value, onChange, data, disabled, label, placeh
 // ============================================
 // COMPONENT: Staff Selector
 // ============================================
-export function StaffSelector({ value, onChange, data, disabled, label, trigger, placeholder = 'Assign a Staff Member...' }: SelectorProps<any>) {
+export function StaffSelector({ value, onChange, data, disabled, label, trigger, placeholder = 'Assign a Staff Member...', emptyMessage, onOpen }: SelectorProps<any>) {
     const [isOpen, setIsOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [previewEntity, setPreviewEntity] = useState<any | null>(null);
@@ -305,14 +330,14 @@ export function StaffSelector({ value, onChange, data, disabled, label, trigger,
             {label && !trigger && <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">{label}</label>}
 
             {trigger ? (
-                <div onClick={() => !disabled && setIsOpen(true)} className={`${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                <div onClick={() => { if (!disabled) { setIsOpen(true); onOpen?.(); } }} className={`${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                     {trigger}
                 </div>
             ) : (
                 <button
                     type="button"
                     disabled={disabled}
-                    onClick={() => setIsOpen(true)}
+                    onClick={() => { setIsOpen(true); onOpen?.(); }}
                     className={`w-full flex items-center justify-between text-left bg-zinc-900 border ${isOpen ? 'border-accent' : 'border-zinc-800'} rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-accent transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-zinc-600'}`}
                 >
                     <div className="flex items-center gap-3 truncate">
@@ -329,7 +354,7 @@ export function StaffSelector({ value, onChange, data, disabled, label, trigger,
                 </button>
             )}
 
-            <SelectorModal isOpen={isOpen} onClose={() => { setIsOpen(false); setPreviewEntity(null); }} title="Assign Personnel" icon={User} searchValue={search} onSearchChange={setSearch} hideSearch={!!previewEntity}>
+            <SelectorModal isOpen={isOpen} onClose={() => { setIsOpen(false); setPreviewEntity(null); }} title="Assign Personnel" icon={User} searchValue={search} onSearchChange={setSearch} hideSearch={!!previewEntity} onRefresh={onOpen}>
                 {previewEntity ? (
                     <div className="space-y-6">
                         <div className="flex items-center gap-4 border-b border-zinc-800 pb-6">
@@ -388,7 +413,7 @@ export function StaffSelector({ value, onChange, data, disabled, label, trigger,
                         </div>
                     </div>
                 ) : filtered.length === 0 ? (
-                    <div className="text-center p-8 text-zinc-500 italic">No staff found.</div>
+                    <div className="text-center p-8 text-zinc-500 italic max-w-sm mx-auto">{emptyMessage || 'No staff found.'}</div>
                 ) : (
                     <div className="flex flex-col h-full">
                         <div className="grid grid-cols-1 gap-3 flex-1 pb-4">

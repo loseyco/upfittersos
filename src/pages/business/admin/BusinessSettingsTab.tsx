@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator, FolderKanban, Plus, Trash2 } from 'lucide-react';
+import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator } from 'lucide-react';
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { type PermissionKey } from '../../../lib/permissions';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
@@ -24,9 +24,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         qboRealmId: '',
         standardShopRate: 150,
         burdenMultiplier: 1.3,
+        averageStaffHourlyCost: 25,
         defaultSopSupplies: 0,
         defaultShipping: 0,
-        departments: [] as { id: string, name: string, burdenMultiplier: number, standardShopRate: number }[],
         easyPostApiKey: ''
     });
     
@@ -52,9 +52,9 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     qboRealmId: res.data.qboRealmId || '',
                     standardShopRate: res.data.standardShopRate !== undefined ? Number(res.data.standardShopRate) : 150,
                     burdenMultiplier: res.data.burdenMultiplier !== undefined ? Number(res.data.burdenMultiplier) : 1.3,
+                    averageStaffHourlyCost: res.data.averageStaffHourlyCost !== undefined ? Number(res.data.averageStaffHourlyCost) : 25,
                     defaultSopSupplies: res.data.defaultSopSupplies !== undefined ? Number(res.data.defaultSopSupplies) : 0,
                     defaultShipping: res.data.defaultShipping !== undefined ? Number(res.data.defaultShipping) : 0,
-                    departments: res.data.departments || [],
                     easyPostApiKey: res.data.easyPostApiKey || ''
                 };
                 setForm(loadedForm);
@@ -293,6 +293,22 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                         <div>
+                            <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Average Staff Hourly Cost</label>
+                            <div className="relative group">
+                                <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-zinc-500 font-black group-focus-within:text-amber-400 transition-colors text-lg">$</span>
+                                <input 
+                                    type="number" 
+                                    min="0" 
+                                    step="1" 
+                                    value={form.averageStaffHourlyCost} 
+                                    onChange={e => setForm({...form, averageStaffHourlyCost: parseFloat(e.target.value) || 0})} 
+                                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-12 py-4 text-xl focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 text-white font-mono font-black shadow-inner transition-all [&::-webkit-inner-spin-button]:appearance-none" 
+                                />
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-zinc-600 font-bold text-xs uppercase tracking-widest">/hr</span>
+                            </div>
+                            <p className="text-[10px] text-zinc-500 mt-2 px-1">Baseline wage used to blindly forecast minimum internal labor costs during the initial quoting phase.</p>
+                        </div>
+                        <div>
                             <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Default Shop Supplies</label>
                             <div className="relative group">
                                 <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-zinc-500 font-black group-focus-within:text-amber-400 transition-colors text-lg">$</span>
@@ -325,90 +341,7 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     </div>
                 </section>
 
-                {/* Departments */}
-                <section>
-                    <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
-                        <FolderKanban className="w-4 h-4 text-purple-400"/> Departments
-                    </h3>
-                    <div className="space-y-4">
-                        {form.departments.map((dept, idx) => (
-                            <div key={dept.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-zinc-900 border border-zinc-800 p-4 rounded-xl items-end relative group">
-                                <div className="md:col-span-5">
-                                    <label className="block text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1.5 ml-1">Department Name</label>
-                                    <input 
-                                        type="text" 
-                                        value={dept.name} 
-                                        onChange={e => {
-                                            const newDepts = [...form.departments];
-                                            newDepts[idx].name = e.target.value;
-                                            setForm({...form, departments: newDepts});
-                                        }} 
-                                        className="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 rounded-lg p-2.5 text-sm text-white" 
-                                        placeholder="e.g. Fabrication"
-                                    />
-                                </div>
-                                <div className="md:col-span-3">
-                                    <label className="block text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1.5 ml-1">Shop Rate /hr</label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-2.5 text-zinc-500 font-bold">$</span>
-                                        <input 
-                                            type="number" 
-                                            step="1"
-                                            value={dept.standardShopRate} 
-                                            onChange={e => {
-                                                const newDepts = [...form.departments];
-                                                newDepts[idx].standardShopRate = parseFloat(e.target.value) || 0;
-                                                setForm({...form, departments: newDepts});
-                                            }} 
-                                            className="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 rounded-lg p-2.5 pl-7 text-sm text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                        />
-                                    </div>
-                                </div>
-                                <div className="md:col-span-3">
-                                    <label className="block text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1.5 ml-1">Burden Multiplier</label>
-                                    <div className="relative">
-                                        <span className="absolute left-3 top-2.5 text-zinc-500 font-bold">×</span>
-                                        <input 
-                                            type="number" 
-                                            step="0.01"
-                                            value={dept.burdenMultiplier} 
-                                            onChange={e => {
-                                                const newDepts = [...form.departments];
-                                                newDepts[idx].burdenMultiplier = parseFloat(e.target.value) || 1;
-                                                setForm({...form, departments: newDepts});
-                                            }} 
-                                            className="w-full bg-zinc-950 border border-zinc-800 focus:border-purple-500 rounded-lg p-2.5 pl-7 text-sm text-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                                        />
-                                    </div>
-                                </div>
-                                <div className="md:col-span-1 flex justify-end">
-                                    <button 
-                                        type="button" 
-                                        onClick={() => {
-                                            const newDepts = form.departments.filter((_, i) => i !== idx);
-                                            setForm({...form, departments: newDepts});
-                                        }}
-                                        className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors border border-red-500/20"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
-                        <button 
-                            type="button"
-                            onClick={() => {
-                                setForm({
-                                    ...form,
-                                    departments: [...form.departments, { id: 'dept_' + Date.now().toString(36), name: '', burdenMultiplier: form.burdenMultiplier, standardShopRate: form.standardShopRate }]
-                                });
-                            }}
-                            className="bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 border-dashed rounded-xl px-4 py-3 flex items-center justify-center gap-2 w-full text-sm font-bold uppercase tracking-widest transition-colors"
-                        >
-                            <Plus className="w-4 h-4"/> Add Department
-                        </button>
-                    </div>
-                </section>
+
             </form>
 
             <UnsavedChangesBanner 

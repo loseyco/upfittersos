@@ -57,6 +57,10 @@ app.use(express.json());
 const swaggerDocument = YAML.load(path.join(__dirname, 'swagger.yaml'));
 
 import { authenticate, superAdminOnly } from './middleware/auth.middleware';
+import { sendEmailAsUser } from './reports/mailer';
+import { exec } from 'child_process';
+import util from 'util';
+const execPromise = util.promisify(exec);
 
 // --- API Documentation Route ---
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
@@ -147,6 +151,78 @@ app.post('/admin/enter-workspace', authenticate, superAdminOnly, async (req: Req
   } catch (error) {
     console.error("Failed to generate contextual bind token", error);
     return res.status(500).json({ error: 'Server failed to construct token' });
+  }
+});
+
+// GET /admin/git-commits - Fetches recent local git commits automatically (only works in dev environments)
+app.get('/admin/git-commits', authenticate, superAdminOnly, async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const since = req.query.since as string;
+    let gitCmd = 'git log -n 15 --format="%s"';
+    
+    if (since) {
+        // Sanitize to ISO 8601 subset for shell safety
+        const safeSince = since.replace(/[^a-zA-Z0-9-:.TZ]/g, '');
+        gitCmd = `git log --since="${safeSince}" --format="%s"`;
+    }
+
+    const { stdout } = await execPromise(gitCmd);
+    const commits = stdout.trim().split('\n').filter(c => c.length > 0 && !c.toLowerCase().startsWith('merge') && !c.toLowerCase().includes('temp:'));
+    return res.json({ commits });
+  } catch (error) {
+    console.warn("Git log failed (likely running in production without .git history):", error);
+    return res.status(500).json({ error: 'Git history unavailable in this environment' });
+  }
+});
+
+// POST /admin/dispatch-changelog - Formats and dispatches a changelog update email
+app.post('/admin/dispatch-changelog', authenticate, superAdminOnly, async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const { changelogId, recipients } = req.body;
+    if (!changelogId || !recipients || !Array.isArray(recipients)) {
+      return res.status(400).json({ error: 'changelogId and recipients array are required' });
+    }
+    
+    const docSnap = await db.collection('changelogs').doc(changelogId).get();
+    if (!docSnap.exists) return res.status(404).json({ error: 'Changelog document not found' });
+    
+    const data = docSnap.data() as any;
+    
+    const featuresHtml = (data.features || []).map((f: string) => `<li>${f}</li>`).join('');
+    const fixesHtml = (data.fixes || []).map((f: string) => `<li>${f}</li>`).join('');
+    
+    const emailHtml = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; color: #111;">
+        <h2 style="color: #2563eb; margin-bottom: 4px;">Platform Update: ${data.version || ''}</h2>
+        <p style="font-size: 16px; font-weight: bold; margin-top: 0;">${data.title || ''}</p>
+        <p style="line-height: 1.5; color: #444;">${data.description || ''}</p>
+        
+        ${data.features && data.features.length > 0 ? `
+          <h3 style="color: #059669; margin-top: 24px;">Enhancements & Features</h3>
+          <ul style="line-height: 1.6; color: #333;">${featuresHtml}</ul>
+        ` : ''}
+        
+        ${data.fixes && data.fixes.length > 0 ? `
+          <h3 style="color: #d97706; margin-top: 24px;">Bug Fixes & Patches</h3>
+          <ul style="line-height: 1.6; color: #333;">${fixesHtml}</ul>
+        ` : ''}
+        
+        <hr style="border: none; border-top: 1px solid #eaeaea; margin: 32px 0 16px 0;" />
+        <p style="font-size: 11px; color: #888; text-align: center;">This is an automated platform update dispatched natively via the Upfitters OS Administration Engine.</p>
+      </div>
+    `;
+    
+    // We impersonate the admin user, defaulting to standard domain fallback
+    const callerEmail = (req as any).user.email || 'p.losey@saegrp.com'; 
+    const subjectPrefix = data.version ? `[Platform Update] ${data.version}` : '[Platform Update]';
+    const emailSubject = `${subjectPrefix} - ${data.title}`;
+
+    await sendEmailAsUser(callerEmail, recipients, emailSubject, emailHtml);
+    
+    return res.json({ message: 'Email dispatched successfully.' });
+  } catch (error) {
+    console.error("Failed to dispatch changelog email", error);
+    return res.status(500).json({ error: 'Server failed to dispatch update email' });
   }
 });
 
@@ -589,7 +665,7 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
         photoURL, dob, emergencyContactName,
         emergencyContactPhone, payRate, payType, startDate, notes,
         skills, certificates, firstName, middleName, lastName, nickName,
-        customPermissions, role, roles
+        customPermissions, role, roles, departmentRoles
     } = req.body;
 
     const userUpdates: any = { updatedAt: new Date().toISOString() };
@@ -615,6 +691,7 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
     if (notes !== undefined) userUpdates.notes = notes;
     if (skills !== undefined) userUpdates.skills = skills;
     if (certificates !== undefined) userUpdates.certificates = certificates;
+    if (departmentRoles !== undefined) userUpdates.departmentRoles = departmentRoles;
 
     // Instead of trusting merge: true on nested maps, we force dot notation paths
     // First apply base metadata generically
@@ -680,26 +757,30 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
     // Synchronize Auth Claims natively if explicitly mutated in the payload
     if (roles !== undefined) {
         const sanitizedRoles = Array.isArray(roles) ? roles : (role ? [role] : []);
-        const filteredRoles = sanitizedRoles.filter((r: string) => 
-           isSuperAdmin || (r !== 'system_owner' && r !== 'super_admin' && r !== 'business_owner')
-        );
-
         const targetAuth = await admin.auth().getUser(targetUid);
         const currentClaims = targetAuth.customClaims || {};
         
-        // Block hijacking core ownership models securely
-        if (currentClaims.role !== 'business_owner' || isSuperAdmin) {
-            const primaryRole = filteredRoles.length > 0 ? filteredRoles[0] : 'staff';
-            await admin.auth().setCustomUserClaims(targetUid, {
-                ...currentClaims,
-                role: primaryRole,
-                roles: filteredRoles
-            });
-            await db.collection('users').doc(targetUid).update({
-                role: primaryRole,
-                roles: filteredRoles
-            });
+        const isTargetOwner = currentClaims.role === 'business_owner';
+
+        const filteredRoles = sanitizedRoles.filter((r: string) => 
+           isSuperAdmin || (r !== 'system_owner' && r !== 'super_admin' && (r !== 'business_owner' || isTargetOwner))
+        );
+
+        // Security override: prevent accidental or malicious removal of a Business Owner's primary anchor role by a sub-manager or themselves
+        if (!isSuperAdmin && isTargetOwner && !filteredRoles.includes('business_owner')) {
+            filteredRoles.unshift('business_owner');
         }
+        
+        const primaryRole = filteredRoles.length > 0 ? filteredRoles[0] : 'staff';
+        await admin.auth().setCustomUserClaims(targetUid, {
+            ...currentClaims,
+            role: primaryRole,
+            roles: filteredRoles
+        });
+        await db.collection('users').doc(targetUid).update({
+            role: primaryRole,
+            roles: filteredRoles
+        });
     }
 
     return res.json({ message: 'Identity metadata securely updated.' });

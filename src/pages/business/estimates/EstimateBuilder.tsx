@@ -6,7 +6,7 @@ import { db, storage } from '../../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
-import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
+import { Save, ArrowLeft, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle } from 'lucide-react';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import { CustomerSelector, StaffSelector, InventorySelector, TaskTemplateSelector } from '../../../components/EntitySelectors';
 
@@ -47,7 +47,6 @@ export function EstimateBuilder() {
     const [allStaff, setAllStaff] = useState<any[]>([]);
     const [allInventory, setAllInventory] = useState<any[]>([]);
     const [allTemplates, setAllTemplates] = useState<any[]>([]);
-    const [allAreas, setAllAreas] = useState<any[]>([]);
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
     const [businessSettings, setBusinessSettings] = useState<{ burdenMultiplier: number, standardShopRate: number, defaultSopSupplies?: number, defaultShipping?: number, departments?: any[] }>({ burdenMultiplier: 1.3, standardShopRate: 150, defaultSopSupplies: 0, defaultShipping: 0, departments: [] });
     
@@ -191,10 +190,11 @@ export function EstimateBuilder() {
 
                 const invQ = query(collection(db, 'inventory_items'), where('tenantId', '==', tenantId));
                 const invSnap = await getDocs(invQ);
-                setAllInventory(invSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
+                setAllInventory(invSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() })));
 
+                const tmplQ = query(collection(db, 'task_templates'), where('tenantId', '==', tenantId));
                 const tmplSnap = await getDocs(tmplQ);
-                setAllTemplates(tmplSnap.docs.map(docItem => ({ id: docItem.id, ...docItem.data() })));
+                setAllTemplates(tmplSnap.docs.map((docItem: any) => ({ id: docItem.id, ...docItem.data() })));
 
                 try {
                     const sRes = await api.get(`/businesses/${tenantId}/staff`);
@@ -528,20 +528,6 @@ export function EstimateBuilder() {
             toast.success("Quote Approved! Converted to Work Order.");
         } catch (e) {
             toast.error("Failed to convert");
-        }
-    };
-
-    const handleDispatch = async () => {
-        if (!window.confirm("Are you sure? This officially dispatches the job to the active 'In Progress' queue for technicians.")) return;
-        if (hasChanges) await handleSave(false);
-        if (jobId === 'new') return;
-        try {
-            await api.put(`/jobs/${jobId}`, { status: 'In Progress', tenantId });
-            setJob((prev: any) => ({ ...prev, status: 'In Progress' }));
-            setOriginalJob((prev: any) => ({ ...prev, status: 'In Progress' }));
-            toast.success("Job Dispatched! Now visible as In Progress.");
-        } catch (e) {
-            toast.error("Failed to dispatch job");
         }
     };
 
@@ -942,17 +928,6 @@ export function EstimateBuilder() {
                                     <div className="flex justify-between items-end pt-1">
                                         <span className="text-base font-black tracking-wide text-indigo-50">ACTUAL COST</span>
                                         <div className="flex items-center gap-3">
-                                            {actualGrandTotal > grandTotal ? (
-                                                <div className="flex items-center gap-1 text-[10px] text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 font-black">
-                                                    <TrendingUp className="w-3 h-3" />
-                                                    OVBG +${(actualGrandTotal - grandTotal).toFixed(2)}
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center gap-1 text-[10px] text-emerald-300 bg-emerald-500/20 px-1.5 py-0.5 rounded border border-emerald-500/30 font-black">
-                                                    <TrendingDown className="w-3 h-3" />
-                                                    UNBG -${(grandTotal - actualGrandTotal).toFixed(2)}
-                                                </div>
-                                            )}
                                             <span className="text-2xl text-white font-black">${actualGrandTotal.toFixed(2)}</span>
                                         </div>
                                     </div>
@@ -967,52 +942,6 @@ export function EstimateBuilder() {
                                         </div>
                                     )}
                                 </div>
-                            )}
-                        </div>
-
-                        {/* STATUS WORKFLOW BUTTONS */}
-                        <div className="mt-8 pt-4 border-t border-indigo-400/30">
-                            {job.status === 'Estimate' ? (
-                                <button className="w-full bg-white text-indigo-900 hover:bg-zinc-100 font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <CheckCircle className="w-4 h-4" /> Convert to Work Order
-                                </button>
-                            ) : job.status === 'Quote / Estimate' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('In Progress');
-                                }} disabled={isSaving} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <PlayCircle className="w-4 h-4" /> Dispatch Job (Mark In Progress)
-                                </button>
-                            ) : job.status === 'In Progress' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('Finished');
-                                }} disabled={isSaving} className="w-full bg-blue-500 hover:bg-blue-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <CheckCircle className="w-4 h-4" /> Mark Job Finished
-                                </button>
-                            ) : job.status === 'Finished' ? (
-                                <button onClick={() => {
-                                    handleStatusChange('Invoiced');
-                                }} disabled={isSaving} className="w-full bg-purple-500 hover:bg-purple-400 text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-colors text-sm uppercase tracking-widest font-mono">
-                                    <FileText className="w-4 h-4" /> Prepare Invoice
-                                </button>
-                            ) : null}
-                            <div className="mt-3 flex gap-2">
-                                {/* <button className="flex-1 bg-indigo-900/50 hover:bg-indigo-800 border border-indigo-500/50 text-indigo-200 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono">
-                                    <MessageSquare className="w-3.5 h-3.5" /> Text Approvals
-                                </button> */}
-                                <button onClick={handleSendEmail} disabled={isSendingEmail || isSaving} className="flex-1 bg-indigo-900/50 hover:bg-indigo-800 border border-indigo-500/50 text-indigo-200 font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono disabled:opacity-50">
-                                    {isSendingEmail ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} 
-                                    {isSendingEmail ? 'Sending...' : 'Email Estimate / Invoice'}
-                                </button>
-                            </div>
-                            
-                            {job.status !== 'Estimate' && job.status !== 'Quote / Estimate' && job.status !== 'Draft' && (
-                                <button 
-                                    onClick={() => handleStatusChange('Quote / Estimate')}
-                                    disabled={isSaving}
-                                    className="w-full mt-3 bg-zinc-900/50 hover:bg-zinc-800 border border-zinc-700/50 text-zinc-400 hover:text-white font-bold px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors text-[10px] uppercase tracking-widest font-mono disabled:opacity-50"
-                                >
-                                    <RefreshCcw className="w-3.5 h-3.5" /> Revert to Quote (Pending Approval)
-                                </button>
                             )}
                         </div>
                     </div>                    {/* COMPACT CUSTOMER CARD */}
@@ -2052,9 +1981,9 @@ export function EstimateBuilder() {
 
                     <div className="w-full h-full p-4 flex items-center justify-center overflow-auto cursor-pointer"
                          onClick={() => setLightboxIndex(null)}>
-                        {ccPhotos[lightboxIndex]?.uris?.[0]?.uri ? (
+                        {lightboxIndex !== null && ccPhotos[lightboxIndex!]?.uris?.[0]?.uri ? (
                             <img 
-                                src={ccPhotos[lightboxIndex].uris[0].uri} 
+                                src={ccPhotos[lightboxIndex!].uris[0].uri} 
                                 alt="Job Media Full" 
                                 style={{ transform: `scale(${lightboxZoom})`, transition: 'transform 0.2s ease-out' }}
                                 className="max-w-[90vw] max-h-[90vh] object-contain origin-center cursor-default filter drop-shadow-2xl"
@@ -2071,9 +2000,9 @@ export function EstimateBuilder() {
                     </button>
 
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white font-mono text-sm bg-zinc-900/80 px-6 py-2 rounded-full border border-zinc-700 flex flex-col items-center gap-1 backdrop-blur z-50 shadow-xl">
-                        <span className="font-bold">{lightboxIndex + 1} / {ccPhotos.length}</span>
+                        <span className="font-bold">{(lightboxIndex !== null ? lightboxIndex + 1 : 0)} / {ccPhotos.length}</span>
                         <span className="text-[10px] text-zinc-400 tracking-wider">
-                            {ccPhotos[lightboxIndex]?.creator_name ? `UPLOADED BY ${ccPhotos[lightboxIndex].creator_name}` : ''}
+                            {lightboxIndex !== null && ccPhotos[lightboxIndex!]?.creator_name ? `UPLOADED BY ${ccPhotos[lightboxIndex!].creator_name}` : ''}
                         </span>
                     </div>
                 </div>

@@ -41,7 +41,6 @@ const express_1 = __importDefault(require("express"));
 const admin = __importStar(require("firebase-admin"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 exports.deliveriesRoutes = express_1.default.Router();
-const db = admin.firestore();
 // -------------------------------------------------------------
 // SECURE MULTI-TENANT QUERY HELPER
 // -------------------------------------------------------------
@@ -49,9 +48,9 @@ const getTenantCollection = (req) => {
     const tenantId = req.user.tenantId;
     if (!tenantId)
         throw new Error("Unauthorized: Tenant isolation failed");
-    return db.collection(`businesses/${tenantId}/deliveries`);
+    return admin.firestore().collection(`businesses/${tenantId}/deliveries`);
 };
-const getBusinessCollection = () => db.collection('businesses');
+const getBusinessCollection = () => admin.firestore().collection('businesses');
 // GET / => List all Deliveries
 exports.deliveriesRoutes.get('/', auth_middleware_1.authenticate, async (req, res) => {
     try {

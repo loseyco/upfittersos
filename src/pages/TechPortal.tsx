@@ -292,7 +292,7 @@ export function TechPortal() {
     
     const myAssignedJobs = jobs.map(j => {
         const myTasks = (j.tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
-            .filter((t: any) => t.assignedUids?.includes(myUid) && t.status !== 'Finished');
+            .filter((t: any) => t.isApproved !== false && t.assignedUids?.includes(myUid) && t.status !== 'Finished');
         return {
             ...j,
             myTasks
@@ -303,7 +303,7 @@ export function TechPortal() {
     jobs.forEach(j => {
         if (j.status === 'Draft' || j.status === 'Delivered') return;
         (j.tasks || []).forEach((t: any, idx: number) => {
-            if (t.status !== 'Finished' && (!t.assignedUids || t.assignedUids.length === 0)) {
+            if (t.isApproved !== false && t.status !== 'Finished' && (!t.assignedUids || t.assignedUids.length === 0)) {
                 poolTasks.push({
                     jobId: j.id,
                     jobTitle: j.title,
