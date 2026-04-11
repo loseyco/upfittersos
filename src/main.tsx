@@ -114,8 +114,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/admin/features/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeatureDetail /></ProtectedRoute>} />
             <Route path="/business/manage" element={<ProtectedRoute><BusinessAdminSuite /></ProtectedRoute>} />
             <Route path="/business/coworkers" element={<ProtectedRoute><Coworkers /></ProtectedRoute>} />
-            <Route path="/business/feedback" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackBoard /></ProtectedRoute>} />
-            <Route path="/business/feedback/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeedbackDetail /></ProtectedRoute>} />
+            <Route path="/business/feedback" element={<ProtectedRoute><FeedbackBoard /></ProtectedRoute>} />
+            <Route path="/business/feedback/:id" element={<ProtectedRoute><FeedbackDetail /></ProtectedRoute>} />
             <Route path="/business/tasks" element={<ProtectedRoute><TasksDashboard /></ProtectedRoute>} />
             <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
             <Route path="/business/areas/:areaId" element={<ProtectedRoute><AreaProfilePage /></ProtectedRoute>} />

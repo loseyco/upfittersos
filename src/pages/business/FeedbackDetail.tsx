@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { api } from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { ArrowLeft, Send, CheckCircle2, CircleDashed, Clock, ChevronDown, Workflow, X } from 'lucide-react';
+import { ArrowLeft, Send, CheckCircle2, CircleDashed, Clock, ChevronDown, Workflow, X, Tag as TagIcon, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Comment {
@@ -28,6 +28,73 @@ export function FeedbackDetail() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showStatusMenu, setShowStatusMenu] = useState(false);
     const [businessName, setBusinessName] = useState<string | null>(null);
+
+    // New tag and assignment state
+    const [tagInput, setTagInput] = useState('');
+    const [showStaffSearch, setShowStaffSearch] = useState(false);
+    const [availableStaff, setAvailableStaff] = useState<any[]>([]);
+
+    useEffect(() => {
+        // Fetch staff for assignment
+        if (feedback?.tenantId) {
+            const fetchStaff = async () => {
+                const staffQuery = query(collection(db, 'users'), where('tenantId', '==', feedback.tenantId));
+                onSnapshot(staffQuery, (snap) => {
+                    const staff = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    setAvailableStaff(staff);
+                });
+            }
+            fetchStaff();
+        }
+    }, [feedback?.tenantId]);
+
+    const handleAddTag = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!tagInput.trim() || !id) return;
+        const newTags = [...(feedback.tags || []), tagInput.trim()];
+        
+        try {
+            await updateDoc(doc(db, 'feedback', id), { tags: newTags });
+            setFeedback({ ...feedback, tags: newTags });
+            setTagInput('');
+            toast.success("Tag added");
+        } catch (err) {
+            console.error("Error adding tag", err);
+            toast.error("Failed to add tag");
+        }
+    };
+
+    const handleRemoveTag = async (tagToRemove: string) => {
+        if (!id) return;
+        const newTags = (feedback.tags || []).filter((t: string) => t !== tagToRemove);
+        try {
+            await updateDoc(doc(db, 'feedback', id), { tags: newTags });
+            setFeedback({ ...feedback, tags: newTags });
+        } catch (err) {
+            toast.error("Failed to remove tag");
+        }
+    };
+
+    const handleAssignStaff = async (staffMember: any) => {
+        if (!id) return;
+        try {
+            await updateDoc(doc(db, 'feedback', id), {
+                assigneeId: staffMember.id,
+                assigneeName: staffMember.name || staffMember.email,
+                assigneePhoto: staffMember.photoURL || null
+            });
+            setFeedback({
+                ...feedback,
+                assigneeId: staffMember.id,
+                assigneeName: staffMember.name || staffMember.email,
+                assigneePhoto: staffMember.photoURL || null
+            });
+            setShowStaffSearch(false);
+            toast.success("Assigned successfully");
+        } catch (err) {
+            toast.error("Failed to assign staff");
+        }
+    };
 
     useEffect(() => {
         if (!id) return;
@@ -155,7 +222,7 @@ export function FeedbackDetail() {
             <div className="max-w-5xl w-full relative z-10">
                 {/* Header Navigation */}
                 <button 
-                    onClick={() => navigate('/business/feedback')} 
+                    onClick={() => navigate('/business/manage?tab=feedback')} 
                     className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-8 font-bold text-sm bg-zinc-900/50 hover:bg-zinc-800 px-5 py-2.5 rounded-xl border border-white/5 w-fit"
                 >
                     <ArrowLeft className="w-4 h-4" /> Back to Idea Board
@@ -299,6 +366,88 @@ export function FeedbackDetail() {
                     {/* Meta Sidebar */}
                     <div className="space-y-6">
                         <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl">
+                            <h3 className="text-[10px] font-black text-zinc-500 tracking-widest uppercase mb-5 flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-accent"></div> Assignment & Tags
+                            </h3>
+                            
+                            <div className="space-y-6 pb-6 border-b border-zinc-800/80 mb-6">
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block mb-2">Assigned To</span>
+                                    <div className="relative">
+                                        <div 
+                                            onClick={() => setShowStaffSearch(!showStaffSearch)}
+                                            className="flex items-center gap-3 bg-zinc-950 p-3 border border-zinc-800 rounded-2xl cursor-pointer hover:border-zinc-600 transition-colors"
+                                        >
+                                            {feedback.assigneePhoto ? (
+                                                <img src={feedback.assigneePhoto} className="w-8 h-8 rounded-full object-cover border border-zinc-700" />
+                                            ) : feedback.assigneeName ? (
+                                                <div className="w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center text-sm font-bold uppercase">
+                                                    {feedback.assigneeName[0]}
+                                                </div>
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 border-dashed flex items-center justify-center">
+                                                    <UserPlus className="w-3.5 h-3.5 text-zinc-500" />
+                                                </div>
+                                            )}
+                                            <div className="flex-1">
+                                                {feedback.assigneeName ? (
+                                                    <div className="font-bold text-white text-sm">{feedback.assigneeName}</div>
+                                                ) : (
+                                                    <div className="font-bold text-zinc-500 text-sm">Unassigned</div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {showStaffSearch && (
+                                            <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-800 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden z-20 max-h-48 overflow-y-auto">
+                                                {availableStaff.length === 0 ? (
+                                                    <div className="p-3 text-xs text-zinc-500 font-bold text-center">No staff found</div>
+                                                ) : (
+                                                    availableStaff.map(staff => (
+                                                        <button 
+                                                            key={staff.id}
+                                                            onClick={() => handleAssignStaff(staff)}
+                                                            className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-zinc-700 transition-colors border-b border-zinc-700/50 last:border-0"
+                                                        >
+                                                            {staff.photoURL ? (
+                                                                <img src={staff.photoURL} className="w-6 h-6 rounded-full" />
+                                                            ) : (
+                                                                <div className="w-6 h-6 rounded-full bg-zinc-600 flex items-center justify-center text-[10px] font-bold text-white uppercase">{staff.name?.[0] || '?'}</div>
+                                                            )}
+                                                            <span className="text-sm font-bold text-white">{staff.name || staff.email}</span>
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block mb-2">Tags</span>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {feedback.tags?.map((tag: string) => (
+                                            <span key={tag} className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5">
+                                                {tag}
+                                                <button onClick={() => handleRemoveTag(tag)} className="hover:text-red-400"><X className="w-3 h-3" /></button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                    <form onSubmit={handleAddTag} className="flex items-center gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={tagInput}
+                                            onChange={e => setTagInput(e.target.value)}
+                                            placeholder="Add tag..."
+                                            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-accent"
+                                        />
+                                        <button type="submit" disabled={!tagInput.trim()} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 p-1.5 rounded-lg disabled:opacity-50">
+                                            <TagIcon className="w-3.5 h-3.5" />
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+
                             <h3 className="text-[10px] font-black text-zinc-500 tracking-widest uppercase mb-5 flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-zinc-600"></div> User Metadata
                             </h3>

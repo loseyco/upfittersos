@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../../lib/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, updateDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Lightbulb, Bug, Star, Workflow, AlertTriangle, ArrowUp, ArrowDown, Minus, FlaskConical } from 'lucide-react';
+import { MessageSquare, Lightbulb, Bug, Star, Workflow, AlertTriangle, ArrowUp, ArrowDown, Minus, FlaskConical, LayoutList, LayoutGrid, CircleDashed, Clock, CheckCircle2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Feedback {
@@ -20,6 +20,10 @@ interface Feedback {
     screenshotUrl?: string;
     upvotes: string[];
     createdAt: any;
+    tags?: string[];
+    assigneeId?: string;
+    assigneeName?: string;
+    assigneePhoto?: string;
 }
 
 export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
@@ -31,6 +35,7 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
 
     const [filterType, setFilterType] = useState<string>('all');
     const [filterStatus, setFilterStatus] = useState<string>('all');
+    const [viewMode, setViewMode] = useState<'list' | 'kanban'>(typeof window !== 'undefined' && window.innerWidth < 768 ? 'list' : 'kanban');
 
     useEffect(() => {
         if (!tenantId) return;
@@ -101,6 +106,32 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
         return <div className="p-8 text-zinc-500 font-bold text-center">Loading Feedback...</div>;
     }
 
+    const handleDrop = async (e: React.DragEvent, newStatus: string) => {
+        e.preventDefault();
+        const feedbackId = e.dataTransfer.getData('feedbackId');
+        if (!feedbackId) return;
+        
+        try {
+            await updateDoc(doc(db, 'feedback', feedbackId), { status: newStatus });
+            toast.success(`Moved to ${newStatus.replace('_', ' ')}`);
+        } catch (err) {
+            console.error("Error updating status:", err);
+            toast.error("Failed to move item.");
+        }
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+    };
+
+    const COLUMNS = [
+        { id: 'open', label: 'Open', icon: <CircleDashed className="w-4 h-4 text-zinc-400" /> },
+        { id: 'planning', label: 'Planning', icon: <Workflow className="w-4 h-4 text-blue-400" /> },
+        { id: 'in_progress', label: 'In Progress', icon: <Clock className="w-4 h-4 text-amber-400" /> },
+        { id: 'completed', label: 'Completed', icon: <CheckCircle2 className="w-4 h-4 text-emerald-400" /> },
+        { id: 'rejected', label: 'Rejected', icon: <X className="w-4 h-4 text-red-500" /> }
+    ];
+
     return (
         <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto w-full">
             {/* Alpha Banner */}
@@ -131,6 +162,21 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
                 </div>
 
                 <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="flex bg-zinc-900 border border-zinc-700 rounded-lg overflow-hidden">
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={`p-2 transition-colors ${viewMode === 'list' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            <LayoutList className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('kanban')}
+                            className={`p-2 transition-colors ${viewMode === 'kanban' ? 'bg-zinc-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                            <LayoutGrid className="w-5 h-5" />
+                        </button>
+                    </div>
+
                     <select 
                         value={filterType} 
                         onChange={e => setFilterType(e.target.value)}
@@ -143,29 +189,31 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
                         <option value="bug">Bugs</option>
                     </select>
 
-                    <select 
-                        value={filterStatus} 
-                        onChange={e => setFilterStatus(e.target.value)}
-                        className="flex-1 md:flex-none bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-bold rounded-lg px-3 py-2.5 outline-none focus:border-accent"
-                    >
-                        <option value="all">All Statuses</option>
-                        <option value="open">Open</option>
-                        <option value="planning">Planning</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                        <option value="rejected">Rejected</option>
-                    </select>
+                    {viewMode === 'list' && (
+                        <select 
+                            value={filterStatus} 
+                            onChange={e => setFilterStatus(e.target.value)}
+                            className="flex-1 md:flex-none bg-zinc-900 border border-zinc-700 text-zinc-300 text-xs font-bold rounded-lg px-3 py-2.5 outline-none focus:border-accent"
+                        >
+                            <option value="all">All Statuses</option>
+                            <option value="open">Open</option>
+                            <option value="planning">Planning</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="rejected">Rejected</option>
+                        </select>
+                    )}
                 </div>
             </div>
 
-            <div className="p-4 md:p-8 max-w-5xl mx-auto w-full space-y-6 pb-24">
-                {filteredFeedbacks.length === 0 ? (
+            <div className={`p-4 md:p-8 mx-auto w-full space-y-6 pb-24 ${viewMode === 'kanban' ? 'max-w-[1400px]' : 'max-w-5xl'}`}>
+                {filteredFeedbacks.length === 0 && viewMode === 'list' ? (
                     <div className="bg-zinc-900/40 border border-zinc-800 rounded-3xl p-12 text-center text-zinc-500 flex flex-col items-center justify-center">
                         <MessageSquare className="w-12 h-12 mb-4 text-zinc-700" />
                         <h3 className="text-lg font-bold text-zinc-300 mb-2">No Feedback Yet</h3>
                         <p>Your team hasn't submitted any ideas, bugs, or workflow feedback yet.</p>
                     </div>
-                ) : (
+                ) : viewMode === 'list' ? (
                     filteredFeedbacks.map(fb => (
                         <div 
                             key={fb.id} 
@@ -237,7 +285,85 @@ export function FeedbackAdminTab({ tenantId }: { tenantId: string }) {
                             </div>
                         </div>
                     ))
-                )}
+                ) : viewMode === 'kanban' ? (
+                    <div className="flex gap-6 overflow-x-auto pb-8 snap-x min-h-[500px]">
+                        {COLUMNS.map(col => {
+                            const colFeedbacks = filteredFeedbacks.filter(fb => fb.status === col.id);
+                            return (
+                                <div 
+                                    key={col.id} 
+                                    className="flex-shrink-0 w-80 bg-zinc-900/40 border border-zinc-800 rounded-2xl flex flex-col snap-center"
+                                    onDrop={(e) => handleDrop(e, col.id)}
+                                    onDragOver={handleDragOver}
+                                >
+                                    <div className="p-4 border-b border-zinc-800 bg-zinc-900/60 rounded-t-2xl flex items-center justify-between sticky top-0">
+                                        <div className="flex items-center gap-2">
+                                            {col.icon}
+                                            <span className="font-bold text-sm text-zinc-300">{col.label}</span>
+                                        </div>
+                                        <span className="text-xs font-black text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded-full">
+                                            {colFeedbacks.length}
+                                        </span>
+                                    </div>
+                                    <div className="flex-1 p-3 space-y-3 overflow-y-auto">
+                                        {colFeedbacks.map(fb => (
+                                            <div
+                                                key={fb.id}
+                                                draggable
+                                                onDragStart={(e) => {
+                                                    e.dataTransfer.setData('feedbackId', fb.id);
+                                                }}
+                                                onClick={() => navigate(`/business/feedback/${fb.id}`)}
+                                                className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 cursor-pointer hover:border-zinc-600 transition-colors shadow-lg active:scale-95"
+                                            >
+                                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                    <div className={`px-2 py-0.5 flex items-center gap-1 rounded text-[9px] font-bold uppercase tracking-wider ${getTypeColor(fb.type)}`}>
+                                                        {getTypeIcon(fb.type)}
+                                                        {fb.type}
+                                                    </div>
+                                                    <div className={`px-2 py-0.5 flex items-center gap-1 rounded text-[9px] font-bold uppercase tracking-wider ${getPriorityColor(fb.priority || 'normal')}`}>
+                                                        {getPriorityIcon(fb.priority || 'normal')}
+                                                    </div>
+                                                </div>
+                                                <h4 className="text-sm font-bold text-white mb-2 leading-tight">{fb.title}</h4>
+                                                
+                                                {fb.tags && fb.tags.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1 mb-3">
+                                                        {fb.tags.map(tag => (
+                                                            <span key={tag} className="text-[9px] font-bold bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+                                                                {tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-800/50">
+                                                    <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-500">
+                                                        <ArrowUp className="w-3 h-3" /> {fb.upvotes?.length || 0}
+                                                    </div>
+                                                    <div className="flex -space-x-1">
+                                                        {fb.assigneePhoto ? (
+                                                            <img src={fb.assigneePhoto} className="w-5 h-5 rounded-full border border-zinc-950" title={fb.assigneeName} />
+                                                        ) : fb.assigneeName ? (
+                                                            <div className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-[8px] font-bold border border-zinc-950" title={fb.assigneeName}>
+                                                                {fb.assigneeName[0]}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {colFeedbacks.length === 0 && (
+                                            <div className="text-center py-8 text-zinc-600 text-xs font-bold italic border-2 border-dashed border-zinc-800/50 rounded-xl">
+                                                Drop cards here
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : null}
             </div>
         </div>
     );
