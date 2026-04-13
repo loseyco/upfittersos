@@ -8,6 +8,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { db } from '../../lib/firebase';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
+import { useLocationTracker } from '../../hooks/useLocationTracker';
 
 const LiveDuration = ({ startTime }: { startTime: string }) => {
     const [elapsed, setElapsed] = useState('');
@@ -96,6 +97,9 @@ export function TimeClockApp() {
     const canRemotePunch = checkPermission('bypass_kiosk_timeclock');
     const [isScanning, setIsScanning] = useState(false);
     const [targetAction, setTargetAction] = useState<{action: string, breakType?: 'paid'|'unpaid'} | null>(null);
+
+    // Track user location while they are actively clocked in
+    useLocationTracker(tenantId || '', currentUser?.uid || '', !!activeLog);
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow, Presentation, Clock, Bug, Megaphone, Wrench, Calculator, Star, ChevronUp, ChevronDown } from 'lucide-react';
+import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow, Presentation, Clock, Bug, Megaphone, Wrench, Calculator, Star, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -110,6 +110,10 @@ export function WorkspaceHub() {
         apps.push({ name: 'Job Manager', desc: 'Construct and manage accurate job scopes with line items.', icon: Calculator, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/business/jobs', ...getAccessMeta('estimate_builder') });
     }
 
+    if (hasValidWorkspace && !isHidden('messenger')) {
+        apps.push({ name: 'Real-Time Messenger', desc: 'Secure staff communication and live push alerts.', icon: MessageSquare, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'hover:border-rose-500/50', link: '/business/messenger', ...getAccessMeta('messenger') });
+    }
+
     // Tech Portal added below
     if (hasValidWorkspace && !isHidden('tech')) {
         apps.push({ name: 'Technician Portal', desc: 'Clock into assigned jobs, view vehicle details, and mark tasks as finished.', icon: Wrench, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'hover:border-amber-500/50', link: '/business/tech', ...getAccessMeta('tech') });
@@ -125,6 +129,10 @@ export function WorkspaceHub() {
 
     if (!loading && checkPermission('view_facility_map') && !isHidden('facility_map')) {
         apps.unshift({ name: 'Facility Map', desc: 'Interactive floorplan of the business campus.', icon: MapIcon, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'hover:border-purple-500/50', link: '/business/facility', ...getAccessMeta('facility_map') });
+    }
+
+    if (!loading && (checkPermission('manage_jobs') || checkPermission('manage_staff')) && !isHidden('field_map')) {
+        apps.unshift({ name: 'Field Map', desc: 'Live operations map tracking technicians and personnel in the field.', icon: MapIcon, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'hover:border-blue-500/50', link: '/business/field-map', ...getAccessMeta('field_map') });
     }
 
     if (!loading && checkPermission('manage_jobs') && !isHidden('ops')) {

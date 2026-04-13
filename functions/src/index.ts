@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+export * from './notifications';
 
 // TEMPORARY MIGRATION
 export const runOneTimeMigration = functions.https.onRequest(async (req, res) => {

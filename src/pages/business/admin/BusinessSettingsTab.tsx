@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator } from 'lucide-react';
+import { useRef } from 'react';
+import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator, Camera } from 'lucide-react';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { type PermissionKey } from '../../../lib/permissions';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
@@ -27,8 +29,12 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         averageStaffHourlyCost: 25,
         defaultSopSupplies: 0,
         defaultShipping: 0,
-        easyPostApiKey: ''
+        easyPostApiKey: '',
+        pwaIconUrl: ''
     });
+    
+    // Internal files
+    const iconFileInputRef = useRef<HTMLInputElement>(null);
     
     // Unsaved changes tracking
     const [initialForm, setInitialForm] = useState<typeof form | null>(null);
@@ -55,7 +61,8 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     averageStaffHourlyCost: res.data.averageStaffHourlyCost !== undefined ? Number(res.data.averageStaffHourlyCost) : 25,
                     defaultSopSupplies: res.data.defaultSopSupplies !== undefined ? Number(res.data.defaultSopSupplies) : 0,
                     defaultShipping: res.data.defaultShipping !== undefined ? Number(res.data.defaultShipping) : 0,
-                    easyPostApiKey: res.data.easyPostApiKey || ''
+                    easyPostApiKey: res.data.easyPostApiKey || '',
+                    pwaIconUrl: res.data.pwaIconUrl || ''
                 };
                 setForm(loadedForm);
                 setInitialForm(loadedForm);
@@ -85,6 +92,28 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
             toast.error("Failed to save changes.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        try {
+            const toastId = toast.loading('Uploading custom app icon...', { id: 'icon_upload' });
+            const storage = getStorage();
+            const storageRef = ref(storage, `businesses/${tenantId}/pwa_icon`);
+            
+            await uploadBytes(storageRef, file, { contentType: file.type });
+            const url = await getDownloadURL(storageRef);
+            
+            const cacheBustedUrl = `${url}&t=${Date.now()}`;
+            
+            setForm({ ...form, pwaIconUrl: cacheBustedUrl });
+            toast.success('App Icon uploaded. Remember to save your profile!', { id: toastId });
+        } catch (err) {
+            console.error("Icon upload failed", err);
+            toast.error('Failed to process image payload.', { id: 'icon_upload' });
         }
     };
 
@@ -136,8 +165,38 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                 {/* Basic Info */}
                 <section>
                     <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
-                        <Building2 className="w-4 h-4 text-accent"/> Identity
+                        <Building2 className="w-4 h-4 text-accent"/> Identity & Application Branding
                     </h3>
+
+                    <input 
+                        type="file" 
+                        ref={iconFileInputRef} 
+                        className="hidden" 
+                        accept="image/png, image/jpeg, image/webp" 
+                        onChange={handleIconUpload}
+                    />
+
+                    <div className="flex items-center gap-4 p-4 bg-zinc-950/50 border border-zinc-800/50 rounded-xl mb-6">
+                        <div className="w-16 h-16 rounded-xl bg-zinc-900 border-2 border-zinc-800 shadow-xl flex items-center justify-center text-xl text-accent font-black overflow-hidden shrink-0">
+                            {form.pwaIconUrl ? (
+                                <img src={form.pwaIconUrl} alt="App Icon" className="w-full h-full object-cover" />
+                            ) : (
+                                <Building2 className="w-8 h-8 text-zinc-600" />
+                            )}
+                        </div>
+                        <div className="flex-1">
+                            <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider block mb-1">Custom App Icon (PWA)</label>
+                            <p className="text-xs text-zinc-400 mb-2">Upload a square logo (e.g. 512x512) to override the default application icon when users install UpfittersOS to their device homescreen.</p>
+                            <button 
+                                type="button"
+                                onClick={() => iconFileInputRef.current?.click()}
+                                className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-2 border border-zinc-700 hover:border-zinc-600"
+                            >
+                                <Camera className="w-3.5 h-3.5" /> Select Icon Image
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Display Name</label>

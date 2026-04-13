@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -39,6 +42,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateAutomatedReports = exports.api = exports.runOneTimeMigration = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
+__exportStar(require("./notifications"), exports);
 // TEMPORARY MIGRATION
 exports.runOneTimeMigration = functions.https.onRequest(async (req, res) => {
     try {

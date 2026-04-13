@@ -90,8 +90,16 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
     }
+    match /user_fcm_tokens/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
+    }
     
     // New Collections Enabled For Realtime Frontend Mirroring
+    match /messages/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      allow update, delete: if (isTenant(resource.data.tenantId) && request.auth.uid == resource.data.senderId) || isSuperAdmin();
+    }
     match /tasks/{docId} {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
@@ -123,6 +131,14 @@ service cloud.firestore {
     match /areas/{docId} {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /messages/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /user_fcm_tokens/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if isSuperAdmin();
     }
     
     match /businesses/{tenantId} {

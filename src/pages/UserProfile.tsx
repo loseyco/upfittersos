@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera } from 'lucide-react';
+import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera, Bell } from 'lucide-react';
 import { updateProfile } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -8,6 +8,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const formatPhoneNumber = (value: string) => {
     if (!value) return value;
@@ -44,7 +45,24 @@ export function UserProfile() {
     const [companyCamToken, setCompanyCamToken] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [businessName, setBusinessName] = useState('Loading...');
+    const [deviceSetup, setDeviceSetup] = useState<any>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const { permissionStatus, requestPermissionAndSaveToken, isSubscribing } = usePushNotifications();
+
+    const handleManualInstall = async () => {
+        const dp = (window as any).deferredPrompt;
+        if (dp) {
+            dp.prompt();
+            const { outcome } = await dp.userChoice;
+            if (outcome === 'accepted') {
+                (window as any).deferredPrompt = null;
+                toast.success("Installation successful!");
+            }
+        } else {
+            toast.error("Install via your browser menu (Share -> Add to Home Screen on iOS, or Install on Desktop)");
+        }
+    };
 
     const handleCompanyCamConnect = async () => {
         try {
@@ -109,6 +127,8 @@ export function UserProfile() {
                     if (data.department) setDepartment(data.department);
                     if (data.bio) setBio(data.bio);
                     if (data.keepScreenAwake !== undefined) setKeepScreenAwake(data.keepScreenAwake);
+                    if (data.deviceSetup) setDeviceSetup(data.deviceSetup);
+                    
                     if (tenantId && data.companyCamAuth?.[tenantId]?.token) {
                         setCompanyCamToken(data.companyCamAuth[tenantId].token);
                     } else if (data.companyCamToken) {
@@ -542,6 +562,55 @@ export function UserProfile() {
                                             {bio ? `"${bio}"` : 'No biography provided.'}
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Device Configuration */}
+                                <div className="pt-6 mt-4 border-t border-zinc-800/50">
+                                    <h3 className="text-xs font-bold text-white mb-4 uppercase tracking-widest flex items-center gap-2">
+                                        <Bell className="w-4 h-4 text-blue-400"/> Device & Platform Setup
+                                    </h3>
+                                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
+                                        {/* PWA Install */}
+                                        <div className="flex items-center justify-between">
+                                            <div className="pr-4">
+                                                <h4 className="font-bold text-white">Application Installation</h4>
+                                                <p className="text-xs text-zinc-500">Run UpfittersOS natively on your Mobile or Desktop device</p>
+                                            </div>
+                                            {deviceSetup?.pwaInstalled ? (
+                                                <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 shrink-0"><Check className="w-3 h-3"/> Installed</span>
+                                            ) : (
+                                                <button 
+                                                    type="button"
+                                                    onClick={handleManualInstall}
+                                                    className="shrink-0 bg-blue-600 hover:bg-blue-500 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors"
+                                                >
+                                                    Install App
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        <div className="w-full h-px bg-zinc-800/50 my-1"></div>
+
+                                        {/* Notifications */}
+                                        <div className="flex items-center justify-between">
+                                            <div className="pr-4">
+                                                <h4 className="font-bold text-white">Push Notifications</h4>
+                                                <p className="text-xs text-zinc-500">Enable real-time messaging and operational alerts natively</p>
+                                            </div>
+                                            {permissionStatus === 'granted' ? (
+                                                <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1 shrink-0"><Check className="w-3 h-3"/> Active</span>
+                                            ) : (
+                                                <button 
+                                                    type="button"
+                                                    onClick={requestPermissionAndSaveToken}
+                                                    disabled={isSubscribing}
+                                                    className="shrink-0 bg-amber-500 hover:bg-amber-400 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50"
+                                                >
+                                                    {isSubscribing ? 'Connecting...' : 'Enable Push'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Personal Integrations */}

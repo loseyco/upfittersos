@@ -19,6 +19,7 @@ export const APP_FEATURES: AppFeature[] = [
   { id: 'canvases', name: 'Workflow Whiteboards', description: 'Logic canvases for operational procedures.', availableVersions: ['disabled', 'alpha'] },
   { id: 'feedback', name: 'Idea & Bug Board', description: 'Submit feedback and feature requests.', availableVersions: ['disabled', 'alpha'] },
   { id: 'tech', name: 'Technician Portal', description: 'Clock into assigned jobs and view vehicle details.', availableVersions: ['disabled', 'alpha'] },
+  { id: 'messenger', name: 'Real-Time Messenger', description: 'Internal team chat and push notification dispatch.', availableVersions: ['disabled', 'alpha', 'beta', 'live'] },
 
   // Back-End Business Admin Suite
   { id: 'roles', name: 'Identity & Access Rules', description: 'Manage permissions and roles.', availableVersions: ['disabled', 'alpha'] },
@@ -60,5 +61,6 @@ export const DEFAULT_FEATURE_STATE: Record<string, FeatureVersion> = {
   companycam: 'disabled',
   audit: 'disabled',
   deliveries: 'disabled',
-  estimate_builder: 'disabled'
+  estimate_builder: 'disabled',
+  messenger: 'disabled'
 };

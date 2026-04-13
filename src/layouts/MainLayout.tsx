@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X } from 'lucide-react';
+import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
@@ -9,6 +9,7 @@ import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
 import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { APP_NAME } from '../lib/constants';
+import { PWAPrompt } from '../components/PWAPrompt';
 export function MainLayout() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -16,6 +17,7 @@ export function MainLayout() {
 
     const [isSuperAdmin, setIsSuperAdmin] = useState(false);
     const [businessName, setBusinessName] = useState(APP_NAME);
+    const [businessIcon, setBusinessIcon] = useState<string | null>(null);
     const [apiVersion, setApiVersion] = useState<string>('checking...');
     const [keepScreenAwake, setKeepScreenAwake] = useState(false);
     const [profileName, setProfileName] = useState<string>('Authorized User');
@@ -32,7 +34,11 @@ export function MainLayout() {
         if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
             api.get(`/businesses/${tenantId}`).then(res => {
                 if (res.data?.name) setBusinessName(res.data.name);
-            }).catch(() => setBusinessName(APP_NAME));
+                if (res.data?.pwaIconUrl) setBusinessIcon(res.data.pwaIconUrl);
+            }).catch(() => {
+                setBusinessName(APP_NAME);
+                setBusinessIcon(null);
+            });
         } else if (tenantId === 'GLOBAL') {
             setBusinessName('Global Command');
         } else {
@@ -77,6 +83,41 @@ export function MainLayout() {
         }
 
     }, [tenantId]);
+
+    // Apply Dynamic SEO & PWA Branding
+    useEffect(() => {
+        document.title = `${businessName} | ${APP_NAME}`;
+        
+        let manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement;
+        
+        if (businessIcon) {
+            // Update Favicon natively
+            let iconLink = document.querySelector('link[rel="icon"]') as HTMLLinkElement;
+            if (iconLink) iconLink.href = businessIcon;
+
+            // Generate Dynamic PWA Manifest to override colors and home screen logo
+            const manifestObject = {
+                name: businessName,
+                short_name: businessName,
+                start_url: "/",
+                display: "standalone",
+                background_color: "#000000",
+                theme_color: "#18181b",
+                icons: [
+                    {
+                        src: businessIcon,
+                        sizes: "192x192 512x512",
+                        type: "image/png"
+                    }
+                ]
+            };
+
+            const blob = new Blob([JSON.stringify(manifestObject)], { type: 'application/json' });
+            if (manifestLink) {
+                manifestLink.href = URL.createObjectURL(blob);
+            }
+        }
+    }, [businessName, businessIcon]);
 
     useEffect(() => {
         if (currentUser) {
@@ -213,7 +254,17 @@ export function MainLayout() {
 
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">
-                    <Link to={currentUser ? '/workspace' : '/'}>
+                    {location.pathname !== '/workspace' && location.pathname !== '/' && location.pathname !== '/admin' && (
+                        <button 
+                            onClick={() => navigate(-1)}
+                            className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 mr-2 flex items-center gap-1"
+                        >
+                            <ChevronLeft className="w-5 h-5" />
+                            <span className="hidden sm:inline text-xs font-bold mr-1">Back</span>
+                        </button>
+                    )}
+                    <Link to={currentUser ? '/workspace' : '/'} className="flex items-center gap-2">
+                        {businessIcon && <img src={businessIcon} alt="Logo" className="w-6 h-6 rounded-md object-cover border border-zinc-700 shadow-sm hidden md:block" />}
                         <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
                     </Link>
                 </div>
@@ -296,8 +347,8 @@ export function MainLayout() {
                     })}
                 </nav>
             </div>
-            
             <GlobalFeedbackWidget />
+            {currentUser && <PWAPrompt />}
         </div>
     );
 }

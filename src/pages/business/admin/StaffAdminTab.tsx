@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera, Eye, UserX } from 'lucide-react';
+import { Users, Edit2, Trash2, AlertTriangle, CheckCircle2, Plus, ArrowLeft, Save, Briefcase, HeartPulse, DollarSign, FileText, Award, X, PlusCircle, Camera, Eye, UserX, Bell, Smartphone, MapPin } from 'lucide-react';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -1082,9 +1082,18 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
                                         <Edit2 className="w-4 h-4" />
                                     </button>
                                 </div>
-                                <div className="hidden md:flex col-span-3 items-center gap-1.5">
+                                <div className="hidden md:flex col-span-3 items-center gap-1.5 flex-wrap">
                                     <span className="flex items-center gap-1 bg-emerald-500/10 text-emerald-400 text-[10px] font-black uppercase px-2 py-1 rounded">
                                         <CheckCircle2 className="w-3 h-3" /> Active
+                                    </span>
+                                    <span className={`flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded ${user.deviceSetup?.pushEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-zinc-800/30 text-zinc-600'}`} title={user.deviceSetup?.pushEnabled ? "Push Notifications Active" : "Push Notifications Inactive"}>
+                                        <Bell className="w-3 h-3" /> PUSH
+                                    </span>
+                                    <span className={`flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded ${user.deviceSetup?.locationEnabled ? 'bg-purple-500/10 text-purple-400' : 'bg-zinc-800/30 text-zinc-600'}`} title={user.deviceSetup?.locationEnabled ? "GPS Tracking Active" : "GPS Tracking Inactive"}>
+                                        <MapPin className="w-3 h-3" /> GPS
+                                    </span>
+                                    <span className={`flex items-center gap-1 text-[10px] font-black uppercase px-2 py-1 rounded ${user.deviceSetup?.pwaInstalled ? 'bg-blue-500/10 text-blue-400' : 'bg-zinc-800/30 text-zinc-600'}`} title={user.deviceSetup?.pwaInstalled ? "Platform App Installed" : "Platform App Not Installed"}>
+                                        <Smartphone className="w-3 h-3" /> APP
                                     </span>
                                 </div>
                                 <div className="hidden md:flex col-span-2 items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>

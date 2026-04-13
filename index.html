@@ -6,6 +6,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
     <title>SAE OS</title>
     <!-- Google tag (gtag.js) -->
@@ -16,6 +17,12 @@
       gtag('js', new Date());
 
       gtag('config', 'G-HRTHWG1J5N');
+    </script>
+    <script>
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window.deferredPrompt = e;
+      });
     </script>
   </head>
   <body>

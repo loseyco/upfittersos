@@ -39,6 +39,7 @@ import { FeedbackBoard } from './pages/business/FeedbackBoard'
 import { FeedbackDetail } from './pages/business/FeedbackDetail'
 import { TasksDashboard } from './pages/business/TasksDashboard'
 import { FacilityMapPage } from './pages/business/FacilityMapPage'
+import { FieldMapPage } from './pages/business/FieldMapPage'
 import { OpsMissionControl } from './pages/business/OpsMissionControl'
 import { AreaProfilePage } from './pages/business/areas/AreaProfilePage'
 import { WorkflowWhiteboards } from './pages/business/WorkflowWhiteboards'
@@ -53,6 +54,7 @@ import { EstimatePrintView } from './pages/business/EstimatePrintView'
 import { EstimateHub } from './pages/business/estimates/EstimateHub'
 import { EstimateBuilder } from './pages/business/estimates/EstimateBuilder'
 import { EstimateBuilderV2 } from './pages/business/estimates/EstimateBuilderV2'
+import { Messenger } from './pages/business/Messenger'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -117,7 +119,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/feedback" element={<ProtectedRoute><FeedbackBoard /></ProtectedRoute>} />
             <Route path="/business/feedback/:id" element={<ProtectedRoute><FeedbackDetail /></ProtectedRoute>} />
             <Route path="/business/tasks" element={<ProtectedRoute><TasksDashboard /></ProtectedRoute>} />
+            <Route path="/business/messenger" element={<ProtectedRoute><Messenger /></ProtectedRoute>} />
             <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
+            <Route path="/business/field-map" element={<ProtectedRoute><FieldMapPage /></ProtectedRoute>} />
             <Route path="/business/areas/:areaId" element={<ProtectedRoute><AreaProfilePage /></ProtectedRoute>} />
             <Route path="/business/ops" element={<ProtectedRoute><OpsMissionControl /></ProtectedRoute>} />
             <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
