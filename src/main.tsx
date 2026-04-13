@@ -48,6 +48,7 @@ import { MeetingsDashboard } from './pages/business/MeetingsDashboard'
 import { TimeClockApp } from './pages/business/TimeClockApp'
 import { TimeclockKiosk } from './pages/business/TimeclockKiosk'
 import { TechPortal } from './pages/TechPortal'
+import { TechTaskWorkspace } from './pages/TechTaskWorkspace'
 import { NoticesBoard } from './pages/business/NoticesBoard'
 import { ReportViewerPage } from './pages/business/ReportViewerPage'
 import { EstimatePrintView } from './pages/business/EstimatePrintView'
@@ -128,6 +129,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/meetings" element={<ProtectedRoute><MeetingsDashboard /></ProtectedRoute>} />
             <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
             <Route path="/business/tech" element={<ProtectedRoute><TechPortal /></ProtectedRoute>} />
+            <Route path="/business/tech/task/:jobId/:taskIndexStr" element={<ProtectedRoute><TechTaskWorkspace /></ProtectedRoute>} />
             <Route path="/business/jobs" element={<ProtectedRoute><EstimateHub /></ProtectedRoute>} />
             <Route path="/business/jobs/:jobId" element={<ProtectedRoute><EstimateBuilderV2 /></ProtectedRoute>} />
             <Route path="/business/jobs/:jobId/v1" element={<ProtectedRoute><EstimateBuilder /></ProtectedRoute>} />

@@ -37,6 +37,7 @@ export function EstimateBuilderV2() {
     const [originalVehicle, setOriginalVehicle] = useState<any>(null);
 
     const [historyStack, setHistoryStack] = useState<{ job: any, customer: any, vehicle: any }[]>([]);
+    const [childChangeOrders, setChildChangeOrders] = useState<any[]>([]);
 
     const [allCustomers, setAllCustomers] = useState<any[]>([]);
     const [selectedCustomerId, setSelectedCustomerId] = useState<string>('new');
@@ -200,6 +201,29 @@ ${combinedNotes}`;
             }
         };
         loadJob();
+    }, [tenantId, jobId]);
+
+    useEffect(() => {
+        if (!tenantId || !jobId || jobId === 'new') return;
+        
+        const q = query(
+            collection(db, 'jobs'),
+            where('tenantId', '==', tenantId),
+            where('parentJobId', '==', jobId),
+            where('isChangeOrder', '==', true)
+        );
+        
+        const unsub = onSnapshot(q, (snapshot) => {
+            const fetched = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            fetched.sort((a: any, b: any) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                return timeA - timeB; // Sort ascending
+            });
+            setChildChangeOrders(fetched);
+        });
+        
+        return () => unsub();
     }, [tenantId, jobId]);
 
     useEffect(() => {
@@ -507,6 +531,7 @@ ${combinedNotes}`;
                 completionEta: job.completionEta,
                 desiredDropoffDate: job.desiredDropoffDate || null,
                 desiredPickupDate: job.desiredPickupDate || null,
+                quickbooksInvoiceId: job.quickbooksInvoiceId || '',
                 salesNotes: job.salesNotes || '',
                 customerMeetingNotes: job.customerMeetingNotes || '',
                 salesQuestions: job.salesQuestions || [],
@@ -534,6 +559,7 @@ ${combinedNotes}`;
                         completionEta: payload.completionEta || null,
                         desiredDropoffDate: payload.desiredDropoffDate || null,
                         desiredPickupDate: payload.desiredPickupDate || null,
+                        quickbooksInvoiceId: payload.quickbooksInvoiceId || '',
                         salesNotes: payload.salesNotes || '',
                         customerMeetingNotes: payload.customerMeetingNotes || '',
                         salesQuestions: payload.salesQuestions || [],
@@ -559,6 +585,7 @@ ${combinedNotes}`;
                         completionEta: payload.completionEta || null,
                         desiredDropoffDate: payload.desiredDropoffDate || null,
                         desiredPickupDate: payload.desiredPickupDate || null,
+                        quickbooksInvoiceId: payload.quickbooksInvoiceId || '',
                         salesNotes: payload.salesNotes || '',
                         customerMeetingNotes: payload.customerMeetingNotes || '',
                         salesQuestions: payload.salesQuestions || [],
@@ -1090,13 +1117,13 @@ ${combinedNotes}`;
                                             job.status === 'Pending Approval' ? 'bg-amber-600/20 text-amber-300 border-amber-500/50' :
                                             job.status === 'Approved' ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500' :
                                             job.status === 'In Progress' ? 'bg-blue-600/20 text-blue-300 border-blue-500' :
-                                            (job.status === 'Ready for QC' || job.status === 'Ready for Delivery') ? 'bg-amber-500/20 text-amber-300 border-amber-500' :
+                                            (job.status === 'Ready for QC' || job.status === 'Ready for Invoicing' || job.status === 'Ready for Delivery') ? 'bg-amber-500/20 text-amber-300 border-amber-500' :
                                             (job.status === 'Completed' || job.status === 'Delivered') ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' :
                                             job.status === 'Archived' || job.status === 'archived' ? 'bg-zinc-900 text-zinc-500 border-zinc-800' :
                                             'bg-zinc-800 text-zinc-400 border-zinc-700'
                                         }`}
                                     >
-                                        {['Estimate', 'Pending Approval', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Archived'].map(s => (
+                                        {['Estimate', 'Pending Approval', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Invoicing', 'Ready for Delivery', 'Delivered', 'Archived'].map(s => (
                                             <option key={s} value={s} className="bg-zinc-900 text-white font-mono text-xs my-1">
                                                 {s === 'Estimate' || s === 'Draft' ? 'DRAFT JOB / ESTIMATE' : s.toUpperCase()}
                                             </option>
@@ -1184,7 +1211,7 @@ ${combinedNotes}`;
                                 <div>
                                     <h3 className="text-white font-black uppercase tracking-widest text-sm">Line-Item Scope Approvals</h3>
                                     <p className="text-xs text-zinc-400 font-mono mt-1">
-                                        {(job.tasks || []).filter((t: any) => t.isApproved === true).length} of {job.tasks?.length || 0} Tasks Approved
+                                        {(job.tasks || []).filter((t: any) => t.isApproved === true || ['Finished', 'Ready for QA'].includes(t.status)).length} of {job.tasks?.length || 0} Tasks Approved
                                     </p>
                                 </div>
                             </div>
@@ -1192,17 +1219,17 @@ ${combinedNotes}`;
                             <div className="flex items-center gap-3 w-full sm:w-auto justify-end relative z-10 shrink-0 flex-wrap">
                                 <div className="bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl flex items-center gap-3">
                                     <span className="text-emerald-500/70 text-[10px] uppercase font-bold tracking-widest">Accepted</span>
-                                    <span className="text-emerald-500 text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === true).length}</span>
+                                    <span className="text-emerald-500 text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === true || ['Finished', 'Ready for QA'].includes(t.status)).length}</span>
                                 </div>
                                 <div className={`border px-4 py-2 rounded-xl flex items-center gap-3 ${
-                                    (job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length > 0 
+                                    (job.tasks || []).filter((t: any) => (t.isApproved === null || t.isApproved === undefined) && !['Finished', 'Ready for QA'].includes(t.status)).length > 0 
                                     ? 'bg-amber-500/10 border-amber-500/20 text-amber-500' 
                                     : 'bg-zinc-950 border-zinc-800/50 text-zinc-600'
                                 }`}>
                                     <span className={`text-[10px] uppercase font-bold tracking-widest ${
-                                        (job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length > 0 ? 'text-amber-500/70' : 'text-zinc-600'
+                                        (job.tasks || []).filter((t: any) => (t.isApproved === null || t.isApproved === undefined) && !['Finished', 'Ready for QA'].includes(t.status)).length > 0 ? 'text-amber-500/70' : 'text-zinc-600'
                                     }`}>Pending</span>
-                                    <span className="text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => t.isApproved === null || t.isApproved === undefined).length}</span>
+                                    <span className="text-lg font-black leading-none">{(job.tasks || []).filter((t: any) => (t.isApproved === null || t.isApproved === undefined) && !['Finished', 'Ready for QA'].includes(t.status)).length}</span>
                                 </div>
                                 <div className={`border px-4 py-2 rounded-xl flex items-center gap-3 ${
                                     (job.tasks || []).filter((t: any) => t.isApproved === false).length > 0 
@@ -1678,10 +1705,11 @@ ${combinedNotes}`;
                                             <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 shadow-sm">Vehicle Drop-Off ETA</label>
                                             <input
                                                 type="datetime-local"
+                                                disabled={isLocked || ['In Progress', 'Ready for QA', 'Ready for Invoicing', 'Ready for Delivery', 'Delivered'].includes(job.status)}
                                                 value={job.dropoffEta || ''}
                                                 onClick={(e) => { try { (e.target as any).showPicker(); } catch (e) { } }}
                                                 onChange={e => setJob({ ...job, dropoffEta: e.target.value })}
-                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+                                                className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2 text-sm text-white cursor-pointer focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-mono disabled:opacity-50 disabled:cursor-not-allowed"
                                             />
                                         </div>
                                         <div>
@@ -1850,6 +1878,39 @@ ${combinedNotes}`;
 
 
 
+                    {/* LINKED CHANGE ORDERS / SUPPLEMENTS UI */}
+                    {!job.isChangeOrder && childChangeOrders.length > 0 && (
+                        <div className="bg-amber-900/10 border border-amber-500/30 rounded-3xl p-6 shadow-xl mb-6">
+                            <h2 className="text-lg font-black text-amber-500 flex items-center gap-2 mb-4">
+                                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                                Linked Change Orders
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {childChangeOrders.map((co) => (
+                                    <div key={co.id} className="bg-zinc-950 border border-amber-500/20 rounded-2xl p-4 flex flex-col hover:border-amber-500/50 transition-colors">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className={`font-bold text-[10px] uppercase tracking-widest px-2.5 py-1 rounded-md border ${
+                                                co.status === 'Merged' ? 'bg-zinc-800 text-zinc-400 border-zinc-700' :
+                                                co.status === 'Approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                                'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                            }`}>
+                                                {co.status === 'Estimate' ? 'DRAFT' : co.status}
+                                            </div>
+                                            <span className="text-zinc-500 font-mono text-xs">#{co.id.substring(co.id.length - 6, co.id.length).toUpperCase()}</span>
+                                        </div>
+                                        <h3 className="text-white font-bold mb-3">{co.title || 'Untitled Change Order'}</h3>
+                                        <button 
+                                            onClick={() => navigate(`/business/estimates/${co.id}`)}
+                                            className="mt-auto self-start text-xs font-bold uppercase tracking-widest text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+                                        >
+                                            View Details <ArrowRight className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-xl">
                         <div className="flex items-center justify-between mb-6 border-b border-zinc-800/80 pb-4">
                             <h2 className="text-xl font-black text-white flex items-center gap-2">
@@ -1996,7 +2057,23 @@ ${combinedNotes}`;
                                                                 <div className="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border pointer-events-none bg-rose-500/10 text-rose-500 border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.1)]">
                                                                     ❌ Customer Declined
                                                                 </div>
-                                                            ) : null
+                                                            ) : (
+                                                                <div className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-colors border pointer-events-none ${
+                                                                    task.status === 'Finished' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20 shadow-[0_0_10px_rgba(99,102,241,0.1)]' :
+                                                                    task.status === 'Ready for QA' ? 'bg-sky-500/10 text-sky-400 border-sky-500/20 shadow-[0_0_10px_rgba(14,165,233,0.1)]' :
+                                                                    task.status === 'In Progress' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]' :
+                                                                    task.status === 'Paused' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]' :
+                                                                    task.status === 'Blocked' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20 shadow-[0_0_10px_rgba(225,29,72,0.1)]' :
+                                                                    'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                                }`}>
+                                                                    {task.status === 'Finished' ? '✓ Finished' : 
+                                                                     task.status === 'Ready for QA' ? '🔍 Pending QA' : 
+                                                                     task.status === 'In Progress' ? '▶ In Progress' :
+                                                                     task.status === 'Paused' ? '⏸ Paused' :
+                                                                     task.status === 'Blocked' ? '🛑 Blocked' :
+                                                                     '⚪ Not Started'}
+                                                                </div>
+                                                            )
                                                         )}
                                                     </div>
                                                 </div>
@@ -2032,6 +2109,7 @@ ${combinedNotes}`;
                                                         <label className="block text-[10px] text-zinc-500 font-black uppercase tracking-widest mb-1 flex items-center gap-1">Department</label>
                                                         <select
                                                             value={task.departmentId || ''}
+                                                            disabled={isLocked || (job.status !== 'Draft' && job.status !== 'Estimate')}
                                                             onChange={e => {
                                                                 const deptId = String(e.target.value);
                                                                 const t = [...job.tasks];
@@ -2329,7 +2407,7 @@ ${combinedNotes}`;
                                                         setJob({ ...job, tasks: t });
                                                     }}
                                                     trigger={
-                                                        <button disabled={task.isApproved === false} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold disabled:opacity-30 disabled:cursor-not-allowed">
+                                                        <button disabled={task.isApproved === false || isLocked || task.status === 'Ready for QA' || task.status === 'Finished'} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold disabled:opacity-30 disabled:cursor-not-allowed">
                                                             <PlusCircle className="w-3.5 h-3.5" /> Assign Staff
                                                         </button>
                                                     }
@@ -2372,7 +2450,7 @@ ${combinedNotes}`;
                                                                     )}
                                                                     <span className="text-sm font-mono font-bold text-zinc-400">{totalHours > 0 ? `${totalHours.toFixed(2)}h` : '0.00h'}</span>
                                                                     
-                                                                    {userLogs.length === 0 && (
+                                                                    {userLogs.length === 0 && !isLocked && task.status !== 'Ready for QA' && task.status !== 'Finished' && (
                                                                         <button type="button" onClick={() => {
                                                                             const t = [...job.tasks];
                                                                             t[tIdx].assignedUids = t[tIdx].assignedUids.filter((u: string) => u !== uid);
@@ -2393,6 +2471,25 @@ ${combinedNotes}`;
                                                         <span className="text-xs font-black uppercase tracking-widest text-amber-500">NO STAFF ASSIGNED</span>
                                                     </div>
                                                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Tech tracking paused</span>
+                                                </div>
+                                            )}
+
+                                            {task.qaAuthorName && (
+                                                <div className="mt-3 bg-sky-500/10 border border-sky-500/20 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="bg-sky-500/20 p-1.5 rounded-lg shrink-0">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[10px] uppercase font-black text-sky-500/70 tracking-widest leading-none">QA Passed By</span>
+                                                            <span className="text-sm font-bold text-sky-100">{task.qaAuthorName}</span>
+                                                        </div>
+                                                    </div>
+                                                    {task.qaTimestamp && (
+                                                        <div className="text-[10px] font-mono text-sky-500/50 bg-sky-950/50 px-2 py-1 rounded">
+                                                            {new Date(task.qaTimestamp).toLocaleDateString()} {new Date(task.qaTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
 
@@ -2548,6 +2645,21 @@ ${combinedNotes}`;
 - Previous customer, gave 5% loyalty discount
 - Verify part compatibility before ordering"
                                     className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-400 focus:outline-none focus:border-zinc-500 resize-y min-h-[120px] shadow-inner transition-colors"
+                                />
+                            </div>
+
+                            <div className="border-t border-zinc-800/80 pt-6 mb-6">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-[#2ca01c] mb-2 flex items-center gap-2">
+                                    <svg viewBox="0 0 100 100" className="w-4 h-4 fill-current"><path d="M50 0C22.4 0 0 22.4 0 50s22.4 50 50 50 50-22.4 50-50S77.6 0 50 0zm25.8 45H32.6v-5.6h31L46.4 25.1h7.5l20.4 17.5v-6H82v28.4H75.8zM24.2 81.3V52.9H18v6H37.6L17.2 41.4h-7.5l14.5 12.4H18v5.6h43.2v5.6H31.8l15.1 12.9h7.5L24.2 52.9v28.4z"/></svg> 
+                                    QuickBooks Integration
+                                </h3>
+                                <p className="text-[10px] text-zinc-500 mb-3 font-medium">Link this Work Order to a QuickBooks invoice or order ID so billing can be tracked cleanly.</p>
+                                <input
+                                    type="text"
+                                    value={job.quickbooksInvoiceId || ''}
+                                    onChange={(e) => setJob({ ...job, quickbooksInvoiceId: e.target.value })}
+                                    placeholder="Enter QuickBooks Order or Invoice Reference..."
+                                    className="w-full bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded-xl px-4 py-3 text-sm text-zinc-300 focus:outline-none focus:border-[#2ca01c] transition-colors"
                                 />
                             </div>
 

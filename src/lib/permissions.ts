@@ -11,6 +11,7 @@ export type PermissionKey =
   | 'view_inventory'
   | 'manage_inventory'
   | 'manage_canvases'
+  | 'manage_qa'
   | 'manage_tasks'
   | 'manage_timesheets'
   | 'view_financials'
@@ -35,7 +36,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_jobs: true, manage_jobs: true,
     view_areas: true, manage_areas: true,
     view_inventory: true, manage_inventory: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_qa: true, manage_tasks: true,
     view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
     manage_timesheets: true, view_financials: true, view_audit_logs: true,
     view_facility_map: true, manage_facility_map: true, 
@@ -49,7 +50,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_jobs: true, manage_jobs: true,
     view_inventory: true, manage_inventory: true,
     view_areas: true, manage_areas: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_qa: true, manage_tasks: true,
     view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
     manage_timesheets: true, view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true, view_audit_logs: true,
@@ -63,7 +64,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_jobs: true, manage_jobs: true,
     view_inventory: true, manage_inventory: true,
     view_areas: true, manage_areas: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_qa: true, manage_tasks: true,
     view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
     manage_timesheets: true, view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true, view_audit_logs: true,
@@ -86,6 +87,7 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string, descripti
   view_inventory: { label: "View Inventory", description: "Read-only access to WMS." },
   manage_inventory: { label: "Manage Inventory", description: "Update counts, register SKUs." },
   manage_canvases: { label: "Logic Workflows", description: "Edit Infinity Whiteboard flows." },
+  manage_qa: { label: "Quality Assurance", description: "Inspect and approve shop output." },
   manage_tasks: { label: "Assign Tasks", description: "Create and dispatch tasks to other staff." },
   manage_timesheets: { label: "Manage Time & Payroll", description: "View and edit timesheets and process payroll runs." },
   view_meetings: { label: "View Meetings", description: "Read-only access to meeting notes and events." },

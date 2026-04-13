@@ -180,22 +180,37 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
         if (!anchorDate || !payCycle) return null;
         
         const now = new Date(nowTick);
-        const anchor = new Date(anchorDate + "T00:00:00");
+        const rawDate = new Date(anchorDate);
+        const baseDate = isNaN(rawDate.getTime()) ? new Date() : rawDate;
+        
+        const anchor = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 0, 0, 0, 0);
         let start = new Date(anchor);
         let end = new Date(anchor);
-        
+
+        const anchorUTC = Date.UTC(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+        const nowUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        const daysDiff = Math.round((nowUTC - anchorUTC) / (24 * 60 * 60 * 1000));
+
         if (payCycle === 'weekly') {
-            const msInWeek = 7 * 24 * 60 * 60 * 1000;
-            const diff = now.getTime() - anchor.getTime();
-            const weeks = Math.floor(diff / msInWeek);
-            start = new Date(anchor.getTime() + weeks * msInWeek);
-            end = new Date(start.getTime() + msInWeek - 1000);
+            const weeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 7) : Math.floor(daysDiff / 7);
+            
+            end = new Date(anchor);
+            end.setDate(end.getDate() + (weeksElapsed * 7));
+            end.setHours(23, 59, 59, 999);
+            
+            start = new Date(end);
+            start.setDate(start.getDate() - 7);
+            start.setHours(0, 0, 0, 0);
         } else if (payCycle === 'biweekly') {
-            const msInBiweek = 14 * 24 * 60 * 60 * 1000;
-            const diff = now.getTime() - anchor.getTime();
-            const biweeks = Math.floor(diff / msInBiweek);
-            start = new Date(anchor.getTime() + biweeks * msInBiweek);
-            end = new Date(start.getTime() + msInBiweek - 1000);
+            const biweeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 14) : Math.floor(daysDiff / 14);
+            
+            end = new Date(anchor);
+            end.setDate(end.getDate() + (biweeksElapsed * 14));
+            end.setHours(23, 59, 59, 999);
+            
+            start = new Date(end);
+            start.setDate(start.getDate() - 14);
+            start.setHours(0, 0, 0, 0);
         } else if (payCycle === 'monthly') {
             start = new Date(now.getFullYear(), now.getMonth(), 1);
             end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);

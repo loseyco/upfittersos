@@ -98,7 +98,15 @@ export function EstimateHub() {
                e.id.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
-    const displayActive = filteredEstimates.filter(e => !['Archived', 'archived', 'Declined', 'declined'].includes(e.status));
+    const displayActive = filteredEstimates.filter(e => {
+        const isDeletedStatus = ['Archived', 'archived', 'Declined', 'declined', 'Merged'].includes(e.status);
+        if (isDeletedStatus) return false;
+        // Hide change orders from the main active board so they don't look like standalone new jobs
+        // The user must access them through the Parent Job view.
+        if (e.isChangeOrder) return false;
+        return true;
+    });
+    
     const displayArchived = filteredEstimates.filter(e => ['Archived', 'archived', 'Declined', 'declined'].includes(e.status));
 
     return (
@@ -129,29 +137,33 @@ export function EstimateHub() {
                             />
                         </div>
                         
-                        <div className="flex bg-zinc-950 border border-zinc-800 p-1 rounded-xl overflow-x-auto custom-scrollbar">
-                            {['All', 'Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Delivery', 'Delivered', 'Declined', 'Archived'].map(status => {
-                                const count = status === 'All' 
-                                    ? estimates.filter(e => !['Archived', 'archived', 'Declined', 'declined'].includes(e.status)).length 
-                                    : (status === 'Archived' 
-                                        ? estimates.filter(e => ['Archived', 'archived'].includes(e.status)).length 
-                                        : (status === 'Declined'
-                                            ? estimates.filter(e => ['Declined', 'declined'].includes(e.status)).length
-                                            : (status === 'Estimate'
-                                                ? estimates.filter(e => ['Estimate', 'Draft', 'Pending Approval'].includes(e.status)).length
-                                                : estimates.filter(e => e.status === status).length)));
-                                
-                                return (
-                                <button
-                                    key={status}
-                                    onClick={() => setStatusFilter(status)}
-                                    className={`px-4 py-2 text-xs font-bold font-mono uppercase tracking-widest rounded-lg transition-colors shrink-0 flex items-center gap-2 ${statusFilter === status ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/50'}`}
-                                >
-                                    {status}
-                                    <span className={`px-1.5 py-0.5 rounded-md text-[9px] ${statusFilter === status ? 'bg-zinc-700 text-white' : 'bg-zinc-900 text-zinc-500'}`}>{count}</span>
-                                </button>
-                                );
-                            })}
+                        <div className="relative shrink-0 min-w-[200px]">
+                            <select
+                                value={statusFilter}
+                                onChange={(e) => setStatusFilter(e.target.value)}
+                                className="w-full appearance-none bg-zinc-950 border border-zinc-800 hover:border-zinc-700 text-zinc-300 font-mono text-xs font-bold uppercase tracking-widest px-4 py-3 pr-10 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors shadow-sm cursor-pointer"
+                            >
+                                {['All', 'Estimate', 'Approved', 'In Progress', 'Ready for QC', 'Ready for Invoicing', 'Ready for Delivery', 'Delivered', 'Declined', 'Archived'].map(status => {
+                                    const count = status === 'All' 
+                                        ? estimates.filter(e => !['Archived', 'archived', 'Declined', 'declined'].includes(e.status)).length 
+                                        : (status === 'Archived' 
+                                            ? estimates.filter(e => ['Archived', 'archived'].includes(e.status)).length 
+                                            : (status === 'Declined'
+                                                ? estimates.filter(e => ['Declined', 'declined'].includes(e.status)).length
+                                                : (status === 'Estimate'
+                                                    ? estimates.filter(e => ['Estimate', 'Draft', 'Pending Approval'].includes(e.status)).length
+                                                    : estimates.filter(e => e.status === status).length)));
+                                    
+                                    return (
+                                        <option key={status} value={status}>
+                                            {status.toUpperCase()} ({count})
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-zinc-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                            </svg>
                         </div>
 
                         <button

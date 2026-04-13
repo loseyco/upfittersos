@@ -194,22 +194,31 @@ export function TimeClockApp() {
         if (!anchorDate || !payCycle) return null;
         
         const now = new Date(nowTick);
-        const anchor = new Date(anchorDate + "T00:00:00");
-        let start = new Date(anchor);
-        let end = new Date(anchor);
+        const rawDate = new Date(anchorDate);
+        const baseDate = isNaN(rawDate.getTime()) ? new Date() : rawDate;
         
+        const anchorEndTz = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 23, 59, 59, 999);
+        let start = new Date(anchorEndTz);
+        let end = new Date(anchorEndTz);
+
+        const anchorUTC = Date.UTC(anchorEndTz.getFullYear(), anchorEndTz.getMonth(), anchorEndTz.getDate());
+        const nowUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+        const daysDiff = Math.round((nowUTC - anchorUTC) / (24 * 60 * 60 * 1000));
+
         if (payCycle === 'weekly') {
-            const msInWeek = 7 * 24 * 60 * 60 * 1000;
-            const diff = now.getTime() - anchor.getTime();
-            const weeks = Math.floor(diff / msInWeek);
-            start = new Date(anchor.getTime() + weeks * msInWeek);
-            end = new Date(start.getTime() + msInWeek - 1000);
+            const weeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 7) : Math.floor(daysDiff / 7);
+            end = new Date(anchorEndTz);
+            end.setDate(end.getDate() + (weeksElapsed * 7));
+            start = new Date(end);
+            start.setDate(start.getDate() - 7);
+            start.setMilliseconds(start.getMilliseconds() + 1000);
         } else if (payCycle === 'biweekly') {
-            const msInBiweek = 14 * 24 * 60 * 60 * 1000;
-            const diff = now.getTime() - anchor.getTime();
-            const biweeks = Math.floor(diff / msInBiweek);
-            start = new Date(anchor.getTime() + biweeks * msInBiweek);
-            end = new Date(start.getTime() + msInBiweek - 1000);
+            const biweeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 14) : Math.floor(daysDiff / 14);
+            end = new Date(anchorEndTz);
+            end.setDate(end.getDate() + (biweeksElapsed * 14));
+            start = new Date(end);
+            start.setDate(start.getDate() - 14);
+            start.setMilliseconds(start.getMilliseconds() + 1000);
         } else if (payCycle === 'monthly') {
             start = new Date(now.getFullYear(), now.getMonth(), 1);
             end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
