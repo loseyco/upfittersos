@@ -34,6 +34,7 @@ import { FeaturesPlanner } from './pages/admin/features/FeaturesPlanner'
 import { FeatureDetail } from './pages/admin/features/FeatureDetail'
 import { BusinessAdminSuite } from './pages/business/BusinessAdminSuite'
 import { WorkspaceHub } from './pages/business/WorkspaceHub'
+import { MissionControlDashboard } from './pages/business/MissionControlDashboard'
 import { Coworkers } from './pages/business/Coworkers'
 import { FeedbackBoard } from './pages/business/FeedbackBoard'
 import { FeedbackDetail } from './pages/business/FeedbackDetail'
@@ -138,7 +139,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             
             {/* Helper Redirects & 404 Catch-All */}
             <Route path="/feedback" element={<Navigate to="/business/feedback" replace />} />
-            <Route path="/dashboard" element={<Navigate to="/workspace" replace />} />
+            <Route path="/dashboard" element={<ProtectedRoute><MissionControlDashboard /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -158,69 +158,6 @@ export function TechPortal() {
         }
     };
 
-    const handleToggleDiscoveryClock = async (jobId: string, taskIndex: number, currentTask: any) => {
-        if (!currentUser || !tenantId) return;
-        try {
-            const { getDocs, addDoc } = await import('firebase/firestore');
-            const now = new Date().toISOString();
-            
-            const qTaskOpen = query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open'));
-            const openTasksSnap = await getDocs(qTaskOpen);
-            
-            let wasDiscoveryOpen = false;
-            for (const activeDoc of openTasksSnap.docs) {
-                const data = activeDoc.data();
-                if (data.isDiscovery && data.jobId === jobId && data.taskIndex === taskIndex) {
-                    wasDiscoveryOpen = true;
-                }
-                
-                await updateDoc(doc(db, 'businesses', tenantId, 'task_time_logs', activeDoc.id), {
-                    clockOut: now,
-                    status: 'closed'
-                });
-            }
-
-            const jobData = jobs.find(j => j.id === jobId);
-            if (!jobData) return;
-            
-            await addDoc(collection(db, 'businesses', tenantId, 'task_time_logs'), {
-                userId: currentUser.uid,
-                jobId: jobId,
-                taskIndex: taskIndex,
-                taskName: `${wasDiscoveryOpen ? '' : '[R&D] '}${currentTask.title}`,
-                vehicleName: getVehicleName(jobData.vehicleId),
-                bookTime: currentTask.bookTime || 0,
-                clockIn: now,
-                clockOut: null,
-                status: 'open',
-                isDiscovery: !wasDiscoveryOpen
-            });
-            
-            const qObj = query(collection(db, 'businesses', tenantId, 'time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open'));
-            const activeTimeLogSnap = await getDocs(qObj);
-            if (!activeTimeLogSnap.empty) {
-                const activeLogDoc = activeTimeLogSnap.docs[0];
-                const activeLog = activeLogDoc.data();
-                const prefix = wasDiscoveryOpen ? 'Resumed Book Time' : 'Started Discovery / R&D';
-                const newNote = {
-                    text: `${prefix}: ${currentTask.title} - ${getVehicleName(jobData.vehicleId)}`,
-                    time: now
-                };
-                const updatedNotes = [...(activeLog.notes || []), newNote];
-                await updateDoc(doc(db, 'businesses', tenantId, 'time_logs', activeLogDoc.id), { notes: updatedNotes });
-            }
-            
-            if (!wasDiscoveryOpen) {
-                 setDiscoveryModal({jobId, taskIndex, originalTask: currentTask, isOpen: true, note: ''});
-                 toast.success("Started Discovery time clock");
-            } else {
-                 toast.success("Resumed normal book time");
-            }
-        } catch (e) {
-            console.error(e);
-            toast.error("Failed to toggle discovery time");
-        }
-    };
 
     const handleUpdateTaskStatus = async (jobId: string, taskIndex: number, newStatus: string) => {
         try {

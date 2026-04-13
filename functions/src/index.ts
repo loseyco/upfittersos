@@ -274,7 +274,8 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     
     // Check if user has explicit override permission, or if they are at least a manager (depending on architecture)
     // For now, let's allow business_owner and super_admin, or someone with manage_staff (we might want a specific manage_business permission later)
-    const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
+    const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+    const isManagerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isManagerOfTenant) {
       return res.status(403).json({ error: 'Forbidden. You do not have permission to modify workspace metadata.' });
@@ -483,7 +484,8 @@ app.post('/businesses/:id/staff', authenticate, async (req: Request, res: Respon
   try {
     // 1. Authorization Guard
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-    const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+    const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
     if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -572,7 +574,8 @@ app.delete('/businesses/:id/staff/:uid', authenticate, async (req: Request, res:
 
   try {
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-    const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+    const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
     if (!isSuperAdmin && !isOwnerOfTenant) {
@@ -608,7 +611,8 @@ app.post('/businesses/:id/staff/:uid/impersonate', authenticate, async (req: Req
 
   try {
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-    const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+    const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isOwnerOfTenant) {
       return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
@@ -642,7 +646,8 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
 
   try {
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-    const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
+    const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+    const isManagerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
     if (!isSuperAdmin && !isManagerOfTenant) {
