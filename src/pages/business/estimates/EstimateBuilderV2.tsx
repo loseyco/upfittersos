@@ -6,7 +6,7 @@ import { db, storage } from '../../../lib/firebase';
 import { doc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
-import { Save, ArrowLeft, ArrowRight, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, Archive } from 'lucide-react';
+import { Save, ArrowLeft, ArrowRight, Printer, CheckCircle, Wrench, Plus, Trash2, Box, Info, X, User, Car, PlusCircle, UserPlus, ClipboardList, Loader2, SearchCode, BookTemplate, Image, Copy, ExternalLink, CloudOff, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, Archive, MapPin } from 'lucide-react';
 import { CustomerSelector, StaffSelector, InventorySelector, TaskTemplateSelector } from '../../../components/EntitySelectors';
 import { PrintPreviewModal } from './PrintPreviewModal';
 const toDateTimeLocal = (val: any) => {
@@ -1159,6 +1159,14 @@ ${combinedNotes}`;
                                     </div>
                                 </div>
                                 {jobId !== 'new' && <span className="text-zinc-500 font-mono text-xs">#{jobId?.substring(0, 8).toUpperCase()}</span>}
+                                {jobId !== 'new' && job.parkedLocation && (
+                                    <div className="flex items-center gap-1.5 ml-1 border-l border-zinc-700/50 pl-3">
+                                        <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-400 font-mono">
+                                            Zone: {job.parkedLocation}
+                                        </span>
+                                    </div>
+                                )}
                                 {jobId !== 'new' && (
                                     <div className="flex items-center gap-1.5 ml-1 border-l border-zinc-700/50 pl-3">
                                         <span className={`w-1.5 h-1.5 rounded-full ${job.qboId ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400/50'}`}></span>

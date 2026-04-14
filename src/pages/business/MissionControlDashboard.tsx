@@ -173,6 +173,14 @@ export function MissionControlDashboard() {
 
     // Active jobs cache
     const [allJobs, setAllJobs] = useState<any[]>([]);
+    const [allStaff, setAllStaff] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        api.get(`/businesses/${tenantId}/staff`).then(res => {
+            setAllStaff(res.data || []);
+        }).catch(err => console.error("Failed to load staff", err));
+    }, [tenantId]);
 
     useEffect(() => {
         if (!currentUser?.uid || !tenantId || tenantId === 'GLOBAL') return;
@@ -293,7 +301,7 @@ export function MissionControlDashboard() {
     const activeJobs = useMemo(() => {
         const active = allJobs.filter((j: any) => {
             if (j.archived || j.status === 'Draft') return false;
-            return (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked');
+            return (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA');
         });
         
         active.sort((a: any, b: any) => {
@@ -450,9 +458,9 @@ export function MissionControlDashboard() {
                                                     <span className="text-sm">No active operations strictly on the floor.</span>
                                                 </div>
                                             ) : (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-4 auto-rows-max">
                                                     {activeJobs.map((job: any) => {
-                                                        const activeTasks = (job.tasks || []).map((t: any, i: number) => ({...t, originalIndex: i})).filter((t: any) => t.status === 'In Progress' || t.status === 'Blocked');
+                                                        const activeTasks = (job.tasks || []).map((t: any, i: number) => ({...t, originalIndex: i})).filter((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA');
                                                         const primaryTask = activeTasks[0];
                                                         
                                                         const jobOpenLogs = globalOpenTaskLogs.filter(log => log.jobId === job.id);
@@ -493,30 +501,45 @@ export function MissionControlDashboard() {
                                                             </div>
 
                                                             {/* User Clock Data */}
-                                                            {primaryLog ? (
+                                                            {(() => {
+                                                                const staffMember = primaryLog && allStaff.find(s => s.uid === primaryLog.userId || s.uid === primaryLog.staffId);
+                                                                const techName = staffMember?.displayName || primaryLog?.authorName || 'Tech';
+                                                                const techPhoto = staffMember?.photoURL;
+                                                                
+                                                                return primaryLog ? (
                                                                 <div className="flex items-center gap-2 mb-3 relative z-10 bg-zinc-900/80 rounded-lg p-2 border border-zinc-800/80">
-                                                                    <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
-                                                                        <span className="text-[9px] font-bold text-white">{primaryLog.authorName?.charAt(0) || '?'}</span>
+                                                                    <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0 overflow-hidden">
+                                                                        {techPhoto ? (
+                                                                            <img src={techPhoto} alt={techName} className="w-full h-full object-cover" />
+                                                                        ) : (
+                                                                            <span className="text-[9px] font-bold text-white">{techName.charAt(0)}</span>
+                                                                        )}
                                                                     </div>
                                                                     <div className="flex flex-col flex-1 min-w-0">
-                                                                        <span className="text-[10px] font-bold text-zinc-300 truncate">{primaryLog.authorName || 'Tech'}</span>
+                                                                        <span className="text-[10px] font-bold text-zinc-300 truncate">{techName}</span>
                                                                         <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">
                                                                             Duration: <span className="text-emerald-400">{elapsedStr}</span>
                                                                         </span>
                                                                     </div>
                                                                     {primaryLog.isDiscovery && <SearchCode className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                                                                 </div>
-                                                            ) : primaryTask?.status === 'Blocked' && (
-                                                                <div className="flex items-center gap-2 mb-3 relative z-10 bg-red-500/10 rounded-lg p-2 border border-red-500/20">
-                                                                    <AlertTriangle className="w-4 h-4 text-red-500" />
-                                                                    <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Waiting on Blocker</span>
-                                                                </div>
-                                                            )}
+                                                                ) : primaryTask?.status === 'Blocked' ? (
+                                                                    <div className="flex items-center gap-2 mb-3 relative z-10 bg-red-500/10 rounded-lg p-2 border border-red-500/20">
+                                                                        <AlertTriangle className="w-4 h-4 text-red-500" />
+                                                                        <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Waiting on Blocker</span>
+                                                                    </div>
+                                                                ) : primaryTask?.status === 'Ready for QA' ? (
+                                                                    <div className="flex items-center gap-2 mb-3 relative z-10 bg-emerald-500/10 rounded-lg p-2 border border-emerald-500/20">
+                                                                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                                                                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Ready for QA</span>
+                                                                    </div>
+                                                                ) : null;
+                                                            })()}
 
                                                             <div className="flex flex-col relative z-10">
                                                                 {primaryTask?.bookTime ? (
                                                                     <div className="w-full bg-zinc-900 rounded-full h-1.5 mb-2 overflow-hidden border border-zinc-800/50">
-                                                                        <div className={`h-full rounded-full ${primaryTask?.status === 'Blocked' ? 'bg-red-500' : 'bg-indigo-500'}`} style={{ width: `${progressPercent}%` }}></div>
+                                                                        <div className={`h-full rounded-full ${primaryTask?.status === 'Blocked' ? 'bg-red-500' : primaryTask?.status === 'Ready for QA' ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progressPercent}%` }}></div>
                                                                     </div>
                                                                 ) : null}
 

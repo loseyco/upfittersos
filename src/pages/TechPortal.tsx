@@ -187,7 +187,17 @@ export function TechPortal({ isDrawer, initialTaskView }: { isDrawer?: boolean, 
                 }
             }
 
-            await updateDoc(jobRef, { tasks: updatedTasks });
+            const payload: any = { tasks: updatedTasks };
+
+            // Prompt for parking location if they are finishing up
+            if (newStatus === 'Ready for QA' || newStatus === 'Finished') {
+                const loc = window.prompt("Where did you park the vehicle? (e.g., 'Up front', 'Back lot', 'Bay 2')");
+                if (loc) {
+                    payload.parkedLocation = loc;
+                }
+            }
+
+            await updateDoc(jobRef, payload);
             
             // If the tech started or finished a task, try to append a note to an active Timeclock shift AND manage proper sub-task clocks
             if ((newStatus === 'In Progress' || newStatus === 'Finished') && currentUser && tenantId) {
