@@ -527,7 +527,7 @@ export function TechTaskWorkspace({ manualJobId, manualTaskIndex, onBack, isDraw
                                 onClick={() => handleUpdateTaskStatus('Ready for QA')} 
                                 className={`flex flex-1 sm:flex-none items-center justify-center gap-2 px-5 py-2.5 rounded-lg text-sm font-black uppercase tracking-widest transition-colors ${task.isApproved === false || (effectiveStatus as any) === 'Finished' ? 'bg-emerald-500/10 text-emerald-500/50 border border-emerald-500/20 opacity-60 cursor-not-allowed' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20'}`}
                             >
-                                <CheckCircle2 className="w-4 h-4"/> {(effectiveStatus as any) === 'Finished' ? 'Finished' : 'Submit for QA'}
+                                <CheckCircle2 className="w-4 h-4"/> {(effectiveStatus as any) === 'Finished' ? 'Finished' : 'Complete Task'}
                             </button>
                         </>
                     ) : (
@@ -539,7 +539,7 @@ export function TechTaskWorkspace({ manualJobId, manualTaskIndex, onBack, isDraw
                                 <AlertTriangle className="w-4 h-4"/> Report Blocker
                             </button>
                             <button onClick={() => handleUpdateTaskStatus('Ready for QA')} className="flex flex-1 sm:flex-none items-center justify-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 px-5 py-2.5 rounded-lg text-sm font-black uppercase tracking-widest transition-colors">
-                                <CheckCircle2 className="w-4 h-4"/> Submit for QA
+                                <CheckCircle2 className="w-4 h-4"/> Complete Task
                             </button>
                         </>
                     )}
