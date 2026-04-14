@@ -179,7 +179,7 @@ export function MissionControlDashboard() {
                             <LogOut className="w-4 h-4" />
                         </button>
                         {(isSuperAdmin || checkPermission('manage_staff')) && (
-                             <Link to="/business/admin" className="text-[11px] font-black tracking-widest uppercase text-accent bg-accent/10 border border-accent/20 hover:bg-accent hover:text-black px-4 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1.5 shrink-0">
+                             <Link to="/business/manage" className="text-[11px] font-black tracking-widest uppercase text-accent bg-accent/10 border border-accent/20 hover:bg-accent hover:text-black px-4 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1.5 shrink-0">
                                 <ShieldCheck className="w-3.5 h-3.5" /> Back Office
                              </Link>
                         )}
