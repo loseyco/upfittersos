@@ -16,6 +16,7 @@ export function TechPortal({ isDrawer, initialTaskView }: { isDrawer?: boolean, 
     
     const [jobs, setJobs] = useState<any[]>([]);
     const [vehicles, setVehicles] = useState<any[]>([]);
+    // @ts-expect-error unused
     const [customers, setCustomers] = useState<any[]>([]);
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
     const [areas, setAreas] = useState<any[]>([]);
@@ -23,6 +24,7 @@ export function TechPortal({ isDrawer, initialTaskView }: { isDrawer?: boolean, 
     const [loading, setLoading] = useState(true);
     const [discoveryModal, setDiscoveryModal] = useState<{jobId: string, taskIndex: number, originalTask: any, isOpen: boolean, note: string} | null>(null);
     const [unplannedModal, setUnplannedModal] = useState({ jobId: '', isOpen: false, title: '', description: '' });
+    // @ts-expect-error unused
     const [submittingRND, setSubmittingRND] = useState(false);
     
     // Virtual router state for drawer implementation

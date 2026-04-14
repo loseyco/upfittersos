@@ -4,7 +4,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { api } from '../../lib/api';
 import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
-import { Building2, Clock, CheckCircle2, AlertTriangle, Hammer, ArrowRight, Package, Info, CheckSquare, Wrench, CalendarSync, BarChart3, ShieldCheck, Truck, Layers, Map, Megaphone, X, SearchCode } from 'lucide-react';
+import { Building2, Clock, CheckCircle2, AlertTriangle, Hammer, ArrowRight, Package, Info, Wrench, CalendarSync, BarChart3, ShieldCheck, Truck, Layers, Map, Megaphone, X, SearchCode } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
@@ -629,7 +629,7 @@ export function MissionControlDashboard() {
                                         {allJobs.filter(j => {
                                             const isDraft = j.status === 'Draft' || j.status === 'Estimating';
                                             const hasDropoffToday = j.dropoffEta && new Date(j.dropoffEta).toDateString() === new Date().toDateString();
-                                            return isDraft || hasDropoffToday;
+                                            return (isDraft || hasDropoffToday) && !j.actualDropoffDate;
                                         }).filter(j => j.status !== 'Ready for Pickup' && j.status !== 'Finished' && j.status !== 'Delivered').map(job => (
                                            <Link to={`/business/jobs/${job.id}`} key={job.id} className="bg-zinc-950/80 hover:bg-zinc-900 border border-zinc-800 rounded-xl p-3 flex justify-between items-center opacity-70 hover:opacity-100 transition-all group cursor-pointer block text-left w-full">
                                                <div className="flex gap-3 items-center min-w-0">
@@ -649,6 +649,7 @@ export function MissionControlDashboard() {
                                         {allJobs.filter(j => 
                                             j.status === 'Ready for Pickup' || 
                                             ((j.status === 'Draft' || j.status === 'Estimating' || (j.dropoffEta && new Date(j.dropoffEta).toDateString() === new Date().toDateString())) && 
+                                             !j.actualDropoffDate &&
                                              j.status !== 'Ready for Pickup' && j.status !== 'Finished' && j.status !== 'Delivered')
                                         ).length === 0 && (
                                             <div className="text-zinc-500 text-xs text-center p-4">No pending logistics found.</div>

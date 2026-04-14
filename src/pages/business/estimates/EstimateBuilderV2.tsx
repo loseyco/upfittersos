@@ -834,6 +834,31 @@ ${combinedNotes}`;
         }
     };
 
+    const handleMarkArrived = async () => {
+        if (!window.confirm("Mark this vehicle as formally Arrived on the premises? This will clear it from the inbound logistics pipeline.")) return;
+        if (hasChanges) await handleSave(false);
+        if (jobId === 'new') return;
+        try {
+            const now = new Date().toISOString();
+            let payload: any = { actualDropoffDate: now, tenantId };
+            
+            let newStatus = job.status;
+            if (['Estimate', 'Draft', 'Pending Approval'].includes(job.status)) {
+                if (window.confirm("Do you want to automatically Dispatch this ticket ('In Progress') so technicians can begin work immediately?")) {
+                    payload.status = 'In Progress';
+                    newStatus = 'In Progress';
+                }
+            }
+            
+            await api.put(`/jobs/${jobId}`, payload);
+            setJob((prev: any) => ({ ...prev, actualDropoffDate: now, status: newStatus }));
+            setOriginalJob((prev: any) => ({ ...prev, actualDropoffDate: now, status: newStatus }));
+            toast.success(newStatus === 'In Progress' ? "Vehicle Arrived & Dispatched to Techs!" : "Vehicle marked as Arrived.");
+        } catch (e) {
+            toast.error("Failed to mark vehicle as arrived");
+        }
+    };
+
     const [isSyncingCC, setIsSyncingCC] = useState(false);
     const handleCompanyCamSync = async () => {
         if (!tenantId || !jobId || jobId === 'new') return;
@@ -1155,6 +1180,15 @@ ${combinedNotes}`;
                         </div>
                     </div>
                     <div className="hidden md:flex items-center gap-3">
+                        {jobId !== 'new' && !job.actualDropoffDate && !['Delivered', 'Finished', 'Archived'].includes(job.status) && (
+                            <button
+                                onClick={handleMarkArrived}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg transition-all font-mono tracking-widest uppercase text-xs"
+                            >
+                                🔑 Arrived
+                            </button>
+                        )}
+
                         {jobId !== 'new' && (
                             <button
                                 onClick={() => setShowPrintPreview(true)}
