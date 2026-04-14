@@ -13,8 +13,8 @@ import { TechPortal } from '../TechPortal';
 import { StaffDayTimeline } from '../../components/dashboard/StaffDayTimeline';
 import { JobSwimlaneRow } from '../../components/dashboard/SwimlaneBoard';
 export function MissionControlDashboard() {
-    const { currentUser, tenantId, role, roles, simulatedRole, startSimulation, endSimulation } = useAuth();
-    const { checkPermission, loading, businessRoles } = usePermissions();
+    const { currentUser, tenantId, role } = useAuth();
+    const { checkPermission, loading } = usePermissions();
     const [businessName, setBusinessName] = useState('Loading Dashboard...');
     
     // Bottom Sheet Architecture State
@@ -30,98 +30,20 @@ export function MissionControlDashboard() {
         return () => { document.body.style.overflow = 'unset'; };
     }, [activeDrawerContext]);
 
-    // Live Data Feed: Timeclock
-    const [activeTimeLog, setActiveTimeLog] = useState<any>(null);
-    const [elapsedShiftTime, setElapsedShiftTime] = useState<string>('00:00:00');
-
-    // Advanced Shift Stats
-    const [timeLogs, setTimeLogs] = useState<any[]>([]);
-    const [taskTimeLogs, setTaskTimeLogs] = useState<any[]>([]);
+    // Live Data Feed: Task Tracking
     const [globalOpenTaskLogs, setGlobalOpenTaskLogs] = useState<any[]>([]);
-    const [payCycle, setPayCycle] = useState<string>('weekly');
-    const [anchorDate, setAnchorDate] = useState<string>('2024-01-01');
-
-    // Timeclock Listener
-    useEffect(() => {
-        if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
-        
-        const unsubLogs = onSnapshot(
-            query(collection(db, 'businesses', tenantId, 'time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open')),
-            (snap) => {
-                if (!snap.empty) {
-                    setActiveTimeLog({ id: snap.docs[0].id, ...snap.docs[0].data() });
-                } else {
-                    setActiveTimeLog(null);
-                    setElapsedShiftTime('00:00:00');
-                }
-            },
-            (err) => console.error('Dashboard Time Feed Error:', err)
-        );
-        return () => unsubLogs();
-    }, [tenantId, currentUser?.uid]);
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
-
-        const unsubLogs = onSnapshot(query(collection(db, 'businesses', tenantId, 'time_logs'), where('userId', '==', currentUser.uid)), (s) => {
-            setTimeLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-        const unsubTaskLogs = onSnapshot(query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('userId', '==', currentUser.uid)), (s) => {
-            setTaskTimeLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-        const unsubTenant = onSnapshot(doc(db, 'businesses', tenantId), (s) => {
-            if (s.exists()) {
-                const data = s.data();
-                if (data.payrollConfig) {
-                    setPayCycle(data.payrollConfig.activeCycle || 'weekly');
-                    setAnchorDate(data.payrollConfig.anchorDate || '2024-01-01');
-                }
-            }
-        });
 
         const unsubGlobalOpenTaskLogs = onSnapshot(query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('status', '==', 'open')), (s) => {
             setGlobalOpenTaskLogs(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
         return () => {
-            unsubLogs();
-            unsubTaskLogs();
-            unsubTenant();
             unsubGlobalOpenTaskLogs();
         };
     }, [tenantId, currentUser?.uid]);
-
-    // Timeclock Ticker
-    useEffect(() => {
-        if (!activeTimeLog) return;
-        
-        const tick = () => {
-            const start = new Date(activeTimeLog.clockIn).getTime();
-            const now = new Date().getTime();
-            let totalMs = Math.max(0, now - start);
-            
-            if (activeTimeLog.breaks && Array.isArray(activeTimeLog.breaks)) {
-                activeTimeLog.breaks.forEach((b: any) => {
-                    const bStart = new Date(b.start).getTime();
-                    const bEnd = b.end ? new Date(b.end).getTime() : now;
-                    totalMs -= (bEnd - bStart);
-                });
-            }
-            
-            const totalSecs = Math.floor(totalMs / 1000);
-            const hrs = Math.floor(totalSecs / 3600);
-            const mins = Math.floor((totalSecs % 3600) / 60);
-            const secs = totalSecs % 60;
-            
-            setElapsedShiftTime(
-                `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-            );
-        };
-        
-        tick();
-        const tInt = setInterval(tick, 1000);
-        return () => clearInterval(tInt);
-    }, [activeTimeLog]);
 
     // System Check
     useEffect(() => {
@@ -175,104 +97,6 @@ export function MissionControlDashboard() {
         };
     }, [currentUser, tenantId]);
 
-    const computeShiftHours = (log: any): number => {
-        if (!log.clockIn) return 0;
-        let totalMs = 0;
-        const outTime = log.clockOut ? new Date(log.clockOut).getTime() : Date.now();
-        totalMs = outTime - new Date(log.clockIn).getTime();
-
-        if (log.breaks && Array.isArray(log.breaks)) {
-            log.breaks.forEach((b: any) => {
-                if (b.start && b.type !== 'paid') {
-                    const bEnd = b.end ? new Date(b.end).getTime() : Date.now();
-                    totalMs -= (bEnd - new Date(b.start).getTime());
-                }
-            });
-        }
-        return Math.max(0, totalMs / (1000 * 60 * 60));
-    };
-
-    const activePayPeriod = useMemo(() => {
-        if (!anchorDate || !payCycle) return null;
-        
-        const now = new Date();
-        const rawDate = new Date(anchorDate);
-        const baseDate = isNaN(rawDate.getTime()) ? new Date() : rawDate;
-        
-        const anchorEndTz = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), 23, 59, 59, 999);
-        let start = new Date(anchorEndTz);
-        let end = new Date(anchorEndTz);
-
-        const anchorUTC = Date.UTC(anchorEndTz.getFullYear(), anchorEndTz.getMonth(), anchorEndTz.getDate());
-        const nowUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-        const daysDiff = Math.round((nowUTC - anchorUTC) / (24 * 60 * 60 * 1000));
-
-        if (payCycle === 'weekly') {
-            const weeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 7) : Math.floor(daysDiff / 7);
-            end = new Date(anchorEndTz);
-            end.setDate(end.getDate() + (weeksElapsed * 7));
-            start = new Date(end);
-            start.setDate(start.getDate() - 7);
-            start.setMilliseconds(start.getMilliseconds() + 1000);
-        } else if (payCycle === 'biweekly') {
-            const biweeksElapsed = daysDiff > 0 ? Math.ceil(daysDiff / 14) : Math.floor(daysDiff / 14);
-            end = new Date(anchorEndTz);
-            end.setDate(end.getDate() + (biweeksElapsed * 14));
-            start = new Date(end);
-            start.setDate(start.getDate() - 14);
-            start.setMilliseconds(start.getMilliseconds() + 1000);
-        } else if (payCycle === 'monthly') {
-            start = new Date(now.getFullYear(), now.getMonth(), 1);
-            end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-        } else if (payCycle === 'semimonthly') {
-            if (now.getDate() <= 15) {
-                start = new Date(now.getFullYear(), now.getMonth(), 1);
-                end = new Date(now.getFullYear(), now.getMonth(), 15, 23, 59, 59);
-            } else {
-                start = new Date(now.getFullYear(), now.getMonth(), 16);
-                end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-            }
-        }
-        
-        return { start, end };
-    }, [anchorDate, payCycle]);
-
-    const payPeriodData = useMemo(() => {
-        if (!activePayPeriod) return { hours: 0, logs: [] };
-        const logsInPeriod = timeLogs.filter((log: any) => {
-            const logTime = new Date(log.clockIn).getTime();
-            return logTime >= activePayPeriod.start.getTime() && logTime <= activePayPeriod.end.getTime();
-        });
-        const hours = logsInPeriod.reduce((acc, log) => acc + computeShiftHours(log), 0);
-        return { hours, logs: logsInPeriod };
-    }, [timeLogs, activePayPeriod]);
-
-    const todayData = useMemo(() => {
-        const _now = new Date();
-        const todayStart = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()).getTime();
-        const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
-
-        const logsToday = timeLogs.filter((log: any) => {
-            const logTime = new Date(log.clockIn).getTime();
-            return logTime >= todayStart && logTime <= todayEnd;
-        });
-        const hours = logsToday.reduce((acc, log) => acc + computeShiftHours(log), 0);
-        return { hours, logs: logsToday };
-    }, [timeLogs]);
-
-    const todayTaskData = useMemo(() => {
-        const _now = new Date();
-        const todayStart = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()).getTime();
-        const todayEnd = todayStart + (24 * 60 * 60 * 1000) - 1;
-
-        const logsToday = taskTimeLogs.filter((log: any) => {
-            const logTime = new Date(log.clockIn).getTime();
-            return logTime >= todayStart && logTime <= todayEnd;
-        });
-        const hours = logsToday.reduce((acc, log) => acc + computeShiftHours(log), 0);
-        return { hours, logs: logsToday };
-    }, [taskTimeLogs]);
-
     const activeJobs = useMemo(() => {
         const active = allJobs.filter((j: any) => {
             if (j.archived || j.status === 'Draft') return false;
@@ -286,55 +110,6 @@ export function MissionControlDashboard() {
         });
         
         return active.slice(0, 8); // Show top 8
-    }, [allJobs]);
-
-    const myUid = currentUser?.uid;
-    const myAssignedJobs = useMemo(() => {
-        let assigned = allJobs.map(j => {
-            const myTasks: any[] = (j.tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
-                .filter((t: any) => t.isApproved !== false && t.assignedUids?.includes(myUid) && t.status !== 'Finished' && t.status !== 'Ready for QA');
-            return { ...j, myTasks };
-        }).filter(j => j.myTasks.length > 0 && j.status !== 'Blocked' && j.status !== 'Draft' && j.status !== 'Delivered');
-
-        assigned.sort((a, b) => {
-            const aHasActive = a.myTasks.some((t: any) => t.status === 'In Progress');
-            const bHasActive = b.myTasks.some((t: any) => t.status === 'In Progress');
-            if (aHasActive && !bHasActive) return -1;
-            if (!aHasActive && bHasActive) return 1;
-
-            const priorityMap: any = { 'High': 3, 'Medium': 2, 'Low': 1 };
-            const pA = priorityMap[a.priority] || 0;
-            const pB = priorityMap[b.priority] || 0;
-            if (pA !== pB) return pB - pA; // highest priority first
-            
-            const aDate = a.pickupEta || a.completionEta || a.dueDate || a.desiredPickupDate;
-            const bDate = b.pickupEta || b.completionEta || b.dueDate || b.desiredPickupDate;
-            const dA = aDate ? new Date(aDate).getTime() : Infinity;
-            const dB = bDate ? new Date(bDate).getTime() : Infinity;
-            if (dA !== dB) return dA - dB;
-
-            const cA = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
-            const cB = b.createdAt ? new Date(b.createdAt).getTime() : Infinity;
-            return cA - cB;
-        });
-        return assigned.slice(0, 5); // Just show top 5 on dashboard
-    }, [allJobs, myUid]);
-
-    const queuedTime = myAssignedJobs.reduce((acc: any, j: any) => acc + j.myTasks.reduce((tAcc: number, t: any) => tAcc + (Number(t.bookTime) || 0), 0), 0);
-
-    const qaPendingJobs = useMemo(() => {
-        let assigned = allJobs.map(j => {
-            const qaTasks: any[] = (j.tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
-                .filter((t: any) => t.status === 'Ready for QA');
-            return { ...j, qaTasks };
-        }).filter(j => j.qaTasks.length > 0 && j.status !== 'Draft' && !j.archived);
-
-        assigned.sort((a, b) => {
-            const cA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0;
-            const cB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0;
-            return cA - cB; // Oldest QA first
-        });
-        return assigned;
     }, [allJobs]);
 
     const isSuperAdmin = role === 'system_owner' || role === 'super_admin';

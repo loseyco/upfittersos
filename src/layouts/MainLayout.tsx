@@ -3,7 +3,7 @@ import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X, Che
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
 import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
