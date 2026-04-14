@@ -45,7 +45,7 @@ class ApiClient {
             if (response.status === 401) {
                 console.error('API Unauthorized: Invalid or missing token');
             } else if (response.status === 403) {
-                console.error('API Forbidden: Insufficient permissions');
+                console.error('API Forbidden: Insufficient permissions', responseData);
             }
             // Match Axios error projection schema exactly for downstream handlers
             throw { response: { status: response.status, data: responseData } };

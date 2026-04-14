@@ -216,7 +216,7 @@ export function StaffAdminTab({ tenantId }: { tenantId: string }) {
             await signInWithCustomToken(auth, token);
             
             toast.success("Identity assumed successfully. Entering context.", { id: 'impersonate_staff' });
-            navigate('/workspace');
+            navigate('/dashboard');
         } catch (error: any) {
             console.error("Impersonation failed", error);
             toast.error(error?.response?.data?.error || "Failed to impersonate identity.", { id: 'impersonate_staff' });

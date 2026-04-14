@@ -13,9 +13,9 @@ export function PublicHero() {
                 if (res.claims.role === 'system_owner' || res.claims.role === 'super_admin') {
                     navigate('/admin', { replace: true });
                 } else {
-                    navigate('/workspace', { replace: true });
+                    navigate('/dashboard', { replace: true });
                 }
-            }).catch(() => navigate('/workspace', { replace: true }));
+            }).catch(() => navigate('/dashboard', { replace: true }));
         }
     }, [currentUser, loading, navigate]);
 

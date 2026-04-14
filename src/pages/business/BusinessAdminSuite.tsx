@@ -162,7 +162,7 @@ export function BusinessAdminSuite() {
                 <ShieldAlert className="w-16 h-16 text-red-500/50 mb-6" />
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">Access Denied</h2>
                 <p className="text-zinc-500 max-w-md">Your profile has not been assigned administrative clearance for this workspace.</p>
-                <button onClick={() => navigate('/workspace')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
+                <button onClick={() => navigate('/dashboard')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
                     <ArrowLeft className="w-4 h-4" /> Return to Hub
                 </button>
             </div>
@@ -188,7 +188,7 @@ export function BusinessAdminSuite() {
                                 <h1 className="text-4xl font-black text-white tracking-tight">Select Target Workspace</h1>
                                 <p className="text-zinc-400 mt-2 max-w-xl">You are operating in global orbit. Select a commercial tenant below to securely inject your administrative authority into their local context without occupying an employee seat.</p>
                             </div>
-                            <button onClick={() => navigate('/workspace')} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm font-bold bg-zinc-900 hover:bg-zinc-800 px-4 py-2.5 rounded-xl border border-zinc-800">
+                            <button onClick={() => navigate('/dashboard')} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm font-bold bg-zinc-900 hover:bg-zinc-800 px-4 py-2.5 rounded-xl border border-zinc-800">
                                 <ArrowLeft className="w-4 h-4" /> Hub 
                             </button>
                         </div>
@@ -229,7 +229,7 @@ export function BusinessAdminSuite() {
                 <Building2 className="w-16 h-16 text-zinc-800 mb-6" />
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">No Workspace Assigned</h2>
                 <p className="text-zinc-500 max-w-md">You must be bound to a commercial tenant to access the Business Administration Suite.</p>
-                <button onClick={() => navigate('/workspace')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
+                <button onClick={() => navigate('/dashboard')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
                     <ArrowLeft className="w-4 h-4" /> Return to Hub
                 </button>
             </div>
@@ -248,7 +248,7 @@ export function BusinessAdminSuite() {
                     </div>
                     {/* Mobile Quit Button */}
                     <button 
-                        onClick={() => navigate('/workspace')}
+                        onClick={() => navigate('/dashboard')}
                         className="md:hidden flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 transition-colors"
                     >
                         <ArrowLeft className="w-4 h-4" /> Back to Dashboard
@@ -257,7 +257,7 @@ export function BusinessAdminSuite() {
 
                 <div className="pt-4 px-4 hidden md:block shrink-0">
                     <button 
-                        onClick={() => navigate('/workspace')}
+                        onClick={() => navigate('/dashboard')}
                         className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/80 border border-zinc-800/50 hover:border-zinc-700 transition-all shadow-sm"
                     >
                         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard

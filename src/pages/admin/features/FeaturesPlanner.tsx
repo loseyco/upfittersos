@@ -43,7 +43,7 @@ export function FeaturesPlanner() {
                 <ShieldAlert className="w-16 h-16 text-red-500/50 mb-6" />
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">Access Denied</h2>
                 <p className="text-zinc-500 max-w-md">Engineering Protocol Restricted. Super Admin credentials required.</p>
-                <button onClick={() => navigate('/workspace')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
+                <button onClick={() => navigate('/dashboard')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
                     <ArrowLeft className="w-4 h-4" /> Return to Hub
                 </button>
             </div>

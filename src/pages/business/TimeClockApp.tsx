@@ -35,7 +35,7 @@ const toLocalISOString = (dateStr: string) => {
     return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 16);
 };
 
-export function TimeClockApp() {
+export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
     const { currentUser, tenantId } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [activeTab, setActiveTab] = useState<'clock' | 'timesheet' | 'requests'>('clock');
@@ -570,23 +570,25 @@ export function TimeClockApp() {
     const onBreak = activeLog?.breaks?.length > 0 && !activeLog.breaks[activeLog.breaks.length - 1].end;
 
     return (
-        <div className="min-h-screen bg-zinc-950 flex flex-col">
-            <div className="flex-1 max-w-5xl mx-auto w-full p-4 md:p-8 space-y-8">
+        <div className={isDrawer ? "h-full w-full flex flex-col pt-1" : "min-h-screen bg-zinc-950 flex flex-col"}>
+            <div className={`flex-1 mx-auto w-full space-y-8 ${isDrawer ? 'p-1 max-w-full' : 'p-4 md:p-8 max-w-5xl'}`}>
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-6">
-                    <div className="flex items-center gap-4">
-                        <Link to="/workspace" className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white">
-                            <ArrowLeft className="w-5 h-5" />
-                        </Link>
-                        <div>
-                            <div className="flex items-center gap-2 mb-1">
-                                <Clock className="w-4 h-4 text-blue-400" />
-                                <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Workspace Application</span>
+                {!isDrawer && (
+                    <div className="flex items-center justify-between border-b border-zinc-800 pb-6">
+                        <div className="flex items-center gap-4">
+                            <Link to="/dashboard" className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors text-zinc-400 hover:text-white">
+                                <ArrowLeft className="w-5 h-5" />
+                            </Link>
+                            <div>
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Clock className="w-4 h-4 text-blue-400" />
+                                    <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Workspace Application</span>
+                                </div>
+                                <h1 className="text-3xl font-black text-white">Time & Attendance</h1>
                             </div>
-                            <h1 className="text-3xl font-black text-white">Time & Attendance</h1>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* Tabs & Stats */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

@@ -7,6 +7,7 @@ import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
 import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
+import { GlobalRemindersTracker } from '../components/GlobalRemindersTracker';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { APP_NAME } from '../lib/constants';
 import { PWAPrompt } from '../components/PWAPrompt';
@@ -182,7 +183,7 @@ export function MainLayout() {
     };
 
     const mobileNavItems = [
-        { path: currentUser ? '/workspace' : '/', icon: Globe, label: currentUser ? 'Dashboard' : 'Public' },
+        { path: currentUser ? '/dashboard' : '/', icon: Globe, label: currentUser ? 'Dashboard' : 'Public' },
         { path: '/documents', icon: BookOpen, label: 'Docs' },
         ...(currentUser && isSuperAdmin ? [{ path: '/admin', icon: Activity, label: 'Super Admin' }] : [])
     ];
@@ -224,6 +225,7 @@ export function MainLayout() {
 
             {/* Global Time Tracker */}
             <GlobalTimeTracker />
+            <GlobalRemindersTracker />
 
             {/* Global Announcement Banner */}
             {activeNotice && !dismissedNotices.includes(activeNotice.id) && (
@@ -254,7 +256,7 @@ export function MainLayout() {
 
             <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
                 <div className="flex items-center gap-2 md:gap-4">
-                    {location.pathname !== '/workspace' && location.pathname !== '/' && location.pathname !== '/admin' && (
+                    {location.pathname !== '/dashboard' && location.pathname !== '/' && location.pathname !== '/admin' && (
                         <button 
                             onClick={() => navigate(-1)}
                             className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 mr-2 flex items-center gap-1"
@@ -263,7 +265,7 @@ export function MainLayout() {
                             <span className="hidden sm:inline text-xs font-bold mr-1">Back</span>
                         </button>
                     )}
-                    <Link to={currentUser ? '/workspace' : '/'} className="flex items-center gap-2">
+                    <Link to={currentUser ? '/dashboard' : '/'} className="flex items-center gap-2">
                         {businessIcon && <img src={businessIcon} alt="Logo" className="w-6 h-6 rounded-md object-cover border border-zinc-700 shadow-sm hidden md:block" />}
                         <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
                     </Link>

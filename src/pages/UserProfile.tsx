@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera, Bell } from 'lucide-react';
+import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera, Bell, Clock, Plus, Trash2 } from 'lucide-react';
 import { updateProfile } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -9,6 +9,7 @@ import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import type { CustomReminder } from '../components/GlobalRemindersTracker';
 
 const formatPhoneNumber = (value: string) => {
     if (!value) return value;
@@ -46,6 +47,7 @@ export function UserProfile() {
     const [isSaving, setIsSaving] = useState(false);
     const [businessName, setBusinessName] = useState('Loading...');
     const [deviceSetup, setDeviceSetup] = useState<any>(null);
+    const [customReminders, setCustomReminders] = useState<CustomReminder[]>([]);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const { permissionStatus, requestPermissionAndSaveToken, isSubscribing } = usePushNotifications();
@@ -128,6 +130,7 @@ export function UserProfile() {
                     if (data.bio) setBio(data.bio);
                     if (data.keepScreenAwake !== undefined) setKeepScreenAwake(data.keepScreenAwake);
                     if (data.deviceSetup) setDeviceSetup(data.deviceSetup);
+                    if (data.customReminders) setCustomReminders(data.customReminders);
                     
                     if (tenantId && data.companyCamAuth?.[tenantId]?.token) {
                         setCompanyCamToken(data.companyCamAuth[tenantId].token);
@@ -197,6 +200,7 @@ export function UserProfile() {
                 emergencyContactPhone: emergencyContactPhone,
                 bio: bio,
                 keepScreenAwake: keepScreenAwake,
+                customReminders: customReminders,
                 updatedAt: new Date().toISOString()
             }, { merge: true });
 
@@ -609,6 +613,99 @@ export function UserProfile() {
                                                     {isSubscribing ? 'Connecting...' : 'Enable Push'}
                                                 </button>
                                             )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Custom Reminders */}
+                                <div className="pt-6 mt-4 border-t border-zinc-800/50">
+                                    <h3 className="text-xs font-bold text-white mb-4 uppercase tracking-widest flex items-center gap-2">
+                                        <Clock className="w-4 h-4 text-purple-400"/> Custom Reminders & Alarms
+                                    </h3>
+                                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 flex flex-col gap-4">
+                                        {customReminders.length === 0 ? (
+                                            <p className="text-xs text-zinc-500 italic">No custom reminders set.</p>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {customReminders.map(r => (
+                                                    <div key={r.id} className="flex items-center justify-between bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-bold text-white">{r.time}</span>
+                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>{r.enabled ? 'ON' : 'OFF'}</span>
+                                                            </div>
+                                                            <p className="text-xs text-zinc-400 mt-0.5">{r.message}</p>
+                                                        </div>
+                                                        {/* Always show delete actions */}
+                                                        <button 
+                                                            onClick={async () => {
+                                                                const newRems = customReminders.filter(x => x.id !== r.id);
+                                                                setCustomReminders(newRems);
+                                                                if (currentUser) {
+                                                                    await setDoc(doc(db, 'users', currentUser.uid), { customReminders: newRems }, { merge: true });
+                                                                    toast.success('Reminder deleted');
+                                                                }
+                                                            }}
+                                                            className="p-1.5 text-zinc-500 hover:text-red-400 bg-zinc-900 hover:bg-zinc-800 rounded-md transition-colors"
+                                                            title="Delete Reminder"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {/* Always show add ability */}
+                                        <div className="pt-3 border-t border-zinc-800/50 mt-1">
+                                            <div className="flex items-end gap-3">
+                                                <div className="flex-1 w-24 shrink-0">
+                                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Time (24H)</label>
+                                                    <input 
+                                                        type="time" 
+                                                        id="newReminderTime"
+                                                        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
+                                                    />
+                                                </div>
+                                                <div className="flex-[2]">
+                                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Message</label>
+                                                    <input 
+                                                        type="text" 
+                                                        id="newReminderMsg"
+                                                        placeholder="Take a break..."
+                                                        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
+                                                    />
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        const timeEl = document.getElementById('newReminderTime') as HTMLInputElement;
+                                                        const msgEl = document.getElementById('newReminderMsg') as HTMLInputElement;
+                                                        if (timeEl.value && msgEl.value) {
+                                                            const newReminder = {
+                                                                id: Math.random().toString(36).substr(2, 9),
+                                                                time: timeEl.value,
+                                                                message: msgEl.value,
+                                                                enabled: true
+                                                            };
+                                                            const newRems = [...customReminders, newReminder];
+                                                            setCustomReminders(newRems);
+                                                            timeEl.value = '';
+                                                            msgEl.value = '';
+                                                            
+                                                            if (currentUser) {
+                                                                await setDoc(doc(db, 'users', currentUser.uid), { customReminders: newRems }, { merge: true });
+                                                                toast.success('Reminder added');
+                                                            }
+                                                        } else {
+                                                            toast.error("Time and Message are required");
+                                                        }
+                                                    }}
+                                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold p-2.5 rounded-lg transition-colors mb-[1px]"
+                                                    title="Add Reminder"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

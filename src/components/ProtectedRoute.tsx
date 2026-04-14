@@ -46,7 +46,7 @@ export function ProtectedRoute({ children, requireSuperAdmin = false }: { childr
 
     if (!isAuthorized) {
         // Force redirect normal users to their explicit Sandbox / Workspace Hub
-        return <Navigate to="/workspace" replace />;
+        return <Navigate to="/dashboard" replace />;
     }
 
     return <>{children}</>;

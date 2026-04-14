@@ -69,7 +69,7 @@ export function FieldMapPage() {
             <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center text-center p-6 text-white">
                 <h2 className="text-2xl font-black mb-2">Access Denied</h2>
                 <p className="text-zinc-500 mb-6">You do not have clearance to access the interactive field operations map.</p>
-                <button onClick={() => navigate('/workspace')} className="text-accent flex items-center gap-2 hover:text-white transition-colors">
+                <button onClick={() => navigate('/dashboard')} className="text-accent flex items-center gap-2 hover:text-white transition-colors">
                     <ArrowLeft className="w-4 h-4"/> Back to Hub
                 </button>
             </div>
@@ -82,7 +82,7 @@ export function FieldMapPage() {
                 <MapPin className="w-12 h-12 text-zinc-600 mb-4" />
                 <h2 className="text-2xl font-black mb-2">Google Maps Key Missing</h2>
                 <p className="text-zinc-400 mb-6 max-w-sm">Please provide <code className="bg-zinc-800 px-1 rounded">VITE_GOOGLE_MAPS_API_KEY</code> in your environment variables to enable the interactive field map.</p>
-                <button onClick={() => navigate('/workspace')} className="text-accent flex items-center gap-2 hover:text-white transition-colors">
+                <button onClick={() => navigate('/dashboard')} className="text-accent flex items-center gap-2 hover:text-white transition-colors">
                     <ArrowLeft className="w-4 h-4"/> Back to Hub
                 </button>
             </div>
@@ -100,7 +100,7 @@ export function FieldMapPage() {
             <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-4 md:px-8 bg-zinc-900/90 backdrop-blur-md shrink-0 shadow-lg relative z-10">
                 <div className="flex items-center gap-4">
                     <button 
-                        onClick={() => navigate('/workspace')}
+                        onClick={() => navigate('/dashboard')}
                         className="flex items-center justify-center w-10 h-10 rounded-full bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors"
                     >
                         <ArrowLeft className="w-5 h-5" />

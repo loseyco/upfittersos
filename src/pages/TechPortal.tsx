@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Wrench, PauseCircle, SearchCode, X, Plus, MapPin, Info, ArrowUpRight, ShieldCheck } from 'lucide-react';
+import { Wrench, PauseCircle, SearchCode, X, Plus, MapPin, Info, ArrowUpRight, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { collection, onSnapshot, query, where, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import toast from 'react-hot-toast';
+import { TechTaskWorkspace } from './TechTaskWorkspace';
 
-export function TechPortal() {
+export function TechPortal({ isDrawer, initialTaskView }: { isDrawer?: boolean, initialTaskView?: {jobId: string, taskIndex: number} }) {
     const { currentUser, tenantId } = useAuth();
     const { checkPermission } = usePermissions();
     
@@ -22,6 +23,16 @@ export function TechPortal() {
     const [loading, setLoading] = useState(true);
     const [discoveryModal, setDiscoveryModal] = useState<{jobId: string, taskIndex: number, originalTask: any, isOpen: boolean, note: string} | null>(null);
     const [unplannedModal, setUnplannedModal] = useState({ jobId: '', isOpen: false, title: '', description: '' });
+    const [submittingRND, setSubmittingRND] = useState(false);
+    
+    // Virtual router state for drawer implementation
+    const [activeTaskView, setActiveTaskView] = useState<{jobId: string, taskIndex: number} | null>(initialTaskView || null);
+    
+    useEffect(() => {
+        if (initialTaskView) {
+            setActiveTaskView(initialTaskView);
+        }
+    }, [initialTaskView]);
     const [breakdownModal, setBreakdownModal] = useState<{ isOpen: boolean, title: string, type: 'shift' | 'jobs', items: any[] }>({ isOpen: false, title: '', type: 'shift', items: [] });
     const [payCycle, setPayCycle] = useState('weekly');
     const [anchorDate, setAnchorDate] = useState('2024-01-01');
@@ -40,10 +51,6 @@ export function TechPortal() {
 
         const unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (s) => {
             setVehicles(s.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-
-        const unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (s) => {
-            setCustomers(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
         const unsubAreas = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => {
@@ -74,7 +81,6 @@ export function TechPortal() {
         return () => {
             unsubJobs();
             unsubVehicles();
-            unsubCustomers();
             unsubLogs();
             unsubTaskLogs();
             unsubAreas();
@@ -132,6 +138,7 @@ export function TechPortal() {
     const handleCreateUnplannedTask = async () => {
         if (!unplannedModal.title || !unplannedModal.description) return toast.error("Title and description are required.");
         try {
+            setSubmittingRND(true);
             const jobRef = doc(db, 'jobs', unplannedModal.jobId);
             const jobSnap = await getDoc(jobRef);
             if (!jobSnap.exists()) return;
@@ -155,6 +162,8 @@ export function TechPortal() {
         } catch (e) {
             toast.error("Failed to add task");
             console.error(e);
+        } finally {
+            setSubmittingRND(false);
         }
     };
 
@@ -247,7 +256,7 @@ export function TechPortal() {
     const myAssignedJobs = useMemo(() => {
         let activeJobs = jobs.map(j => {
             const myTasks: any[] = (j.tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
-                .filter((t: any) => t.isApproved !== false && t.assignedUids?.includes(myUid) && t.status !== 'Finished');
+                .filter((t: any) => t.isApproved !== false && t.assignedUids?.includes(myUid) && t.status !== 'Finished' && t.status !== 'Ready for QA');
             return { ...j, myTasks };
         }).filter(j => j.myTasks.length > 0 && j.status !== 'Blocked' && j.status !== 'Draft' && j.status !== 'Delivered');
 
@@ -262,8 +271,10 @@ export function TechPortal() {
             const pB = priorityMap[b.priority] || 0;
             if (pA !== pB) return pB - pA; // highest priority first
             
-            const dA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-            const dB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+            const aDate = a.pickupEta || a.completionEta || a.dueDate || a.desiredPickupDate;
+            const bDate = b.pickupEta || b.completionEta || b.dueDate || b.desiredPickupDate;
+            const dA = aDate ? new Date(aDate).getTime() : Infinity;
+            const dB = bDate ? new Date(bDate).getTime() : Infinity;
             if (dA !== dB) return dA - dB;
 
             const cA = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
@@ -271,6 +282,15 @@ export function TechPortal() {
             return cA - cB;
         });
         return activeJobs;
+    }, [jobs, myUid]);
+
+    const myQaPendingJobs = useMemo(() => {
+        let qaJobs = jobs.map(j => {
+            const myTasks: any[] = (j.tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
+                .filter((t: any) => t.isApproved !== false && t.assignedUids?.includes(myUid) && t.status === 'Ready for QA');
+            return { ...j, myTasks };
+        }).filter(j => j.myTasks.length > 0 && j.status !== 'Draft' && j.status !== 'Delivered');
+        return qaJobs;
     }, [jobs, myUid]);
 
     const blockedJobs = useMemo(() => {
@@ -421,9 +441,20 @@ export function TechPortal() {
 
     if (loading) return null;
 
+    if (activeTaskView) {
+        return (
+            <TechTaskWorkspace 
+                manualJobId={activeTaskView.jobId} 
+                manualTaskIndex={activeTaskView.taskIndex} 
+                onBack={() => setActiveTaskView(null)}
+                isDrawer={isDrawer}
+            />
+        );
+    }
+
     return (
-        <div className="flex-1 bg-zinc-950 p-4 md:p-8">
-            <div className="max-w-7xl mx-auto space-y-6">
+        <div className={`flex-1 bg-zinc-950 ${isDrawer ? 'p-2 sm:p-4' : 'p-4 md:p-8'}`}>
+            <div className={`${isDrawer ? 'w-full' : 'max-w-7xl mx-auto'} space-y-6`}>
 
                 {/* 1. Personal Dashboard & Header */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -523,7 +554,11 @@ export function TechPortal() {
                                     </div>
                                     <div className="text-right flex-shrink-0 flex flex-col items-end">
                                         <p className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-1">Due Date</p>
-                                        <p className="text-sm font-bold text-white">{job.dueDate || 'Unscheduled'}</p>
+                                        <p className="text-sm font-bold text-white">
+                                            {job.pickupEta || job.completionEta || job.desiredPickupDate || job.dueDate ? (
+                                                new Date(job.pickupEta || job.completionEta || job.desiredPickupDate || job.dueDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                            ) : 'Unscheduled'}
+                                        </p>
                                         <button 
                                             onClick={() => setUnplannedModal({ jobId: job.id, isOpen: true, title: '', description: '' })}
                                             className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg flex items-center justify-center gap-1.5 font-bold uppercase tracking-widest transition-colors mt-2 whitespace-nowrap"
@@ -547,7 +582,13 @@ export function TechPortal() {
                                         
                                         return (
                                         <div key={idx} className={`rounded-xl border p-4 ${t.status === 'In Progress' ? (isTaskDiscovery ? 'bg-amber-950/30 border-l-2 border-l-amber-500 border-y-amber-500/20 border-r-amber-500/20' : 'bg-zinc-800 border-l-2 border-l-accent border-y-zinc-700/50 border-r-zinc-700/50') : 'bg-zinc-800/30 border-zinc-700/50'}`}>
-                                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer" onClick={() => window.location.href = `/business/tech/task/${job.id}/${t.originalIndex}`}>
+                                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer" onClick={() => {
+                                                if (isDrawer) {
+                                                    setActiveTaskView({ jobId: job.id, taskIndex: t.originalIndex });
+                                                } else {
+                                                    window.location.href = `/business/tech/task/${job.id}/${t.originalIndex}`;
+                                                }
+                                            }}>
                                                 <div className="flex items-start gap-3 flex-1 w-full">
                                                     <div className="flex-1 w-full">
                                                         <h3 className="font-semibold text-white text-base hover:text-accent transition-colors">{t.title}</h3>
@@ -580,6 +621,69 @@ export function TechPortal() {
                                 </div>
                             </div>
                         ))}
+
+                        {myQaPendingJobs.length > 0 && (
+                            <div className="mt-8 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-xl font-semibold text-white">My Tasks pending QA</h3>
+                                    <span className="bg-sky-500/10 text-sky-400 border border-sky-500/20 text-xs font-bold px-2 py-1 rounded">{myQaPendingJobs.reduce((acc, j) => acc + j.myTasks.length, 0)} Tasks Awaiting Approval</span>
+                                </div>
+                                {myQaPendingJobs.map(job => (
+                                    <div key={job.id} className={`bg-zinc-900/40 rounded-2xl border border-sky-500/10 overflow-hidden opacity-70 hover:opacity-100 transition-opacity`}>
+                                        <div className="p-4 border-b border-zinc-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                            <div>
+                                                <div className="flex items-center gap-3 mb-1">
+                                                    <span 
+                                                        onClick={() => window.location.href = `/business/jobs/${job.id}`}
+                                                        className="text-sm font-mono text-zinc-400 bg-zinc-800 hover:bg-zinc-700 cursor-pointer px-2 py-0.5 rounded transition-colors flex items-center gap-1.5"
+                                                    >
+                                                        {job.title} <ArrowUpRight className="w-3 h-3" />
+                                                    </span>
+                                                    <span className="text-xs text-zinc-500 font-medium">{getCustomerName(job.customerId)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3 mt-1">
+                                                    <h4 className="text-lg font-bold text-zinc-300">{getVehicleName(job.vehicleId)}</h4>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-4 space-y-3">
+                                            {job.myTasks.map((t: any, idx: number) => {
+                                                const matchLogs = taskTimeLogs.filter(l => l.jobId === job.id && l.taskIndex === t.originalIndex);
+                                                const loggedHours = matchLogs.reduce((acc, log) => acc + computeShiftHours(log), 0);
+                                                return (
+                                                <div key={idx} className="rounded-xl border bg-zinc-800/20 border-zinc-700/30 p-4">
+                                                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 cursor-pointer" onClick={() => {
+                                                        if (isDrawer) {
+                                                            setActiveTaskView({ jobId: job.id, taskIndex: t.originalIndex });
+                                                        } else {
+                                                            window.location.href = `/business/tech/task/${job.id}/${t.originalIndex}`;
+                                                        }
+                                                    }}>
+                                                        <div className="flex items-start gap-3 flex-1 w-full">
+                                                            <div className="flex-1 w-full">
+                                                                <h3 className="font-semibold text-zinc-300 text-base">{t.title}</h3>
+                                                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-sky-500/10 text-sky-400 border border-sky-500/20">Ready for QA</span>
+                                                                    <span className="text-[10px] text-zinc-500 uppercase font-semibold pl-2 border-l border-zinc-700">Book: {t.bookTime}h</span>
+                                                                    <span className="text-[10px] text-zinc-500 uppercase font-semibold pl-2 border-l border-zinc-700">Logged: {loggedHours.toFixed(1)}h</span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="sm:ml-4 flex items-center justify-end w-full sm:w-auto shrink-0 mt-3 sm:mt-0">
+                                                            <button className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors border border-zinc-700/50 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest whitespace-nowrap w-full sm:w-auto flex justify-center items-center gap-2">
+                                                                Open <ArrowRight className="w-3 h-3" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
 
                         {blockedJobs.length > 0 && (
                             <div className="mt-8">
@@ -621,7 +725,13 @@ export function TechPortal() {
                                 <div className="space-y-4">
                                     {pendingQATasks.map((t, idx) => (
                                         <div key={idx} className="bg-blue-950/20 rounded-2xl border border-blue-500/30 overflow-hidden hover:border-blue-500/50 transition-colors">
-                                            <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer" onClick={() => window.location.href = `/business/tech/task/${t.jobId}/${t.taskIndex}`}>
+                                            <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer" onClick={() => {
+                                                if (isDrawer) {
+                                                    setActiveTaskView({ jobId: t.jobId, taskIndex: t.taskIndex });
+                                                } else {
+                                                    window.location.href = `/business/tech/task/${t.jobId}/${t.taskIndex}`;
+                                                }
+                                            }}>
                                                 <div>
                                                     <div className="flex items-center gap-3 mb-1">
                                                         <span className="text-[10px] uppercase font-black bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/30 shadow-inner">Requires QA</span>

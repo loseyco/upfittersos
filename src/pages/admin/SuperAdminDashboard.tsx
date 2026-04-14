@@ -202,7 +202,7 @@ export function SuperAdminDashboard() {
             await signInWithCustomToken(auth, token);
             
             toast.success("Contextual authority established. Bouncing to Hub.", { id: 'enter-workspace' });
-            navigate('/workspace');
+            navigate('/dashboard');
         } catch (error: any) {
             console.error("Workspace jump failed", error);
             toast.error(error?.response?.data?.error || "Failed to enter workspace.", { id: 'enter-workspace' });

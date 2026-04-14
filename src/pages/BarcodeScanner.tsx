@@ -126,7 +126,7 @@ export const BarcodeScanner = () => {
 
             {/* Cancel Button */}
             <button 
-                onClick={() => navigate('/workspace')}
+                onClick={() => navigate('/dashboard')}
                 className="absolute bottom-12 w-14 h-14 bg-zinc-800 hover:bg-zinc-700 rounded-full flex items-center justify-center transition-all text-white/50 hover:text-white"
             >
                 <XCircle className="w-6 h-6" />

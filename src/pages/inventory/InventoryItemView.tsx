@@ -8,7 +8,7 @@ export const InventoryItemView = () => {
     return (
         <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in">
             <div className="flex items-center gap-4">
-                <button onClick={() => navigate('/workspace')} className="p-2 hover:bg-white/5 rounded-xl transition-colors">
+                <button onClick={() => navigate('/dashboard')} className="p-2 hover:bg-white/5 rounded-xl transition-colors">
                     <ArrowLeft className="w-5 h-5 text-zinc-400" />
                 </button>
                 <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center border border-amber-500/30">

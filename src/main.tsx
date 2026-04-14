@@ -85,7 +85,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
           <Route element={<MainLayout />}>
             {/* Public Routes */}
-            <Route path="/" element={<Navigate to="/workspace" replace />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />

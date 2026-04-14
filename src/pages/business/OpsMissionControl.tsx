@@ -72,7 +72,7 @@ export function OpsMissionControl() {
                 <ShieldAlert className="w-16 h-16 text-red-500/50 mb-6" />
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">Access Denied</h2>
                 <p className="text-zinc-500 max-w-md">Your profile does not have Mission Control clearance.</p>
-                <button onClick={() => navigate('/workspace')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
+                <button onClick={() => navigate('/dashboard')} className="mt-8 text-accent hover:text-white transition-colors flex items-center gap-2">
                     <ArrowLeft className="w-4 h-4" /> Return to Hub
                 </button>
             </div>
@@ -101,7 +101,7 @@ export function OpsMissionControl() {
         <div className="flex flex-col h-screen bg-zinc-950 text-white overflow-hidden font-sans">
             <div className="p-4 md:px-8 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between shrink-0 relative z-10 backdrop-blur-md">
                 <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/workspace')} className="p-2 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors">
+                    <button onClick={() => navigate('/dashboard')} className="p-2 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors">
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                     <div>

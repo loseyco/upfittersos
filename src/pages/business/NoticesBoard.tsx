@@ -42,7 +42,7 @@ export function NoticesBoard() {
 
             <div className="max-w-4xl mx-auto w-full flex-1 relative z-10">
                 <button 
-                    onClick={() => navigate('/workspace')}
+                    onClick={() => navigate('/dashboard')}
                     className="mb-8 flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm font-bold bg-zinc-900 border border-zinc-800 hover:border-zinc-700 px-4 py-2.5 rounded-xl w-fit group"
                 >
                     <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard

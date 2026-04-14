@@ -485,14 +485,29 @@ app.post('/businesses/:id/staff', authenticate, async (req: Request, res: Respon
     // 1. Authorization Guard
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
-    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
+    const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
+    let customRolesFound: Record<string, any> = {};
     if (!isSuperAdmin && !isOwnerOfTenant) {
         try {
-            const callerDoc = await db.collection('users').doc(caller.uid).get();
+            const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
             if (callerDoc.exists && callerDoc.data()?.customPermissions?.manage_staff === true) {
                 hasManageStaffOverride = true;
+            }
+            
+            // Explicitly check Custom Roles on the Business Document to support natively-created roles like 'general_manager'
+            if (!hasManageStaffOverride) {
+                const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                if (businessDoc.exists) {
+                    customRolesFound = businessDoc.data()?.customRoles || {};
+                    for (const checkRole of callerRoles) {
+                        if (customRolesFound[checkRole]?.permissions?.manage_staff === true) {
+                            hasManageStaffOverride = true;
+                            break;
+                        }
+                    }
+                }
             }
         } catch (err) {
             console.error('Failed to verify caller permissions override', err);
@@ -500,7 +515,7 @@ app.post('/businesses/:id/staff', authenticate, async (req: Request, res: Respon
     }
 
     if (!isSuperAdmin && !isOwnerOfTenant && !hasManageStaffOverride) {
-      return res.status(403).json({ error: 'Forbidden. You do not have permission to invite staff to this workspace.' });
+      return res.status(403).json({ error: `Forbidden. CallerRoles: ${JSON.stringify(callerRoles)}, Tenant: ${caller.tenantId}, BusinessId: ${businessId}, Found Manage Staff: ${hasManageStaffOverride}` });
     }
 
     const { email, role, roles } = req.body;
@@ -575,14 +590,27 @@ app.delete('/businesses/:id/staff/:uid', authenticate, async (req: Request, res:
   try {
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
-    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
+    const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
 
     let hasManageStaffOverride = false;
     if (!isSuperAdmin && !isOwnerOfTenant) {
         try {
-            const callerDoc = await db.collection('users').doc(caller.uid).get();
+            const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
             if (callerDoc.exists && callerDoc.data()?.customPermissions?.manage_staff === true) {
                 hasManageStaffOverride = true;
+            }
+            
+            if (!hasManageStaffOverride) {
+                const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                if (businessDoc.exists) {
+                    const customRoles = businessDoc.data()?.customRoles || {};
+                    for (const checkRole of callerRoles) {
+                        if (customRoles[checkRole]?.permissions?.manage_staff === true) {
+                            hasManageStaffOverride = true;
+                            break;
+                        }
+                    }
+                }
             }
         } catch (err) {
             console.error('Failed to verify caller permissions override', err);
@@ -612,7 +640,7 @@ app.post('/businesses/:id/staff/:uid/impersonate', authenticate, async (req: Req
   try {
     const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
     const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
-    const isOwnerOfTenant = callerRoles.includes('business_owner') && caller.tenantId === businessId;
+    const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
 
     if (!isSuperAdmin && !isOwnerOfTenant) {
       return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
@@ -652,9 +680,22 @@ app.post('/businesses/:id/staff/:uid/metadata', authenticate, async (req: Reques
     let hasManageStaffOverride = false;
     if (!isSuperAdmin && !isManagerOfTenant) {
         try {
-            const callerDoc = await db.collection('users').doc(caller.uid).get();
+            const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
             if (callerDoc.exists && callerDoc.data()?.customPermissions?.manage_staff === true) {
                 hasManageStaffOverride = true;
+            }
+            
+            if (!hasManageStaffOverride) {
+                const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                if (businessDoc.exists) {
+                    const customRoles = businessDoc.data()?.customRoles || {};
+                    for (const checkRole of callerRoles) {
+                        if (customRoles[checkRole]?.permissions?.manage_staff === true) {
+                            hasManageStaffOverride = true;
+                            break;
+                        }
+                    }
+                }
             }
         } catch (err) {
             console.error('Failed to verify caller permissions override', err);
@@ -813,7 +854,8 @@ app.post('/roles/assign', authenticate, async (req: Request, res: Response): Pro
 
     // Security Check: Only Super Admins, or Business Owners within their own Tenant, can assign roles.
     const isSuperAdmin = assigner.role === 'system_owner' || assigner.role === 'super_admin';
-    const isOwnerOfTenant = assigner.role === 'business_owner' && assigner.tenantId === tenantId;
+    const assignerRoles = Array.isArray(assigner.roles) ? assigner.roles : (assigner.role ? [assigner.role] : []);
+    const isOwnerOfTenant = (assignerRoles.includes('business_owner') || assignerRoles.includes('manager')) && assigner.tenantId === tenantId;
 
     if (!isSuperAdmin && !isOwnerOfTenant) {
       return res.status(403).json({ error: 'Forbidden. You cannot assign roles in this tenant.' });

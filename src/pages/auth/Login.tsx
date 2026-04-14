@@ -30,7 +30,7 @@ export function Login() {
             if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-                navigate('/workspace');
+                navigate('/dashboard');
             } else {
                 navigate('/profile');
             }
@@ -105,7 +105,7 @@ export function Login() {
             if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-                navigate('/workspace');
+                navigate('/dashboard');
             } else {
                 navigate('/profile');
             }

@@ -295,7 +295,8 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
         const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
         // Check if user has explicit override permission, or if they are at least a manager (depending on architecture)
         // For now, let's allow business_owner and super_admin, or someone with manage_staff (we might want a specific manage_business permission later)
-        const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isManagerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
         if (!isSuperAdmin && !isManagerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to modify workspace metadata.' });
         }
@@ -476,19 +477,34 @@ app.get('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, res
 });
 // POST /businesses/:id/staff - Invite a user to a workspace by email
 app.post('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, res) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     const businessId = req.params.id;
     const caller = req.user;
     try {
         // 1. Authorization Guard
         const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-        const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
+        let customRolesFound = {};
         if (!isSuperAdmin && !isOwnerOfTenant) {
             try {
-                const callerDoc = await db.collection('users').doc(caller.uid).get();
+                const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
                 if (callerDoc.exists && ((_b = (_a = callerDoc.data()) === null || _a === void 0 ? void 0 : _a.customPermissions) === null || _b === void 0 ? void 0 : _b.manage_staff) === true) {
                     hasManageStaffOverride = true;
+                }
+                // Explicitly check Custom Roles on the Business Document to support natively-created roles like 'general_manager'
+                if (!hasManageStaffOverride) {
+                    const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                    if (businessDoc.exists) {
+                        customRolesFound = ((_c = businessDoc.data()) === null || _c === void 0 ? void 0 : _c.customRoles) || {};
+                        for (const checkRole of callerRoles) {
+                            if (((_e = (_d = customRolesFound[checkRole]) === null || _d === void 0 ? void 0 : _d.permissions) === null || _e === void 0 ? void 0 : _e.manage_staff) === true) {
+                                hasManageStaffOverride = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             catch (err) {
@@ -496,7 +512,7 @@ app.post('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, re
             }
         }
         if (!isSuperAdmin && !isOwnerOfTenant && !hasManageStaffOverride) {
-            return res.status(403).json({ error: 'Forbidden. You do not have permission to invite staff to this workspace.' });
+            return res.status(403).json({ error: `Forbidden. CallerRoles: ${JSON.stringify(callerRoles)}, Tenant: ${caller.tenantId}, BusinessId: ${businessId}, Found Manage Staff: ${hasManageStaffOverride}` });
         }
         const { email, role, roles } = req.body;
         if (!email) {
@@ -554,19 +570,32 @@ app.post('/businesses/:id/staff', auth_middleware_1.authenticate, async (req, re
 });
 // DELETE /businesses/:id/staff/:uid - Hard delete an identity from the Firebase platform
 app.delete('/businesses/:id/staff/:uid', auth_middleware_1.authenticate, async (req, res) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     const businessId = req.params.id;
     const targetUid = req.params.uid;
     const caller = req.user;
     try {
         const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-        const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
         if (!isSuperAdmin && !isOwnerOfTenant) {
             try {
-                const callerDoc = await db.collection('users').doc(caller.uid).get();
+                const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
                 if (callerDoc.exists && ((_b = (_a = callerDoc.data()) === null || _a === void 0 ? void 0 : _a.customPermissions) === null || _b === void 0 ? void 0 : _b.manage_staff) === true) {
                     hasManageStaffOverride = true;
+                }
+                if (!hasManageStaffOverride) {
+                    const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                    if (businessDoc.exists) {
+                        const customRoles = ((_c = businessDoc.data()) === null || _c === void 0 ? void 0 : _c.customRoles) || {};
+                        for (const checkRole of callerRoles) {
+                            if (((_e = (_d = customRoles[checkRole]) === null || _d === void 0 ? void 0 : _d.permissions) === null || _e === void 0 ? void 0 : _e.manage_staff) === true) {
+                                hasManageStaffOverride = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             catch (err) {
@@ -592,7 +621,8 @@ app.post('/businesses/:id/staff/:uid/impersonate', auth_middleware_1.authenticat
     const caller = req.user;
     try {
         const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-        const isOwnerOfTenant = caller.role === 'business_owner' && caller.tenantId === businessId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isOwnerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
         if (!isSuperAdmin && !isOwnerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. Only Business Owners can impersonate staff.' });
         }
@@ -615,19 +645,32 @@ app.post('/businesses/:id/staff/:uid/impersonate', auth_middleware_1.authenticat
 });
 // POST /businesses/:id/staff/:uid/metadata - Update jobTitle and department for a staff member
 app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, async (req, res) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g;
     const businessId = req.params.id;
     const targetUid = req.params.uid;
     const caller = req.user;
     try {
         const isSuperAdmin = caller.role === 'system_owner' || caller.role === 'super_admin';
-        const isManagerOfTenant = (caller.role === 'business_owner' || caller.role === 'manager') && caller.tenantId === businessId;
+        const callerRoles = Array.isArray(caller.roles) ? caller.roles : (caller.role ? [caller.role] : []);
+        const isManagerOfTenant = (callerRoles.includes('business_owner') || callerRoles.includes('manager')) && caller.tenantId === businessId;
         let hasManageStaffOverride = false;
         if (!isSuperAdmin && !isManagerOfTenant) {
             try {
-                const callerDoc = await db.collection('users').doc(caller.uid).get();
+                const callerDoc = await admin.firestore().collection('users').doc(caller.uid).get();
                 if (callerDoc.exists && ((_b = (_a = callerDoc.data()) === null || _a === void 0 ? void 0 : _a.customPermissions) === null || _b === void 0 ? void 0 : _b.manage_staff) === true) {
                     hasManageStaffOverride = true;
+                }
+                if (!hasManageStaffOverride) {
+                    const businessDoc = await admin.firestore().collection('businesses').doc(businessId).get();
+                    if (businessDoc.exists) {
+                        const customRoles = ((_c = businessDoc.data()) === null || _c === void 0 ? void 0 : _c.customRoles) || {};
+                        for (const checkRole of callerRoles) {
+                            if (((_e = (_d = customRoles[checkRole]) === null || _d === void 0 ? void 0 : _d.permissions) === null || _e === void 0 ? void 0 : _e.manage_staff) === true) {
+                                hasManageStaffOverride = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             catch (err) {
@@ -699,7 +742,7 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
             let finalPermissions = Object.assign({}, customPermissions);
             if (!isSuperAdmin) {
                 const existingDoc = await db.collection('users').doc(targetUid).get();
-                const existingPerms = ((_c = existingDoc.data()) === null || _c === void 0 ? void 0 : _c.customPermissions) || {};
+                const existingPerms = ((_f = existingDoc.data()) === null || _f === void 0 ? void 0 : _f.customPermissions) || {};
                 for (const key of Object.keys(finalPermissions)) {
                     if (key.startsWith('super_'))
                         delete finalPermissions[key];
@@ -723,7 +766,7 @@ app.post('/businesses/:id/staff/:uid/metadata', auth_middleware_1.authenticate, 
         }
         catch (err) {
             // If document doesn't exist, dot notation fails. Fallback to basic create.
-            if (err.code === 5 || ((_d = err.message) === null || _d === void 0 ? void 0 : _d.includes('NOT_FOUND'))) {
+            if (err.code === 5 || ((_g = err.message) === null || _g === void 0 ? void 0 : _g.includes('NOT_FOUND'))) {
                 const freshCreate = { updatedAt: new Date().toISOString() };
                 for (const [k, v] of Object.entries(userUpdates))
                     freshCreate[k] = v;
@@ -782,7 +825,8 @@ app.post('/roles/assign', auth_middleware_1.authenticate, async (req, res) => {
         const assigner = req.user;
         // Security Check: Only Super Admins, or Business Owners within their own Tenant, can assign roles.
         const isSuperAdmin = assigner.role === 'system_owner' || assigner.role === 'super_admin';
-        const isOwnerOfTenant = assigner.role === 'business_owner' && assigner.tenantId === tenantId;
+        const assignerRoles = Array.isArray(assigner.roles) ? assigner.roles : (assigner.role ? [assigner.role] : []);
+        const isOwnerOfTenant = (assignerRoles.includes('business_owner') || assignerRoles.includes('manager')) && assigner.tenantId === tenantId;
         if (!isSuperAdmin && !isOwnerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You cannot assign roles in this tenant.' });
         }

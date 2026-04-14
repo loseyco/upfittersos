@@ -2407,7 +2407,7 @@ ${combinedNotes}`;
                                                         setJob({ ...job, tasks: t });
                                                     }}
                                                     trigger={
-                                                        <button disabled={task.isApproved === false || isLocked || task.status === 'Ready for QA' || task.status === 'Finished'} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold disabled:opacity-30 disabled:cursor-not-allowed">
+                                                        <button disabled={task.isApproved === false || task.status === 'Ready for QA' || task.status === 'Finished'} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold disabled:opacity-30 disabled:cursor-not-allowed">
                                                             <PlusCircle className="w-3.5 h-3.5" /> Assign Staff
                                                         </button>
                                                     }
@@ -2450,7 +2450,7 @@ ${combinedNotes}`;
                                                                     )}
                                                                     <span className="text-sm font-mono font-bold text-zinc-400">{totalHours > 0 ? `${totalHours.toFixed(2)}h` : '0.00h'}</span>
                                                                     
-                                                                    {userLogs.length === 0 && !isLocked && task.status !== 'Ready for QA' && task.status !== 'Finished' && (
+                                                                    {userLogs.length === 0 && task.status !== 'Ready for QA' && task.status !== 'Finished' && (
                                                                         <button type="button" onClick={() => {
                                                                             const t = [...job.tasks];
                                                                             t[tIdx].assignedUids = t[tIdx].assignedUids.filter((u: string) => u !== uid);

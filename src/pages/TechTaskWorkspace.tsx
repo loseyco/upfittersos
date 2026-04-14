@@ -1,15 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, PlayCircle, CheckCircle2, SearchCode, X, MapPin, Wrench, PauseCircle, AlertTriangle, Clock, PlusCircle, Camera, Image as ImageIcon, ChevronLeft, ChevronRight, ShieldCheck, XCircle } from 'lucide-react';
+import { ArrowLeft, PlayCircle, CheckCircle2, SearchCode, X, MapPin, Wrench, PauseCircle, AlertTriangle, Clock, PlusCircle, Camera, Image as ImageIcon, ChevronLeft, ChevronRight, ShieldCheck, XCircle, Car, Save, Package, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../hooks/usePermissions';
 import { doc, getDoc, collection, query, where, onSnapshot, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import toast from 'react-hot-toast';
+import { VehicleIntakeModal } from '../components/tech/VehicleIntakeModal';
 
-export function TechTaskWorkspace() {
-    const { jobId, taskIndexStr } = useParams();
-    const taskIndex = parseInt(taskIndexStr || '0', 10);
+
+export function TechTaskWorkspace({ manualJobId, manualTaskIndex, onBack, isDrawer }: { manualJobId?: string, manualTaskIndex?: number, onBack?: () => void, isDrawer?: boolean }) {
+    const params = useParams();
+    const jobId = manualJobId || params.jobId;
+    const taskIndexStr = params.taskIndexStr;
+    const taskIndex = manualTaskIndex !== undefined ? manualTaskIndex : parseInt(taskIndexStr || '0', 10);
     const navigate = useNavigate();
     const { currentUser, tenantId } = useAuth();
     const { checkPermission } = usePermissions();
@@ -28,6 +32,10 @@ export function TechTaskWorkspace() {
     const [qaPhotoLightbox, setQaPhotoLightbox] = useState<number | null>(null);
     const [newNoteText, setNewNoteText] = useState('');
     const [newQANoteText, setNewQANoteText] = useState('');
+    const [showIntakeModal, setShowIntakeModal] = useState(false);
+    const [addingPart, setAddingPart] = useState(false);
+    const [editingPartIndex, setEditingPartIndex] = useState<number | null>(null);
+    const [newPart, setNewPart] = useState({ name: '', partNumber: '', quantity: 1, action: 'Removed', serialNumber: '', location: '' });
 
     useEffect(() => {
         if (!jobId || !tenantId) return;
@@ -68,7 +76,7 @@ export function TechTaskWorkspace() {
 
     if (!job || !job.tasks || !job.tasks[taskIndex]) {
         return (
-            <div className="flex-1 bg-zinc-950 p-8 flex items-center justify-center">
+            <div className={`flex-1 bg-zinc-950 p-8 flex items-center justify-center ${isDrawer ? 'h-full' : 'min-h-screen'}`}>
                 <div className="text-center">
                     <div className="w-12 h-12 border-4 border-accent border-r-transparent rounded-full animate-spin mx-auto mb-4" />
                     <p className="text-zinc-500 font-bold uppercase tracking-widest text-sm">Loading Workspace...</p>
@@ -212,7 +220,10 @@ export function TechTaskWorkspace() {
             }
 
             toast.success(`Task marked as ${newStatus}`);
-            if (newStatus === 'Ready for QA' || newStatus === 'Finished') navigate('/business/tech');
+            if (newStatus === 'Ready for QA' || newStatus === 'Finished') {
+                if (onBack) onBack();
+                else navigate('/business/tech');
+            }
         } catch (err) {
             console.error(err);
             toast.error("Failed to update task");
@@ -296,6 +307,54 @@ export function TechTaskWorkspace() {
         }
     };
 
+    const handleAddPart = async () => {
+        if (!newPart.name.trim()) return;
+        try {
+            const jobRef = doc(db, 'jobs', jobId as string);
+            const updatedTasks = [...job.tasks];
+            if (!updatedTasks[taskIndex].parts) {
+                updatedTasks[taskIndex].parts = [];
+            }
+            
+            if (editingPartIndex !== null) {
+                updatedTasks[taskIndex].parts[editingPartIndex] = {
+                    ...updatedTasks[taskIndex].parts[editingPartIndex],
+                    ...newPart,
+                    lastEditedBy: currentUser?.displayName || 'Tech',
+                    lastEditedAt: new Date().toISOString()
+                };
+            } else {
+                updatedTasks[taskIndex].parts.push({
+                    ...newPart,
+                    addedBy: currentUser?.displayName || 'Tech',
+                    addedAt: new Date().toISOString()
+                });
+            }
+
+            await updateDoc(jobRef, { tasks: updatedTasks });
+            setAddingPart(false);
+            setEditingPartIndex(null);
+            setNewPart({ name: '', partNumber: '', quantity: 1, action: 'Removed', serialNumber: '', location: '' });
+            toast.success(editingPartIndex !== null ? 'Part updated' : 'Part logged to task');
+        } catch (error) {
+            console.error('Error adding part:', error);
+            toast.error('Failed to log part');
+        }
+    };
+    
+    const handleRemovePart = async (partIdx: number) => {
+        try {
+            const jobRef = doc(db, 'jobs', jobId as string);
+            const updatedTasks = [...job.tasks];
+            updatedTasks[taskIndex].parts.splice(partIdx, 1);
+            await updateDoc(jobRef, { tasks: updatedTasks });
+            toast.success('Part entry removed');
+        } catch (error) {
+            console.error('Error removing part:', error);
+            toast.error('Failed to remove part entry');
+        }
+    };
+
     const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, isQA: boolean = false) => {
         if (!e.target.files || e.target.files.length === 0 || !tenantId || !jobId) return;
         if (isQA) setUploadingQAPhotos(true);
@@ -371,17 +430,20 @@ export function TechTaskWorkspace() {
     };
 
     return (
-        <div className="flex-1 bg-zinc-950 flex flex-col min-h-screen relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-accent/5 rounded-full blur-[100px] pointer-events-none translate-x-1/3 -translate-y-1/3"></div>
+        <div className={`flex-1 bg-zinc-950 flex flex-col ${isDrawer ? 'h-full overflow-hidden' : 'min-h-screen'} relative`}>
+            {!isDrawer && <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-accent/5 rounded-full blur-[100px] pointer-events-none translate-x-1/3 -translate-y-1/3"></div>}
             
             {/* Header */}
             <div className="p-6 md:px-8 md:py-6 flex items-start sm:items-center justify-between border-b border-zinc-800/80 bg-zinc-900/50 backdrop-blur-md relative z-10 flex-col sm:flex-row gap-4 shrink-0">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate('/business/tech')} className="bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 p-2.5 rounded-full transition-colors">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full sm:w-auto">
+                    <button onClick={() => onBack ? onBack() : navigate('/business/tech')} className="bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 p-2.5 rounded-full transition-colors hidden sm:block">
                         <ArrowLeft className="w-5 h-5"/>
                     </button>
                     <div>
-                        <div className="flex items-center gap-3 mb-1">
+                        <div className="flex items-center gap-2 mb-2">
+                             <button onClick={() => onBack ? onBack() : navigate('/business/tech')} className="bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 p-1.5 rounded-full transition-colors sm:hidden">
+                                <ArrowLeft className="w-4 h-4"/>
+                            </button>
                             {effectiveStatus === 'In Progress' ? (
                                 <span className="flex items-center gap-1.5 text-emerald-400 text-[10px] font-black uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Clocked In</span>
                             ) : task.status === 'Blocked' ? (
@@ -396,6 +458,10 @@ export function TechTaskWorkspace() {
                         <button onClick={() => navigate(`/business/jobs/${job.id}`)} className="text-left text-zinc-400 hover:text-accent font-medium text-sm mt-1 transition-colors flex flex-wrap items-center gap-2">
                             <span>{vehicleName} &bull; {customerName}</span>
                             <span className="text-accent/50 text-[10px] uppercase font-black tracking-widest bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">View Main Job</span>
+                        </button>
+                        <button onClick={() => setShowIntakeModal(true)} className="mt-3 text-[11px] uppercase tracking-widest font-black bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 px-3 py-1.5 rounded flex items-center gap-2 transition-colors w-fit">
+                            <Car className="w-3.5 h-3.5" />
+                            {job.vehicleIntake ? 'View / Edit Vehicle Intake' : 'Perform Vehicle Intake'}
                         </button>
                         
                         {bookTimeVal > 0 && (
@@ -500,12 +566,80 @@ export function TechTaskWorkspace() {
                     {/* Required Parts Container */}
                     {task.parts && task.parts.length > 0 && (
                         <div className="bg-zinc-900 border border-zinc-800/80 rounded-2xl p-6 shadow-inner">
-                            <h3 className="text-sm font-black text-zinc-300 uppercase tracking-widest mb-4 flex items-center gap-2"><SearchCode className="w-4 h-4 text-teal-400" /> Required Inventory Parts</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-sm font-black text-zinc-300 uppercase tracking-widest flex items-center gap-2"><SearchCode className="w-4 h-4 text-teal-400" /> Task Parts & Disposition</h3>
+                                <button 
+                                    onClick={async () => {
+                                        try {
+                                            const jobRef = doc(db, 'jobs', jobId as string);
+                                            await updateDoc(jobRef, { tasks: job.tasks });
+                                            toast.success("Parts Updated");
+                                        } catch (e) {
+                                            toast.error("Failed to save parts");
+                                        }
+                                    }}
+                                    className="text-xs bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/20 px-3 py-1.5 rounded transition-colors font-bold flex items-center gap-1"
+                                >
+                                    <Save className="w-3.5 h-3.5" /> Save Parts
+                                </button>
+                            </div>
+                            <div className="flex flex-col gap-3">
                                 {task.parts.map((p: any, i: number) => (
-                                    <div key={i} className="flex justify-between items-center bg-zinc-950 rounded-xl p-3 border border-zinc-800/50 transition-colors hover:border-zinc-700">
-                                        <span className="text-zinc-300 font-bold text-sm line-clamp-1 pr-2">{p.name || 'Unknown Part'}</span>
-                                        <span className="text-teal-400 font-black px-2.5 py-1 bg-teal-500/10 rounded-lg text-xs shadow-inner shrink-0">{p.quantity}x</span>
+                                    <div key={i} className="flex flex-col gap-3 bg-zinc-950 rounded-xl p-4 border border-zinc-800/50 transition-colors">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-zinc-300 font-bold text-sm line-clamp-1 pr-2">{p.name || 'Unknown Part'}</span>
+                                            <span className="text-teal-400 font-black px-2.5 py-1 bg-teal-500/10 rounded-lg text-xs shadow-inner shrink-0">{p.quantity}x</span>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-1 block">Serial Number</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={p.serialNumber || ''} 
+                                                    onChange={(e) => {
+                                                        const newTasks = [...job.tasks];
+                                                        newTasks[taskIndex].parts[i].serialNumber = e.target.value;
+                                                        setJob({...job, tasks: newTasks});
+                                                    }}
+                                                    placeholder="Enter S/N" 
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs focus:outline-none focus:border-teal-500 text-white"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-1 block">Action</label>
+                                                <select 
+                                                    value={p.action || ''} 
+                                                    onChange={(e) => {
+                                                        const newTasks = [...job.tasks];
+                                                        newTasks[taskIndex].parts[i].action = e.target.value;
+                                                        setJob({...job, tasks: newTasks});
+                                                    }}
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs focus:outline-none focus:border-teal-500 text-white"
+                                                >
+                                                    <option value="">Pending</option>
+                                                    <option value="Installed">Installed</option>
+                                                    <option value="Uninstalled">Uninstalled</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-1 block">Disposition</label>
+                                                <select 
+                                                    value={p.disposition || ''} 
+                                                    onChange={(e) => {
+                                                        const newTasks = [...job.tasks];
+                                                        newTasks[taskIndex].parts[i].disposition = e.target.value;
+                                                        setJob({...job, tasks: newTasks});
+                                                    }}
+                                                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-xs focus:outline-none focus:border-teal-500 text-white"
+                                                >
+                                                    <option value="">N/A</option>
+                                                    <option value="Return to Customer">Return to Customer</option>
+                                                    <option value="Return to Inventory">Return to Inventory</option>
+                                                    <option value="Scrap / Recycle">Scrap / Recycle</option>
+                                                    <option value="Vendor Core Return">Vendor Core Return</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -622,6 +756,56 @@ export function TechTaskWorkspace() {
                                 ))}
                             </div>
                         )}
+                    </div>
+
+                    {/* Parts & Materials Log */}
+                    <div className="bg-zinc-900 border border-zinc-800/80 rounded-2xl p-6 shadow-inner relative overflow-hidden">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-sm font-black text-zinc-300 uppercase tracking-widest flex items-center gap-2"><Package className="w-4 h-4 text-emerald-400" /> Parts Log</h3>
+                            {effectiveStatus !== 'Ready for QA' && (
+                                <button onClick={() => setAddingPart(!addingPart)} className="text-xs bg-zinc-800 hover:bg-emerald-500/20 text-zinc-400 hover:text-emerald-400 px-3 py-1.5 rounded transition-colors font-bold flex items-center gap-1">
+                                    <PlusCircle className="w-3.5 h-3.5"/> Log Part
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="space-y-2">
+                            {(!task.parts || task.parts.length === 0) ? (
+                                <div className="text-zinc-600 bg-zinc-950/50 rounded-xl p-6 border border-zinc-800/50 border-dashed text-center text-sm font-medium">
+                                    No parts documented for this task.
+                                </div>
+                            ) : (
+                                task.parts.map((part: any, i: number) => (
+                                    <div 
+                                        key={i} 
+                                        onClick={() => { if (effectiveStatus !== 'Ready for QA') { setEditingPartIndex(i); setNewPart({ ...part, serialNumber: part.serialNumber || '', location: part.location || '' }); setAddingPart(true); } }}
+                                        className={`bg-zinc-950 rounded-xl p-3 border border-zinc-800/50 flex items-center justify-between group ${effectiveStatus !== 'Ready for QA' ? 'cursor-pointer hover:border-blue-500/50' : ''}`}
+                                    >
+                                        <div className="flex items-center gap-3 w-full">
+                                            <div className={`w-2 h-8 rounded-full ${part.action === 'Removed' ? 'bg-red-500' : part.action === 'Installed' ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-white font-bold text-sm">{part.name}</span>
+                                                    <span className="text-zinc-500 font-mono text-[10px]">x{part.quantity}</span>
+                                                </div>
+                                                <div className="text-xs text-zinc-500 flex items-center gap-2 mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis max-w-[280px] sm:max-w-none">
+                                                    <span className={`uppercase font-black text-[9px] tracking-widest ${part.action === 'Removed' ? 'text-red-400' : part.action === 'Installed' ? 'text-emerald-400' : 'text-amber-400'}`}>{part.action}</span>
+                                                    {part.partNumber && <span>&bull; PN: {part.partNumber}</span>}
+                                                    {part.serialNumber && <span>&bull; SN: {part.serialNumber}</span>}
+                                                    {part.location && <span className="truncate">&bull; Loc: {part.location}</span>}
+                                                    <span>&bull; By {part.addedBy}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {effectiveStatus !== 'Ready for QA' && (
+                                            <div className="text-zinc-600 group-hover:text-blue-400 opacity-50 group-hover:opacity-100 transition-all px-2">
+                                                <Wrench className="w-4 h-4"/>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
 
                     {/* Tech Notes Log */}
@@ -982,6 +1166,121 @@ export function TechTaskWorkspace() {
                     </div>
                 </div>
             )}
+
+            {/* Parts Log Modal */}
+            {addingPart && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg shadow-2xl relative flex flex-col">
+                        <div className="p-6 border-b border-zinc-800/80 flex items-center justify-between">
+                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <Package className="w-5 h-5 text-emerald-400" /> 
+                                {editingPartIndex !== null ? 'Edit Part' : 'Log Part'}
+                            </h2>
+                            <button onClick={() => { setAddingPart(false); setEditingPartIndex(null); setNewPart({ name: '', partNumber: '', quantity: 1, action: 'Removed', serialNumber: '', location: '' }); }} className="text-zinc-500 hover:text-white p-2 hover:bg-zinc-800 rounded-full transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        
+                        <div className="p-6 space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Part Name / Desc *</label>
+                                    <input 
+                                        type="text" 
+                                        value={newPart.name}
+                                        onChange={e => setNewPart({...newPart, name: e.target.value})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
+                                        placeholder="e.g. 16ga Red Wire / Dash Bezel"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Part # (Optional)</label>
+                                    <input 
+                                        type="text" 
+                                        value={newPart.partNumber}
+                                        onChange={e => setNewPart({...newPart, partNumber: e.target.value})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
+                                        placeholder="Part NO."
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Action</label>
+                                    <select 
+                                        value={newPart.action}
+                                        onChange={e => setNewPart({...newPart, action: e.target.value})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white appearance-none"
+                                    >
+                                        <option value="Removed">Removed / Discarded</option>
+                                        <option value="Installed">Installed / Added</option>
+                                        <option value="Consumed">Consumed (Materials)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Quantity</label>
+                                    <input 
+                                        type="number" 
+                                        min="1"
+                                        value={newPart.quantity}
+                                        onChange={e => setNewPart({...newPart, quantity: parseInt(e.target.value) || 1})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Serial Number (Optional)</label>
+                                    <input 
+                                        type="text" 
+                                        value={newPart.serialNumber || ''}
+                                        onChange={e => setNewPart({...newPart, serialNumber: e.target.value})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
+                                        placeholder="SN..."
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1.5">Location / Bay / Notes</label>
+                                    <input 
+                                        type="text" 
+                                        value={newPart.location || ''}
+                                        onChange={e => setNewPart({...newPart, location: e.target.value})}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
+                                        placeholder="e.g. Center Console, Shelf A"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-6 border-t border-zinc-800/80 shrink-0 flex justify-between items-center gap-3 bg-zinc-900/50 rounded-b-2xl">
+                            <div>
+                                {editingPartIndex !== null && (
+                                    <button onClick={() => { handleRemovePart(editingPartIndex); setAddingPart(false); setEditingPartIndex(null); setNewPart({ name: '', partNumber: '', quantity: 1, action: 'Removed', serialNumber: '', location: '' }); }} className="px-4 py-2.5 rounded-lg text-sm font-bold text-red-500 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 transition-colors flex items-center gap-2">
+                                        <Trash2 className="w-4 h-4"/> Delete
+                                    </button>
+                                )}
+                            </div>
+                            <div className="flex gap-3">
+                                <button onClick={() => { setAddingPart(false); setEditingPartIndex(null); setNewPart({ name: '', partNumber: '', quantity: 1, action: 'Removed', serialNumber: '', location: '' }); }} className="px-5 py-2.5 rounded-lg text-sm font-bold text-zinc-400 hover:bg-zinc-800 transition-colors">
+                                    Cancel
+                                </button>
+                                <button onClick={handleAddPart} disabled={!newPart.name} className="bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2">
+                                    <Save className="w-4 h-4"/> {editingPartIndex !== null ? 'Update Part' : 'Save Part'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Vehicle Intake Modal */}
+            <VehicleIntakeModal 
+                isOpen={showIntakeModal}
+                onClose={() => setShowIntakeModal(false)}
+                jobId={jobId as string}
+                existingIntake={job?.vehicleIntake}
+                vehicleName={vehicleName}
+            />
         </div>
     );
 }

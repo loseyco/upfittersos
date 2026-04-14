@@ -75,7 +75,7 @@ export function ReportViewerPage() {
                 <FileText className="w-16 h-16 text-zinc-800 mb-6" />
                 <h2 className="text-2xl font-black text-white tracking-tight mb-2">Access Denied</h2>
                 <p className="text-zinc-500 max-w-md">{error}</p>
-                <button onClick={() => navigate('/workspace')} className="mt-8 text-purple-400 hover:text-white transition-colors flex items-center gap-2 font-bold">
+                <button onClick={() => navigate('/dashboard')} className="mt-8 text-purple-400 hover:text-white transition-colors flex items-center gap-2 font-bold">
                     <ArrowLeft className="w-4 h-4" /> Return to Hub
                 </button>
             </div>
