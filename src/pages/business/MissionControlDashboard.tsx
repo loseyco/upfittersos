@@ -193,7 +193,7 @@ export function MissionControlDashboard() {
                         <TimeClockApp isWidget={true} />
 
                         {/* Crew Timeline */}
-                        <div className="hidden lg:block">
+                        <div>
                             <StaffDayTimeline tenantId={tenantId || 'GLOBAL'} allStaff={allStaff} />
                         </div>
                     </div>
@@ -225,7 +225,7 @@ export function MissionControlDashboard() {
                                                 View All <ArrowRight className="w-3 h-3" />
                                             </Link>
                                         </div>
-                                        <div className="flex-1 flex gap-6 overflow-x-auto hide-scrollbar pt-2 relative">
+                                        <div className="flex-1 flex flex-col lg:flex-row gap-6 lg:overflow-x-auto hide-scrollbar pt-2 relative">
                                             <div className="absolute top-0 right-0 -translate-y-12 shrink-0">
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-950 px-3 py-1 rounded-full border border-zinc-800">
                                                     Showing {visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA')).length} Live Operations

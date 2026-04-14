@@ -152,7 +152,7 @@ export function StaffDayTimeline({ tenantId, allStaff }: { tenantId: string, all
                     {/* Timeline Data Tracks */}
                     <div className="space-y-3 relative">
                         {/* Background Vertical Guidelines */}
-                        <div className="absolute inset-0 ml-[120px] md:ml-[220px] pointer-events-none" style={{ width: `calc(100% - 220px)` }}>
+                        <div className="hidden md:block absolute inset-0 ml-[120px] md:ml-[220px] pointer-events-none" style={{ width: `calc(100% - 220px)` }}>
                             {hourlyMarkers.map(hour => {
                                 const date = new Date();
                                 date.setHours(hour, 0, 0, 0);
@@ -264,7 +264,7 @@ export function StaffDayTimeline({ tenantId, allStaff }: { tenantId: string, all
                                     </div>
                                     
                                     {/* Timeline Content Track */}
-                                    <div className="flex-1 min-h-[36px] bg-zinc-950/30 rounded-lg relative overflow-hidden group/track cursor-default">
+                                    <div className="hidden md:block flex-1 min-h-[36px] bg-zinc-950/30 rounded-lg relative overflow-hidden group/track cursor-default">
                                         {/* Shifts */}
                                         {staffShifts.map((shift, i) => {
                                             const startMs = new Date(shift.clockIn).getTime();

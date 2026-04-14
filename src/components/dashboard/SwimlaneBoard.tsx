@@ -29,27 +29,31 @@ export function JobSwimlaneRow({
         });
     }, [jobs]);
 
-    if (sortedJobs.length === 0 && !isInitialQueue) return null;
-
     return (
-        <div className="flex flex-col gap-3 h-auto 2xl:h-max w-full 2xl:min-w-[280px] 2xl:w-[320px] 2xl:max-w-[350px] shrink-0 xl:bg-zinc-950/30 xl:rounded-2xl xl:p-3 xl:border xl:border-zinc-800/50 2xl:snap-start">
+        <div className="flex flex-col gap-3 h-auto lg:h-max w-full lg:min-w-[280px] lg:w-[320px] lg:max-w-[350px] shrink-0 xl:bg-zinc-950/30 xl:rounded-2xl xl:p-3 xl:border xl:border-zinc-800/50 lg:snap-start">
             
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 px-4 flex items-center justify-between shadow-sm mb-1 2xl:mb-0 shrink-0">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 px-4 flex items-center justify-between shadow-sm mb-1 lg:mb-0 shrink-0">
                 <div className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2">
                     {title}
                 </div>
                 <span className="text-xl font-bold tracking-tight text-white">{sortedJobs.length}</span>
             </div>
 
-            <div className="flex overflow-x-auto 2xl:flex-col gap-3 2xl:overflow-y-auto pr-1 pb-4 2xl:pb-0 snap-x 2xl:snap-none hide-scrollbar 2xl:max-h-[calc(100vh-300px)]">
+            <div className="flex overflow-x-auto lg:flex-col gap-3 lg:overflow-y-auto pr-1 pb-4 lg:pb-0 snap-x lg:snap-none hide-scrollbar lg:max-h-[calc(100vh-300px)]">
                 
                 {isInitialQueue && (
-                    <Link to="/business/jobs/new" className="snap-start shrink-0 w-[300px] 2xl:w-full bg-accent/10 border border-accent/20 hover:border-accent hover:bg-accent/20 rounded-xl p-4 flex flex-col items-center justify-center transition-all group relative overflow-hidden min-h-[140px] shadow-sm hover:shadow-[0_0_20px_rgba(20,184,166,0.15)]">
+                    <Link to="/business/jobs/new" className="snap-start shrink-0 w-[300px] lg:w-full bg-accent/10 border border-accent/20 hover:border-accent hover:bg-accent/20 rounded-xl p-4 flex flex-col items-center justify-center transition-all group relative overflow-hidden min-h-[140px] shadow-sm hover:shadow-[0_0_20px_rgba(20,184,166,0.15)]">
                         <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-accent transition-all duration-300">
                             <Plus className="w-6 h-6 text-accent group-hover:text-zinc-950 transition-colors" />
                         </div>
                         <span className="font-black text-accent uppercase tracking-widest text-sm text-center">Start New Job</span>
                     </Link>
+                )}
+
+                {sortedJobs.length === 0 && !isInitialQueue && (
+                    <div className="snap-start shrink-0 w-[300px] md:w-[350px] lg:w-full bg-zinc-950/30 border border-dashed border-zinc-800 rounded-xl p-6 flex items-center justify-center min-h-[80px]">
+                        <span className="text-xs text-zinc-600 uppercase tracking-widest font-bold">No jobs here</span>
+                    </div>
                 )}
 
                 {sortedJobs.map((job: any) => {
@@ -96,7 +100,7 @@ export function JobSwimlaneRow({
                         <Link 
                             key={job.id} 
                             to={`/business/jobs/${job.id}`}
-                            className={`snap-start shrink-0 w-[300px] md:w-[350px] 2xl:w-full bg-zinc-950/50 border hover:border-indigo-500/30 rounded-xl p-4 flex flex-col justify-between transition-colors group relative overflow-hidden ${primaryTask?.status === 'Blocked' ? 'hover:bg-red-500/5 border-red-500/20' : 'hover:bg-indigo-500/5 border-zinc-800'}`}
+                            className={`snap-start shrink-0 w-[300px] md:w-[350px] lg:w-full bg-zinc-950/50 border hover:border-indigo-500/30 rounded-xl p-4 flex flex-col justify-between transition-colors group relative overflow-hidden ${primaryTask?.status === 'Blocked' ? 'hover:bg-red-500/5 border-red-500/20' : 'hover:bg-indigo-500/5 border-zinc-800'}`}
                         >
                             <div className={`absolute top-0 right-0 w-24 h-24 rounded-bl-full group-hover:scale-125 transition-transform origin-top-right ${primaryTask?.status === 'Blocked' ? 'bg-red-500/5' : 'bg-indigo-500/5'}`}></div>
                             <div className="flex justify-between items-start mb-3 relative z-10 w-full min-h-[48px]">
