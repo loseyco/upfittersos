@@ -1,58 +1,99 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { api } from '../lib/api';
 import { Clock, Coffee, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { db } from '../lib/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 export function GlobalTimeTracker() {
     const { currentUser, tenantId } = useAuth();
     const [activeLog, setActiveLog] = useState<any>(null);
+    const [activeTaskLog, setActiveTaskLog] = useState<any>(null);
     const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
     const [elapsedTaskTime, setElapsedTaskTime] = useState<string | null>(null);
-    const [activeTaskName, setActiveTaskName] = useState<string | null>(null);
+    const [elapsedBreakTime, setElapsedBreakTime] = useState<string | null>(null);
     
-    const fetchActiveLog = async () => {
+    // Subscribe to primary Time Logs
+    useEffect(() => {
         if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
             setActiveLog(null);
             return;
         }
-        try {
-            const res = await api.get(`/businesses/${tenantId}/time_logs?userId=${currentUser.uid}&status=open`);
-            if (res.data && res.data.length > 0) {
-                setActiveLog(res.data[0]);
+
+        const q = query(
+            collection(db, 'businesses', tenantId, 'time_logs'),
+            where('userId', '==', currentUser.uid),
+            where('status', '==', 'open')
+        );
+
+        const unsubscribe = onSnapshot(q, (snap) => {
+            if (!snap.empty) {
+                // Sort by clockIn ascending to grab the most recent if glitches occur, though there should only be one open log
+                const docs = snap.docs.map(d => ({id: d.id, ...(d.data() as any)}));
+                docs.sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
+                setActiveLog(docs[0]);
             } else {
                 setActiveLog(null);
             }
-        } catch (err) {
-            console.error('Failed to fetch active time log', err);
-            setActiveLog(null);
-        }
-    };
+        });
 
-    useEffect(() => {
-        fetchActiveLog();
-        
-        const handleUpdate = () => fetchActiveLog();
-        window.addEventListener('time_punch_updated', handleUpdate);
-        return () => window.removeEventListener('time_punch_updated', handleUpdate);
+        return () => unsubscribe();
     }, [currentUser, tenantId]);
 
-    // Timer logic
+    // Subscribe to secondary Task Time Logs
     useEffect(() => {
-        if (!activeLog) return;
+        if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
+            setActiveTaskLog(null);
+            return;
+        }
+
+        const q = query(
+            collection(db, 'businesses', tenantId, 'task_time_logs'),
+            where('userId', '==', currentUser.uid),
+            where('status', '==', 'open')
+        );
+
+        const unsubscribe = onSnapshot(q, (snap) => {
+            if (!snap.empty) {
+                const docs = snap.docs.map(d => ({id: d.id, ...(d.data() as any)}));
+                docs.sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
+                setActiveTaskLog(docs[0]);
+            } else {
+                setActiveTaskLog(null);
+            }
+        });
+
+        return () => unsubscribe();
+    }, [currentUser, tenantId]);
+
+
+    // Realtime Tick Logic
+    useEffect(() => {
+        if (!activeLog) {
+            setElapsedBreakTime(null);
+            return;
+        }
         
         const updateTimer = () => {
             const now = new Date().getTime();
             
-            // Shift Time Calculation
+            // Primary Shift Time Calculation
             const start = new Date(activeLog.clockIn).getTime();
             let totalMs = now - start;
+            
+            let currentBreakMs = 0;
+            let isActivelyOnBreak = false;
             
             if (activeLog.breaks && Array.isArray(activeLog.breaks)) {
                 activeLog.breaks.forEach((b: any) => {
                     const bStart = new Date(b.start).getTime();
                     const bEnd = b.end ? new Date(b.end).getTime() : now;
                     totalMs -= (bEnd - bStart);
+                    
+                    if (!b.end) {
+                        currentBreakMs = now - bStart;
+                        isActivelyOnBreak = true;
+                    }
                 });
             }
             
@@ -60,36 +101,46 @@ export function GlobalTimeTracker() {
             const hrs = Math.floor(totalSeconds / 3600);
             const mins = Math.floor((totalSeconds % 3600) / 60);
             const secs = totalSeconds % 60;
-            
-            setElapsedTime(
-                `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-            );
+            setElapsedTime(`${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
-            // Active Task Calculation
-            if (activeLog.notes && activeLog.notes.length > 0) {
-                const lastNote = activeLog.notes[activeLog.notes.length - 1];
-                if (!lastNote.text.startsWith('Finished Task:')) {
-                    const parsedName = lastNote.text.startsWith('Started Task: ') ? lastNote.text.replace('Started Task: ', '') : lastNote.text;
-                    setActiveTaskName(parsedName.split(' - ')[0]); // Keep it short
-                    const taskDiff = Math.max(0, now - new Date(lastNote.time).getTime());
-                    const tHrs = Math.floor(taskDiff / 3600000);
-                    const tMins = Math.floor((taskDiff % 3600000) / 60000);
-                    const tSecs = Math.floor((taskDiff % 60000) / 1000);
-                    setElapsedTaskTime(`${tHrs.toString().padStart(2, '0')}:${tMins.toString().padStart(2, '0')}:${tSecs.toString().padStart(2, '0')}`);
-                } else {
-                    setElapsedTaskTime(null);
-                    setActiveTaskName(null);
+            if (isActivelyOnBreak) {
+                const breakSecs = Math.max(0, Math.floor(currentBreakMs / 1000));
+                const bHrs = Math.floor(breakSecs / 3600);
+                const bMins = Math.floor((breakSecs % 3600) / 60);
+                const bSecs = breakSecs % 60;
+                setElapsedBreakTime(`${bHrs.toString().padStart(2, '0')}:${bMins.toString().padStart(2, '0')}:${bSecs.toString().padStart(2, '0')}`);
+            } else {
+                setElapsedBreakTime(null);
+            }
+
+            // Active Task Clock Calculation
+            if (activeTaskLog && activeTaskLog.clockIn && !activeTaskLog.clockOut) {
+                const taskStart = new Date(activeTaskLog.clockIn).getTime();
+                let taskTotalMs = now - taskStart;
+                
+                // Account for paused states if any generic break blocks were applied globally
+                if (activeTaskLog.breaks && Array.isArray(activeTaskLog.breaks)) {
+                    activeTaskLog.breaks.forEach((b: any) => {
+                        const bStart = new Date(b.start).getTime();
+                        const bEnd = b.end ? new Date(b.end).getTime() : now;
+                        taskTotalMs -= (bEnd - bStart);
+                    });
                 }
+
+                const taskDiff = Math.max(0, taskTotalMs);
+                const tHrs = Math.floor(taskDiff / 3600000);
+                const tMins = Math.floor((taskDiff % 3600000) / 60000);
+                const tSecs = Math.floor((taskDiff % 60000) / 1000);
+                setElapsedTaskTime(`${tHrs.toString().padStart(2, '0')}:${tMins.toString().padStart(2, '0')}:${tSecs.toString().padStart(2, '0')}`);
             } else {
                 setElapsedTaskTime(null);
-                setActiveTaskName(null);
             }
         };
         
-        updateTimer(); // initial
+        updateTimer(); // initial tick
         const interval = setInterval(updateTimer, 1000);
         return () => clearInterval(interval);
-    }, [activeLog]);
+    }, [activeLog, activeTaskLog]);
 
     if (!currentUser || !tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') {
         return null;
@@ -133,14 +184,14 @@ export function GlobalTimeTracker() {
                     {onBreak ? <Coffee className="w-4 h-4 animate-pulse" /> : <Play className="w-4 h-4 animate-pulse" />}
                     <div className="flex items-center gap-2">
                         <span className="hidden leading-none sm:inline mt-0.5">{onBreak ? 'ON BREAK:' : 'ACTIVE SHIFT:'}</span>
-                        <span className="font-mono text-base tracking-widest">{elapsedTime}</span>
+                        <span className="font-mono text-base tracking-widest">{onBreak && elapsedBreakTime ? elapsedBreakTime : elapsedTime}</span>
                     </div>
                 </div>
 
-                {!onBreak && elapsedTaskTime && (
+                {!onBreak && elapsedTaskTime && activeTaskLog && (
                     <div className="hidden md:flex items-center gap-3 shrink-0 pl-6 border-l border-emerald-500/30 text-emerald-400">
-                        <span className="hidden lg:inline uppercase text-[10px] tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 truncate max-w-[200px]">
-                            {activeTaskName}
+                        <span className="hidden lg:inline uppercase text-[10px] tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 truncate max-w-[200px]" title={activeTaskLog.taskName}>
+                            {activeTaskLog.taskName}
                         </span>
                         <span className="font-mono tracking-widest text-emerald-300">{elapsedTaskTime}</span>
                     </div>

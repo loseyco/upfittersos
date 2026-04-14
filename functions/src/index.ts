@@ -960,7 +960,8 @@ export const api = functions.https.onRequest(app);
 
 // Export Scheduled System Functions
 import { generateAutomatedReports } from './reports/engine';
-export { generateAutomatedReports };
+import { aggregateShopVitals } from './metrics/vitalsCron';
+export { generateAutomatedReports, aggregateShopVitals };
 
 // Force reload timestamp
 // trigger changed: 2026-04-07 10:43

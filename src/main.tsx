@@ -23,11 +23,13 @@ import { FeedbackGuideDoc } from './pages/docs/FeedbackGuideDoc';
 import { ChangelogDoc } from './pages/docs/ChangelogDoc';
 import { AuthProvider } from './contexts/AuthContext'
 import { AnalyticsTracker } from './components/AnalyticsTracker'
+import { AppUpdater } from './components/AppUpdater'
 import { Login } from './pages/auth/Login'
 import { Register } from './pages/auth/Register'
 import { ResetPassword } from './pages/auth/ResetPassword'
 import { AuthAction } from './pages/auth/AuthAction'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { GlobalAlertsSystem } from './components/GlobalAlertsSystem'
 import { UserProfile } from './pages/UserProfile'
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard'
 import { FeaturesPlanner } from './pages/admin/features/FeaturesPlanner'
@@ -39,6 +41,7 @@ import { Coworkers } from './pages/business/Coworkers'
 import { FeedbackBoard } from './pages/business/FeedbackBoard'
 import { FeedbackDetail } from './pages/business/FeedbackDetail'
 import { TasksDashboard } from './pages/business/TasksDashboard'
+import { AnalyticsDashboard } from './pages/business/AnalyticsDashboard'
 import { FacilityMapPage } from './pages/business/FacilityMapPage'
 import { FieldMapPage } from './pages/business/FieldMapPage'
 import { OpsMissionControl } from './pages/business/OpsMissionControl'
@@ -69,9 +72,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         }} 
       />
       <BrowserRouter>
+        <AppUpdater />
+        <GlobalAlertsSystem />
         <AnalyticsTracker />
         <Routes>
           {/* Full Screen Utility Routes without MainLayout */}
+          <Route path="/business/tv" element={<ProtectedRoute><MissionControlDashboard isTvMode={true} /></ProtectedRoute>} />
           <Route path="/business/:id/kiosk" element={<ProtectedRoute><TimeclockKiosk /></ProtectedRoute>} />
           <Route path="/business/:tenantId/estimate/:jobId/print" element={<ProtectedRoute><EstimatePrintView /></ProtectedRoute>} />
 
@@ -121,6 +127,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/feedback" element={<ProtectedRoute><FeedbackBoard /></ProtectedRoute>} />
             <Route path="/business/feedback/:id" element={<ProtectedRoute><FeedbackDetail /></ProtectedRoute>} />
             <Route path="/business/tasks" element={<ProtectedRoute><TasksDashboard /></ProtectedRoute>} />
+            <Route path="/business/analytics" element={<ProtectedRoute><AnalyticsDashboard /></ProtectedRoute>} />
             <Route path="/business/messenger" element={<ProtectedRoute><Messenger /></ProtectedRoute>} />
             <Route path="/business/facility" element={<ProtectedRoute><FacilityMapPage /></ProtectedRoute>} />
             <Route path="/business/field-map" element={<ProtectedRoute><FieldMapPage /></ProtectedRoute>} />

@@ -10,7 +10,7 @@ import { db } from '../../lib/firebase';
 import { collection, query, onSnapshot, where } from 'firebase/firestore';
 import { useLocationTracker } from '../../hooks/useLocationTracker';
 
-const LiveDuration = ({ startTime }: { startTime: string }) => {
+const LiveDuration = ({ startTime, showSeconds = false }: { startTime: string, showSeconds?: boolean }) => {
     const [elapsed, setElapsed] = useState('');
 
     useEffect(() => {
@@ -18,12 +18,18 @@ const LiveDuration = ({ startTime }: { startTime: string }) => {
             const diff = Math.max(0, Date.now() - new Date(startTime).getTime());
             const h = Math.floor(diff / 3600000);
             const m = Math.floor((diff % 3600000) / 60000);
-            setElapsed(`${h}h ${m}m`);
+            
+            if (showSeconds) {
+                const s = Math.floor((diff % 60000) / 1000);
+                setElapsed(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+            } else {
+                setElapsed(`${h}h ${m}m`);
+            }
         };
         update();
-        const interval = setInterval(update, 60000);
+        const interval = setInterval(update, showSeconds ? 1000 : 60000);
         return () => clearInterval(interval);
-    }, [startTime]);
+    }, [startTime, showSeconds]);
 
     return <span>{elapsed}</span>;
 };
@@ -35,13 +41,14 @@ const toLocalISOString = (dateStr: string) => {
     return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 16);
 };
 
-export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
+export function TimeClockApp({ isDrawer = false, isWidget = false }: { isDrawer?: boolean, isWidget?: boolean }) {
     const { currentUser, tenantId } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const [activeTab, setActiveTab] = useState<'clock' | 'timesheet' | 'requests'>('clock');
     
     // Clock State
     const [activeLog, setActiveLog] = useState<any>(null);
+    const [activeTaskLog, setActiveTaskLog] = useState<any>(null);
     const [loadingClock, setLoadingClock] = useState(true);
     
     // Payroll State
@@ -137,6 +144,20 @@ export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
             );
         }
 
+        const unsubActiveTasks = onSnapshot(
+            query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('userId', '==', currentUser.uid), where('status', '==', 'open')),
+            (snap) => {
+                if (!snap.empty) {
+                    const docs = snap.docs.map(d => ({id: d.id, ...(d.data() as any)}));
+                    docs.sort((a, b) => new Date(b.clockIn || 0).getTime() - new Date(a.clockIn || 0).getTime());
+                    setActiveTaskLog(docs[0]);
+                } else {
+                    setActiveTaskLog(null);
+                }
+            },
+            (err) => console.error(err)
+        );
+
         let unsubCustomers = () => {};
         let unsubVehicles = () => {};
 
@@ -184,6 +205,7 @@ export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
         return () => {
             unsubLogs();
             unsubRequests();
+            unsubActiveTasks();
             unsubJobs();
             unsubVehicles();
             unsubCustomers();
@@ -566,8 +588,99 @@ export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
         }
     };
 
-    // Determine current state of the active log
     const onBreak = activeLog?.breaks?.length > 0 && !activeLog.breaks[activeLog.breaks.length - 1].end;
+
+    if (isWidget) {
+        // Calculate queued potential for the user
+        const queuedPotential = jobs.flatMap(j => (j.tasks || [])).filter(t => t.assignedTo?.includes(currentUser?.uid) && t.status !== 'Finished').reduce((acc, t) => acc + (Number(t.estimatedHours) || 0), 0);
+
+        return (
+            <div className="w-full flex flex-col md:flex-row items-center justify-between gap-3 p-2 px-4 bg-zinc-900/10 border-b border-zinc-800/80 relative overflow-hidden group/shiftcard">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 pointer-events-none group-hover/shiftcard:opacity-100 opacity-50 transition-opacity"></div>
+                
+                {/* Left Side: Status & Timer */}
+                <div className="flex items-center gap-4 w-full md:w-auto z-10 shrink-0">
+                    <div className="flex flex-col">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-zinc-600 outline-none" />
+                            {activeLog ? "CLOCKED IN" : "STATUS"}
+                        </span>
+                        <span className="text-2xl md:text-3xl font-mono font-black tracking-tight leading-none text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">
+                            {activeLog ? (
+                                <LiveDuration startTime={activeLog.clockIn} showSeconds={true} />
+                            ) : (
+                                <span className="text-zinc-600 opacity-50 drop-shadow-none">00:00:00</span>
+                            )}
+                        </span>
+                    </div>
+
+                    {/* Stats Partition */}
+                    <div className="hidden sm:flex items-center gap-6 border-l border-zinc-800/50 pl-6 h-10 shrink-0">
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none">Pay Period</span>
+                            <div className="text-blue-400 font-bold text-sm tracking-tight">{actuallyClockedInHours.toFixed(1)} <span className="text-[10px] text-zinc-600">hrs</span></div>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none">Active Shift</span>
+                            <div className="text-emerald-400 font-bold text-sm tracking-tight">{activeLog ? ((Date.now() - new Date(activeLog.clockIn).getTime()) / 3600000).toFixed(1) : "0.0"} <span className="text-[10px] text-zinc-600">hrs</span></div>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none">Logged Jobs</span>
+                            <div className="text-[#d946ef] font-bold text-sm tracking-tight">{cycleBookTime.toFixed(1)} <span className="text-[10px] text-zinc-600">hrs</span></div>
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600 leading-none">Queued Task Potential</span>
+                            <div className="text-blue-500 font-bold text-sm tracking-tight">+{queuedPotential.toFixed(1)} <span className="text-[10px] text-blue-500/50">hrs</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Side: Action Buttons */}
+                <div className="flex flex-row items-center w-full md:w-auto gap-2 z-10 shrink-0">
+                    {!activeLog ? (
+                        <button 
+                            onClick={() => handleInitiatePunch('clock_in')}
+                            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 text-white px-4 py-2 rounded-lg font-bold text-xs transition-all hover:scale-105 active:scale-95 shadow-md bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20 whitespace-nowrap"
+                        >
+                            <Play className="w-3.5 h-3.5" /> Clock In
+                        </button>
+                    ) : (
+                        <>
+                            {!onBreak ? (
+                                <>
+                                    <button 
+                                        onClick={() => handleInitiatePunch('start_break', 'unpaid')}
+                                        className="flex-1 md:flex-none flex items-center justify-center h-9 md:h-10 px-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/50 text-amber-500 rounded-lg font-bold text-[10px] md:text-xs transition-all whitespace-nowrap"
+                                    >
+                                        Lunch
+                                    </button>
+                                    <button 
+                                        onClick={() => handleInitiatePunch('start_break', 'paid')}
+                                        className="flex-1 md:flex-none flex items-center justify-center h-9 md:h-10 px-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/50 text-blue-400 rounded-lg font-bold text-[10px] md:text-xs transition-all whitespace-nowrap"
+                                    >
+                                        Break
+                                    </button>
+                                    <button 
+                                        onClick={() => handleInitiatePunch('clock_out')}
+                                        className="flex-1 md:flex-none flex items-center justify-center h-9 md:h-10 px-3 md:px-4 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-white rounded-lg font-bold text-xs transition-all shadow-sm whitespace-nowrap"
+                                    >
+                                        Clock Out
+                                    </button>
+                                </>
+                            ) : (
+                                <button 
+                                    onClick={() => handleInitiatePunch('end_break')}
+                                    className="flex-1 md:flex-none flex items-center justify-center h-9 md:h-10 px-6 bg-emerald-500 hover:bg-emerald-600 border border-emerald-400 text-white rounded-lg font-bold text-xs transition-all shadow-md shadow-emerald-500/20 whitespace-nowrap"
+                                >
+                                    Return from Break
+                                </button>
+                            )}
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className={isDrawer ? "h-full w-full flex flex-col pt-1" : "min-h-screen bg-zinc-950 flex flex-col"}>
@@ -713,8 +826,7 @@ export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
                                                 
                                                 {/* Combined Activity / Task selection block */}
                                                 {(() => {
-                                                    const activeNoteRecord = activeLog.notes && activeLog.notes.length > 0 && !activeLog.notes[activeLog.notes.length - 1].text.startsWith('Finished Task:') ? activeLog.notes[activeLog.notes.length - 1] : null;
-                                                    const activeNoteText = activeNoteRecord?.text || '';
+                                                    const activeNoteText = activeTaskLog ? `${activeTaskLog.taskName}` : '';
                                                     
                                                     return (
                                                         <div className="flex flex-col gap-3 mb-6 bg-emerald-500/10 border border-emerald-500/20 p-4 pt-3 rounded-xl shadow-inner">
@@ -722,9 +834,9 @@ export function TimeClockApp({ isDrawer = false }: { isDrawer?: boolean }) {
                                                                 <div className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
                                                                     <Activity className="w-3 h-3" /> Current Activity Dashboard
                                                                 </div>
-                                                                {activeNoteRecord && (
+                                                                {activeTaskLog && activeTaskLog.clockIn && (
                                                                     <div className="text-emerald-400 font-mono font-bold text-xs bg-emerald-500/20 px-2 py-0.5 rounded shadow-sm border border-emerald-500/20">
-                                                                        <LiveDuration startTime={activeNoteRecord.time} />
+                                                                        <LiveDuration startTime={activeTaskLog.clockIn} />
                                                                     </div>
                                                                 )}
                                                             </div>

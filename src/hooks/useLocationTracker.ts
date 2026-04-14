@@ -25,8 +25,10 @@ export function useLocationTracker(tenantId: string, userId: string, isActive: b
                     accuracy,
                     timestamp: new Date().toISOString()
                 }, { merge: true });
-            } catch (err) {
-                console.error("Failed to sync location to Firestore", err);
+            } catch (err: any) {
+                if (err?.code !== 'permission-denied' && !err?.message?.includes('Missing or insufficient permissions')) {
+                    console.error("Failed to sync location to Firestore", err);
+                }
                 setError('Failed to sync location');
             }
         };

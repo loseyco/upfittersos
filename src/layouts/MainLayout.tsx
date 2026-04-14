@@ -3,7 +3,7 @@ import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X, Che
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
 import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
@@ -224,7 +224,7 @@ export function MainLayout() {
             )}
 
             {/* Global Time Tracker */}
-            <GlobalTimeTracker />
+            {location.pathname !== '/dashboard' && <GlobalTimeTracker />}
             <GlobalRemindersTracker />
 
             {/* Global Announcement Banner */}
@@ -254,58 +254,60 @@ export function MainLayout() {
                 </div>
             )}
 
-            <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
-                <div className="flex items-center gap-2 md:gap-4">
-                    {location.pathname !== '/dashboard' && location.pathname !== '/' && location.pathname !== '/admin' && (
-                        <button 
-                            onClick={() => navigate(-1)}
-                            className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 mr-2 flex items-center gap-1"
-                        >
-                            <ChevronLeft className="w-5 h-5" />
-                            <span className="hidden sm:inline text-xs font-bold mr-1">Back</span>
-                        </button>
-                    )}
-                    <Link to={currentUser ? '/dashboard' : '/'} className="flex items-center gap-2">
-                        {businessIcon && <img src={businessIcon} alt="Logo" className="w-6 h-6 rounded-md object-cover border border-zinc-700 shadow-sm hidden md:block" />}
-                        <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
-                    </Link>
-                </div>
-                <div className="flex items-center gap-2 md:gap-4">                    
-                    {currentUser ? (
-                    <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
-                        <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
-                            <div className="hidden lg:flex flex-col items-end">
-                                <span className="text-sm font-bold text-white leading-none">{profileName}</span>
-                                <span className="text-[10px] text-zinc-500 font-medium">{currentUser.email}</span>
-                            </div>
-                            <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
-                                {currentUser.photoURL ? (
-                                    <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : profileName !== 'Authorized User' ? (
-                                    profileName[0].toUpperCase()
-                                ) : (
-                                    <User className="w-4 h-4" />
-                                )}
-                            </div>
+            {location.pathname !== '/dashboard' && (
+                <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
+                    <div className="flex items-center gap-2 md:gap-4">
+                        {location.pathname !== '/' && location.pathname !== '/admin' && (
+                            <button 
+                                onClick={() => navigate(-1)}
+                                className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 mr-2 flex items-center gap-1"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                                <span className="hidden sm:inline text-xs font-bold mr-1">Back</span>
+                            </button>
+                        )}
+                        <Link to={currentUser ? '/dashboard' : '/'} className="flex items-center gap-2">
+                            {businessIcon && <img src={businessIcon} alt="Logo" className="w-6 h-6 rounded-md object-cover border border-zinc-700 shadow-sm hidden md:block" />}
+                            <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
                         </Link>
-                        <button
-                            onClick={() => logout()}
-                            className="ml-1 p-2 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                            title="Sign Out"
-                        >
-                            <LogOut className="w-4 h-4" />
-                        </button>
                     </div>
-                ) : (
-                    <Link
-                        to="/login"
-                        className="ml-2 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg transition-colors shadow"
-                    >
-                        Sign In
-                    </Link>
-                )}
-                </div>
-            </header>
+                    <div className="flex items-center gap-2 md:gap-4">                    
+                        {currentUser ? (
+                        <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
+                            <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
+                                <div className="hidden lg:flex flex-col items-end">
+                                    <span className="text-sm font-bold text-white leading-none">{profileName}</span>
+                                    <span className="text-[10px] text-zinc-500 font-medium mb-1">{currentUser.email}</span>
+                                </div>
+                                <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
+                                    {currentUser.photoURL ? (
+                                        <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                                    ) : profileName !== 'Authorized User' ? (
+                                        profileName[0].toUpperCase()
+                                    ) : (
+                                        <User className="w-4 h-4" />
+                                    )}
+                                </div>
+                            </Link>
+                            <button
+                                onClick={() => logout()}
+                                className="ml-1 p-2 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title="Sign Out"
+                            >
+                                <LogOut className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ) : (
+                        <Link
+                            to="/login"
+                            className="ml-2 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg transition-colors shadow"
+                        >
+                            Sign In
+                        </Link>
+                    )}
+                    </div>
+                </header>
+            )}
 
             {/* Main Content Area (padding bottom on mobile for tab bar, desktop for footer) */}
             <main className="flex-1 flex flex-col relative overflow-y-auto w-full pb-[72px] md:pb-[32px]">

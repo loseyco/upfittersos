@@ -84,6 +84,17 @@ export function EstimateBuilderV2() {
     const [currentTime, setCurrentTime] = useState(Date.now());
     const [linkingPhotosTaskIdx, setLinkingPhotosTaskIdx] = useState<number | null>(null);
 
+    const [officeAreas, setOfficeAreas] = useState<any[]>([]);
+    const [showParkingModal, setShowParkingModal] = useState<boolean>(false);
+
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        const unsubAreas = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), snap => {
+            setOfficeAreas(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a: any, b: any) => (a.label || '').localeCompare(b.label || '')));
+        });
+        return unsubAreas;
+    }, [tenantId]);
+
     const [highlightedRates, setHighlightedRates] = useState<Record<number, boolean>>({});
     const [showPrintPreview, setShowPrintPreview] = useState(false);
     const handlePromoteToSOP = async (task: any) => {
@@ -1041,6 +1052,38 @@ ${combinedNotes}`;
 
     return (
         <div className="min-h-screen bg-zinc-950 flex flex-col relative pb-32">
+            {showParkingModal && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur z-[300] flex items-center justify-center p-4 transition-all" onClick={() => setShowParkingModal(false)}>
+                    <div className="bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-zinc-800/80 bg-zinc-900/40 flex justify-between items-center">
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2"><MapPin className="w-4 h-4 text-blue-400" /> Map Vehicle</h3>
+                            <button onClick={() => setShowParkingModal(false)} className="text-zinc-500 hover:text-white p-1 bg-zinc-900 rounded-lg hover:bg-zinc-800 transition-colors"><X className="w-3 h-3" /></button>
+                        </div>
+                        <div className="p-4 flex flex-col gap-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                            {officeAreas.length === 0 ? <p className="text-xs font-mono tracking-widest text-zinc-500 text-center py-6 border border-dashed border-zinc-800 rounded-xl">No areas configured</p> : null}
+                            {officeAreas.map((area: any) => (
+                                <button 
+                                    key={area.id}
+                                    onClick={() => {
+                                        setJob({...job, parkedLocation: area.label});
+                                        toast.success("Location updated locally - don't forget to push Save Profile!");
+                                        setShowParkingModal(false);
+                                    }}
+                                    className={`text-left text-sm font-bold p-3.5 rounded-xl border transition-all ${job.parkedLocation === area.label ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-[inset_0_0_12px_rgba(59,130,246,0.1)]' : 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-white'}`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                            {area.type === 'Parking' ? <Car className="w-4 h-4 text-zinc-500" /> : <MapPin className="w-4 h-4 text-zinc-500" />} 
+                                            {area.label}
+                                        </span>
+                                        {job.parkedLocation === area.label && <CheckCircle className="w-4 h-4 text-blue-500" />}
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
             {showPrintPreview && (
                 <PrintPreviewModal 
                     job={job}
@@ -1162,12 +1205,10 @@ ${combinedNotes}`;
                                 {jobId !== 'new' && (
                                     <div 
                                         className={`flex items-center gap-1.5 ml-1 border-l border-zinc-700/50 pl-3 cursor-pointer hover:bg-zinc-800/50 px-2 py-1 rounded transition-colors group ${!job.parkedLocation ? 'opacity-50 hover:opacity-100' : ''}`}
-                                        onClick={() => {
-                                            const loc = window.prompt("Update vehicle parking location (e.g. 'Up front', 'Bay 2'):", job.parkedLocation || '');
-                                            if (loc !== null) {
-                                                setJob({...job, parkedLocation: loc});
-                                                toast.success("Location updated locally - don't forget to click Save Create Job Profile!");
-                                            }
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            setShowParkingModal(true);
                                         }}
                                         title="Click to edit parking location"
                                     >

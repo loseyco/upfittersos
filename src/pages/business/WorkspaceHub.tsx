@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow, Presentation, Clock, Bug, Megaphone, Wrench, Calculator, Star, ChevronUp, ChevronDown, MessageSquare } from 'lucide-react';
+import { Building2, Package, Activity, ArrowRight, ScanLine, ClipboardList, Map as MapIcon, Workflow, Presentation, Clock, Bug, Megaphone, Wrench, Calculator, Star, ChevronUp, ChevronDown, MessageSquare, Monitor, BarChart3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -139,6 +139,10 @@ export function WorkspaceHub() {
         apps.unshift({ name: 'Mission Control', desc: 'Live operations overview to monitor floor activity and bottlenecks.', icon: Activity, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/business/ops', ...getAccessMeta('ops') });
     }
 
+    if (!loading && checkPermission('manage_jobs') && !isHidden('analytics')) {
+        apps.unshift({ name: 'Analytics & Operations', desc: 'Efficiency tracking, workflow transit times, and system analytics.', icon: BarChart3, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'hover:border-purple-500/50', link: '/business/analytics', ...getAccessMeta('analytics') });
+    }
+
     if (!loading && checkPermission('manage_canvases') && !isHidden('canvases')) {
         apps.unshift({ name: 'Workflow Whiteboards', desc: 'Create and manage logic canvases to organize operational procedures.', icon: Workflow, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'hover:border-cyan-500/50', link: '/business/canvases', ...getAccessMeta('canvases') });
     }
@@ -182,6 +186,13 @@ export function WorkspaceHub() {
                     <div className="flex flex-col items-end">
                         <span className="text-sm font-bold text-zinc-400">Identity Bound As</span>
                         <div className="flex items-center gap-2 mt-1">
+                            
+                            {(isSuperAdmin || hasAdminAccess) && (
+                                <Link to="/business/tv" className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 hover:border-zinc-500 transition-colors text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg flex items-center gap-2 shadow-sm">
+                                    <Monitor className="w-3.5 h-3.5" /> TV View
+                                </Link>
+                            )}
+
                             <span className="bg-accent/20 text-accent border border-accent/30 text-xs font-black uppercase tracking-wider px-3 py-1.5 rounded-lg">
                                 {role?.replace('_', ' ') || 'Staff'}
                             </span>

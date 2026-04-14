@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera, Bell, Clock, Plus, Trash2 } from 'lucide-react';
+import { User, Mail, Phone, MapPin, ShieldCheck, LogOut, Check, X, Key, Building, Camera, Bell, Clock, Plus, Trash2, Volume2 } from 'lucide-react';
 import { updateProfile } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import toast from 'react-hot-toast';
@@ -48,6 +48,7 @@ export function UserProfile() {
     const [businessName, setBusinessName] = useState('Loading...');
     const [deviceSetup, setDeviceSetup] = useState<any>(null);
     const [customReminders, setCustomReminders] = useState<CustomReminder[]>([]);
+    const [newReminderRepeat, setNewReminderRepeat] = useState('daily');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const { permissionStatus, requestPermissionAndSaveToken, isSubscribing } = usePushNotifications();
@@ -130,7 +131,7 @@ export function UserProfile() {
                     if (data.bio) setBio(data.bio);
                     if (data.keepScreenAwake !== undefined) setKeepScreenAwake(data.keepScreenAwake);
                     if (data.deviceSetup) setDeviceSetup(data.deviceSetup);
-                    if (data.customReminders) setCustomReminders(data.customReminders);
+
                     
                     if (tenantId && data.companyCamAuth?.[tenantId]?.token) {
                         setCompanyCamToken(data.companyCamAuth[tenantId].token);
@@ -144,6 +145,21 @@ export function UserProfile() {
             }
         };
         fetchUserData();
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (!currentUser) return;
+        const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (docSn) => {
+            if (docSn.exists()) {
+                const data = docSn.data();
+                if (data.customReminders && Array.isArray(data.customReminders)) {
+                    setCustomReminders(data.customReminders as CustomReminder[]);
+                } else {
+                    setCustomReminders([]);
+                }
+            }
+        });
+        return () => unsubscribe();
     }, [currentUser]);
 
     useEffect(() => {
@@ -633,8 +649,17 @@ export function UserProfile() {
                                                             <div className="flex items-center gap-2">
                                                                 <span className="text-sm font-bold text-white">{r.time}</span>
                                                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${r.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'}`}>{r.enabled ? 'ON' : 'OFF'}</span>
+                                                                {(r.days || r.monthDay) && (
+                                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                                                        {r.monthDay ? `Monthly on ${r.monthDay}` : r.days?.includes('0') && r.days?.includes('6') ? 'Weekends' : r.days?.length === 4 ? 'Mon-Thu' : r.days?.length === 5 ? 'Weekdays' : 'Custom Days'}
+                                                                    </span>
+                                                                )}
                                                             </div>
-                                                            <p className="text-xs text-zinc-400 mt-0.5">{r.message}</p>
+                                                            <div className="text-xs text-zinc-400 mt-0.5 flex items-center gap-1.5">
+                                                                {r.message}
+                                                                {r.sound && <span title="Plays Sound"><Bell className="w-3 h-3 text-zinc-500 inline-block ml-1" /></span>}
+                                                                {r.speak && <span title="Speaks Aloud"><Volume2 className="w-3 h-3 text-zinc-500 inline-block" /></span>}
+                                                            </div>
                                                         </div>
                                                         {/* Always show delete actions */}
                                                         <button 
@@ -657,54 +682,122 @@ export function UserProfile() {
                                         )}
                                         {/* Always show add ability */}
                                         <div className="pt-3 border-t border-zinc-800/50 mt-1">
-                                            <div className="flex items-end gap-3">
-                                                <div className="flex-1 w-24 shrink-0">
-                                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Time (24H)</label>
-                                                    <input 
-                                                        type="time" 
-                                                        id="newReminderTime"
-                                                        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
-                                                    />
-                                                </div>
-                                                <div className="flex-[2]">
-                                                    <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Message</label>
-                                                    <input 
-                                                        type="text" 
-                                                        id="newReminderMsg"
-                                                        placeholder="Take a break..."
-                                                        className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
-                                                    />
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={async () => {
-                                                        const timeEl = document.getElementById('newReminderTime') as HTMLInputElement;
-                                                        const msgEl = document.getElementById('newReminderMsg') as HTMLInputElement;
-                                                        if (timeEl.value && msgEl.value) {
-                                                            const newReminder = {
-                                                                id: Math.random().toString(36).substr(2, 9),
-                                                                time: timeEl.value,
-                                                                message: msgEl.value,
-                                                                enabled: true
-                                                            };
-                                                            const newRems = [...customReminders, newReminder];
-                                                            setCustomReminders(newRems);
-                                                            timeEl.value = '';
-                                                            msgEl.value = '';
-                                                            
-                                                            if (currentUser) {
-                                                                await setDoc(doc(db, 'users', currentUser.uid), { customReminders: newRems }, { merge: true });
-                                                                toast.success('Reminder added');
+                                            <div className="flex flex-col gap-3">
+                                                <div className="flex items-end gap-3 w-full">
+                                                    <div className="w-24 shrink-0">
+                                                        <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Time</label>
+                                                        <input 
+                                                            type="time" 
+                                                            id="newReminderTime"
+                                                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
+                                                        />
+                                                    </div>
+                                                    <div className="w-32 shrink-0">
+                                                        <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Repeat</label>
+                                                        <select 
+                                                            value={newReminderRepeat}
+                                                            onChange={(e) => setNewReminderRepeat(e.target.value)}
+                                                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
+                                                        >
+                                                            <option value="daily">Daily</option>
+                                                            <option value="weekdays">Weekdays (M-F)</option>
+                                                            <option value="mon-thu">Mon-Thu</option>
+                                                            <option value="weekends">Weekends</option>
+                                                            <option value="monthly">Monthly (Day)</option>
+                                                        </select>
+                                                    </div>
+                                                    {newReminderRepeat === 'monthly' && (
+                                                        <div className="w-16 shrink-0">
+                                                            <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Day</label>
+                                                            <input 
+                                                                type="number" 
+                                                                id="newReminderMonthDay"
+                                                                min="1" max="31" placeholder="15"
+                                                                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    <div className="flex-[2] min-w-0">
+                                                        <label className="text-[10px] font-bold text-zinc-600 uppercase tracking-wider block mb-1">Message</label>
+                                                        <input 
+                                                            type="text" 
+                                                            id="newReminderMsg"
+                                                            placeholder="Take a break..."
+                                                            className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent" 
+                                                        />
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const timeEl = document.getElementById('newReminderTime') as HTMLInputElement;
+                                                            const msgEl = document.getElementById('newReminderMsg') as HTMLInputElement;
+                                                            const soundEl = document.getElementById('newReminderSound') as HTMLInputElement;
+                                                            const speakEl = document.getElementById('newReminderSpeak') as HTMLInputElement;
+
+                                                            if (timeEl.value && msgEl.value) {
+                                                                let days: string[] | undefined = undefined;
+                                                                let monthDay: number | undefined = undefined;
+                                                                
+                                                                if (newReminderRepeat === 'weekdays') days = ['1', '2', '3', '4', '5'];
+                                                                else if (newReminderRepeat === 'mon-thu') days = ['1', '2', '3', '4'];
+                                                                else if (newReminderRepeat === 'weekends') days = ['0', '6'];
+                                                                else if (newReminderRepeat === 'monthly') {
+                                                                    const dayEl = document.getElementById('newReminderMonthDay') as HTMLInputElement;
+                                                                    if (dayEl && dayEl.value) {
+                                                                        monthDay = parseInt(dayEl.value, 10);
+                                                                    } else {
+                                                                        toast.error("Please enter a day of the month");
+                                                                        return;
+                                                                    }
+                                                                }
+
+                                                                const newReminder: CustomReminder = {
+                                                                    id: Math.random().toString(36).substr(2, 9),
+                                                                    time: timeEl.value,
+                                                                    message: msgEl.value,
+                                                                    enabled: true,
+                                                                    sound: soundEl?.checked || false,
+                                                                    speak: speakEl?.checked || false,
+                                                                    days,
+                                                                    monthDay
+                                                                };
+                                                                const newRems = [...customReminders, newReminder];
+                                                                setCustomReminders(newRems);
+                                                                
+                                                                timeEl.value = '';
+                                                                msgEl.value = '';
+                                                                if (newReminderRepeat === 'monthly') {
+                                                                    const dayEl = document.getElementById('newReminderMonthDay') as HTMLInputElement;
+                                                                    if (dayEl) dayEl.value = '';
+                                                                }
+                                                                setNewReminderRepeat('daily');
+                                                                if (soundEl) soundEl.checked = false;
+                                                                if (speakEl) speakEl.checked = false;
+                                                                
+                                                                if (currentUser) {
+                                                                    await setDoc(doc(db, 'users', currentUser.uid), { customReminders: newRems }, { merge: true });
+                                                                    toast.success('Reminder added');
+                                                                }
+                                                            } else {
+                                                                toast.error("Time and Message are required");
                                                             }
-                                                        } else {
-                                                            toast.error("Time and Message are required");
-                                                        }
-                                                    }}
-                                                    className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold p-2.5 rounded-lg transition-colors mb-[1px]"
-                                                    title="Add Reminder"
-                                                >
-                                                    <Plus className="w-4 h-4" />
-                                                </button>
+                                                        }}
+                                                        className="shrink-0 bg-zinc-800 hover:bg-zinc-700 text-white font-bold p-2.5 rounded-lg transition-colors mb-[1px]"
+                                                        title="Add Reminder"
+                                                    >
+                                                        <Plus className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                                <div className="flex items-center gap-4 px-1">
+                                                    <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                                                        <input type="checkbox" id="newReminderSound" className="rounded border-zinc-700 bg-zinc-900 text-accent focus:ring-accent" />
+                                                        Play Alert Noise
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                                                        <input type="checkbox" id="newReminderSpeak" className="rounded border-zinc-700 bg-zinc-900 text-accent focus:ring-accent" />
+                                                        Speak Aloud
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

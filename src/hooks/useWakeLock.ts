@@ -6,7 +6,7 @@ export const useWakeLock = (shouldLock: boolean) => {
 
   const requestWakeLock = useCallback(async () => {
     try {
-      if ('wakeLock' in navigator) {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
         const lock = await navigator.wakeLock.request('screen');
         setWakeLock(lock);
         setIsLocked(true);
@@ -17,7 +17,9 @@ export const useWakeLock = (shouldLock: boolean) => {
         });
       }
     } catch (err: any) {
-      console.warn(`Wake Lock error: ${err.name}, ${err.message}`);
+      if (err.name !== 'NotAllowedError') {
+        console.warn(`Wake Lock error: ${err.name}, ${err.message}`);
+      }
     }
   }, []);
 
