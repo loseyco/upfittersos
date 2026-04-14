@@ -29,8 +29,8 @@ export function AnalyticsDashboard() {
     
     // Live Data States
     const [bottlenecks, setBottlenecks] = useState<any[]>([]);
-    const [teamEfficiency, setTeamEfficiency] = useState<any[]>(MOCK_TEAM_EFFICIENCY);
-    const [stateTransitions, setStateTransitions] = useState<any[]>(FALLBACK_STATE_TRANSITIONS);
+    const [teamEfficiency] = useState<any[]>(MOCK_TEAM_EFFICIENCY);
+    const [stateTransitions] = useState<any[]>(FALLBACK_STATE_TRANSITIONS);
     
     // KPIs
     const [activeJobsCount, setActiveJobsCount] = useState(0);
@@ -44,7 +44,6 @@ export function AnalyticsDashboard() {
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedJobs = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
-            setJobs(fetchedJobs);
 
             // 1. Calculate bottlenecks by grouping non-completed jobs by status
             const blocks: Record<string, number> = {};

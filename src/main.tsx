@@ -77,7 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <AnalyticsTracker />
         <Routes>
           {/* Full Screen Utility Routes without MainLayout */}
-          <Route path="/business/tv" element={<ProtectedRoute><MissionControlDashboard isTvMode={true} /></ProtectedRoute>} />
+          <Route path="/business/tv" element={<ProtectedRoute><MissionControlDashboard /></ProtectedRoute>} />
           <Route path="/business/:id/kiosk" element={<ProtectedRoute><TimeclockKiosk /></ProtectedRoute>} />
           <Route path="/business/:tenantId/estimate/:jobId/print" element={<ProtectedRoute><EstimatePrintView /></ProtectedRoute>} />
 

@@ -97,20 +97,7 @@ export function MissionControlDashboard() {
         };
     }, [currentUser, tenantId]);
 
-    const activeJobs = useMemo(() => {
-        const active = allJobs.filter((j: any) => {
-            if (j.archived || j.status === 'Draft') return false;
-            return (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA');
-        });
-        
-        active.sort((a: any, b: any) => {
-            const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : 0;
-            const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : 0;
-            return timeB - timeA;
-        });
-        
-        return active.slice(0, 8); // Show top 8
-    }, [allJobs]);
+
 
     const isSuperAdmin = role === 'system_owner' || role === 'super_admin';
     const firstName = currentUser?.displayName ? currentUser.displayName.split(' ')[0] : 'Commander';
