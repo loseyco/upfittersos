@@ -3,8 +3,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { api } from '../../lib/api';
 import { db } from '../../lib/firebase';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
-import { Building2, Clock, CheckCircle2, AlertTriangle, Hammer, ArrowRight, Package, Info, Wrench, CalendarSync, BarChart3, ShieldCheck, Truck, Layers, Map, Megaphone, X, SearchCode } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { Building2, Clock, CheckCircle2, AlertTriangle, Hammer, ArrowRight, Package, Info, Wrench, CalendarSync, BarChart3, ShieldCheck, Truck, Layers, Map, Megaphone, X, SearchCode, MapPin } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
@@ -472,7 +472,12 @@ export function MissionControlDashboard() {
                                                         }
                                                         
                                                         let elapsedStr = '0m';
-                                                        if (primaryLog && primaryLog.clockIn) {
+                                                        if (primaryTask?.status === 'Ready for QA' && primaryTask.readyForQaAt) {
+                                                            const elapsedMs = Math.max(0, Date.now() - new Date(primaryTask.readyForQaAt).getTime());
+                                                            const hrs = Math.floor(elapsedMs / (1000 * 60 * 60));
+                                                            const mins = Math.floor((elapsedMs % (1000 * 60 * 60)) / (1000 * 60));
+                                                            elapsedStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+                                                        } else if (primaryLog && primaryLog.clockIn) {
                                                             const elapsedMs = Math.max(0, Date.now() - new Date(primaryLog.clockIn).getTime());
                                                             const hrs = Math.floor(elapsedMs / (1000 * 60 * 60));
                                                             const mins = Math.floor((elapsedMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -488,7 +493,23 @@ export function MissionControlDashboard() {
                                                             <div className={`absolute top-0 right-0 w-24 h-24 rounded-bl-full group-hover:scale-125 transition-transform origin-top-right ${primaryTask?.status === 'Blocked' ? 'bg-red-500/5' : 'bg-indigo-500/5'}`}></div>
                                                             <div className="flex justify-between items-start mb-3 relative z-10">
                                                                 <div className="flex flex-col pr-12">
-                                                                    <span className="font-bold text-zinc-200 line-clamp-1">{job.title || 'Untitled Job'}</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="font-bold text-zinc-200 line-clamp-1">{job.title || 'Untitled Job'}</span>
+                                                                        <div 
+                                                                            onClick={(e) => {
+                                                                                e.preventDefault();
+                                                                                e.stopPropagation();
+                                                                                const loc = window.prompt("Update parking location:", job.parkedLocation || '');
+                                                                                if (loc !== null) {
+                                                                                    updateDoc(doc(db, 'jobs', job.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
+                                                                                }
+                                                                            }}
+                                                                            className={`text-[9px] shrink-0 font-black uppercase tracking-widest px-1.5 py-0.5 rounded cursor-pointer transition-colors flex items-center gap-1 ${job.parkedLocation ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20' : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50 hover:text-zinc-300'}`}
+                                                                        >
+                                                                            <MapPin className="w-2.5 h-2.5" />
+                                                                            {job.parkedLocation ? `Zone: ${job.parkedLocation}` : 'Park Spot'}
+                                                                        </div>
+                                                                    </div>
                                                                     {primaryTask && (
                                                                         <span className="text-xs text-zinc-500 line-clamp-1 mt-0.5">{primaryTask.title}</span>
                                                                     )}
@@ -530,8 +551,15 @@ export function MissionControlDashboard() {
                                                                     </div>
                                                                 ) : primaryTask?.status === 'Ready for QA' ? (
                                                                     <div className="flex items-center gap-2 mb-3 relative z-10 bg-emerald-500/10 rounded-lg p-2 border border-emerald-500/20">
-                                                                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                                                                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Ready for QA</span>
+                                                                        <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                                                                        <div className="flex flex-col flex-1 min-w-0">
+                                                                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Ready for QA</span>
+                                                                            {elapsedStr !== '0m' && (
+                                                                                <span className="text-[9px] text-emerald-500/80 uppercase tracking-widest font-mono truncate">
+                                                                                    Wait Time: {elapsedStr}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 ) : null;
                                                             })()}
@@ -571,6 +599,42 @@ export function MissionControlDashboard() {
 
                             {/* Attention Required / Widget Column */}
                             <div className="space-y-6 flex flex-col">
+                                
+                                {/* My Active Tasks */}
+                                {globalOpenTaskLogs.filter(t => t.userId === currentUser?.uid).length > 0 && (
+                                    <div className="relative bg-zinc-900/50 hover:bg-zinc-800/80 border border-indigo-500/30 hover:border-indigo-500/50 transition-colors rounded-3xl p-6 group">
+                                        <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-bl-full pointer-events-none group-hover:scale-110 transition-transform origin-top-right"></div>
+                                        <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2 mb-4 relative z-10">
+                                            <Wrench className="w-5 h-5 text-indigo-400 animate-pulse" /> Running Tasks
+                                        </h2>
+                                        <div className="space-y-2 relative z-10">
+                                            {globalOpenTaskLogs.filter(t => t.userId === currentUser?.uid).map(taskLog => {
+                                                let elapsedStr = '0m';
+                                                if (taskLog.clockIn) {
+                                                    const elapsedMs = Math.max(0, Date.now() - new Date(taskLog.clockIn).getTime());
+                                                    const hrs = Math.floor(elapsedMs / (1000 * 60 * 60));
+                                                    const mins = Math.floor((elapsedMs % (1000 * 60 * 60)) / (1000 * 60));
+                                                    elapsedStr = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+                                                }
+                                                return (
+                                                    <Link 
+                                                        key={taskLog.id}
+                                                        to={`/business/jobs/${taskLog.jobId}/tasks`}
+                                                        className="block bg-zinc-950 rounded-xl p-3 border border-zinc-800 hover:border-indigo-500/50 transition-colors relative overflow-hidden"
+                                                    >
+                                                        <div className="flex flex-col relative z-10">
+                                                            <div className="flex justify-between items-start gap-2">
+                                                                <span className="text-xs font-bold text-zinc-300 line-clamp-1 flex-1">{taskLog.taskName}</span>
+                                                                <span className="text-[10px] font-mono text-emerald-400 tracking-widest shrink-0">{elapsedStr}</span>
+                                                            </div>
+                                                            <span className="text-[10px] text-zinc-500 mt-1">{taskLog.vehicleName || 'Unknown Vehicle'}</span>
+                                                        </div>
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                                 
                                 {/* Current Shift / Clock Block */}
                                 <div 

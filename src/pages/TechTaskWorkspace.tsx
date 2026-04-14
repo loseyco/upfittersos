@@ -145,7 +145,18 @@ export function TechTaskWorkspace({ manualJobId, manualTaskIndex, onBack, isDraw
                 updatedTasks[taskIndex].qaTimestamp = new Date().toISOString();
             }
 
+            if (newStatus === 'Ready for QA' && updatedTasks[taskIndex].status !== 'Ready for QA') {
+                updatedTasks[taskIndex].readyForQaAt = new Date().toISOString();
+            }
+
             const updatePayload: any = { tasks: updatedTasks };
+
+            if (newStatus === 'Ready for QA' || newStatus === 'Finished') {
+                const loc = window.prompt("Where did you park the vehicle? (e.g., 'Up front', 'Back lot', 'Bay 2')", job.parkedLocation || '');
+                if (loc) {
+                    updatePayload.parkedLocation = loc;
+                }
+            }
 
             if (newStatus === 'Finished') {
                 // If this is the last open task, advance the entire job to Invoicing Phase

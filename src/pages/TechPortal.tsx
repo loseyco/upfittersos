@@ -187,6 +187,10 @@ export function TechPortal({ isDrawer, initialTaskView }: { isDrawer?: boolean, 
                 }
             }
 
+            if (newStatus === 'Ready for QA' && updatedTasks[taskIndex].status !== 'Ready for QA') {
+                updatedTasks[taskIndex].readyForQaAt = new Date().toISOString();
+            }
+
             const payload: any = { tasks: updatedTasks };
 
             // Prompt for parking location if they are finishing up
