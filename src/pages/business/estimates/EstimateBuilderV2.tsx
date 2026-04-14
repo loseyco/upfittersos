@@ -1159,11 +1159,21 @@ ${combinedNotes}`;
                                     </div>
                                 </div>
                                 {jobId !== 'new' && <span className="text-zinc-500 font-mono text-xs">#{jobId?.substring(0, 8).toUpperCase()}</span>}
-                                {jobId !== 'new' && job.parkedLocation && (
-                                    <div className="flex items-center gap-1.5 ml-1 border-l border-zinc-700/50 pl-3">
-                                        <MapPin className="w-3.5 h-3.5 text-blue-400" />
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-blue-400 font-mono">
-                                            Zone: {job.parkedLocation}
+                                {jobId !== 'new' && (
+                                    <div 
+                                        className={`flex items-center gap-1.5 ml-1 border-l border-zinc-700/50 pl-3 cursor-pointer hover:bg-zinc-800/50 px-2 py-1 rounded transition-colors group ${!job.parkedLocation ? 'opacity-50 hover:opacity-100' : ''}`}
+                                        onClick={() => {
+                                            const loc = window.prompt("Update vehicle parking location (e.g. 'Up front', 'Bay 2'):", job.parkedLocation || '');
+                                            if (loc !== null) {
+                                                setJob({...job, parkedLocation: loc});
+                                                toast.success("Location updated locally - don't forget to click Save Create Job Profile!");
+                                            }
+                                        }}
+                                        title="Click to edit parking location"
+                                    >
+                                        <MapPin className={`w-3.5 h-3.5 ${job.parkedLocation ? 'text-blue-400' : 'text-zinc-500'}`} />
+                                        <span className={`text-[10px] font-black uppercase tracking-widest font-mono ${job.parkedLocation ? 'text-blue-400' : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                                            {job.parkedLocation ? `Zone: ${job.parkedLocation}` : 'Add Parking Spot'}
                                         </span>
                                     </div>
                                 )}
