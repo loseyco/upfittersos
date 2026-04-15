@@ -8,7 +8,8 @@ export function JobSwimlaneRow({
     allStaff, 
     globalOpenTaskLogs, 
     setEditingParkingJob,
-    isInitialQueue = false
+    isInitialQueue = false,
+    onNewJob
 }: { 
     title: React.ReactNode;
     jobs: any[]; 
@@ -16,6 +17,7 @@ export function JobSwimlaneRow({
     globalOpenTaskLogs: any[]; 
     setEditingParkingJob: (j: {id: string, current: string}) => void;
     isInitialQueue?: boolean;
+    onNewJob?: () => void;
 }) {
 
     // Sort by due date (earliest first)
@@ -41,13 +43,16 @@ export function JobSwimlaneRow({
 
             <div className="flex overflow-x-auto lg:flex-col gap-3 lg:overflow-y-auto pr-1 pb-4 lg:pb-0 snap-x lg:snap-none hide-scrollbar lg:max-h-[calc(100vh-300px)]">
                 
-                {isInitialQueue && (
-                    <Link to="/business/jobs/new" className="snap-start shrink-0 w-[300px] lg:w-full bg-accent/10 border border-accent/20 hover:border-accent hover:bg-accent/20 rounded-xl p-4 flex flex-col items-center justify-center transition-all group relative overflow-hidden min-h-[140px] shadow-sm hover:shadow-[0_0_20px_rgba(20,184,166,0.15)]">
+                {isInitialQueue && onNewJob && (
+                    <button 
+                        onClick={onNewJob}
+                        className="snap-start shrink-0 w-[300px] lg:w-full bg-accent/10 border border-accent/20 hover:border-accent hover:bg-accent/20 rounded-xl p-4 flex flex-col items-center justify-center transition-all group relative overflow-hidden min-h-[140px] shadow-sm hover:shadow-[0_0_20px_rgba(20,184,166,0.15)] focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+                    >
                         <div className="w-12 h-12 rounded-full bg-accent/20 flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-accent transition-all duration-300">
                             <Plus className="w-6 h-6 text-accent group-hover:text-zinc-950 transition-colors" />
                         </div>
                         <span className="font-black text-accent uppercase tracking-widest text-sm text-center">Start New Job</span>
-                    </Link>
+                    </button>
                 )}
 
                 {sortedJobs.length === 0 && !isInitialQueue && (

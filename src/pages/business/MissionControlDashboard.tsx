@@ -5,33 +5,41 @@ import { api } from '../../lib/api';
 import { db, auth } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { signInWithCustomToken } from 'firebase/auth';
-import { Hammer, ArrowRight, ShieldCheck, Wrench, X, User, LogOut } from 'lucide-react';
+import { Hammer, ArrowRight, ShieldCheck, Wrench, User, LogOut, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
 import { TechPortal } from '../TechPortal';
 import { StaffDayTimeline } from '../../components/dashboard/StaffDayTimeline';
 import { JobSwimlaneRow } from '../../components/dashboard/SwimlaneBoard';
+import { WorkspaceModal } from '../../components/ui/WorkspaceModal';
+import { DashboardCommandHub } from '../../components/dashboard/DashboardCommandHub';
 export function MissionControlDashboard() {
     const { currentUser, tenantId, role } = useAuth();
     const { checkPermission, loading } = usePermissions();
     const [businessName, setBusinessName] = useState('Loading Dashboard...');
     
     // Bottom Sheet Architecture State
-    const [activeDrawerContext, setActiveDrawerContext] = useState<{ id: string, title?: string, type: 'timeclock' | 'job' | 'techportal', payload?: any } | null>(null);
-
-    // Prevent body scroll when drawer is open
-    useEffect(() => {
-        if (activeDrawerContext) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = 'unset';
-        }
-        return () => { document.body.style.overflow = 'unset'; };
-    }, [activeDrawerContext]);
+    const [activeDrawerContext, setActiveDrawerContext] = useState<{ id: string, title?: string, type: 'timeclock' | 'job' | 'techportal' | 'staff', payload?: any } | null>(null);
 
     // Live Data Feed: Task Tracking
     const [globalOpenTaskLogs, setGlobalOpenTaskLogs] = useState<any[]>([]);
+
+    // Global Keyboard Shortcut to open Search (Ctrl+F or Cmd+F)
+    // Global Keyboard Shortcut to open Search (Ctrl+F or Cmd+F) and Close (Esc)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+                e.preventDefault();
+                setActiveDrawerContext({ id: 'GLOBAL_SEARCH', title: 'Global Action Hub', type: 'job' });
+            }
+            if (e.key === 'Escape') {
+                setActiveDrawerContext(null);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
@@ -121,13 +129,16 @@ export function MissionControlDashboard() {
     };
 
     const visibleJobsForBoard = useMemo(() => {
-        if (isSuperAdmin || checkPermission('manage_jobs') || checkPermission('view_jobs')) {
-            return allJobs;
+        let jobsToConsider = allJobs;
+
+        if (!isSuperAdmin && !checkPermission('manage_jobs') && !checkPermission('view_jobs')) {
+            jobsToConsider = allJobs.filter(j => {
+                const hasAssignedTask = (j.tasks || []).some((t: any) => t.assignedUids?.includes(currentUser?.uid));
+                return hasAssignedTask || j.assignedUids?.includes(currentUser?.uid);
+            });
         }
-        return allJobs.filter(j => {
-            const hasAssignedTask = (j.tasks || []).some((t: any) => t.assignedUids?.includes(currentUser?.uid));
-            return hasAssignedTask || j.assignedUids?.includes(currentUser?.uid);
-        });
+
+        return jobsToConsider;
     }, [allJobs, isSuperAdmin, checkPermission, currentUser?.uid]);
 
     return (
@@ -185,7 +196,6 @@ export function MissionControlDashboard() {
                         )}
                     </div>
                 </div>
-
                 {/* 🛡️ Management Hub */}
                 {(isSuperAdmin || checkPermission('manage_jobs')) && (
                     <div className="flex flex-col gap-2 md:gap-3 mb-4">
@@ -214,16 +224,62 @@ export function MissionControlDashboard() {
                         {/* First Major Split: Jobs / Floor vs Personal Tasks */}
                         <div className="flex flex-col gap-6 md:gap-8">
                             
-                            {visibleJobsForBoard.length > 0 && (
+                            {/* 🎯 Universal Command Hub (Omnibar dummy trigger) */}
+                            <div className="w-full relative z-30 flex flex-col md:flex-row gap-3">
+                                {/* Quick Action Buttons */}
+                                <div className="flex flex-row items-center gap-2 overflow-x-auto hide-scrollbar shrink-0 order-first md:order-last pb-2 md:pb-0 border-b border-zinc-800/50 md:border-transparent">
+                                    <button 
+                                        onClick={() => setActiveDrawerContext({ id: 'NEW-EST', title: 'New Estimate Builder', type: 'job' })}
+                                        className="flex items-center gap-2 px-4 py-3 md:py-0 h-full bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20 rounded-xl transition-all font-bold text-xs uppercase tracking-widest whitespace-nowrap"
+                                    >
+                                        <Plus className="w-4 h-4" /> New Estimate
+                                    </button>
+                                    <button 
+                                        onClick={() => setActiveDrawerContext({ id: 'CUST-LOOKUP', title: `Customer: Lookup`, type: 'job' })}
+                                        className="flex items-center gap-2 px-4 py-3 md:py-0 h-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-xl transition-all font-bold text-xs uppercase tracking-widest whitespace-nowrap"
+                                    >
+                                        <UserPlus className="w-4 h-4" /> Walk-In
+                                    </button>
+                                    <button 
+                                        onClick={() => setActiveDrawerContext({ id: 'INTAKE', title: `Vehicle Intake: `, type: 'job' })}
+                                        className="flex items-center gap-2 px-4 py-3 md:py-0 h-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-xl transition-all font-bold text-xs uppercase tracking-widest whitespace-nowrap"
+                                    >
+                                        <Car className="w-4 h-4" /> Intake
+                                    </button>
+                                </div>
+
+                                <button 
+                                    onClick={() => setActiveDrawerContext({ id: 'GLOBAL_SEARCH', title: 'Global Action Hub', type: 'job' })}
+                                    className="flex-1 relative group text-left"
+                                >
+                                    <div className="absolute -inset-0.5 bg-gradient-to-r from-accent/0 via-accent/20 to-accent/0 rounded-2xl blur opacity-0 group-hover:opacity-100 transition duration-500"></div>
+                                    <div className="relative h-full bg-zinc-950/80 backdrop-blur-xl border border-zinc-800/80 hover:border-accent/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center gap-3 shadow-lg transition-all duration-300 justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <Search className="w-5 h-5 text-zinc-500 group-hover:text-accent transition-colors" />
+                                            <span className="text-zinc-500 font-medium text-lg leading-none mt-1 group-hover:text-zinc-300 transition-colors">
+                                                Scan QR, type a name, VIN, or phone...
+                                            </span>
+                                        </div>
+                                        <kbd className="hidden lg:flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] font-mono text-zinc-400">
+                                            <Command className="w-3 h-3" /> F
+                                        </kbd>
+                                    </div>
+                                </button>
+                            </div>
+                            
                                 <div className="relative w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 flex flex-col">
                                     <div className={`flex-1 flex flex-col`}>
-                                        <div className="flex items-center justify-between mb-6">
-                                            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                                        <div className="flex flex-col xl:flex-row xl:items-center justify-between mb-6 gap-4">
+                                            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2 shrink-0">
                                                 <Hammer className="w-5 h-5 text-accent" /> Active Jobs
                                             </h2>
-                                            <Link to="/business/jobs" className="text-xs font-bold text-zinc-400 hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
-                                                View All <ArrowRight className="w-3 h-3" />
-                                            </Link>
+
+                                            
+                                            <div className="flex items-center gap-4 shrink-0 justify-end">
+                                                <Link to="/business/jobs" className="text-xs font-bold text-zinc-400 hover:text-white uppercase tracking-widest flex items-center gap-1 transition-colors">
+                                                    View All <ArrowRight className="w-3 h-3" />
+                                                </Link>
+                                            </div>
                                         </div>
                                         <div className="flex-1 flex flex-col lg:flex-row gap-6 lg:overflow-x-auto hide-scrollbar pt-2 relative">
                                             <div className="absolute top-0 right-0 -translate-y-12 shrink-0">
@@ -255,7 +311,14 @@ export function MissionControlDashboard() {
                                                         <div className="w-2 h-2 rounded-full bg-indigo-500" /> In Progress
                                                     </div>
                                                 }
-                                                jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'In Progress') && !(j.tasks || []).some((t: any) => t.status === 'Blocked'))}
+                                                jobs={visibleJobsForBoard.filter(j => {
+                                                    if (j.archived || j.status === 'Draft') return false;
+                                                    const hasBlockedTask = (j.tasks || []).some((t: any) => t.status === 'Blocked');
+                                                    if (hasBlockedTask) return false;
+                                                    const hasInProgressTask = (j.tasks || []).some((t: any) => t.status === 'In Progress');
+                                                    const hasActiveLog = globalOpenTaskLogs.some(log => log.jobId === j.id);
+                                                    return hasInProgressTask || hasActiveLog;
+                                                })}
                                                 allStaff={allStaff}
                                                 globalOpenTaskLogs={globalOpenTaskLogs}
                                                 setEditingParkingJob={(plog) => {
@@ -285,63 +348,91 @@ export function MissionControlDashboard() {
                                         </div>
                                     </div>
                                 </div>
-                            )}
                         </div>
+
                     </div>
                 )}
             </div>
 
-            {/* OFF-CANVAS BOTTOM SHEET DRAWER (SPA Architecture) */}
-            <div 
-                className={`fixed inset-0 z-50 transition-opacity duration-300 ${activeDrawerContext ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+            {/* OFF-CANVAS UNIVERSAL POPUP TEMPLATE */}
+            <WorkspaceModal
+                isOpen={!!activeDrawerContext}
+                onClose={() => setActiveDrawerContext(null)}
+                title={activeDrawerContext?.title}
+                subtitle={`#${activeDrawerContext?.id}`}
+                headerBadge={
+                    <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded shrink-0">
+                        Active Focus
+                    </span>
+                }
             >
-                {/* Backdrop Filter */}
-                <div 
-                    onClick={() => setActiveDrawerContext(null)}
-                    className="absolute inset-0 bg-zinc-950/80 backdrop-blur-sm"
-                ></div>
-
-                {/* Sliding Drawer Container */}
-                <div 
-                    className={`absolute bottom-0 inset-x-0 w-full max-w-5xl mx-auto h-[80vh] bg-zinc-900 border-t border-x border-zinc-800 rounded-t-3xl shadow-2xl transform transition-transform duration-500 cubic-bezier(0.32, 0.72, 0, 1) flex flex-col ${activeDrawerContext ? 'translate-y-0' : 'translate-y-full'}`}
-                >
-                    {/* Drawer Header Segment */}
-                    <div className="flex justify-between items-center p-6 border-b border-zinc-800/50 bg-zinc-950/30 rounded-t-3xl backdrop-blur-md">
-                        <div>
-                            <div className="flex items-center gap-3 mb-1">
-                                <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded">Active Focus</span>
-                                <span className="text-zinc-500 text-xs font-medium uppercase tracking-widest">#{activeDrawerContext?.id}</span>
-                            </div>
-                            <h2 className="text-2xl font-black text-white">{activeDrawerContext?.title}</h2>
+                {activeDrawerContext?.id === 'GLOBAL_SEARCH' ? (
+                    <div className="p-4 md:p-8 h-full bg-zinc-950/50">
+                        <DashboardCommandHub 
+                            allJobs={allJobs}
+                            allStaff={allStaff}
+                            onAction={(actionType, payload) => {
+                                if (actionType === 'estimate') setActiveDrawerContext({ id: 'NEW-EST', title: 'New Estimate Builder', type: 'job' });
+                                else if (actionType === 'customer') setActiveDrawerContext({ id: 'CUST-LOOKUP', title: `Customer: ${payload || 'Lookup'}`, type: 'job' });
+                                else if (actionType === 'vehicle') setActiveDrawerContext({ id: 'INTAKE', title: `Vehicle Intake: ${payload || ''}`, type: 'job' });
+                                else if (actionType === 'scan') setActiveDrawerContext({ id: payload || 'SCAN', title: `Scanned: ${payload}`, type: 'job' });
+                                else if (actionType === 'open_job' && payload) setActiveDrawerContext({ id: payload, title: `Job Details`, type: 'job' });
+                                else if (actionType === 'open_staff' && payload) setActiveDrawerContext({ id: payload, title: `Staff Profile`, type: 'staff' });
+                            }}
+                        />
+                    </div>
+                ) : activeDrawerContext?.type === 'timeclock' ? (
+                    <TimeClockApp isDrawer={true} />
+                ) : activeDrawerContext?.type === 'techportal' ? (
+                    <TechPortal isDrawer={true} initialTaskView={activeDrawerContext.payload} />
+                ) : activeDrawerContext?.type === 'staff' ? (
+                    <div className="p-6 md:p-8 h-full">
+                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
+                            <User className="w-12 h-12 mb-4 opacity-50 text-emerald-400" />
+                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Staff Management Card</h3>
+                            <p className="max-w-md text-sm">
+                                View real-time status of this team member. Includes current assigned jobs, timeline tracking, and organizational profile.
+                            </p>
+                            <p className="max-w-md text-sm text-emerald-400 font-bold uppercase tracking-widest mt-6 border border-emerald-400/20 bg-emerald-400/10 py-1 px-4 rounded-full">Coming Soon</p>
                         </div>
-                        <button 
-                            onClick={() => setActiveDrawerContext(null)}
-                            className="w-12 h-12 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-full flex items-center justify-center transition-colors"
-                        >
-                            <X className="w-6 h-6" />
-                        </button>
                     </div>
-
-                    {/* Drawer Payload Workspace */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
-                        {activeDrawerContext?.type === 'timeclock' ? (
-                            <TimeClockApp isDrawer={true} />
-                        ) : activeDrawerContext?.type === 'techportal' ? (
-                            <TechPortal isDrawer={true} initialTaskView={activeDrawerContext.payload} />
-                        ) : (
-                            <div className="p-6 md:p-8 h-full">
-                                <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
-                                    <Wrench className="w-12 h-12 mb-4 opacity-50 text-amber-500" />
-                                    <h3 className="text-xl font-bold text-zinc-300 mb-2">Dedicated Workspace Loaded</h3>
-                                    <p className="max-w-md text-sm">
-                                        This isolated layer overrides the dashboard context. Timeclock punches, payload interactions, photos, and parts requisitions loaded here automatically scope directly to <strong className="text-zinc-300">#{activeDrawerContext?.id}</strong>. 
-                                    </p>
-                                </div>
-                            </div>
-                        )}
+                ) : activeDrawerContext?.id === 'NEW-EST' ? (
+                    <div className="p-6 md:p-8 h-full">
+                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
+                            <Plus className="w-12 h-12 mb-4 opacity-50 text-accent" />
+                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Estimate Builder</h3>
+                            <p className="max-w-md text-sm text-accent font-bold uppercase tracking-widest mt-2 border border-accent/20 bg-accent/10 py-1 px-4 rounded-full">Coming Soon</p>
+                        </div>
                     </div>
-                </div>
-            </div>
+                ) : activeDrawerContext?.id === 'CUST-LOOKUP' ? (
+                    <div className="p-6 md:p-8 h-full">
+                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
+                            <UserPlus className="w-12 h-12 mb-4 opacity-50 text-emerald-500" />
+                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Customer CRM & History</h3>
+                            <p className="max-w-md text-sm text-emerald-500 font-bold uppercase tracking-widest mt-2 border border-emerald-500/20 bg-emerald-500/10 py-1 px-4 rounded-full">Coming Soon</p>
+                        </div>
+                    </div>
+                ) : activeDrawerContext?.id === 'INTAKE' ? (
+                    <div className="p-6 md:p-8 h-full">
+                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
+                            <Car className="w-12 h-12 mb-4 opacity-50 text-blue-500" />
+                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Fast Vehicle Intake</h3>
+                            <p className="max-w-md text-sm text-blue-500 font-bold uppercase tracking-widest mt-2 border border-blue-500/20 bg-blue-500/10 py-1 px-4 rounded-full">Coming Soon</p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="p-6 md:p-8 h-full">
+                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
+                            <Wrench className="w-12 h-12 mb-4 opacity-50 text-amber-500" />
+                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Dedicated Workspace Loaded</h3>
+                            <p className="max-w-md text-sm">
+                                This isolated layer overrides the dashboard context. Timeclock punches, payload interactions, photos, and parts requisitions loaded here automatically scope directly to <strong className="text-zinc-300">#{activeDrawerContext?.id}</strong>. 
+                            </p>
+                            <p className="max-w-md text-sm text-amber-500 font-bold uppercase tracking-widest mt-6 border border-amber-500/20 bg-amber-500/10 py-1 px-4 rounded-full">Coming Soon</p>
+                        </div>
+                    </div>
+                )}
+            </WorkspaceModal>
             
         </div>
     );
