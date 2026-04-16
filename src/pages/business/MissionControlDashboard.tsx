@@ -57,7 +57,7 @@ export function MissionControlDashboard() {
                 toast.success("Clocked out of task", { id: 'clock_toggle' });
             } else {
                 // Prevent check for Break
-                if (globalClockState?.status === 'on_break') {
+                if (globalClockState?.isOnBreak) {
                     toast.error("You cannot start a task while on break. Please return from break in the time clock.", { id: 'clock_toggle', duration: 4000 });
                     return;
                 }
@@ -211,11 +211,14 @@ export function MissionControlDashboard() {
         const authQ = query(
             collection(db, 'businesses', tenantId, 'time_logs'),
             where('userId', '==', currentUser.uid),
-            where('status', 'in', ['clocked_in', 'on_break'])
+            where('status', '==', 'open')
         );
         const unsubGlobalClock = onSnapshot(authQ, (snap) => {
             if (!snap.empty) {
-                setGlobalClockState({ id: snap.docs[0].id, ...snap.docs[0].data() as any });
+                const data = snap.docs[0].data();
+                const breaks = data.breaks || [];
+                const isOnBreak = breaks.length > 0 && breaks[breaks.length - 1].end === null;
+                setGlobalClockState({ id: snap.docs[0].id, ...data, isOnBreak });
             } else {
                 setGlobalClockState(null);
             }
