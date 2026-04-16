@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Clock, CheckCircle2, AlertTriangle, ShieldCheck, Play, Square, MessageSquare, Briefcase } from 'lucide-react';
+import { Clock, CheckCircle2, AlertTriangle, ShieldCheck, Play, Square, MessageSquare, Briefcase, Filter, ChevronRight, ChevronLeft } from 'lucide-react';
 
 const timeAgo = (dateStr: string) => {
     const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' });
@@ -20,13 +20,16 @@ const timeAgo = (dateStr: string) => {
 export function LiveOperationsFeed({ onEventClick }: { onEventClick?: (event: any) => void }) {
     const { tenantId } = useAuth();
     const [events, setEvents] = useState<any[]>([]);
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+    const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
     useEffect(() => {
         if (!tenantId) return;
         const q = query(
             collection(db, 'businesses', tenantId, 'business_events'),
             orderBy('timestamp', 'desc'),
-            limit(50)
+            limit(100)
         );
         const unsub = onSnapshot(q, (snap) => {
             setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -46,19 +49,88 @@ export function LiveOperationsFeed({ onEventClick }: { onEventClick?: (event: an
         }
     };
 
-    return (
-        <div className="w-80 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0">
-            <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between shadow-sm z-10 sticky top-0 shrink-0">
-                <h2 className="font-black text-xs uppercase tracking-widest text-zinc-300 flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
-                    Live Operations
-                </h2>
+    const toggleFilter = (f: string) => {
+        setActiveFilters(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
+    };
+
+    const filteredEvents = events.filter(e => {
+        if (activeFilters.length === 0) return true;
+        if (activeFilters.includes('Time & Tasks') && ['TASK_START', 'TASK_STOP'].includes(e.action)) return true;
+        if (activeFilters.includes('Blockers & Notes') && ['BLOCKER_ADDED', 'BLOCKER_RESOLVED', 'NOTE_ADDED'].includes(e.action)) return true;
+        if (activeFilters.includes('Status') && ['STATUS_CHANGE'].includes(e.action)) return true;
+        return false;
+    });
+
+    if (isCollapsed) {
+        return (
+            <div className="w-12 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 items-center py-4 relative transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)]">
+                <button 
+                    onClick={() => setIsCollapsed(false)}
+                    className="absolute top-1/2 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
+                >
+                    <ChevronLeft className="w-4 h-4" />
+                </button>
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)] mb-6 mt-1" title="Live"></div>
+                <div className="flex-1 overflow-y-auto no-scrollbar w-full flex flex-col items-center gap-4">
+                    {filteredEvents.slice(0, 15).map((e) => (
+                        <div key={e.id} className="relative group cursor-pointer" onClick={() => { setIsCollapsed(false); if (onEventClick) onEventClick(e); }}>
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-full p-2 group-hover:border-zinc-600 transition-colors">
+                                {getIcon(e.action)}
+                            </div>
+                            <div className="absolute right-full mr-3 top-1/2 -translate-y-1/2 bg-zinc-800 border border-zinc-700 text-white text-[10px] whitespace-nowrap px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
+                                {e.details}
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                {events.length === 0 && (
-                    <div className="text-center text-zinc-600 text-xs mt-10 font-bold uppercase tracking-widest">Waiting for activity...</div>
+        );
+    }
+
+    return (
+        <div className="w-80 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 relative transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.3)]">
+            <button 
+                onClick={() => setIsCollapsed(true)}
+                className="absolute top-1/2 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
+            >
+                <ChevronRight className="w-4 h-4" />
+            </button>
+
+            <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex flex-col shadow-sm z-10 sticky top-0 shrink-0">
+                <div className="flex items-center justify-between w-full">
+                    <h2 className="font-black text-xs uppercase tracking-widest text-zinc-300 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
+                        Live Operations
+                    </h2>
+                    <button 
+                        onClick={() => setFilterMenuOpen(!filterMenuOpen)}
+                        className={`text-zinc-400 hover:text-white p-1 rounded transition-colors ${activeFilters.length > 0 ? 'text-accent bg-accent/10' : ''}`}
+                        title="Filter Events"
+                    >
+                        <Filter className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+                
+                {filterMenuOpen && (
+                    <div className="flex flex-wrap gap-1 mt-3">
+                        {['Time & Tasks', 'Blockers & Notes', 'Status'].map(f => (
+                            <button 
+                                key={f}
+                                onClick={() => toggleFilter(f)}
+                                className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-full border transition-colors ${activeFilters.includes(f) ? 'border-accent bg-accent/10 text-accent' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600 hover:text-zinc-300'}`}
+                            >
+                                {f}
+                            </button>
+                        ))}
+                    </div>
                 )}
-                {events.map((event) => (
+            </div>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+                {filteredEvents.length === 0 && (
+                    <div className="text-center text-zinc-600 text-xs mt-10 font-bold uppercase tracking-widest">No activity found...</div>
+                )}
+                {filteredEvents.map((event) => (
                     <div key={event.id} 
                          onClick={() => onEventClick && onEventClick(event)}
                          className={`relative pl-7 before:absolute before:left-[11px] before:top-8 before:bottom-[-24px] before:w-[2px] before:bg-zinc-800/50 last:before:hidden group ${onEventClick && event.jobId ? 'cursor-pointer' : ''}`}>
