@@ -209,16 +209,21 @@ export function MissionControlDashboard() {
 
         // Global Clock State
         const authQ = query(
-            collection(db, 'businesses', tenantId, 'time_logs'),
-            where('userId', '==', currentUser.uid),
-            where('status', '==', 'open')
+            collection(db, 'businesses', tenantId, 'time_logs')
         );
         const unsubGlobalClock = onSnapshot(authQ, (snap) => {
             if (!snap.empty) {
-                const data = snap.docs[0].data();
-                const breaks = data.breaks || [];
-                const isOnBreak = breaks.length > 0 && breaks[breaks.length - 1].end === null;
-                setGlobalClockState({ id: snap.docs[0].id, ...data, isOnBreak });
+                const logs = snap.docs.map(d => ({id: d.id, ...d.data() as any}));
+                const myOpenLogs = logs.filter(l => l.userId === currentUser.uid && l.status === 'open');
+                
+                if (myOpenLogs.length > 0) {
+                    const data = myOpenLogs[0];
+                    const breaks = data.breaks || [];
+                    const isOnBreak = breaks.length > 0 && breaks[breaks.length - 1].end === null;
+                    setGlobalClockState({ ...data, isOnBreak });
+                } else {
+                    setGlobalClockState(null);
+                }
             } else {
                 setGlobalClockState(null);
             }
