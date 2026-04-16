@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../lib/firebase';
 import { doc, onSnapshot, collection, query, where, updateDoc, addDoc } from 'firebase/firestore';
-import { Play, Square, Loader2, ShieldCheck, ChevronRight, ArrowLeft, Clock, User, Wrench, Camera, Plus, Lock, Unlock, Zap } from 'lucide-react';
+import { Play, Square, Loader2, ShieldCheck, ChevronRight, ChevronLeft, ArrowLeft, Clock, User, Wrench, Camera, Plus, Lock, Unlock, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { logBusinessActivity } from '../../lib/activityLogger';
 
@@ -19,6 +19,8 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
     const [noteIsBlocker, setNoteIsBlocker] = useState(false);
     const [notePhotoUrl, setNotePhotoUrl] = useState<string | null>(null);
     const [uploadingNoteMedia, setUploadingNoteMedia] = useState(false);
+    const [noteLightboxIndex, setNoteLightboxIndex] = useState<number | null>(null);
+    const [noteLightboxZoom, setNoteLightboxZoom] = useState<number>(1);
 
     const hasInitiallyFocusedRef = useRef(false);
 
@@ -460,9 +462,16 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
 
                             {/* Note Threads */}
                             <div className="p-6 space-y-4">
-                                {(Array.isArray(activeTask.notes) ? activeTask.notes : []).map((note: any, idx: number) => {
-                                    const author = (allStaff || []).find((s: any) => s.uid === note.authorId);
-                                    return (
+                                {(() => {
+                                    const notesArr = Array.isArray(activeTask.notes) ? activeTask.notes : [];
+                                    const reversedNotes = [...notesArr].reverse();
+                                    const ccPhotos = reversedNotes.filter((n: any) => n.photoUrl);
+                                    
+                                    return reversedNotes.map((note: any, idx: number) => {
+                                        const author = (allStaff || []).find((s: any) => s.uid === note.authorId);
+                                        const photoIndex = note.photoUrl ? ccPhotos.findIndex((n: any) => n.photoUrl === note.photoUrl) : -1;
+                                        
+                                        return (
                                         <div key={idx} className={`p-4 rounded-xl border ${note.isBlocker && !note.isResolved ? 'bg-red-500/10 border-red-500/30' : 'bg-zinc-950 border-zinc-800'}`}>
                                             <div className="flex items-center justify-between mb-2">
                                                 <div className="flex items-center gap-2">
@@ -497,7 +506,15 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                                             </p>
                                             {note.photoUrl && (
                                                 <div className="mt-3 relative rounded-lg overflow-hidden border border-zinc-800 inline-block group/img">
-                                                    <img src={note.photoUrl} alt="Note photo" className="max-w-[200px] h-auto object-cover hover:opacity-90 cursor-pointer" onClick={() => window.open(note.photoUrl, '_blank')}/>
+                                                    <img 
+                                                        src={note.photoUrl} 
+                                                        alt="Note photo" 
+                                                        className="max-w-[200px] h-auto object-cover hover:opacity-90 cursor-pointer" 
+                                                        onClick={() => {
+                                                            setNoteLightboxIndex(photoIndex);
+                                                            setNoteLightboxZoom(1);
+                                                        }}
+                                                    />
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); handleDeleteNotePhoto(note.id); }}
                                                         className="absolute top-1 right-1 bg-black/60 hover:bg-red-500 hover:text-white text-zinc-300 rounded p-1 opacity-0 group-hover/img:opacity-100 transition-all border border-zinc-700 hover:border-red-400 shadow-md backdrop-blur-sm"
@@ -509,7 +526,8 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                                             )}
                                         </div>
                                     );
-                                })}
+                                });
+                                })()}
                                 {(!Array.isArray(activeTask.notes) || activeTask.notes.length === 0) && (
                                     <div className="text-center italic text-sm text-zinc-500 py-4">
                                         No notes for this task yet.
@@ -631,6 +649,82 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                     )}
                 </div>
             </div>
+
+            {/* Note Lightbox */}
+            {noteLightboxIndex !== null && (() => {
+                const notesArr = Array.isArray(activeTask.notes) ? activeTask.notes : [];
+                const reversedNotes = [...notesArr].reverse();
+                const ccPhotos = reversedNotes.filter((n: any) => n.photoUrl);
+                const currentNote = ccPhotos[noteLightboxIndex];
+                
+                if (!currentNote) return null;
+                const author = (allStaff || []).find((s: any) => s.uid === currentNote.authorId);
+
+                return (
+                    <div className="fixed inset-0 z-[200] flex flex-col bg-zinc-950/95 backdrop-blur-md">
+                        {/* Header Controls */}
+                        <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between z-10 bg-gradient-to-b from-black/80 to-transparent">
+                            <div className="flex items-center gap-2 bg-zinc-900/80 p-1.5 rounded-full border border-zinc-700 backdrop-blur">
+                                <button onClick={() => setNoteLightboxZoom(Math.max(0.5, noteLightboxZoom - 0.25))} className="p-2 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800">
+                                    <Square className="w-4 h-4 fill-current"/>
+                                </button>
+                                <span className="text-xs font-mono text-zinc-300 w-12 text-center">{Math.round(noteLightboxZoom * 100)}%</span>
+                                <button onClick={() => setNoteLightboxZoom(Math.min(3, noteLightboxZoom + 0.25))} className="p-2 text-zinc-400 hover:text-white rounded-full hover:bg-zinc-800">
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
+                            
+                            <button onClick={() => setNoteLightboxIndex(null)} className="text-zinc-400 hover:text-white p-2 bg-zinc-900/80 rounded-full border border-zinc-700 backdrop-blur">
+                                <Square className="w-5 h-5 fill-current" />
+                            </button>
+                        </div>
+                        
+                        {/* Previous Button */}
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setNoteLightboxIndex(prev => (prev === null || prev === 0 ? ccPhotos.length - 1 : prev - 1)); setNoteLightboxZoom(1); }} 
+                                className="p-3 bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 rounded-full text-white backdrop-blur transition-transform hover:scale-110 active:scale-95"
+                            >
+                                <ChevronLeft className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        {/* Image Container */}
+                        <div className="flex-1 overflow-auto flex items-center justify-center p-4" onClick={() => setNoteLightboxIndex(null)}>
+                            <img 
+                                src={currentNote.photoUrl} 
+                                alt="Note attachment" 
+                                className="max-w-full max-h-full object-contain shadow-2xl"
+                                style={{ transform: `scale(${noteLightboxZoom})`, transition: 'transform 0.2s ease-out' }}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
+
+                        {/* Next Button */}
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 z-10">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setNoteLightboxIndex(prev => (prev === null || prev === ccPhotos.length - 1 ? 0 : prev + 1)); setNoteLightboxZoom(1); }} 
+                                className="p-3 bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 rounded-full text-white backdrop-blur transition-transform hover:scale-110 active:scale-95"
+                            >
+                                <ChevronRight className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        {/* Footer Details */}
+                        <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col items-center justify-center pointer-events-none bg-gradient-to-t from-black/90 to-transparent">
+                            <span className="font-bold text-white mb-2">{noteLightboxIndex + 1} / {ccPhotos.length}</span>
+                            <div className="flex gap-1.5 mb-4">
+                                {ccPhotos.map((_, i) => (
+                                    <div key={i} className={`h-1.5 rounded-full transition-all ${i === noteLightboxIndex ? 'w-4 bg-white' : 'w-1.5 bg-zinc-600'}`} />
+                                ))}
+                            </div>
+                            <div className="text-zinc-400 text-sm font-bold uppercase tracking-widest text-center">
+                                UPLOADED BY {author?.firstName || 'Tech'} {author?.lastName || ''}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 }
