@@ -622,16 +622,20 @@ export function MissionControlDashboard() {
 
             {/* Right Sidebar - Live Operations Feed */}
             {(isSuperAdmin || checkPermission('manage_jobs') || checkPermission('manage_staff')) && (
-                <LiveOperationsFeed onEventClick={(event) => {
-                    if (event.jobId) {
-                        setActiveDrawerContext({
-                            id: event.jobId,
-                            title: event.jobTitle || 'Job Update',
-                            type: 'job',
-                            payload: event.taskTitle ? { focusTask: event.taskTitle } : undefined
-                        });
-                    }
-                }} />
+                <LiveOperationsFeed 
+                    allJobs={allJobs}
+                    globalVehicles={globalVehicles}
+                    onEventClick={(event) => {
+                        if (event.jobId) {
+                            setActiveDrawerContext({
+                                id: event.jobId,
+                                title: event.jobTitle || 'Job Update',
+                                type: 'job',
+                                payload: event.taskTitle ? { focusTask: event.taskTitle } : undefined
+                            });
+                        }
+                    }} 
+                />
             )}
         </div>
 

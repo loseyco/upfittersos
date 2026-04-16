@@ -636,11 +636,11 @@ export function TimeClockApp({ isDrawer = false, isWidget = false }: { isDrawer?
                     <div className="flex flex-col">
                         <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-0.5 flex items-center gap-1">
                             <Clock className="w-3 h-3 text-zinc-600 outline-none" />
-                            {activeLog ? "CLOCKED IN" : "STATUS"}
+                            {activeLog ? (onBreak ? "ON BREAK" : "CLOCKED IN") : "STATUS"}
                         </span>
-                        <span className="text-2xl md:text-3xl font-mono font-black tracking-tight leading-none text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">
+                        <span className={`text-2xl md:text-3xl font-mono font-black tracking-tight leading-none ${onBreak ? 'text-amber-500 drop-shadow-[0_0_8px_rgba(245,158,11,0.3)]' : 'text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]'}`}>
                             {activeLog ? (
-                                <LiveDuration startTime={activeLog.clockIn} showSeconds={true} />
+                                <LiveDuration startTime={onBreak ? activeLog.breaks[activeLog.breaks.length - 1].start : activeLog.clockIn} showSeconds={true} />
                             ) : (
                                 <span className="text-zinc-600 opacity-50 drop-shadow-none">00:00:00</span>
                             )}

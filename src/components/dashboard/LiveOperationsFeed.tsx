@@ -17,7 +17,7 @@ const timeAgo = (dateStr: string) => {
     return rtf.format(daysDifference, 'day');
 };
 
-export function LiveOperationsFeed({ onEventClick }: { onEventClick?: (event: any) => void }) {
+export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { onEventClick?: (event: any) => void, allJobs?: any[], globalVehicles?: any[] }) {
     const { tenantId } = useAuth();
     const [events, setEvents] = useState<any[]>([]);
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -130,39 +130,45 @@ export function LiveOperationsFeed({ onEventClick }: { onEventClick?: (event: an
                 {filteredEvents.length === 0 && (
                     <div className="text-center text-zinc-600 text-xs mt-10 font-bold uppercase tracking-widest">No activity found...</div>
                 )}
-                {filteredEvents.map((event) => (
-                    <div key={event.id} 
-                         onClick={() => onEventClick && onEventClick(event)}
-                         className={`relative pl-7 before:absolute before:left-[11px] before:top-8 before:bottom-[-24px] before:w-[2px] before:bg-zinc-800/50 last:before:hidden group ${onEventClick && event.jobId ? 'cursor-pointer' : ''}`}>
-                        <div className="absolute left-[-2px] top-1 bg-zinc-950 rounded-full p-1.5 border border-zinc-800 z-10 group-hover:border-zinc-700 transition-colors shadow-md">
-                            {getIcon(event.action)}
-                        </div>
-                        <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 hover:bg-zinc-900/80 transition-colors shadow-sm relative overflow-hidden group-hover:border-zinc-700">
-                            <div className="flex justify-between items-start mb-1 gap-2">
-                                <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/80">
-                                    {(event.userName || 'System').split(' ')[0]}
-                                </span>
-                                <span className="text-[9px] font-bold text-zinc-500 whitespace-nowrap">
-                                    {event.timestamp ? timeAgo(event.timestamp) : ''}
-                                </span>
+                {filteredEvents.map((event) => {
+                    const assocJob = (allJobs || []).find(j => j.id === event.jobId);
+                    const assocVehicle = assocJob ? (globalVehicles || []).find(v => v.id === assocJob.vehicleId) : null;
+                    const assocPhoto = event.photoUrl || assocVehicle?.photos?.[0] || assocVehicle?.photoUrl;
+
+                    return (
+                        <div key={event.id} 
+                             onClick={() => onEventClick && onEventClick(event)}
+                             className={`relative pl-7 before:absolute before:left-[11px] before:top-8 before:bottom-[-24px] before:w-[2px] before:bg-zinc-800/50 last:before:hidden group ${onEventClick && event.jobId ? 'cursor-pointer' : ''}`}>
+                            <div className="absolute left-[-2px] top-1 bg-zinc-950 rounded-full p-1.5 border border-zinc-800 z-10 group-hover:border-zinc-700 transition-colors shadow-md">
+                                {getIcon(event.action)}
                             </div>
-                            <div className="text-xs text-zinc-200 font-medium leading-relaxed drop-shadow-sm">
-                                {event.details}
+                            <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-xl p-3 hover:bg-zinc-900/80 transition-colors shadow-sm relative overflow-hidden group-hover:border-zinc-700">
+                                <div className="flex justify-between items-start mb-1 gap-2">
+                                    <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/80">
+                                        {(event.userName || 'System').split(' ')[0]}
+                                    </span>
+                                    <span className="text-[9px] font-bold text-zinc-500 whitespace-nowrap">
+                                        {event.timestamp ? timeAgo(event.timestamp) : ''}
+                                    </span>
+                                </div>
+                                <div className="text-xs text-zinc-200 font-medium leading-relaxed drop-shadow-sm">
+                                    {event.details}
+                                </div>
+                                {assocPhoto && (
+                                    <div className="mt-2 rounded overflow-hidden border border-zinc-700 max-h-32">
+                                        <img src={assocPhoto} alt="Associated visual" className="w-full h-full object-cover" />
+                                    </div>
+                                )}
+                                {(event.jobTitle || event.taskTitle) && (
+                                    <div className="mt-2 text-[10px] font-medium text-zinc-500 flex flex-col gap-0.5 border-t border-zinc-800/50 pt-2">
+                                        {event.jobTitle && <span className="truncate">Job: {event.jobTitle}</span>}
+                                        {event.taskTitle && <span className="text-zinc-400 truncate font-bold">Task: {event.taskTitle}</span>}
+                                    </div>
+                                )}
                             </div>
-                            {event.photoUrl && (
-                                <div className="mt-2 rounded overflow-hidden border border-zinc-700 max-h-32">
-                                    <img src={event.photoUrl} alt="Note Attachment" className="w-full h-full object-cover" />
-                                </div>
-                            )}
-                            {(event.jobTitle || event.taskTitle) && (
-                                <div className="mt-2 text-[10px] font-medium text-zinc-500 flex flex-col gap-0.5 border-t border-zinc-800/50 pt-2">
-                                    {event.jobTitle && <span className="truncate">Job: {event.jobTitle}</span>}
-                                    {event.taskTitle && <span className="text-zinc-400 truncate font-bold">Task: {event.taskTitle}</span>}
-                                </div>
-                            )}
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );
