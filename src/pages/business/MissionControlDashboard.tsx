@@ -535,9 +535,12 @@ export function MissionControlDashboard() {
                                                 }
                                                 jobs={visibleJobsForBoard.filter(j => {
                                                     if (j.archived || j.status === 'Draft') return false;
-                                                    const hasInProgressTask = (j.tasks || []).some((t: any) => t.status === 'In Progress');
+                                                    const tasks = j.tasks || [];
+                                                    const hasInProgressTask = tasks.some((t: any) => t.status === 'In Progress');
                                                     const hasActiveLog = globalOpenTaskLogs.some(log => log.jobId === j.id);
-                                                    return hasInProgressTask || hasActiveLog;
+                                                    const someFinished = tasks.some((t: any) => ['Ready for QA', 'Ready for Delivery', 'Delivered', 'Finished'].includes(t.status));
+                                                    const someUnfinished = tasks.some((t: any) => !['Ready for QA', 'Ready for Delivery', 'Delivered', 'Finished'].includes(t.status));
+                                                    return hasInProgressTask || hasActiveLog || (someFinished && someUnfinished);
                                                 })}
                                                 allStaff={allStaff}
                                                 onTaskClockToggle={handleKanbanTaskClockToggle}
@@ -558,7 +561,14 @@ export function MissionControlDashboard() {
                                                             <div className="w-2 h-2 rounded-full bg-emerald-500" /> Ready for QA
                                                         </div>
                                                     }
-                                                    jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Ready for QA') && !(j.tasks || []).some((t: any) => t.status === 'Blocked' || t.status === 'In Progress'))}
+                                                    jobs={visibleJobsForBoard.filter(j => {
+                                                        if (j.archived || j.status === 'Draft') return false;
+                                                        const tasks = j.tasks || [];
+                                                        if (tasks.length === 0) return false;
+                                                        const allQAorBetter = tasks.every((t: any) => ['Ready for QA', 'Ready for Delivery', 'Delivered', 'Finished'].includes(t.status));
+                                                        const someQA = tasks.some((t: any) => t.status === 'Ready for QA');
+                                                        return allQAorBetter && someQA;
+                                                    })}
                                                     allStaff={allStaff}
                                                 onTaskClockToggle={handleKanbanTaskClockToggle}
                                                 currentUserId={currentUser?.uid}
@@ -578,7 +588,14 @@ export function MissionControlDashboard() {
                                                             <div className="w-2 h-2 rounded-full bg-cyan-500" /> Ready for Delivery
                                                         </div>
                                                     }
-                                                    jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Ready for Delivery') && !(j.tasks || []).some((t: any) => t.status === 'Blocked' || t.status === 'In Progress' || t.status === 'Ready for QA'))}
+                                                    jobs={visibleJobsForBoard.filter(j => {
+                                                        if (j.archived || j.status === 'Draft') return false;
+                                                        const tasks = j.tasks || [];
+                                                        if (tasks.length === 0) return false;
+                                                        const allDeliveryorBetter = tasks.every((t: any) => ['Ready for Delivery', 'Delivered', 'Finished'].includes(t.status));
+                                                        const someDelivery = tasks.some((t: any) => t.status === 'Ready for Delivery');
+                                                        return allDeliveryorBetter && someDelivery;
+                                                    })}
                                                     allStaff={allStaff}
                                                 onTaskClockToggle={handleKanbanTaskClockToggle}
                                                 currentUserId={currentUser?.uid}
