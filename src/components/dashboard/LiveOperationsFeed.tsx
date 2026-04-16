@@ -102,13 +102,21 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
                         <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]"></div>
                         Live Operations
                     </h2>
-                    <button 
-                        onClick={() => setFilterMenuOpen(!filterMenuOpen)}
-                        className={`text-zinc-400 hover:text-white p-1 rounded transition-colors ${activeFilters.length > 0 ? 'text-accent bg-accent/10' : ''}`}
-                        title="Filter Events"
-                    >
-                        <Filter className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            onClick={() => setFilterMenuOpen(!filterMenuOpen)}
+                            className={`text-zinc-400 hover:text-white p-1 rounded transition-colors ${activeFilters.length > 0 ? 'text-accent bg-accent/10' : ''}`}
+                            title="Filter Events"
+                        >
+                            <Filter className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                            onClick={() => setIsCollapsed(true)} 
+                            className="md:hidden text-zinc-400 hover:text-white p-1 rounded transition-colors bg-zinc-800/50"
+                        >
+                             <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
                 
                 {filterMenuOpen && (
