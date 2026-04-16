@@ -66,9 +66,10 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
             <div className="w-12 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 items-center py-4 relative transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)] overflow-hidden">
                 <button 
                     onClick={() => setIsCollapsed(false)}
-                    className="absolute top-20 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
+                    className="p-1.5 mb-2 hover:bg-zinc-800 rounded-md text-zinc-400 hover:text-white transition-colors"
+                    title="Expand Live Feed"
                 >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="w-5 h-5" />
                 </button>
                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)] mb-6 mt-1" title="Live"></div>
                 <div className="flex-1 overflow-y-auto no-scrollbar w-full flex flex-col items-center gap-4">
@@ -89,13 +90,6 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
 
     return (
         <div className="w-80 absolute right-0 top-0 bottom-0 z-50 md:relative h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)] overflow-hidden">
-            <button 
-                onClick={() => setIsCollapsed(true)}
-                className="absolute top-20 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20 hidden md:flex"
-            >
-                <ChevronRight className="w-4 h-4" />
-            </button>
-
             <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex flex-col shadow-sm z-10 sticky top-0 shrink-0">
                 <div className="flex items-center justify-between w-full">
                     <h2 className="font-black text-xs uppercase tracking-widest text-zinc-300 flex items-center gap-2">
@@ -112,7 +106,8 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
                         </button>
                         <button 
                             onClick={() => setIsCollapsed(true)} 
-                            className="md:hidden text-zinc-400 hover:text-white p-1 rounded transition-colors bg-zinc-800/50"
+                            className="text-zinc-400 hover:text-white p-1 rounded transition-colors bg-zinc-800/50 hover:bg-zinc-800"
+                            title="Collapse Live Feed"
                         >
                              <ChevronRight className="w-4 h-4" />
                         </button>

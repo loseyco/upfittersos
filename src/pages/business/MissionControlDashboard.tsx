@@ -270,7 +270,7 @@ export function MissionControlDashboard() {
     }, [allJobs, isSuperAdmin, checkPermission, currentUser?.uid, globalCustomers, globalVehicles]);
 
     return (
-        <div className="min-h-screen bg-zinc-950 p-0 relative overflow-hidden flex flex-col">
+        <div className="h-screen max-h-screen bg-zinc-950 p-0 relative overflow-hidden flex flex-col">
             {/* Background Glow */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
 
