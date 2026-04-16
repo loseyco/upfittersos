@@ -56,6 +56,17 @@ export function MissionControlDashboard() {
 
                 toast.success("Clocked out of task", { id: 'clock_toggle' });
             } else {
+                // Prevent check for Break
+                if (globalClockState?.status === 'on_break') {
+                    toast.error("You cannot start a task while on break. Please return from break in the time clock.", { id: 'clock_toggle', duration: 4000 });
+                    return;
+                }
+
+                if (!globalClockState) {
+                    toast.error("You must clock in for the day before starting a task.", { id: 'clock_toggle', duration: 4000 });
+                    return;
+                }
+
                 // Clock into task
                 toast.loading("Starting task...", { id: 'clock_toggle' });
                 const { addDoc } = await import('firebase/firestore');
@@ -155,6 +166,11 @@ export function MissionControlDashboard() {
 
     // Active jobs cache
     const [allJobs, setAllJobs] = useState<any[]>([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // Top-Level Clock State
+    const [globalClockState, setGlobalClockState] = useState<any>(null);
+
     const [allStaff, setAllStaff] = useState<any[]>([]);
     const [globalCustomers, setGlobalCustomers] = useState<any[]>([]);
     const [globalVehicles, setGlobalVehicles] = useState<any[]>([]);
@@ -187,14 +203,29 @@ export function MissionControlDashboard() {
             setGlobalCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        const unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (snap) => {
-            setGlobalVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        const unsubVehicles = onSnapshot(collection(db, 'businesses', tenantId, 'vehicles'), (snap) => {
+            setGlobalVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() as any })));
+        });
+
+        // Global Clock State
+        const authQ = query(
+            collection(db, 'businesses', tenantId, 'time_logs'),
+            where('userId', '==', currentUser.uid),
+            where('status', 'in', ['clocked_in', 'on_break'])
+        );
+        const unsubGlobalClock = onSnapshot(authQ, (snap) => {
+            if (!snap.empty) {
+                setGlobalClockState({ id: snap.docs[0].id, ...snap.docs[0].data() as any });
+            } else {
+                setGlobalClockState(null);
+            }
         });
 
         return () => {
             unsubJobs();
             unsubCustomers();
             unsubVehicles();
+            unsubGlobalClock();
         };
     }, [currentUser, tenantId]);
 

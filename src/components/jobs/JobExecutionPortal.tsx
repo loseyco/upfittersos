@@ -166,7 +166,8 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                     taskTitle: activeTask.title,
                     userId: currentUser?.uid || 'Unknown',
                     userName: currentUser?.displayName || 'Tech',
-                    details: noteIsBlocker ? `Reported blocker: "${noteText}"` : `Added note: "${noteText}"`
+                    details: noteIsBlocker ? `Reported blocker: "${noteText}"` : `Added note: "${noteText}"`,
+                    photoUrl: notePhotoUrl || undefined
                 });
 
                 toast.success(noteIsBlocker ? "Blocker reported!" : "Note added");
@@ -370,6 +371,33 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                                 )}
                             </div>
                         </div>
+
+                        {/* Task Time Logs */}
+                        {closedLogsForThisTask.length > 0 && (
+                            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+                                <h2 className="text-sm font-black text-white uppercase tracking-widest mb-4 border-b border-zinc-800 pb-2">Task Time Logs</h2>
+                                <div className="flex flex-col gap-2 overflow-y-auto max-h-40 custom-scrollbar pr-2">
+                                    {closedLogsForThisTask.sort((a,b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime()).map(l => {
+                                        const tech = (allStaff || []).find((s: any) => s.uid === l.userId);
+                                        const durationMs = new Date(l.clockOut).getTime() - new Date(l.clockIn).getTime();
+                                        const hrs = Math.floor(durationMs / 3600000);
+                                        const mins = Math.floor((durationMs % 3600000) / 60000);
+                                        return (
+                                            <div key={l.id} className="flex justify-between items-center text-xs p-2.5 bg-zinc-950 rounded-lg border border-zinc-800/50">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-emerald-400">{tech?.firstName || 'Unknown'}</span>
+                                                    <span className="text-zinc-400 font-medium">started at {new Date(l.clockIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                                    <span className="text-zinc-600 px-1">&rarr;</span>
+                                                    <span className="text-zinc-400 font-medium">{new Date(l.clockOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                                    <span className="text-zinc-600 ml-2">({new Date(l.clockIn).toLocaleDateString()})</span>
+                                                </div>
+                                                <span className="font-mono font-bold text-zinc-300 bg-zinc-800 px-2 py-1 rounded">{hrs}h {mins}m</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Associated Parts Block */}
                         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">

@@ -11,6 +11,7 @@ export interface ActivityPayload {
     userId: string;
     userName?: string;
     details: string;
+    photoUrl?: string;
 }
 
 export const logBusinessActivity = async (tenantId: string, payload: ActivityPayload) => {

@@ -149,6 +149,11 @@ export function LiveOperationsFeed({ onEventClick }: { onEventClick?: (event: an
                             <div className="text-xs text-zinc-200 font-medium leading-relaxed drop-shadow-sm">
                                 {event.details}
                             </div>
+                            {event.photoUrl && (
+                                <div className="mt-2 rounded overflow-hidden border border-zinc-700 max-h-32">
+                                    <img src={event.photoUrl} alt="Note Attachment" className="w-full h-full object-cover" />
+                                </div>
+                            )}
                             {(event.jobTitle || event.taskTitle) && (
                                 <div className="mt-2 text-[10px] font-medium text-zinc-500 flex flex-col gap-0.5 border-t border-zinc-800/50 pt-2">
                                     {event.jobTitle && <span className="truncate">Job: {event.jobTitle}</span>}
