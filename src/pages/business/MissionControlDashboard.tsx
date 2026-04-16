@@ -9,14 +9,17 @@ import { Hammer, ArrowRight, ShieldCheck, User, LogOut, Search, Command, Plus, U
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
+import { MyTasksWidget } from '../../components/dashboard/MyTasksWidget';
 import { TechPortal } from '../TechPortal';
 import { EstimateWizard } from '../../components/jobs/EstimateWizard';
 import { StaffDayTimeline } from '../../components/dashboard/StaffDayTimeline';
 import { JobSwimlaneRow } from '../../components/dashboard/SwimlaneBoard';
+import { LiveOperationsFeed } from '../../components/dashboard/LiveOperationsFeed';
 import { WorkspaceModal } from '../../components/ui/WorkspaceModal';
 import { ParkingModal } from '../../components/ui/ParkingModal';
 import { DashboardCommandHub } from '../../components/dashboard/DashboardCommandHub';
 import { JobIntakeWizard } from '../../components/jobs/JobIntakeWizard';
+import { logBusinessActivity } from '../../lib/activityLogger';
 
 import { QuoteApprovalModal } from '../../components/jobs/QuoteApprovalModal';
 import { IntakeSchedulingModal } from '../../components/jobs/IntakeSchedulingModal';
@@ -40,6 +43,17 @@ export function MissionControlDashboard() {
                     clockOut: now,
                     status: 'closed'
                 });
+
+                logBusinessActivity(tenantId, {
+                    action: 'TASK_STOP',
+                    jobId: job.id,
+                    jobTitle: job.title || 'Unknown Job',
+                    taskTitle: task.title,
+                    userId: currentUser.uid,
+                    userName: currentUser.displayName || 'Tech',
+                    details: 'Stopped working on task.'
+                });
+
                 toast.success("Clocked out of task", { id: 'clock_toggle' });
             } else {
                 // Clock into task
@@ -62,6 +76,16 @@ export function MissionControlDashboard() {
                     clockOut: null,
                     status: 'open',
                     isDiscovery: false
+                });
+
+                logBusinessActivity(tenantId, {
+                    action: 'TASK_START',
+                    jobId: job.id,
+                    jobTitle: job.title || 'Unknown Job',
+                    taskTitle: task.title,
+                    userId: currentUser.uid,
+                    userName: currentUser.displayName || 'Tech',
+                    details: 'Started working on task.'
                 });
 
                 toast.success("Started working on task!", { id: 'clock_toggle' });
@@ -219,9 +243,11 @@ export function MissionControlDashboard() {
             {/* Background Glow */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-            <div className="max-w-[2560px] w-full mx-auto relative z-10 space-y-[2px] flex-1">
-                {/* Compact Edge-to-Edge Welcome Ribbon */}
-                <div className="flex items-center justify-between bg-zinc-900/50 border-b border-zinc-800/80 p-2 px-4 shadow-sm w-full backdrop-blur-sm z-20 relative">
+            <div className="max-w-[2560px] w-full mx-auto relative z-10 flex-1 flex flex-row overflow-hidden">
+                {/* Main Content Area */}
+                <div className="flex-1 flex flex-col h-full overflow-y-auto custom-scrollbar bg-black/20">
+                    {/* Compact Edge-to-Edge Welcome Ribbon */}
+                    <div className="flex items-center justify-between bg-zinc-900/50 border-b border-zinc-800/80 p-2 px-4 shadow-sm w-full backdrop-blur-sm z-20 sticky top-0 shrink-0">
                     <div className="flex items-center gap-3">
                         <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 -ml-1.5 rounded-lg transition-colors cursor-pointer group" title="View HR Profile">
                             <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
@@ -269,10 +295,17 @@ export function MissionControlDashboard() {
                         )}
                     </div>
                 </div>
-                {/* 🛡️ Universal / Management Hub */}
-                <div className="flex flex-col gap-2 md:gap-3 mb-4">
+                <div className="p-4 flex flex-col gap-2 md:gap-3 mb-4 shrink-0">
                     {/* Time Clock App Widget (Visible to Everyone) */}
                     <TimeClockApp isWidget={true} />
+
+                    <MyTasksWidget 
+                        allJobs={allJobs} 
+                        globalOpenTaskLogs={globalOpenTaskLogs} 
+                        currentUserId={currentUser?.uid} 
+                        onTaskClockToggle={handleKanbanTaskClockToggle} 
+                        onJobClick={(job, payload) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: payload || job.status })}
+                    />
 
                     {/* Crew Timeline (Management Only) */}
                     {(isSuperAdmin || checkPermission('manage_jobs') || checkPermission('manage_staff')) && (
@@ -459,7 +492,7 @@ export function MissionControlDashboard() {
                                                 onTaskClockToggle={handleKanbanTaskClockToggle}
                                                 currentUserId={currentUser?.uid}
                                                 globalOpenTaskLogs={globalOpenTaskLogs}
-                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: { status: job.status, focusTask: 'blocked' } })}
                                                 setEditingParkingJob={(plog) => setParkingModalJob(plog)}
                                             />
                                             
@@ -471,8 +504,6 @@ export function MissionControlDashboard() {
                                                 }
                                                 jobs={visibleJobsForBoard.filter(j => {
                                                     if (j.archived || j.status === 'Draft') return false;
-                                                    const hasBlockedTask = (j.tasks || []).some((t: any) => t.status === 'Blocked');
-                                                    if (hasBlockedTask) return false;
                                                     const hasInProgressTask = (j.tasks || []).some((t: any) => t.status === 'In Progress');
                                                     const hasActiveLog = globalOpenTaskLogs.some(log => log.jobId === j.id);
                                                     return hasInProgressTask || hasActiveLog;
@@ -558,14 +589,29 @@ export function MissionControlDashboard() {
                 )}
             </div>
 
-            {/* OFF-CANVAS UNIVERSAL POPUP TEMPLATE */}
-            <WorkspaceModal
-                isOpen={!!activeDrawerContext}
-                onClose={() => setActiveDrawerContext(null)}
-                title={activeDrawerContext?.title}
-                subtitle={`#${activeDrawerContext?.id}`}
-                headerBadge={
-                    <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded shrink-0">
+            {/* Right Sidebar - Live Operations Feed */}
+            {(isSuperAdmin || checkPermission('manage_jobs') || checkPermission('manage_staff')) && (
+                <LiveOperationsFeed onEventClick={(event) => {
+                    if (event.jobId) {
+                        setActiveDrawerContext({
+                            id: event.jobId,
+                            title: event.jobTitle || 'Job Update',
+                            type: 'job',
+                            payload: event.taskTitle ? { focusTask: event.taskTitle } : undefined
+                        });
+                    }
+                }} />
+            )}
+        </div>
+
+        {/* OFF-CANVAS UNIVERSAL POPUP TEMPLATE */}
+        <WorkspaceModal
+            isOpen={!!activeDrawerContext}
+            onClose={() => setActiveDrawerContext(null)}
+            title={activeDrawerContext?.title}
+            subtitle={`#${activeDrawerContext?.id}`}
+            headerBadge={
+                <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded shrink-0">
                         Active Focus
                     </span>
                 }
@@ -631,10 +677,14 @@ export function MissionControlDashboard() {
                     </div>
                 ) : (
                     <div className="h-full w-full bg-zinc-950 overflow-y-auto overflow-x-hidden custom-scrollbar pb-12">
-                        <JobExecutionPortal 
-                            jobId={activeDrawerContext?.id as string} 
-                            allStaff={allStaff}
-                        />
+                        {activeDrawerContext && (
+                            <JobExecutionPortal 
+                                key={`job-portal-${activeDrawerContext.id}-${typeof activeDrawerContext.payload === 'object' && activeDrawerContext.payload?.focusTask ? activeDrawerContext.payload.focusTask : 'default'}`}
+                                jobId={activeDrawerContext.id as string} 
+                                allStaff={allStaff}
+                                focusTask={typeof activeDrawerContext.payload === 'object' ? activeDrawerContext.payload?.focusTask : undefined}
+                            />
+                        )}
                     </div>
                 )}
             </WorkspaceModal>

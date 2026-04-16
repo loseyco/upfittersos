@@ -166,6 +166,9 @@ service cloud.firestore {
       match /deliveries/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /business_events/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
     }
   }
 }

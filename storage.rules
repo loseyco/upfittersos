@@ -39,7 +39,7 @@ service firebase.storage {
     }
 
     // CompanyCam Media Mirror / Direct Job Uploads
-    match /job_media/{tenantId}/{jobId}/{fileName} {
+    match /job_media/{tenantId}/{jobId}/{allPaths=**} {
       allow read: if true; // CompanyCam needs public URLs to ingest them
       allow create, update, delete: if request.auth != null && (
         request.auth.token.tenantId == tenantId || 
