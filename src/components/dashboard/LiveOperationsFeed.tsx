@@ -63,10 +63,10 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
 
     if (isCollapsed) {
         return (
-            <div className="w-12 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 items-center py-4 relative transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)]">
+            <div className="w-12 h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 items-center py-4 relative transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)] overflow-hidden">
                 <button 
                     onClick={() => setIsCollapsed(false)}
-                    className="absolute top-1/2 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
+                    className="absolute top-20 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
                 >
                     <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -88,10 +88,10 @@ export function LiveOperationsFeed({ onEventClick, allJobs, globalVehicles }: { 
     }
 
     return (
-        <div className="w-80 absolute right-0 top-0 bottom-0 z-50 md:relative h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)]">
+        <div className="w-80 absolute right-0 top-0 bottom-0 z-50 md:relative h-full bg-zinc-950 border-l border-zinc-800 flex flex-col shrink-0 transition-all shadow-[-4px_0_15px_rgba(0,0,0,0.5)] overflow-hidden">
             <button 
                 onClick={() => setIsCollapsed(true)}
-                className="absolute top-1/2 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20"
+                className="absolute top-20 -left-3 transform -translate-y-1/2 bg-zinc-800 border border-zinc-700 rounded-full p-1 shadow-lg hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors z-20 hidden md:flex"
             >
                 <ChevronRight className="w-4 h-4" />
             </button>
