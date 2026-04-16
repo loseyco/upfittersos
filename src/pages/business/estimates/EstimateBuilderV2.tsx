@@ -24,9 +24,16 @@ const toDateTimeLocal = (val: any) => {
     return localDate.toISOString().slice(0, 16);
 };
 
-export function EstimateBuilderV2() {
+interface EstimateBuilderProps {
+    jobIdProp?: string;
+    isEmbedded?: boolean;
+    onClose?: () => void;
+}
+
+export function EstimateBuilderV2({ jobIdProp, isEmbedded, onClose }: EstimateBuilderProps = {}) {
     const { tenantId, currentUser } = useAuth();
-    const { jobId } = useParams();
+    const params = useParams();
+    const jobId = jobIdProp || params.jobId;
     const navigate = useNavigate();
 
     const [job, setJob] = useState<any>(null);
@@ -86,6 +93,8 @@ export function EstimateBuilderV2() {
 
     const [officeAreas, setOfficeAreas] = useState<any[]>([]);
     const [showParkingModal, setShowParkingModal] = useState<boolean>(false);
+
+    const isFocusedWizard = isEmbedded && (!job || ['Draft', 'Estimate', 'Pending Intake', 'Pending Approval'].includes(job.status));
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL') return;
@@ -726,9 +735,9 @@ ${combinedNotes}`;
                 toast.success("Change Order Approved & Merged!", { id: 'merge' });
                 setTimeout(() => navigate(`/business/jobs/${job.parentJobId}`), 1500);
             } else {
-                await api.put(`/jobs/${jobId}`, { status: 'Approved', tenantId });
-                setJob((prev: any) => ({ ...prev, status: 'Approved' }));
-                setOriginalJob((prev: any) => ({ ...prev, status: 'Approved' }));
+                await api.put(`/jobs/${jobId}`, { status: 'Pending Intake', tenantId });
+                setJob((prev: any) => ({ ...prev, status: 'Pending Intake' }));
+                setOriginalJob((prev: any) => ({ ...prev, status: 'Pending Intake' }));
                 toast.success("Quote Approved! Converted to Work Order.");
             }
         } catch (e) {
@@ -1051,7 +1060,7 @@ ${combinedNotes}`;
 
 
     return (
-        <div className="min-h-screen bg-zinc-950 flex flex-col relative pb-32">
+        <div className={`min-h-[100dvh] flex flex-col relative pb-32 ${isEmbedded ? 'bg-transparent' : 'bg-zinc-950 min-h-screen'}`}>
             {showParkingModal && (
                 <div className="fixed inset-0 bg-black/80 backdrop-blur z-[300] flex items-center justify-center p-4 transition-all" onClick={() => setShowParkingModal(false)}>
                     <div className="bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -1149,23 +1158,31 @@ ${combinedNotes}`;
             
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-            <div className="sticky top-0 z-20 bg-zinc-950/80 backdrop-blur-xl border-b border-zinc-800/80 shadow-2xl">
+            <div className={`sticky top-0 z-20 backdrop-blur-xl shadow-2xl ${isEmbedded ? 'top-0 z-50 bg-zinc-950 border-b border-zinc-800' : 'bg-zinc-950/80 border-b border-zinc-800/80'}`}>
                 {job.isChangeOrder && (
                     <div className="bg-amber-500/10 border-b border-amber-500/20 text-amber-500 text-xs font-black uppercase tracking-widest text-center py-2 flex items-center justify-center gap-2">
                         <AlertTriangle className="w-4 h-4" /> Change Order for Original Work Order #{job.parentJobRefNum}
                     </div>
                 )}
-                <div className="max-w-7xl mx-auto w-full p-4 md:p-6 flex items-center justify-between">
+                <div className={`max-w-7xl mx-auto w-full p-4 md:p-6 flex items-center justify-between ${isEmbedded ? 'px-6' : ''}`}>
                     <div className="flex items-center gap-4 w-full md:w-auto">
                         <button
-                            onClick={() => {
-                                if (hasChanges && !window.confirm("You have unsaved changes. Discard?")) return;
+                            onClick={async () => {
+                                if (hasChanges) {
+                                    toast.loading("Saving changes before exiting...", { id: 'exit_save' });
+                                    await handleSave(false);
+                                    toast.success("Saved!", { id: 'exit_save' });
+                                }
+                                if (isEmbedded && onClose) {
+                                    onClose();
+                                    return;
+                                }
                                 if (job.isChangeOrder && job.parentJobId) return navigate(`/business/jobs/${job.parentJobId}`);
                                 navigate('/business/jobs');
                             }}
                             className="w-10 h-10 shrink-0 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
                         >
-                            <ArrowLeft className="w-5 h-5" />
+                            {isEmbedded ? <X className="w-5 h-5" /> : <ArrowLeft className="w-5 h-5" />}
                         </button>
                         <div className="flex-1 w-full">
                             <div className="flex items-center gap-3 mb-1">
@@ -1288,10 +1305,10 @@ ${combinedNotes}`;
                 </div>
             </div>
 
-            <div className="max-w-[1600px] mx-auto w-full p-4 md:p-6 grid grid-cols-1 xl:grid-cols-12 gap-8 mt-4 relative z-10 items-start">
+            <div className={`max-w-[1600px] mx-auto w-full p-4 md:p-6 grid grid-cols-1 ${!isFocusedWizard ? 'xl:grid-cols-12' : ''} gap-8 mt-4 relative z-10 items-start`}>
                 
                 {/* --- MAIN WORK COLUMN (LEFT) --- */}
-                <div className="xl:col-span-8 flex flex-col gap-8 min-w-0">
+                <div className={`${!isFocusedWizard ? 'xl:col-span-8' : ''} flex flex-col gap-8 min-w-0`}>
 
                     {jobId !== 'new' && job?.tasks?.length > 0 && !['Draft', 'Estimate'].includes(job.status) && (
                         <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-4 md:p-6 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl relative overflow-hidden">
@@ -1464,15 +1481,15 @@ ${combinedNotes}`;
                                     <AlertTriangle className="w-4 h-4" /> Pending Customer Review
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button onClick={handleReviseEstimate} className="w-full py-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all">
-                                        Revise Estimate (Unlock)
+                                    <button onClick={handleReviseEstimate} className="w-full py-4 rounded-xl bg-red-950/50 hover:bg-red-900/60 border border-red-900 text-red-500 font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all">
+                                        <X className="w-4 h-4" /> Deny & Revise
                                     </button>
                                     <button onClick={handleApprove} className="w-full py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black tracking-widest uppercase text-xs shadow-xl flex justify-center items-center gap-2 transition-all">
-                                        Approve & Convert to WO
+                                        <CheckCircle className="w-4 h-4" /> Approve to WO
                                     </button>
                                 </div>
-                                <button onClick={handleDenyEstimate} className="w-full py-3 rounded-xl bg-red-950/30 hover:bg-red-900/50 text-red-500 hover:text-red-400 border border-red-900/50 font-black tracking-widest uppercase text-xs flex justify-center items-center gap-2 transition-all mt-2">
-                                    <X className="w-4 h-4" /> Customer Denied Estimate (Archive)
+                                <button onClick={handleDenyEstimate} className="w-full text-center text-[10px] text-zinc-500 hover:text-zinc-400 font-bold uppercase tracking-widest transition-colors mt-3">
+                                    Customer permanently denied (Archive)
                                 </button>
                             </div>
                         ) : job.status === 'Approved' ? (
@@ -2703,6 +2720,7 @@ ${combinedNotes}`;
                     </div>
                 </div>
                 {/* --- CONTEXT & METADATA COLUMN (RIGHT) --- */}
+                {!isFocusedWizard && (
                 <div className="xl:col-span-4 flex flex-col gap-8 min-w-0 xl:sticky xl:top-24 pb-32 xl:pb-32">
                     <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 pb-8 shadow-xl flex flex-col shrink-0">
 
@@ -2849,6 +2867,7 @@ ${combinedNotes}`;
                     </div>
 
                 </div>
+                )}
             </div>
 
             {/* Mobile save button at bottom */}

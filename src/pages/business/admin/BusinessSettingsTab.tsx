@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useRef } from 'react';
-import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator, Camera } from 'lucide-react';
+import { Building2, Save, MapPin, Mail, Phone, Globe, RefreshCw, Link2, CheckCircle, Calculator, Camera, Plus, Trash2 } from 'lucide-react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { formatPhone, unformatPhone } from '../../../lib/formatters';
 import { type PermissionKey } from '../../../lib/permissions';
@@ -30,7 +30,8 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
         defaultSopSupplies: 0,
         defaultShipping: 0,
         easyPostApiKey: '',
-        pwaIconUrl: ''
+        pwaIconUrl: '',
+        externalLinks: [] as { title: string, url: string }[]
     });
     
     // Internal files
@@ -62,7 +63,8 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                     defaultSopSupplies: res.data.defaultSopSupplies !== undefined ? Number(res.data.defaultSopSupplies) : 0,
                     defaultShipping: res.data.defaultShipping !== undefined ? Number(res.data.defaultShipping) : 0,
                     easyPostApiKey: res.data.easyPostApiKey || '',
-                    pwaIconUrl: res.data.pwaIconUrl || ''
+                    pwaIconUrl: res.data.pwaIconUrl || '',
+                    externalLinks: res.data.externalLinks || []
                 };
                 setForm(loadedForm);
                 setInitialForm(loadedForm);
@@ -227,6 +229,40 @@ export function BusinessSettingsTab({ tenantId }: { tenantId: string }) {
                             <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1 flex items-center gap-1"><Globe className="w-3 h-3"/> Website</label>
                             <input type="url" placeholder="https://acme.com" value={form.website} onChange={e => setForm({...form, website: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500/50 text-white" />
                         </div>
+                    </div>
+                </section>
+
+                {/* External Sites & Social Media */}
+                <section>
+                    <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2 border-b border-zinc-800 pb-3">
+                        <Link2 className="w-4 h-4 text-blue-400"/> External Sites & Social Media
+                    </h3>
+                    <div className="flex flex-col gap-4">
+                        {form.externalLinks.map((link, idx) => (
+                            <div key={idx} className="flex items-center gap-4">
+                                <input type="text" placeholder="Title (e.g. Facebook)" value={link.title} onChange={e => {
+                                    const newLinks = [...form.externalLinks];
+                                    newLinks[idx].title = e.target.value;
+                                    setForm({...form, externalLinks: newLinks});
+                                }} className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 text-white" />
+                                <input type="url" placeholder="https://..." value={link.url} onChange={e => {
+                                    const newLinks = [...form.externalLinks];
+                                    newLinks[idx].url = e.target.value;
+                                    setForm({...form, externalLinks: newLinks});
+                                }} className="flex-[2] bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500/50 text-white" />
+                                <button type="button" onClick={() => {
+                                    const newLinks = form.externalLinks.filter((_, i) => i !== idx);
+                                    setForm({...form, externalLinks: newLinks});
+                                }} className="w-[50px] h-[46px] shrink-0 bg-zinc-900 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 border border-zinc-800 rounded-xl flex items-center justify-center transition-colors">
+                                    <Trash2 className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ))}
+                        <button type="button" onClick={() => {
+                            setForm({...form, externalLinks: [...form.externalLinks, { title: '', url: '' }]});
+                        }} className="bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold flex items-center justify-center gap-2 transition-colors border-dashed">
+                            <Plus className="w-4 h-4" /> Add External Link
+                        </button>
                     </div>
                 </section>
 

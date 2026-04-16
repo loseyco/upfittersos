@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { User, Truck, Briefcase, ArrowRight, X, Loader2, CheckCircle2, Search } from 'lucide-react';
+import { User, Truck, Briefcase, ArrowRight, X, Loader2, CheckCircle2, Search, Calculator } from 'lucide-react';
+import { EstimateWizard } from './EstimateWizard';
 import { api } from '../../lib/api';
 import { db } from '../../lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -9,12 +10,13 @@ interface JobIntakeWizardProps {
     tenantId: string;
     onClose: () => void;
     onComplete: (jobId: string) => void;
+    isEmbedded?: boolean;
+    initialSearchName?: string;
 }
 
-export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWizardProps) {
+export function JobIntakeWizard({ tenantId, onClose, onComplete, isEmbedded, initialSearchName }: JobIntakeWizardProps) {
     const [step, setStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [creationMode, setCreationMode] = useState<'new' | 'existing'>('existing');
     const [customersList, setCustomersList] = useState<any[]>([]);
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
     const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
@@ -23,11 +25,23 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
     const [vehiclesList, setVehiclesList] = useState<any[]>([]);
     const [selectedVehicleId, setSelectedVehicleId] = useState('');
     const [isLoadingVehicles, setIsLoadingVehicles] = useState(false);
+    
+    // Step 4: Internal Tracking
+    const [createdJobId, setCreatedJobId] = useState('');
+    const [createdContext, setCreatedContext] = useState<any>(null);
+
+    // Pre-fill names based on search term if provided
+    const defaultFirstName = initialSearchName ? initialSearchName.split(' ')[0] : '';
+    const defaultLastName = initialSearchName && initialSearchName.split(' ').length > 1 
+        ? initialSearchName.split(' ').slice(1).join(' ') 
+        : '';
+        
+    const [creationMode, setCreationMode] = useState<'new' | 'existing'>(initialSearchName ? 'new' : 'existing');
 
     // Step 1: Customer
     const [customer, setCustomer] = useState({
-        firstName: '',
-        lastName: '',
+        firstName: defaultFirstName,
+        lastName: defaultLastName,
         email: '',
         phone: '',
         needsQuickBooksSync: true // The manual sync flag
@@ -150,12 +164,31 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
                 vehicleId = vehRes.data?.id || vehRes.data?.vehicleId;
             }
 
+            // Resolve Context for Job Header
+            let resolvedCustomerName = '';
+            if (creationMode === 'new') {
+                resolvedCustomerName = `${customer.firstName} ${customer.lastName}`.trim();
+            } else {
+                const c = customersList.find(c => c.id === finalCustomerId);
+                if (c) resolvedCustomerName = `${c.firstName} ${c.lastName}`.trim();
+            }
+
+            let resolvedVehicleDetails: any = null;
+            if (creationMode === 'new' || vehicleCreationMode === 'new') {
+                resolvedVehicleDetails = { ...vehicle };
+            } else {
+                const v = vehiclesList.find(v => v.id === vehicleId);
+                if (v) resolvedVehicleDetails = { ...v };
+            }
+
             // Phase 3: Create Draft Job
             const jobRes = await api.post('/jobs', {
                 title: job.title,
                 description: job.description,
                 customerId: finalCustomerId,
+                customerName: resolvedCustomerName,
                 vehicleId,
+                vehicleDetails: resolvedVehicleDetails,
                 tenantId,
                 status: 'Estimate',
                 priority: 'Medium',
@@ -165,8 +198,15 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
             });
             const jobId = jobRes.data?.id || jobRes.data?.jobId;
 
-            toast.success("Intake Complete! Job Draft Created.");
-            onComplete(jobId);
+            setCreatedContext({
+                customerName: resolvedCustomerName,
+                vehicleDetails: resolvedVehicleDetails
+            });
+
+            toast.success("Details saved. Moving to Line Items...");
+            setCreatedJobId(jobId);
+            setStep(4);
+            setIsSubmitting(false);
 
         } catch (err) {
             console.error("Failed to process intake:", err);
@@ -176,21 +216,23 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
     };
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-full">
+        <div className={isEmbedded ? "w-full h-full flex flex-col" : "fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"}>
+            <div className={isEmbedded ? "flex-1 flex flex-col" : "bg-zinc-950 border border-zinc-800 rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden flex flex-col max-h-full"}>
                 
                 {/* Header */}
-                <div className="bg-zinc-900 border-b border-zinc-800 p-6 flex justify-between items-center shrink-0">
-                    <div>
-                        <h2 className="text-xl font-black text-white flex items-center gap-2">
-                            Pipeline Intake Wizard
-                        </h2>
-                        <p className="text-zinc-500 text-xs mt-1">Guided onboarding configures CRM, Asset, and Job simultaneously.</p>
+                {!isEmbedded && (
+                    <div className="bg-zinc-900 border-b border-zinc-800 p-6 flex justify-between items-center shrink-0">
+                        <div>
+                            <h2 className="text-xl font-black text-white flex items-center gap-2">
+                                Pipeline Intake Wizard
+                            </h2>
+                            <p className="text-zinc-500 text-xs mt-1">Guided onboarding configures CRM, Asset, and Job simultaneously.</p>
+                        </div>
+                        <button onClick={onClose} className="text-zinc-500 hover:text-white p-2 bg-zinc-800 rounded-full transition-colors">
+                            <X className="w-5 h-5"/>
+                        </button>
                     </div>
-                    <button onClick={onClose} className="text-zinc-500 hover:text-white p-2 bg-zinc-800 rounded-full transition-colors">
-                        <X className="w-5 h-5"/>
-                    </button>
-                </div>
+                )}
 
                 {/* Progress Bar */}
                 <div className="flex px-6 pt-6 pb-2 shrink-0">
@@ -198,12 +240,14 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
                          <div className="flex items-center absolute w-full top-3 -translate-y-1/2 z-0 px-8">
                              <div className={`h-1 flex-1 transition-colors duration-500 ${step >= 2 ? 'bg-accent' : 'bg-zinc-800'}`}></div>
                              <div className={`h-1 flex-1 transition-colors duration-500 ${step >= 3 ? 'bg-accent' : 'bg-zinc-800'}`}></div>
+                             <div className={`h-1 flex-1 transition-colors duration-500 ${step >= 4 ? 'bg-accent' : 'bg-zinc-800'}`}></div>
                          </div>
                          <div className="flex justify-between w-full relative z-10">
                             {[ 
                                 { i: 1, label: 'Customer', icon: User }, 
                                 { i: 2, label: 'Asset', icon: Truck }, 
-                                { i: 3, label: 'Scope', icon: Briefcase }
+                                { i: 3, label: 'Scope', icon: Briefcase },
+                                { i: 4, label: 'Estimate', icon: Calculator }
                             ].map((s) => {
                                 const active = step >= s.i;
                                 const current = step === s.i;
@@ -221,8 +265,9 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
                 </div>
 
                 {/* Form Content */}
-                <div className="p-8 pb-12 flex-1 overflow-y-auto">
-                    {step === 1 && (
+                {step < 4 ? (
+                    <div className="p-8 pb-12 flex-1 overflow-y-auto">
+                        {step === 1 && (
                         <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                             <div>
                                 <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-1">
@@ -429,8 +474,20 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
                         </div>
                     )}
                 </div>
+                ) : (
+                    <div className="flex-1 flex flex-col overflow-hidden bg-zinc-950">
+                        <EstimateWizard 
+                            jobId={createdJobId} 
+                            onClose={onClose} 
+                            onComplete={() => onComplete(createdJobId)}
+                            isEmbedded={true}
+                            initialContext={createdContext}
+                        />
+                    </div>
+                )}
 
                 {/* Footer Controls */}
+                {step < 4 && (
                 <div className="p-6 bg-zinc-900 border-t border-zinc-800 flex justify-between shrink-0">
                     {step > 1 ? (
                         <button type="button" onClick={handleBack} disabled={isSubmitting} className="px-6 py-2.5 rounded-lg font-bold text-sm text-zinc-400 hover:text-white transition-colors bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50">
@@ -448,6 +505,7 @@ export function JobIntakeWizard({ tenantId, onClose, onComplete }: JobIntakeWiza
                         </button>
                     )}
                 </div>
+                )}
             </div>
         </div>
     );

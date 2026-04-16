@@ -27,11 +27,30 @@
 }
 
 @layer utilities {
-  .no-scrollbar::-webkit-scrollbar {
+  .no-scrollbar::-webkit-scrollbar,
+  .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
-  .no-scrollbar {
+  .no-scrollbar, .hide-scrollbar {
     -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;
+  }
+  
+  /* Sleek custom scrollbars for dark mode */
+  .custom-scrollbar::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(24, 24, 27, 0.5); /* zinc-900 with opacity */
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(82, 82, 91, 0.8); /* zinc-600 */
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(113, 113, 122, 1); /* zinc-500 */
   }
 }
 

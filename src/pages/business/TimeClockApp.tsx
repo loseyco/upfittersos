@@ -325,7 +325,7 @@ export function TimeClockApp({ isDrawer = false, isWidget = false }: { isDrawer?
             
             const now = new Date().toISOString();
             
-            const { getDocs, updateDoc, doc, collection, query, where } = await import('firebase/firestore');
+            const { getDocs, updateDoc, doc, collection, query, where, addDoc } = await import('firebase/firestore');
             const qTaskOpen = query(collection(db, 'businesses', tenantId as string, 'task_time_logs'), where('userId', '==', currentUser?.uid || ''), where('status', '==', 'open'));
             const openTasksSnap = await getDocs(qTaskOpen);
 
@@ -354,12 +354,23 @@ export function TimeClockApp({ isDrawer = false, isWidget = false }: { isDrawer?
                 breaks.push({ start: now, end: null, type: breakType });
                 await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { breaks });
                 
-                // Automatically pause active sub-tasks
-                for (const activeTask of openTasksSnap.docs) {
-                    const tData = activeTask.data();
-                    const tBreaks = tData.breaks || [];
-                    tBreaks.push({ start: now, end: null, type: breakType });
-                    await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), { breaks: tBreaks });
+                if (breakType === 'unpaid') {
+                    // Automatically clock out active sub-tasks for break
+                    for (const activeTask of openTasksSnap.docs) {
+                        await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), {
+                            clockOut: now,
+                            status: 'closed',
+                            pausedForBreak: true
+                        });
+                    }
+                } else {
+                    // Just add a break entry to the task to record it, but stay clocked in
+                    for (const activeTask of openTasksSnap.docs) {
+                        const tData = activeTask.data();
+                        const tBreaks = tData.breaks || [];
+                        tBreaks.push({ start: now, end: null, type: breakType });
+                        await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', activeTask.id), { breaks: tBreaks });
+                    }
                 }
             } else if (action === 'end_break' && activeLog) {
                 const breaks = activeLog.breaks || [];
@@ -368,7 +379,29 @@ export function TimeClockApp({ isDrawer = false, isWidget = false }: { isDrawer?
                     await api.put(`/businesses/${tenantId}/time_logs/${activeLog.id}`, { breaks });
                 }
                 
-                // Automatically resume active sub-tasks
+                // Automatically resume paused sub-tasks by creating new time logs
+                const qTaskPaused = query(collection(db, 'businesses', tenantId as string, 'task_time_logs'), where('userId', '==', currentUser?.uid || ''), where('pausedForBreak', '==', true));
+                const pausedTasksSnap = await getDocs(qTaskPaused);
+                for (const pausedTask of pausedTasksSnap.docs) {
+                    const tData = pausedTask.data();
+                    await updateDoc(doc(db, 'businesses', tenantId as string, 'task_time_logs', pausedTask.id), {
+                        pausedForBreak: false
+                    });
+                    await addDoc(collection(db, 'businesses', tenantId as string, 'task_time_logs'), {
+                        userId: tData.userId,
+                        jobId: tData.jobId,
+                        taskIndex: tData.taskIndex,
+                        taskName: tData.taskName,
+                        vehicleName: tData.vehicleName || 'Vehicle',
+                        bookTime: tData.bookTime || 0,
+                        clockIn: now,
+                        clockOut: null,
+                        status: 'open',
+                        isDiscovery: tData.isDiscovery || false
+                    });
+                }
+
+                // Automatically end any ongoing breaks on currently open sub-tasks (from Paid breaks)
                 for (const activeTask of openTasksSnap.docs) {
                     const tData = activeTask.data();
                     const tBreaks = tData.breaks || [];

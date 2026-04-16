@@ -54,12 +54,14 @@ export function PrintPreviewModal({
                         >
                             Customer Copy
                         </button>
-                        <button
-                            onClick={() => setPrintMode('technician')}
-                            className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest rounded-md transition-colors ${printMode === 'technician' ? 'bg-amber-500/20 text-amber-500' : 'text-zinc-500 hover:text-zinc-300'}`}
-                        >
-                            Tech Worksheet
-                        </button>
+                        {!isEstimate && (
+                            <button
+                                onClick={() => setPrintMode('technician')}
+                                className={`px-4 py-1.5 text-xs font-black uppercase tracking-widest rounded-md transition-colors ${printMode === 'technician' ? 'bg-amber-500/20 text-amber-500' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            >
+                                Tech Worksheet
+                            </button>
+                        )}
                     </div>
                 </div>
                 <button 

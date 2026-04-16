@@ -285,7 +285,8 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
       name, legalName, email, phone, website,
       addressStreet, addressCity, addressState, addressZip, customRoles,
       payPeriodConfig, enabledFeatures, enabledFeaturesDev,
-      defaultSopSupplies, defaultShipping, departments, easyPostApiKey
+      defaultSopSupplies, defaultShipping, departments, easyPostApiKey,
+      externalLinks
     } = req.body;
 
     const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -306,6 +307,7 @@ app.put('/businesses/:id', authenticate, async (req: Request, res: Response): Pr
     if (defaultShipping !== undefined) updates.defaultShipping = defaultShipping;
     if (departments !== undefined) updates.departments = departments;
     if (easyPostApiKey !== undefined) updates.easyPostApiKey = easyPostApiKey;
+    if (externalLinks !== undefined) updates.externalLinks = externalLinks;
     
     if (customRoles !== undefined) {
       const sanitizedRoles = { ...customRoles };

@@ -48,12 +48,25 @@ export function DashboardCommandHub({ onAction, onFilterChange, allJobs = [], al
 
     // Filter computation
     const searchResults = useMemo(() => {
-        if (!inputValue.trim()) return [];
+        const results: { type: 'job' | 'staff' | 'customer' | 'vehicle', id: string, title: string, subtitle: string, isRecent?: boolean }[] = [];
+        const jobsToSearch = globalJobs.length > 0 ? globalJobs : allJobs;
+
+        if (!inputValue.trim()) {
+            jobsToSearch.slice(0, 3).forEach(j => {
+                results.push({
+                    type: 'job', id: j.id, title: j.title || `Job #${j.id.slice(0, 6)}`, subtitle: `${j.customer?.firstName || 'Unknown'} - Recent Job`, isRecent: true
+                });
+            });
+            globalCustomers.slice(0, 2).forEach(c => {
+                results.push({
+                    type: 'customer', id: c.id, title: `${c.firstName} ${c.lastName}`.trim() || 'Unknown Name', subtitle: 'Recent Customer', isRecent: true
+                });
+            });
+            return results;
+        }
+
         const term = inputValue.toLowerCase().trim();
         const keywords = term.split(/\s+/).filter(Boolean);
-        const results: { type: 'job' | 'staff' | 'customer' | 'vehicle', id: string, title: string, subtitle: string }[] = [];
-        // Determine which jobs to search (use globalJobs if available, fallback to allJobs)
-        const jobsToSearch = globalJobs.length > 0 ? globalJobs : allJobs;
 
         jobsToSearch.forEach(j => {
             const searchableStr = [
@@ -264,39 +277,54 @@ export function DashboardCommandHub({ onAction, onFilterChange, allJobs = [], al
             {/* No secondary buttons here anymore, as they are next to the search bar */}
 
             {/* Dropdown Menu (Flow Layout) */}
-            {inputValue.trim().length > 0 && (
-                <div className="mt-4 w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
-                    {searchResults.length > 0 ? (
-                        <div className="py-2 flex-1 overflow-y-auto max-h-[60vh] hide-scrollbar">
-                            {searchResults.map((res, idx) => (
-                                <button
-                                    key={`${res.type}-${res.id}`}
-                                    onClick={() => {
-                                        if (res.type === 'job') onAction('open_job', res.id);
-                                        if (res.type === 'staff') onAction('open_staff', res.id);
-                                        if (res.type === 'customer') onAction('customer', res.id);
-                                        if (res.type === 'vehicle') onAction('vehicle', res.id);
-                                        setInputValue('');
-                                    }}
-                                    className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors ${idx === selectedIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}`}
-                                >
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${res.type === 'job' ? 'bg-indigo-500/10 text-indigo-500' : res.type === 'staff' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                                        {res.type === 'job' ? <Briefcase className="w-4 h-4" /> : res.type === 'staff' ? <User className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-                                    </div>
-                                    <div className="flex flex-col min-w-0">
-                                        <span className="text-white font-bold text-sm truncate">{res.title}</span>
-                                        <span className="text-zinc-500 text-xs truncate">{res.subtitle}</span>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="p-8 text-center text-zinc-500 text-sm">
-                            No matching jobs, staff, or customers found. Hit Enter to run advanced search.
-                        </div>
-                    )}
-                </div>
-            )}
+            <div className="mt-4 w-full bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+                {!inputValue.trim() && searchResults.length > 0 && (
+                    <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50">
+                        <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">Recent Activity</span>
+                    </div>
+                )}
+
+                {searchResults.length > 0 ? (
+                    <div className="py-2 flex-1 overflow-y-auto max-h-[60vh] hide-scrollbar">
+                        {searchResults.map((res, idx) => (
+                            <button
+                                key={`${res.type}-${res.id}`}
+                                onClick={() => {
+                                    if (res.type === 'job') onAction('open_job', res.id);
+                                    if (res.type === 'staff') onAction('open_staff', res.id);
+                                    if (res.type === 'customer') onAction('customer', res.id);
+                                    if (res.type === 'vehicle') onAction('vehicle', res.id);
+                                    setInputValue('');
+                                }}
+                                className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors ${idx === selectedIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}`}
+                            >
+                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${res.type === 'job' ? 'bg-indigo-500/10 text-indigo-500' : res.type === 'staff' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-blue-500/10 text-blue-500'}`}>
+                                    {res.type === 'job' ? <Briefcase className="w-4 h-4" /> : res.type === 'staff' ? <User className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-white font-bold text-sm truncate">{res.title}</span>
+                                    <span className="text-zinc-500 text-xs truncate">{res.subtitle}</span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                ) : inputValue.trim().length > 0 ? (
+                    <div className="p-8 flex flex-col items-center text-center">
+                        <Search className="w-8 h-8 text-zinc-600 mb-3" />
+                        <p className="text-zinc-400 font-medium mb-4">No exact matches found for "{inputValue}"</p>
+                        <button
+                            onClick={() => onAction('customer', inputValue)}
+                            className="bg-accent/10 border border-accent/20 hover:bg-accent hover:text-black py-2 px-6 rounded-lg text-accent text-sm font-bold tracking-widest uppercase transition-all"
+                        >
+                            Start New Intake for "{inputValue}"
+                        </button>
+                    </div>
+                ) : (
+                    <div className="p-8 text-center text-zinc-500 text-sm">
+                        Loading workspace data...
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

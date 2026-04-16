@@ -294,20 +294,74 @@ export function StaffDayTimeline({ tenantId, allStaff }: { tenantId: string, all
                                         })}
 
                                         {/* Tasks */}
-                                        {staffTasks.map((task, i) => {
-                                             const startMs = new Date(task.clockIn).getTime();
-                                             const endMs = task.clockOut ? new Date(task.clockOut).getTime() : Date.now();
-                                             const startPct = getTimelinePercent(startMs);
-                                             const widthPct = getTimelinePercent(endMs) - startPct;
-                                             
-                                             if (startPct >= 100 || (startPct + widthPct) <= 0) return null;
- 
-                                             return (
-                                                 <div key={`task-${i}`} className="absolute top-2 bottom-2 bg-indigo-500/80 rounded z-10 truncate px-1 text-[9px] font-bold text-white shadow shadow-indigo-500/20 hover:brightness-110 border border-indigo-400 border-opacity-50 transition-all flex items-center" style={{ left: `${startPct}%`, width: `${widthPct}%` }} title={task.taskName}>
-                                                     {widthPct > 8 && <span className="truncate">{task.taskName}</span>}
-                                                 </div>
-                                             );
-                                        })}
+                                        {(() => {
+                                            // Sort tasks and group them into tracks (greedy coloring)
+                                            const sortedTasks = [...staffTasks].sort((a, b) => new Date(a.clockIn).getTime() - new Date(b.clockIn).getTime());
+                                            const tracks: any[][] = [];
+
+                                            sortedTasks.forEach(task => {
+                                                const startMs = new Date(task.clockIn).getTime();
+                                                
+                                                let placed = false;
+                                                for (let i = 0; i < tracks.length; i++) {
+                                                    const trackTasks = tracks[i];
+                                                    const lastTask = trackTasks[trackTasks.length - 1];
+                                                    const lastEndMs = lastTask.clockOut ? new Date(lastTask.clockOut).getTime() : Date.now();
+                                                    // Give a 1 second margin to avoid precise overlap bugs
+                                                    if (lastEndMs <= startMs + 1000) {
+                                                        trackTasks.push(task);
+                                                        task._trackIndex = i;
+                                                        placed = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (!placed) {
+                                                    tracks.push([task]);
+                                                    task._trackIndex = tracks.length - 1;
+                                                }
+                                            });
+
+                                            const totalTracks = Math.max(1, tracks.length);
+                                            const colors = [
+                                                'bg-indigo-500/80 border-indigo-400',
+                                                'bg-violet-500/80 border-violet-400',
+                                                'bg-fuchsia-500/80 border-fuchsia-400',
+                                                'bg-blue-500/80 border-blue-400',
+                                            ];
+
+                                            return sortedTasks.map((task, i) => {
+                                                const startMs = new Date(task.clockIn).getTime();
+                                                const endMs = task.clockOut ? new Date(task.clockOut).getTime() : Date.now();
+                                                const startPct = getTimelinePercent(startMs);
+                                                const widthPct = getTimelinePercent(endMs) - startPct;
+                                                
+                                                if (startPct >= 100 || (startPct + widthPct) <= 0) return null;
+
+                                                const trackIndex = task._trackIndex || 0;
+                                                const colorClass = colors[trackIndex % colors.length];
+                                                
+                                                // Calculate custom height/top to split the container visually
+                                                const heightPct = 100 / totalTracks;
+                                                const topPct = heightPct * trackIndex;
+
+                                                return (
+                                                    <div 
+                                                        key={`task-${i}`} 
+                                                        className={`absolute rounded z-10 truncate px-1 font-bold text-white shadow shadow-indigo-500/20 hover:brightness-110 border border-opacity-50 transition-all flex items-center ${colorClass}`}
+                                                        style={{ 
+                                                            left: `${startPct}%`, 
+                                                            width: `${widthPct}%`,
+                                                            top: `calc(${topPct}% + 4px)`,
+                                                            height: `calc(${heightPct}% - 8px)`,
+                                                            fontSize: totalTracks > 2 ? '7px' : '9px' // Shrink text if extremely split
+                                                        }} 
+                                                        title={task.taskName}
+                                                    >
+                                                        {widthPct > 8 && <span className="truncate">{task.taskName}</span>}
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                     </div>
                                 </div>
                             );

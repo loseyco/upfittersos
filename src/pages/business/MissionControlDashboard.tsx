@@ -5,19 +5,72 @@ import { api } from '../../lib/api';
 import { db, auth } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { signInWithCustomToken } from 'firebase/auth';
-import { Hammer, ArrowRight, ShieldCheck, Wrench, User, LogOut, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
+import { Hammer, ArrowRight, ShieldCheck, User, LogOut, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
 import { TechPortal } from '../TechPortal';
+import { EstimateWizard } from '../../components/jobs/EstimateWizard';
 import { StaffDayTimeline } from '../../components/dashboard/StaffDayTimeline';
 import { JobSwimlaneRow } from '../../components/dashboard/SwimlaneBoard';
 import { WorkspaceModal } from '../../components/ui/WorkspaceModal';
+import { ParkingModal } from '../../components/ui/ParkingModal';
 import { DashboardCommandHub } from '../../components/dashboard/DashboardCommandHub';
+import { JobIntakeWizard } from '../../components/jobs/JobIntakeWizard';
+
+import { QuoteApprovalModal } from '../../components/jobs/QuoteApprovalModal';
+import { IntakeSchedulingModal } from '../../components/jobs/IntakeSchedulingModal';
+import { VehicleCheckInModal } from '../../components/jobs/VehicleCheckInModal';
+import { JobExecutionPortal } from '../../components/jobs/JobExecutionPortal';
+
 export function MissionControlDashboard() {
     const { currentUser, tenantId, role } = useAuth();
     const { checkPermission, loading } = usePermissions();
     const [businessName, setBusinessName] = useState('Loading Dashboard...');
+
+    const handleKanbanTaskClockToggle = async (job: any, task: any, isCurrentlyClockedIn: boolean, logId?: string) => {
+        if (!currentUser?.uid || !tenantId) return;
+        try {
+            const now = new Date().toISOString();
+            
+            if (isCurrentlyClockedIn && logId) {
+                // Clock out
+                toast.loading("Clocking out of task...", { id: 'clock_toggle' });
+                await updateDoc(doc(db, 'businesses', tenantId, 'task_time_logs', logId), {
+                    clockOut: now,
+                    status: 'closed'
+                });
+                toast.success("Clocked out of task", { id: 'clock_toggle' });
+            } else {
+                // Clock into task
+                toast.loading("Starting task...", { id: 'clock_toggle' });
+                const { addDoc } = await import('firebase/firestore');
+
+                // Gather extra context for the log payload
+                const vDetails = job.vehicleDetails || {};
+                const vehStr = [vDetails.year, vDetails.make, vDetails.model, vDetails.vin?.slice(-6)].filter(Boolean).join(' ') || 'Vehicle';
+
+                // Clock into the new one
+                await addDoc(collection(db, 'businesses', tenantId, 'task_time_logs'), {
+                    userId: currentUser.uid,
+                    jobId: job.id,
+                    taskIndex: task.originalIndex !== undefined ? task.originalIndex : (job.tasks?.findIndex((t: any) => t.title === task.title)),
+                    taskName: task.title,
+                    vehicleName: vehStr,
+                    bookTime: task.bookTime || 0,
+                    clockIn: now,
+                    clockOut: null,
+                    status: 'open',
+                    isDiscovery: false
+                });
+
+                toast.success("Started working on task!", { id: 'clock_toggle' });
+            }
+        } catch (err) {
+            console.error("Failed to toggle task clock:", err);
+            toast.error("Failed to update clock status", { id: 'clock_toggle' });
+        }
+    };
     
     // Bottom Sheet Architecture State
     const [activeDrawerContext, setActiveDrawerContext] = useState<{ id: string, title?: string, type: 'timeclock' | 'job' | 'techportal' | 'staff', payload?: any } | null>(null);
@@ -79,6 +132,12 @@ export function MissionControlDashboard() {
     // Active jobs cache
     const [allJobs, setAllJobs] = useState<any[]>([]);
     const [allStaff, setAllStaff] = useState<any[]>([]);
+    const [globalCustomers, setGlobalCustomers] = useState<any[]>([]);
+    const [globalVehicles, setGlobalVehicles] = useState<any[]>([]);
+    const [parkingModalJob, setParkingModalJob] = useState<{ id: string, current: string } | null>(null);
+    const [approvalModalJob, setApprovalModalJob] = useState<any>(null);
+    const [intakeModalJob, setIntakeModalJob] = useState<any>(null);
+    const [checkInModalJob, setCheckInModalJob] = useState<any>(null);
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL') return;
@@ -97,11 +156,21 @@ export function MissionControlDashboard() {
         );
         const unsubJobs = onSnapshot(qJobs, (snap) => {
             const fetched = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            setAllJobs(fetched.filter((j: any) => !j.archived));
+            setAllJobs(fetched.filter((j: any) => !j.archived && j.status !== 'Archived' && j.status !== 'archived' && !j.isChangeOrder));
+        });
+
+        const unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (snap) => {
+            setGlobalCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        const unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (snap) => {
+            setGlobalVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
         return () => {
             unsubJobs();
+            unsubCustomers();
+            unsubVehicles();
         };
     }, [currentUser, tenantId]);
 
@@ -129,17 +198,21 @@ export function MissionControlDashboard() {
     };
 
     const visibleJobsForBoard = useMemo(() => {
-        let jobsToConsider = allJobs;
+        let jobsToConsider = allJobs.map(j => {
+            const customer = j.customer || globalCustomers.find(c => c.id === j.customerId);
+            const vehicle = j.vehicle || globalVehicles.find(v => v.id === j.vehicleId);
+            return { ...j, customer, vehicle };
+        });
 
         if (!isSuperAdmin && !checkPermission('manage_jobs') && !checkPermission('view_jobs')) {
-            jobsToConsider = allJobs.filter(j => {
+            jobsToConsider = jobsToConsider.filter(j => {
                 const hasAssignedTask = (j.tasks || []).some((t: any) => t.assignedUids?.includes(currentUser?.uid));
                 return hasAssignedTask || j.assignedUids?.includes(currentUser?.uid);
             });
         }
 
         return jobsToConsider;
-    }, [allJobs, isSuperAdmin, checkPermission, currentUser?.uid]);
+    }, [allJobs, isSuperAdmin, checkPermission, currentUser?.uid, globalCustomers, globalVehicles]);
 
     return (
         <div className="min-h-screen bg-zinc-950 p-0 relative overflow-hidden flex flex-col">
@@ -196,18 +269,18 @@ export function MissionControlDashboard() {
                         )}
                     </div>
                 </div>
-                {/* 🛡️ Management Hub */}
-                {(isSuperAdmin || checkPermission('manage_jobs')) && (
-                    <div className="flex flex-col gap-2 md:gap-3 mb-4">
-                        {/* Time Clock App Widget */}
-                        <TimeClockApp isWidget={true} />
+                {/* 🛡️ Universal / Management Hub */}
+                <div className="flex flex-col gap-2 md:gap-3 mb-4">
+                    {/* Time Clock App Widget (Visible to Everyone) */}
+                    <TimeClockApp isWidget={true} />
 
-                        {/* Crew Timeline */}
+                    {/* Crew Timeline (Management Only) */}
+                    {(isSuperAdmin || checkPermission('manage_jobs') || checkPermission('manage_staff')) && (
                         <div>
                             <StaffDayTimeline tenantId={tenantId || 'GLOBAL'} allStaff={allStaff} />
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 {/* Main Dashboard Grid */}
                 {loading ? (
@@ -281,12 +354,99 @@ export function MissionControlDashboard() {
                                                 </Link>
                                             </div>
                                         </div>
-                                        <div className="flex-1 flex flex-col lg:flex-row gap-6 lg:overflow-x-auto hide-scrollbar pt-2 relative">
+                                        <div className="flex-1 flex flex-col lg:flex-row gap-6 lg:overflow-x-auto custom-scrollbar pb-4 pt-2 relative">
                                             <div className="absolute top-0 right-0 -translate-y-12 shrink-0">
                                                 <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-950 px-3 py-1 rounded-full border border-zinc-800">
                                                     Showing {visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA')).length} Live Operations
                                                 </span>
                                             </div>
+
+                                            <JobSwimlaneRow 
+                                                title={
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-blue-500" /> Drafts & Estimates
+                                                    </div>
+                                                }
+                                                jobs={visibleJobsForBoard.filter(j => !j.archived && (j.status === 'Draft' || j.status === 'Estimate'))}
+                                                allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
+                                            />
+
+                                            <JobSwimlaneRow 
+                                                title={
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-amber-500" /> Pending Approvals
+                                                    </div>
+                                                }
+                                                jobs={visibleJobsForBoard.filter(j => !j.archived && j.status === 'Pending Approval')}
+                                                allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setApprovalModalJob(job)}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
+                                            />
+
+                                            <JobSwimlaneRow 
+                                                title={
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-emerald-500" /> Scheduling & Intake
+                                                    </div>
+                                                }
+                                                jobs={visibleJobsForBoard.filter(j => !j.archived && (j.status === 'Pending Intake' || j.status === 'Approved'))}
+                                                allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => {
+                                                    if (job.status === 'Pending Intake') {
+                                                        setIntakeModalJob(job);
+                                                    } else {
+                                                        setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status });
+                                                    }
+                                                }}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
+                                            />
+
+                                            <JobSwimlaneRow 
+                                                title={
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-blue-500" /> Scheduled (Off Site)
+                                                    </div>
+                                                }
+                                                jobs={visibleJobsForBoard.filter(j => !j.archived && j.status === 'Scheduled')}
+                                                allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setCheckInModalJob(job)}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
+                                            />
+
+                                            <JobSwimlaneRow 
+                                                title={
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-zinc-500" /> Queue (On Site)
+                                                    </div>
+                                                }
+                                                jobs={visibleJobsForBoard.filter(j => {
+                                                    if (j.archived || j.status === 'Estimate' || j.status === 'Draft' || j.status === 'Pending Intake' || j.status === 'Pending Approval' || j.status === 'Delivered' || j.status === 'Scheduled') return false;
+                                                    // Show jobs that have no currently active tasks
+                                                    const hasActiveLog = globalOpenTaskLogs.some(log => log.jobId === j.id);
+                                                    const hasActiveTasks = (j.tasks || []).some((t: any) => t.status === 'In Progress' || t.status === 'Blocked' || t.status === 'Ready for QA') || hasActiveLog;
+                                                    return !hasActiveTasks;
+                                                })}
+                                                allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
+                                            />
                                             
                                             <JobSwimlaneRow 
                                                 title={
@@ -296,13 +456,11 @@ export function MissionControlDashboard() {
                                                 }
                                                 jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Blocked'))}
                                                 allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
                                                 globalOpenTaskLogs={globalOpenTaskLogs}
-                                                setEditingParkingJob={(plog) => {
-                                                    const loc = window.prompt("Update parking location:", plog.current || '');
-                                                    if (loc !== null) {
-                                                        updateDoc(doc(db, 'jobs', plog.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
-                                                    }
-                                                }}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                setEditingParkingJob={(plog) => setParkingModalJob(plog)}
                                             />
                                             
                                             <JobSwimlaneRow 
@@ -320,7 +478,10 @@ export function MissionControlDashboard() {
                                                     return hasInProgressTask || hasActiveLog;
                                                 })}
                                                 allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
                                                 globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
                                                 setEditingParkingJob={(plog) => {
                                                     const loc = window.prompt("Update parking location:", plog.current || '');
                                                     if (loc !== null) {
@@ -329,23 +490,66 @@ export function MissionControlDashboard() {
                                                 }}
                                             />
 
-                                            <JobSwimlaneRow 
-                                                title={
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-2 h-2 rounded-full bg-emerald-500" /> Ready for QA
-                                                    </div>
-                                                }
-                                                jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Ready for QA') && !(j.tasks || []).some((t: any) => t.status === 'Blocked' || t.status === 'In Progress'))}
-                                                allStaff={allStaff}
-                                                globalOpenTaskLogs={globalOpenTaskLogs}
-                                                setEditingParkingJob={(plog) => {
-                                                    const loc = window.prompt("Update parking location:", plog.current || '');
-                                                    if (loc !== null) {
-                                                        updateDoc(doc(db, 'jobs', plog.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
+                                                <JobSwimlaneRow 
+                                                    title={
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-emerald-500" /> Ready for QA
+                                                        </div>
                                                     }
-                                                }}
-                                            />
-                                        </div>
+                                                    jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Ready for QA') && !(j.tasks || []).some((t: any) => t.status === 'Blocked' || t.status === 'In Progress'))}
+                                                    allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                    globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                    setEditingParkingJob={(plog) => {
+                                                        const loc = window.prompt("Update parking location:", plog.current || '');
+                                                        if (loc !== null) {
+                                                            updateDoc(doc(db, 'jobs', plog.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
+                                                        }
+                                                    }}
+                                                />
+
+                                                <JobSwimlaneRow 
+                                                    title={
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-cyan-500" /> Ready for Delivery
+                                                        </div>
+                                                    }
+                                                    jobs={visibleJobsForBoard.filter(j => !j.archived && j.status !== 'Draft' && (j.tasks || []).some((t: any) => t.status === 'Ready for Delivery') && !(j.tasks || []).some((t: any) => t.status === 'Blocked' || t.status === 'In Progress' || t.status === 'Ready for QA'))}
+                                                    allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                    globalOpenTaskLogs={globalOpenTaskLogs}
+                                                onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                    setEditingParkingJob={(plog) => {
+                                                        const loc = window.prompt("Update parking location:", plog.current || '');
+                                                        if (loc !== null) {
+                                                            updateDoc(doc(db, 'jobs', plog.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
+                                                        }
+                                                    }}
+                                                />
+
+                                                <JobSwimlaneRow 
+                                                    title={
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-2 h-2 rounded-full bg-purple-500" /> With Customer
+                                                        </div>
+                                                    }
+                                                    jobs={visibleJobsForBoard.filter(j => !j.archived && (j.status === 'Delivered' || (j.tasks || []).some((t: any) => t.status === 'Delivered' || t.status === 'With Customer')))}
+                                                    allStaff={allStaff}
+                                                onTaskClockToggle={handleKanbanTaskClockToggle}
+                                                currentUserId={currentUser?.uid}
+                                                    globalOpenTaskLogs={globalOpenTaskLogs}
+                                                    onJobClick={(job) => setActiveDrawerContext({ id: job.id, title: job.title || 'Workspace', type: 'job', payload: job.status })}
+                                                    setEditingParkingJob={(plog) => {
+                                                        const loc = window.prompt("Update parking location:", plog.current || '');
+                                                        if (loc !== null) {
+                                                            updateDoc(doc(db, 'jobs', plog.id), { parkedLocation: loc }).then(() => toast.success("Location updated")).catch(() => toast.error("Failed to update"));
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
                                     </div>
                                 </div>
                         </div>
@@ -396,21 +600,18 @@ export function MissionControlDashboard() {
                             <p className="max-w-md text-sm text-emerald-400 font-bold uppercase tracking-widest mt-6 border border-emerald-400/20 bg-emerald-400/10 py-1 px-4 rounded-full">Coming Soon</p>
                         </div>
                     </div>
-                ) : activeDrawerContext?.id === 'NEW-EST' ? (
-                    <div className="p-6 md:p-8 h-full">
-                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
-                            <Plus className="w-12 h-12 mb-4 opacity-50 text-accent" />
-                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Estimate Builder</h3>
-                            <p className="max-w-md text-sm text-accent font-bold uppercase tracking-widest mt-2 border border-accent/20 bg-accent/10 py-1 px-4 rounded-full">Coming Soon</p>
-                        </div>
-                    </div>
-                ) : activeDrawerContext?.id === 'CUST-LOOKUP' ? (
-                    <div className="p-6 md:p-8 h-full">
-                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
-                            <UserPlus className="w-12 h-12 mb-4 opacity-50 text-emerald-500" />
-                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Customer CRM & History</h3>
-                            <p className="max-w-md text-sm text-emerald-500 font-bold uppercase tracking-widest mt-2 border border-emerald-500/20 bg-emerald-500/10 py-1 px-4 rounded-full">Coming Soon</p>
-                        </div>
+                ) : activeDrawerContext?.id === 'NEW-EST' || activeDrawerContext?.id === 'CUST-LOOKUP' ? (
+                    <div className="h-full bg-zinc-950">
+                        <JobIntakeWizard
+                            tenantId={tenantId!}
+                            isEmbedded={true}
+                            initialSearchName={activeDrawerContext.payload}
+                            onComplete={(jobId) => {
+                                toast.success("Draft created! Opening builder...");
+                                setActiveDrawerContext({ id: jobId, title: `Job Details`, type: 'job', payload: 'Draft' });
+                            }}
+                            onClose={() => setActiveDrawerContext(null)}
+                        />
                     </div>
                 ) : activeDrawerContext?.id === 'INTAKE' ? (
                     <div className="p-6 md:p-8 h-full">
@@ -420,20 +621,71 @@ export function MissionControlDashboard() {
                             <p className="max-w-md text-sm text-blue-500 font-bold uppercase tracking-widest mt-2 border border-blue-500/20 bg-blue-500/10 py-1 px-4 rounded-full">Coming Soon</p>
                         </div>
                     </div>
+                ) : (activeDrawerContext?.payload === 'Draft' || activeDrawerContext?.payload === 'Estimate') ? (
+                    <div className="h-full w-full bg-zinc-950 overflow-y-auto overflow-x-hidden custom-scrollbar">
+                        <EstimateWizard 
+                            jobId={activeDrawerContext?.id} 
+                            onClose={() => setActiveDrawerContext(null)} 
+                            onComplete={() => setActiveDrawerContext(null)}
+                        />
+                    </div>
                 ) : (
-                    <div className="p-6 md:p-8 h-full">
-                        <div className="border-2 border-dashed border-zinc-800 rounded-2xl h-full flex flex-col items-center justify-center text-zinc-500 p-8 text-center bg-zinc-950/20">
-                            <Wrench className="w-12 h-12 mb-4 opacity-50 text-amber-500" />
-                            <h3 className="text-xl font-bold text-zinc-300 mb-2">Dedicated Workspace Loaded</h3>
-                            <p className="max-w-md text-sm">
-                                This isolated layer overrides the dashboard context. Timeclock punches, payload interactions, photos, and parts requisitions loaded here automatically scope directly to <strong className="text-zinc-300">#{activeDrawerContext?.id}</strong>. 
-                            </p>
-                            <p className="max-w-md text-sm text-amber-500 font-bold uppercase tracking-widest mt-6 border border-amber-500/20 bg-amber-500/10 py-1 px-4 rounded-full">Coming Soon</p>
-                        </div>
+                    <div className="h-full w-full bg-zinc-950 overflow-y-auto overflow-x-hidden custom-scrollbar pb-12">
+                        <JobExecutionPortal 
+                            jobId={activeDrawerContext?.id as string} 
+                            allStaff={allStaff}
+                        />
                     </div>
                 )}
             </WorkspaceModal>
             
+            {parkingModalJob && (
+                <ParkingModal
+                    isOpen={!!parkingModalJob}
+                    currentLocation={parkingModalJob?.current || ''}
+                    onClose={() => setParkingModalJob(null)}
+                    onSelect={(val) => {
+                        if (parkingModalJob) {
+                            updateDoc(doc(db, 'jobs', parkingModalJob.id), { parkedLocation: val })
+                                .then(() => toast.success("Location updated"))
+                                .catch(() => toast.error("Failed to update location"));
+                        }
+                        setParkingModalJob(null);
+                    }}
+                />
+            )}
+
+            {approvalModalJob && (
+                <QuoteApprovalModal 
+                    job={approvalModalJob} 
+                    onClose={() => setApprovalModalJob(null)}
+                    customer={globalCustomers.find(c => c.id === approvalModalJob.customerId)}
+                    vehicle={globalVehicles.find(v => v.id === approvalModalJob.vehicleId)}
+                />
+            )}
+
+            {/* Intake Scheduling Modal */}
+            {intakeModalJob && (
+                <IntakeSchedulingModal 
+                    job={intakeModalJob} 
+                    customer={globalCustomers.find(c => c.id === intakeModalJob.customerId)}
+                    vehicle={globalVehicles.find(v => v.id === intakeModalJob.vehicleId)}
+                    allStaff={allStaff}
+                    tenantId={tenantId || ''}
+                    onClose={() => setIntakeModalJob(null)} 
+                />
+            )}
+
+            {/* Vehicle Check-In Modal */}
+            {checkInModalJob && (
+                <VehicleCheckInModal 
+                    job={checkInModalJob}
+                    customer={globalCustomers.find(c => c.id === checkInModalJob.customerId)}
+                    vehicle={globalVehicles.find(v => v.id === checkInModalJob.vehicleId)}
+                    tenantId={tenantId || ''}
+                    onClose={() => setCheckInModalJob(null)}
+                />
+            )}
         </div>
     );
 }

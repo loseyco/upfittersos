@@ -1,19 +1,19 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useWakeLock = (shouldLock: boolean) => {
   const [isLocked, setIsLocked] = useState(false);
-  const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   const requestWakeLock = useCallback(async () => {
     try {
       if ('wakeLock' in navigator && document.visibilityState === 'visible') {
         const lock = await navigator.wakeLock.request('screen');
-        setWakeLock(lock);
+        wakeLockRef.current = lock;
         setIsLocked(true);
         
         lock.addEventListener('release', () => {
           setIsLocked(false);
-          setWakeLock(null);
+          wakeLockRef.current = null;
         });
       }
     } catch (err: any) {
@@ -24,12 +24,16 @@ export const useWakeLock = (shouldLock: boolean) => {
   }, []);
 
   const releaseWakeLock = useCallback(async () => {
-    if (wakeLock !== null) {
-      await wakeLock.release();
-      setWakeLock(null);
+    if (wakeLockRef.current !== null) {
+      try {
+        await wakeLockRef.current.release();
+      } catch(e) {
+        // Ignore if already released
+      }
+      wakeLockRef.current = null;
       setIsLocked(false);
     }
-  }, [wakeLock]);
+  }, []);
 
   // Handle visibility changes
   useEffect(() => {
