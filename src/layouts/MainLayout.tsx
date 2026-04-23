@@ -1,16 +1,21 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { Globe, Activity, LogOut, User, ShieldAlert, BookOpen, Megaphone, X, ChevronLeft } from 'lucide-react';
+import { X, ChevronLeft, LogOut, Megaphone, User, Globe, LayoutDashboard, CarFront, Activity, ShieldAlert, ScanLine, Search } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { api } from '../lib/api';
 import { GlobalFeedbackWidget } from '../components/GlobalFeedbackWidget';
-import { GlobalTimeTracker } from '../components/GlobalTimeTracker';
 import { GlobalRemindersTracker } from '../components/GlobalRemindersTracker';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { APP_NAME } from '../lib/constants';
 import { PWAPrompt } from '../components/PWAPrompt';
+import { usePermissions } from '../hooks/usePermissions';
+import { TimeClockApp } from '../pages/business/TimeClockApp';
+import toast from 'react-hot-toast';
+import { signInWithCustomToken } from 'firebase/auth';
+import { auth } from '../lib/firebase';
+
 export function MainLayout() {
     const location = useLocation();
     const navigate = useNavigate();
@@ -25,6 +30,9 @@ export function MainLayout() {
     
     const [activeNotice, setActiveNotice] = useState<any | null>(null);
     const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
+    
+    const { checkPermission } = usePermissions();
+    const [allStaff, setAllStaff] = useState<any[]>([]);
     
     useWakeLock(keepScreenAwake);
 
@@ -120,6 +128,32 @@ export function MainLayout() {
         }
     }, [businessName, businessIcon]);
 
+    // Fetch Staff for Impersonation / View As
+    useEffect(() => {
+        if (!tenantId || tenantId === 'GLOBAL') return;
+        api.get(`/businesses/${tenantId}/staff`).then(res => {
+            setAllStaff(res.data || []);
+        }).catch(err => console.error("Failed to load staff", err));
+    }, [tenantId]);
+
+    const handleImpersonateUser = async (targetUid: string) => {
+        if (!targetUid) return;
+        try {
+            toast.loading("Assume identity...", { id: 'impersonate_dash' });
+            const res = await api.post(`/businesses/${tenantId}/staff/${targetUid}/impersonate`);
+            const { token } = res.data;
+            
+            sessionStorage.setItem('sae_impersonating', 'true');
+            await signInWithCustomToken(auth, token);
+            
+            toast.success("Identity assumed.", { id: 'impersonate_dash' });
+            window.location.reload();
+        } catch (error: any) {
+            console.error("Impersonation failed", error);
+            toast.error(error?.response?.data?.error || "Failed to impersonate identity.", { id: 'impersonate_dash' });
+        }
+    };
+
     useEffect(() => {
         if (currentUser) {
             // Prevent forced auth refresh if we are currently holding a delicate contextual proxy token
@@ -183,9 +217,12 @@ export function MainLayout() {
     };
 
     const mobileNavItems = [
-        { path: currentUser ? '/dashboard' : '/', icon: Globe, label: currentUser ? 'Dashboard' : 'Public' },
-        { path: '/documents', icon: BookOpen, label: 'Docs' },
-        ...(currentUser && isSuperAdmin ? [{ path: '/admin', icon: Activity, label: 'Super Admin' }] : [])
+        { path: currentUser ? '/workspace' : '/', icon: currentUser ? LayoutDashboard : Globe, label: currentUser ? 'Hub' : 'Public' },
+        ...(currentUser ? [
+            { path: '/business/vehicles', icon: CarFront, label: 'Vehicles' },
+            { path: '/profile', icon: User, label: 'Profile' }
+        ] : []),
+        ...(currentUser && isSuperAdmin ? [{ path: '/admin', icon: Activity, label: 'Admin' }] : [])
     ];
 
     return (
@@ -223,8 +260,6 @@ export function MainLayout() {
                 </div>
             )}
 
-            {/* Global Time Tracker */}
-            {location.pathname !== '/dashboard' && <GlobalTimeTracker />}
             <GlobalRemindersTracker />
 
             {/* Global Announcement Banner */}
@@ -254,63 +289,94 @@ export function MainLayout() {
                 </div>
             )}
 
-            {location.pathname !== '/dashboard' && (
-                <header className="bg-zinc-900 border-b border-zinc-800 p-3 md:p-4 shrink-0 flex items-center justify-between z-50">
-                    <div className="flex items-center gap-2 md:gap-4">
-                        {location.pathname !== '/' && location.pathname !== '/admin' && (
+            {/* Standard Global Welcome Ribbon */}
+            <div className="flex items-center justify-between bg-zinc-900 border-b border-zinc-800 p-2 md:p-3 shadow-sm w-full z-40 shrink-0">
+                <div className="flex items-center gap-3">
+                    {location.pathname !== '/' && location.pathname !== '/admin' && location.pathname !== '/workspace' && (
+                        <div className="flex items-center gap-1.5 mr-2 shrink-0">
+                            <Link 
+                                to="/workspace"
+                                className="bg-blue-900/20 hover:bg-blue-600/30 text-blue-400 hover:text-white p-1.5 rounded-lg transition-colors border border-blue-500/20 hover:border-blue-500/50 flex flex-col items-center justify-center shrink-0"
+                                title="Return to Hub"
+                            >
+                                <LayoutDashboard className="w-5 h-5 mx-0.5" />
+                            </Link>
                             <button 
                                 onClick={() => navigate(-1)}
-                                className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 mr-2 flex items-center gap-1"
+                                className="bg-zinc-800/50 hover:bg-zinc-700/50 text-zinc-400 hover:text-white p-1.5 rounded-lg transition-colors border border-zinc-700/50 flex flex-col items-center justify-center shrink-0"
+                                title="Go Back"
                             >
-                                <ChevronLeft className="w-5 h-5" />
-                                <span className="hidden sm:inline text-xs font-bold mr-1">Back</span>
-                            </button>
-                        )}
-                        <Link to={currentUser ? '/dashboard' : '/'} className="flex items-center gap-2">
-                            {businessIcon && <img src={businessIcon} alt="Logo" className="w-6 h-6 rounded-md object-cover border border-zinc-700 shadow-sm hidden md:block" />}
-                            <h1 className="tour-logo text-lg md:text-xl font-bold tracking-tight text-white shrink-0 hover:text-accent transition-colors">{businessName}</h1>
-                        </Link>
-                    </div>
-                    <div className="flex items-center gap-2 md:gap-4">                    
-                        {currentUser ? (
-                        <div className="flex items-center gap-3 ml-2 border-l border-zinc-800 pl-4">
-                            <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 rounded-lg transition-colors cursor-pointer" title="View HR Profile">
-                                <div className="hidden lg:flex flex-col items-end">
-                                    <span className="text-sm font-bold text-white leading-none">{profileName}</span>
-                                    <span className="text-[10px] text-zinc-500 font-medium mb-1">{currentUser.email}</span>
-                                </div>
-                                <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
-                                    {currentUser.photoURL ? (
-                                        <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                                    ) : profileName !== 'Authorized User' ? (
-                                        profileName[0].toUpperCase()
-                                    ) : (
-                                        <User className="w-4 h-4" />
-                                    )}
-                                </div>
-                            </Link>
-                            <button
-                                onClick={() => logout()}
-                                className="ml-1 p-2 rounded-md text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                title="Sign Out"
-                            >
-                                <LogOut className="w-4 h-4" />
+                                <ChevronLeft className="w-5 h-5 mx-0.5" />
                             </button>
                         </div>
-                    ) : (
-                        <Link
-                            to="/login"
-                            className="ml-2 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-lg transition-colors shadow"
-                        >
-                            Sign In
-                        </Link>
                     )}
-                    </div>
-                </header>
+                    <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 -ml-1.5 rounded-lg transition-colors cursor-pointer group" title="View HR Profile">
+                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
+                            {currentUser?.photoURL ? (
+                                <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                            ) : (
+                                <User className="w-4 h-4" />
+                            )}
+                        </div>
+                        <div className="flex flex-col">
+                            <h1 className="text-[13px] md:text-sm font-black text-white leading-tight tracking-wide group-hover:text-accent transition-colors">
+                                Welcome back, {profileName.split(' ')[0]}
+                            </h1>
+                            <span className="text-[9px] md:text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-0.5 truncate max-w-[120px] md:max-w-[200px]">
+                                {businessName}
+                            </span>
+                        </div>
+                    </Link>
+                </div>
+                <div className="flex items-center gap-2 md:gap-3">
+                    {(isSuperAdmin || checkPermission('manage_staff')) && allStaff && allStaff.length > 0 && (
+                        <div className="hidden lg:flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">View As</span>
+                            <select 
+                                value="" 
+                                onChange={(e) => handleImpersonateUser(e.target.value)}
+                                className="text-xs bg-zinc-950 border border-zinc-800 text-zinc-300 font-medium rounded-lg px-2 py-1 outline-none focus:border-accent appearance-none cursor-pointer hover:border-zinc-700 transition-colors max-w-[150px]"
+                            >
+                                <option value="" disabled>Select User...</option>
+                                {allStaff.filter(s => s.uid !== currentUser?.uid).map(staff => (
+                                    <option key={staff.uid} value={staff.uid}>
+                                        {staff.firstName} {staff.lastName}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('open-global-search'))}
+                        className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500 hover:text-white p-1.5 md:p-2 rounded-lg transition-colors shadow-sm ml-1"
+                        title="Search Command Hub"
+                    >
+                        <Search className="w-4 h-4" />
+                    </button>
+                    <button
+                        onClick={() => { logout(); window.location.href = '/login'; }}
+                        className="bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white p-1.5 md:p-2 rounded-lg transition-colors shadow-sm ml-1"
+                        title="Sign Out"
+                    >
+                        <LogOut className="w-4 h-4" />
+                    </button>
+                    {(isSuperAdmin || checkPermission('manage_staff')) && (
+                            <Link to="/business/manage" className="text-[10px] md:text-[11px] font-black tracking-widest uppercase text-accent bg-accent/10 border border-accent/20 hover:bg-accent hover:text-black px-2 md:px-4 py-1.5 md:py-2 rounded-lg transition-all shadow-sm flex items-center gap-1.5 shrink-0 ml-1">
+                            <ShieldAlert className="w-3.5 h-3.5 hidden sm:block" /> Back Office
+                            </Link>
+                    )}
+                </div>
+            </div>
+
+            {/* Standard Global TimeClock Widget */}
+            {currentUser && location.pathname !== '/business/time' && location.pathname !== '/login' && location.pathname !== '/' && (
+                <div className="w-full shrink-0 z-30 bg-zinc-950 border-b border-zinc-900 shadow-sm relative pt-1 pb-1 px-4 md:px-0">
+                    <TimeClockApp isWidget={true} />
+                </div>
             )}
 
             {/* Main Content Area (padding bottom on mobile for tab bar, desktop for footer) */}
-            <main className="flex-1 flex flex-col relative overflow-y-auto w-full pb-[72px] md:pb-[32px]">
+            <main className="flex-1 flex flex-col relative overflow-y-auto w-full pb-[72px] md:pb-[32px] bg-zinc-950 md:bg-black/20">
                 <Outlet />
             </main>
 
@@ -334,22 +400,26 @@ export function MainLayout() {
             </footer>
 
             {/* Mobile Bottom Tab Bar */}
-            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 z-50 shadow-[0_-4px_24px_rgba(0,0,0,0.5)]">
-                <nav className="flex items-center overflow-x-auto overflow-y-hidden touch-pan-x flex-nowrap snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] px-2 py-2 pb-safe w-full">
-                    {mobileNavItems.map((item) => {
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-zinc-900/90 backdrop-blur-2xl border-t border-zinc-800/80 z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.8)]">
+                <div className="flex justify-around items-center h-[72px] px-2">
+                    {mobileNavItems.map((item, idx) => {
                         const isActive = location.pathname === item.path;
                         return (
-                            <Link
-                                key={item.path}
-                                to={item.path}
-                                className={`flex flex-col items-center justify-center min-w-[76px] w-[76px] snap-center py-1.5 gap-1 transition-colors shrink-0 ${isActive ? 'text-accent' : 'text-zinc-500 hover:text-zinc-300'}`}
+                            <button
+                                key={idx}
+                                onClick={() => navigate(item.path)}
+                                className={`flex flex-col items-center justify-center space-y-1 w-full relative ${
+                                    isActive ? 'text-blue-500' : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
                             >
                                 <item.icon className="w-5 h-5" />
-                                <span className="text-[10px] font-medium whitespace-nowrap">{item.label}</span>
-                            </Link>
+                                <span className={`text-[10px] font-black uppercase tracking-widest ${
+                                    isActive ? 'opacity-100' : 'opacity-70'
+                                }`}>{item.label}</span>
+                            </button>
                         );
                     })}
-                </nav>
+                </div>
             </div>
             <GlobalFeedbackWidget />
             {currentUser && <PWAPrompt />}

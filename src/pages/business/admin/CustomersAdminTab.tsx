@@ -173,7 +173,10 @@ export function CustomersAdminTab({ tenantId }: { tenantId: string }) {
         setLoading(true);
 
         const unsubCustomers = onSnapshot(query(collection(db, 'customers'), where('tenantId', '==', tenantId)), (s) => {
-            const fetched = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            let fetched = s.docs.map(d => ({ id: d.id, ...d.data() }) as any);
+            // Hide QuickBooks Sub-Jobs from the root customer view
+            fetched = fetched.filter(c => !c.sublevel || c.sublevel === 0);
+            
             fetched.sort((a: any, b: any) => {
                 const nameA = (a.firstName || '') + ' ' + (a.lastName || '');
                 const nameB = (b.firstName || '') + ' ' + (b.lastName || '');

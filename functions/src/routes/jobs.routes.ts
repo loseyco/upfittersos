@@ -217,7 +217,9 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
             sopSupplies, shipping, discount,
             desiredDropoffDate, desiredPickupDate, salesNotes,
             customerMeetingNotes, salesQuestions, lockedTaxRate,
-            isChangeOrder, parentJobId, parentJobRefNum
+            isChangeOrder, parentJobId, parentJobRefNum,
+            parkedLocation, checkInNotes, vinVerified,
+            intakePhotos, vehicleDetails, companyCamProjectId
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -254,6 +256,39 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
         if (isChangeOrder !== undefined) updates.isChangeOrder = isChangeOrder;
         if (parentJobId !== undefined) updates.parentJobId = parentJobId;
         if (parentJobRefNum !== undefined) updates.parentJobRefNum = parentJobRefNum;
+        
+        if (parkedLocation !== undefined) {
+            const currentData = jobData as any;
+            if (parkedLocation !== currentData.parkedLocation) {
+                updates.parkedLocation = parkedLocation;
+                
+                let history = currentData.locationHistory || [];
+                // Close out the most recent open entry
+                if (history.length > 0 && !history[history.length - 1].exitedAt) {
+                    history[history.length - 1].exitedAt = new Date().toISOString();
+                }
+                
+                // Open new entry if not "Unknown / Pending"
+                if (parkedLocation !== "") {
+                    history.push({
+                        location: parkedLocation,
+                        enteredAt: new Date().toISOString(),
+                        exitedAt: null,
+                        movedByUid: (req as any).user?.uid || 'Unknown',
+                        movedByEmail: (req as any).user?.email || 'Unknown'
+                    });
+                }
+                updates.locationHistory = history;
+            } else {
+                updates.parkedLocation = parkedLocation;
+            }
+        }
+
+        if (checkInNotes !== undefined) updates.checkInNotes = checkInNotes;
+        if (vinVerified !== undefined) updates.vinVerified = vinVerified;
+        if (intakePhotos !== undefined) updates.intakePhotos = intakePhotos;
+        if (vehicleDetails !== undefined) updates.vehicleDetails = vehicleDetails;
+        if (companyCamProjectId !== undefined) updates.companyCamProjectId = companyCamProjectId;
 
         await jobRef.update(updates);
         

@@ -39,7 +39,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateAutomatedReports = exports.api = exports.runOneTimeMigration = void 0;
+exports.aggregateShopVitals = exports.generateAutomatedReports = exports.api = exports.runOneTimeMigration = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
 __exportStar(require("./notifications"), exports);
@@ -80,7 +80,7 @@ const YAML = __importStar(require("yamljs"));
 const path = __importStar(require("path"));
 const companyCam_routes_1 = require("./routes/companyCam.routes");
 const scan_routes_1 = require("./routes/scan.routes");
-const qbo_routes_1 = require("./routes/qbo.routes");
+const qbwc_routes_1 = require("./routes/qbwc.routes");
 const units_routes_1 = require("./routes/units.routes");
 const inventory_routes_1 = require("./routes/inventory.routes");
 const tasks_routes_1 = require("./routes/tasks.routes");
@@ -300,7 +300,7 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
         if (!isSuperAdmin && !isManagerOfTenant) {
             return res.status(403).json({ error: 'Forbidden. You do not have permission to modify workspace metadata.' });
         }
-        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles, payPeriodConfig, enabledFeatures, enabledFeaturesDev, defaultSopSupplies, defaultShipping, departments, easyPostApiKey } = req.body;
+        const { name, legalName, email, phone, website, addressStreet, addressCity, addressState, addressZip, customRoles, payPeriodConfig, enabledFeatures, enabledFeaturesDev, defaultSopSupplies, defaultShipping, departments, easyPostApiKey, externalLinks } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (name !== undefined)
             updates.name = name;
@@ -334,6 +334,8 @@ app.put('/businesses/:id', auth_middleware_1.authenticate, async (req, res) => {
             updates.departments = departments;
         if (easyPostApiKey !== undefined)
             updates.easyPostApiKey = easyPostApiKey;
+        if (externalLinks !== undefined)
+            updates.externalLinks = externalLinks;
         if (customRoles !== undefined) {
             const sanitizedRoles = Object.assign({}, customRoles);
             if (!isSuperAdmin) {
@@ -892,12 +894,7 @@ app.use('/scan', scan_routes_1.scanRoutes);
 app.use('/units', units_routes_1.unitRoutes);
 app.use('/inventory', inventory_routes_1.inventoryRoutes);
 // --- QuickBooks Integration ---
-app.use('/qbo', qbo_routes_1.qboRoutes);
-app.get('/testqbo', (req, res) => {
-    const { QboService } = require('./services/qbo.service');
-    const service = new QboService("123");
-    res.json({ url: service.getAuthorizationUrl() });
-});
+app.use('/qbwc', qbwc_routes_1.qbwcRoutes);
 // --- Assigned Tasks ---
 app.use('/tasks', tasks_routes_1.tasksRoutes);
 app.use('/task_templates', task_templates_routes_1.taskTemplatesRoutes);
@@ -912,6 +909,8 @@ exports.api = functions.https.onRequest(app);
 // Export Scheduled System Functions
 const engine_1 = require("./reports/engine");
 Object.defineProperty(exports, "generateAutomatedReports", { enumerable: true, get: function () { return engine_1.generateAutomatedReports; } });
+const vitalsCron_1 = require("./metrics/vitalsCron");
+Object.defineProperty(exports, "aggregateShopVitals", { enumerable: true, get: function () { return vitalsCron_1.aggregateShopVitals; } });
 // Force reload timestamp
 // trigger changed: 2026-04-07 10:43
 //# sourceMappingURL=index.js.map

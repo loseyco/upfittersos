@@ -110,6 +110,10 @@ export function WorkspaceHub() {
         apps.push({ name: 'Job Manager', desc: 'Construct and manage accurate job scopes with line items.', icon: Calculator, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/business/jobs', ...getAccessMeta('estimate_builder') });
     }
 
+    if (hasValidWorkspace && (checkPermission('manage_intake') || checkPermission('manage_jobs'))) {
+        apps.push({ name: 'Vehicle Management', desc: 'Securely track vehicles, capture walkarounds, and verify VIN tags.', icon: ScanLine, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'hover:border-blue-500/50', link: '/business/vehicles', ...getAccessMeta('check_in') });
+    }
+
     if (hasValidWorkspace && !isHidden('messenger')) {
         apps.push({ name: 'Real-Time Messenger', desc: 'Secure staff communication and live push alerts.', icon: MessageSquare, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'hover:border-rose-500/50', link: '/business/messenger', ...getAccessMeta('messenger') });
     }
@@ -136,7 +140,7 @@ export function WorkspaceHub() {
     }
 
     if (!loading && checkPermission('manage_jobs') && !isHidden('ops')) {
-        apps.unshift({ name: 'Mission Control', desc: 'Live operations overview to monitor floor activity and bottlenecks.', icon: Activity, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/business/ops', ...getAccessMeta('ops') });
+        apps.unshift({ name: 'Mission Control', desc: 'Live operations overview to monitor floor activity and bottlenecks.', icon: Activity, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'hover:border-indigo-500/50', link: '/dashboard', ...getAccessMeta('ops') });
     }
 
     if (!loading && checkPermission('manage_jobs') && !isHidden('analytics')) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, Plus, UserPlus, Car, Command, Briefcase, User } from 'lucide-react';
+import { Search, Plus, UserPlus, Car, Command, Briefcase, User, ScanLine } from 'lucide-react';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -156,26 +156,9 @@ export function DashboardCommandHub({ onAction, onFilterChange, allJobs = [], al
         setSelectedIndex(-1);
     }, [inputValue]);
 
-    // Keyboard Shortcut to focus (Ctrl+F or Cmd+F) and list navigation
     useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-                e.preventDefault();
-                inputRef.current?.focus();
-            }
-            if (document.activeElement === inputRef.current) {
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setSelectedIndex(prev => Math.min(prev + 1, searchResults.length - 1));
-                } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setSelectedIndex(prev => Math.max(prev - 1, -1));
-                }
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [searchResults.length]);
+        setSelectedIndex(-1);
+    }, [inputValue]);
 
     // Handle Form Submit (often triggered automatically by barcode scanners sending an ENTER keypress)
     const handleSubmit = (e: React.FormEvent) => {
@@ -258,17 +241,27 @@ export function DashboardCommandHub({ onAction, onFilterChange, allJobs = [], al
                                 }}
                                 autoFocus
                                 placeholder="Scan QR, type a name, VIN, or phone..."
-                                className="w-full bg-transparent border-none text-white placeholder-zinc-500 font-medium text-lg px-4 py-3 outline-none focus:ring-0"
+                                className="w-full bg-transparent border-none text-white placeholder-zinc-500 font-medium text-lg px-4 py-3 outline-none focus:ring-0 pr-[120px]"
                                 autoComplete="off"
                                 autoCapitalize="off"
                                 spellCheck="false"
                             />
                             
-                            {/* Shortcut Hint */}
-                            <div className="hidden lg:flex items-center gap-1 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50">
-                                <kbd className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] font-mono text-zinc-400 flex items-center gap-1">
-                                    <Command className="w-3 h-3" /> F
-                                </kbd>
+                            {/* Appended Right Input Actions: Scanner UI & Shortcut Hint */}
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onAction('scan', '')}
+                                    className="p-1.5 md:p-2 bg-blue-500/10 hover:bg-blue-500 hover:text-white text-blue-400 rounded-lg transition-colors border border-blue-500/20 group"
+                                    title="Scan Hardware Tag"
+                                >
+                                    <ScanLine className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                </button>
+                                <div className="hidden lg:flex items-center gap-1 opacity-50 pointer-events-none">
+                                    <kbd className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] font-mono text-zinc-400 flex items-center gap-1">
+                                        <Command className="w-3 h-3" /> F
+                                    </kbd>
+                                </div>
                             </div>
                         </form>
                     </div>

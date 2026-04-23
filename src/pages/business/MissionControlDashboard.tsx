@@ -2,10 +2,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePermissions } from '../../hooks/usePermissions';
 import { api } from '../../lib/api';
-import { db, auth } from '../../lib/firebase';
+import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { signInWithCustomToken } from 'firebase/auth';
-import { Hammer, ArrowRight, ShieldCheck, User, LogOut, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
+import { Hammer, ArrowRight, User, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
@@ -29,7 +28,6 @@ import { JobExecutionPortal } from '../../components/jobs/JobExecutionPortal';
 export function MissionControlDashboard() {
     const { currentUser, tenantId, role } = useAuth();
     const { checkPermission, loading } = usePermissions();
-    const [businessName, setBusinessName] = useState('Loading Dashboard...');
 
     const handleKanbanTaskClockToggle = async (job: any, task: any, isCurrentlyClockedIn: boolean, logId?: string) => {
         if (!currentUser?.uid || !tenantId) return;
@@ -114,20 +112,7 @@ export function MissionControlDashboard() {
     const [globalOpenTaskLogs, setGlobalOpenTaskLogs] = useState<any[]>([]);
 
     // Global Keyboard Shortcut to open Search (Ctrl+F or Cmd+F)
-    // Global Keyboard Shortcut to open Search (Ctrl+F or Cmd+F) and Close (Esc)
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-                e.preventDefault();
-                setActiveDrawerContext({ id: 'GLOBAL_SEARCH', title: 'Global Action Hub', type: 'job' });
-            }
-            if (e.key === 'Escape') {
-                setActiveDrawerContext(null);
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    // Disabled in favor of overarching `GlobalCommandPalette`
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || !currentUser?.uid) return;
@@ -143,30 +128,12 @@ export function MissionControlDashboard() {
 
     // System Check
     useEffect(() => {
-        const fetchWorkspaceMeta = async () => {
-            if (!currentUser || !tenantId) return;
-            try {
-                if (tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-                    const res = await api.get(`/businesses/${tenantId}`);
-                    if (res.data && res.data.name) {
-                        setBusinessName(res.data.name);
-                    } else {
-                        setBusinessName('Operations Dashboard');
-                    }
-                } else {
-                    setBusinessName('Unassigned Identity');
-                }
-            } catch (err) {
-                console.error("Failed to load workspace meta", err);
-                setBusinessName('Access Restricted');
-            }
-        };
-        fetchWorkspaceMeta();
+        if (!currentUser || !tenantId) return;
+        // Business name logic moved to Layout
     }, [currentUser, tenantId]);
 
     // Active jobs cache
     const [allJobs, setAllJobs] = useState<any[]>([]);
-    const [isSubmitting, setIsSubmitting] = useState(false);
     
     // Top-Level Clock State
     const [globalClockState, setGlobalClockState] = useState<any>(null);
@@ -240,25 +207,6 @@ export function MissionControlDashboard() {
 
 
     const isSuperAdmin = role === 'system_owner' || role === 'super_admin';
-    const firstName = currentUser?.displayName ? currentUser.displayName.split(' ')[0] : 'Commander';
-
-    const handleImpersonateUser = async (targetUid: string) => {
-        if (!targetUid) return;
-        try {
-            toast.loading("Assume identity...", { id: 'impersonate_dash' });
-            const res = await api.post(`/businesses/${tenantId}/staff/${targetUid}/impersonate`);
-            const { token } = res.data;
-            
-            sessionStorage.setItem('sae_impersonating', 'true');
-            await signInWithCustomToken(auth, token);
-            
-            toast.success("Identity assumed.", { id: 'impersonate_dash' });
-            window.location.reload();
-        } catch (error: any) {
-            console.error("Impersonation failed", error);
-            toast.error(error?.response?.data?.error || "Failed to impersonate identity.", { id: 'impersonate_dash' });
-        }
-    };
 
     const visibleJobsForBoard = useMemo(() => {
         let jobsToConsider = allJobs.map(j => {
@@ -285,59 +233,7 @@ export function MissionControlDashboard() {
             <div className="max-w-[2560px] w-full mx-auto relative z-10 flex-1 flex flex-row overflow-hidden">
                 {/* Main Content Area */}
                 <div className="flex-1 flex flex-col h-full overflow-y-auto custom-scrollbar bg-black/20">
-                    {/* Compact Edge-to-Edge Welcome Ribbon */}
-                    <div className="flex items-center justify-between bg-zinc-900/50 border-b border-zinc-800/80 p-2 px-4 shadow-sm w-full backdrop-blur-sm z-20 sticky top-0 shrink-0">
-                    <div className="flex items-center gap-3">
-                        <Link to="/profile" className="flex items-center gap-3 hover:bg-zinc-800/50 p-1.5 -ml-1.5 rounded-lg transition-colors cursor-pointer group" title="View HR Profile">
-                            <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent font-bold border border-accent/30 shrink-0 overflow-hidden">
-                                {currentUser?.photoURL ? (
-                                    <img src={currentUser.photoURL} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                    <User className="w-4 h-4" />
-                                )}
-                            </div>
-                            <div className="flex flex-col">
-                                <h1 className="text-sm font-black text-white leading-tight tracking-wide group-hover:text-accent transition-colors">Welcome back, {firstName}</h1>
-                                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest leading-none mt-0.5">{businessName}</span>
-                            </div>
-                        </Link>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {(isSuperAdmin || checkPermission('manage_staff')) && allStaff && allStaff.length > 0 && (
-                            <div className="hidden md:flex items-center gap-2">
-                                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">View As</span>
-                                <select 
-                                    value="" 
-                                    onChange={(e) => handleImpersonateUser(e.target.value)}
-                                    className="text-xs bg-zinc-950 border border-zinc-800 text-zinc-300 font-medium rounded-lg px-2 py-1 outline-none focus:border-accent appearance-none cursor-pointer hover:border-zinc-700 transition-colors"
-                                >
-                                    <option value="" disabled>Select User...</option>
-                                    {allStaff.filter(s => s.uid !== currentUser?.uid).map(staff => (
-                                        <option key={staff.uid} value={staff.uid}>
-                                            {staff.firstName} {staff.lastName}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-                        <button
-                            onClick={() => { auth.signOut(); window.location.href = '/login'; }}
-                            className="bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white p-1.5 rounded-lg transition-colors shadow-sm ml-1"
-                            title="Sign Out"
-                        >
-                            <LogOut className="w-4 h-4" />
-                        </button>
-                        {(isSuperAdmin || checkPermission('manage_staff')) && (
-                             <Link to="/business/manage" className="text-[11px] font-black tracking-widest uppercase text-accent bg-accent/10 border border-accent/20 hover:bg-accent hover:text-black px-4 py-2 rounded-lg transition-all shadow-sm flex items-center gap-1.5 shrink-0">
-                                <ShieldCheck className="w-3.5 h-3.5" /> Back Office
-                             </Link>
-                        )}
-                    </div>
-                </div>
-                <div className="p-4 flex flex-col gap-2 md:gap-3 mb-4 shrink-0">
-                    {/* Time Clock App Widget (Visible to Everyone) */}
-                    <TimeClockApp isWidget={true} />
-
+                <div className="p-4 flex flex-col gap-2 md:gap-3 mb-4 shrink-0 mt-2">
                     <MyTasksWidget 
                         allJobs={allJobs} 
                         globalOpenTaskLogs={globalOpenTaskLogs} 

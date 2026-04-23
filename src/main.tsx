@@ -29,7 +29,10 @@ import { Register } from './pages/auth/Register'
 import { ResetPassword } from './pages/auth/ResetPassword'
 import { AuthAction } from './pages/auth/AuthAction'
 import { ProtectedRoute } from './components/ProtectedRoute'
+import { RootRedirect } from './components/RootRedirect'
 import { GlobalAlertsSystem } from './components/GlobalAlertsSystem'
+import { GlobalScannerShortcut } from './components/GlobalScannerShortcut'
+import { GlobalCommandPalette } from './components/GlobalCommandPalette'
 import { UserProfile } from './pages/UserProfile'
 import { SuperAdminDashboard } from './pages/admin/SuperAdminDashboard'
 import { FeaturesPlanner } from './pages/admin/features/FeaturesPlanner'
@@ -60,6 +63,9 @@ import { EstimateHub } from './pages/business/estimates/EstimateHub'
 import { EstimateBuilder } from './pages/business/estimates/EstimateBuilder'
 import { EstimateBuilderV2 } from './pages/business/estimates/EstimateBuilderV2'
 import { Messenger } from './pages/business/Messenger'
+import { MobileDashboard } from './pages/mobile/MobileDashboard'
+import { VehicleCheckInApp } from './pages/business/VehicleCheckInApp'
+import { QrResolver } from './pages/QrResolver'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -74,13 +80,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AppUpdater />
         <GlobalAlertsSystem />
+        <GlobalScannerShortcut />
+        <GlobalCommandPalette />
         <AnalyticsTracker />
         <Routes>
           {/* Full Screen Utility Routes without MainLayout */}
           <Route path="/business/tv" element={<ProtectedRoute><MissionControlDashboard /></ProtectedRoute>} />
           <Route path="/business/:id/kiosk" element={<ProtectedRoute><TimeclockKiosk /></ProtectedRoute>} />
           <Route path="/business/:tenantId/estimate/:jobId/print" element={<ProtectedRoute><EstimatePrintView /></ProtectedRoute>} />
-
           {/* Reference Demos / Public Mockups */}
           <Route path="/example/jobs/mock" element={<MockJob />} />
           <Route path="/example/ops" element={<OpsMissionControl />} />
@@ -89,9 +96,19 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route path="/example/hero" element={<PublicHero />} />
           <Route path="/example/customer" element={<CustomerPortal />} />
 
+          {/* Core Hardware Routing Endpoint */}
+          <Route path="/qr/:tagId" element={<QrResolver />} />
+
           <Route element={<MainLayout />}>
+            {/* Authentic UI Tool Routes */}
+            <Route path="/mobile" element={<ProtectedRoute><MobileDashboard /></ProtectedRoute>} />
+            <Route path="/business/vehicles" element={<ProtectedRoute><VehicleCheckInApp /></ProtectedRoute>} />
+            <Route path="/business/vehicles/:jobId" element={<ProtectedRoute><VehicleCheckInApp /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+            <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
+
             {/* Public Routes */}
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
@@ -118,7 +135,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             {/* --- Authenticated Routes --- */}
             <Route path="/workspace" element={<ProtectedRoute><WorkspaceHub /></ProtectedRoute>} />
             <Route path="/workspace/notices" element={<ProtectedRoute><NoticesBoard /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute requireSuperAdmin={true}><SuperAdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/features" element={<ProtectedRoute requireSuperAdmin={true}><FeaturesPlanner /></ProtectedRoute>} />
             <Route path="/admin/features/:id" element={<ProtectedRoute requireSuperAdmin={true}><FeatureDetail /></ProtectedRoute>} />
@@ -135,7 +151,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/business/ops" element={<ProtectedRoute><OpsMissionControl /></ProtectedRoute>} />
             <Route path="/business/canvases" element={<ProtectedRoute><WorkflowWhiteboards /></ProtectedRoute>} />
             <Route path="/business/meetings" element={<ProtectedRoute><MeetingsDashboard /></ProtectedRoute>} />
-            <Route path="/business/time" element={<ProtectedRoute><TimeClockApp /></ProtectedRoute>} />
             <Route path="/business/tech" element={<ProtectedRoute><TechPortal /></ProtectedRoute>} />
             <Route path="/business/tech/task/:jobId/:taskIndexStr" element={<ProtectedRoute><TechTaskWorkspace /></ProtectedRoute>} />
             <Route path="/business/jobs" element={<ProtectedRoute><EstimateHub /></ProtectedRoute>} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Truck, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, FileText, Tag, BarChart3, Settings2, Activity, ChevronRight, Hash, FlaskConical } from 'lucide-react';
+import { Truck, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, FileText, Tag, BarChart3, Settings2, Activity, ChevronRight, Hash, FlaskConical, QrCode } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
@@ -139,6 +139,40 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
         } catch (err) {
             toast.error("Failed to remove vehicle");
         }
+    };
+
+    const handleGenerateBatchTags = () => {
+        const count = parseInt(window.prompt("How many QR tracking tags would you like to generate?", "50") || "0", 10);
+        if (!count || isNaN(count) || count <= 0) return;
+        if (count > 1000) {
+            toast.error("Please generate 1000 tags or fewer at a time.");
+            return;
+        }
+
+        const generateRandomHash = () => {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let str = '';
+            for (let i = 0; i < 12; i++) {
+                str += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return str;
+        };
+        
+        let csvContent = "data:text/csv;charset=utf-8,Tracking_ID,QR_URL\n";
+        for (let i = 0; i < count; i++) {
+            const hash = generateRandomHash();
+            const url = `https://upfittersos.com/qr/${hash}`;
+            csvContent += `${hash},${url}\n`;
+        }
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `upfitters_qr_tags_batch_${Date.now()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success(`Exported ${count} tags to CSV!`, { icon: '🖨️' });
     };
 
     const getCustomerName = (cId: string) => {
@@ -436,12 +470,20 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                         Live
                     </div>
                     {canManageVehicles && (
-                        <button 
-                            onClick={openAddVehicle}
-                            className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
-                        >
-                            <Plus className="w-4 h-4" /> Register Asset
-                        </button>
+                        <>
+                            <button
+                                onClick={handleGenerateBatchTags}
+                                className="bg-zinc-800 hover:bg-zinc-700 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm border border-zinc-700 hidden sm:flex"
+                            >
+                                <QrCode className="w-4 h-4 text-indigo-400" /> Export QR Batch
+                            </button>
+                            <button 
+                                onClick={openAddVehicle}
+                                className="bg-accent hover:bg-accent-hover text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 transition-colors text-sm"
+                            >
+                                <Plus className="w-4 h-4" /> Register Asset
+                            </button>
+                        </>
                     )}
                 </div>
             </div>

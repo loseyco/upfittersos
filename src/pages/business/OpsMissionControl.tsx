@@ -14,6 +14,7 @@ export function OpsMissionControl() {
     const canView = checkPermission('manage_jobs');
     const [jobs, setJobs] = useState<any[]>([]);
     const [vehicles, setVehicles] = useState<any[]>([]);
+    const [feedEvents, setFeedEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -51,9 +52,18 @@ export function OpsMissionControl() {
             console.error("Error fetching vehicles:", error);
         });
 
+        const qFeed = query(collection(db, 'businesses', tenantId, 'activity_feed'));
+        const unsubFeed = onSnapshot(qFeed, (snapshot) => {
+            const evts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Manual sort to bypass missing composite index in firestore emulator
+            evts.sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setFeedEvents(evts);
+        }, (err) => console.error(err));
+
         return () => {
             unsubJobs();
             unsubVehicles();
+            unsubFeed();
         };
     }, [tenantId]);
 
@@ -318,13 +328,13 @@ export function OpsMissionControl() {
                                 Live Dispatch Stream
                             </h3>
                             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
-                                {activeJobs.length > 0 ? (
-                                    activeJobs.slice(0, 3).map((job, idx) => (
-                                        <div key={job.id} className="flex gap-3 text-sm">
-                                            <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0"></div>
+                                {feedEvents.length > 0 ? (
+                                    feedEvents.slice(0, 5).map((evt) => (
+                                        <div key={evt.id} className="flex gap-3 text-sm">
+                                            <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 animate-pulse ${evt.type === 'qbwc_sync' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
                                             <div>
-                                                <p className="text-zinc-300"><span className="text-white font-bold">Bay {idx+1} Update:</span> Working on {job.vehicleId ? getVehicleDetails(job.vehicleId) : 'Asset'}</p>
-                                                <p className="text-[10px] text-zinc-500 mt-1 font-mono">Just now</p>
+                                                <p className="text-zinc-300"><span className="text-white font-bold">{evt.title}:</span> {evt.message}</p>
+                                                <p className="text-[10px] text-zinc-500 mt-1 font-mono">{new Date(evt.createdAt).toLocaleString()}</p>
                                             </div>
                                         </div>
                                     ))

@@ -26,3 +26,9 @@ dist-ssr
 *.txt
 co_founder_notes.md
 .firebase/hosting.*.cache
+
+*.qbw
+*.TLG
+*.ND
+*.DSN
+QuickBooksAutoDataRecovery/

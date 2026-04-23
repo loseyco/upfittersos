@@ -22,6 +22,7 @@ export type PermissionKey =
   | 'manage_meetings'
   | 'view_areas'
   | 'manage_areas'
+  | 'manage_intake'
   | 'bypass_kiosk_timeclock'
   | 'view_audit_logs'
   | 'view_deliveries'
@@ -37,7 +38,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_areas: true, manage_areas: true,
     view_inventory: true, manage_inventory: true,
     manage_canvases: true, manage_qa: true, manage_tasks: true,
-    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
+    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true, manage_intake: true,
     manage_timesheets: true, view_financials: true, view_audit_logs: true,
     view_facility_map: true, manage_facility_map: true, 
     view_deliveries: true, manage_deliveries: true,
@@ -51,7 +52,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_inventory: true, manage_inventory: true,
     view_areas: true, manage_areas: true,
     manage_canvases: true, manage_qa: true, manage_tasks: true,
-    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
+    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true, manage_intake: true,
     manage_timesheets: true, view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true, view_audit_logs: true,
     view_deliveries: true, manage_deliveries: true,
@@ -65,7 +66,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_inventory: true, manage_inventory: true,
     view_areas: true, manage_areas: true,
     manage_canvases: true, manage_qa: true, manage_tasks: true,
-    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true,
+    view_meetings: true, manage_meetings: true, bypass_kiosk_timeclock: true, manage_intake: true,
     manage_timesheets: true, view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true, view_audit_logs: true,
     view_deliveries: true, manage_deliveries: true,
@@ -102,5 +103,6 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string, descripti
   view_audit_logs: { label: "View Audit Logs", description: "Access security telemetry and internal audit history." },
   view_deliveries: { label: "View Deliveries", description: "Read-only access to tracked packages and shipments." },
   manage_deliveries: { label: "Manage Deliveries", description: "Log new incoming packages and update package statuses." },
+  manage_intake: { label: "Vehicle Intake", description: "Process arriving vehicles and snap walkaround photos." },
   super_admin_core: { label: "Super Admin Core", description: "Global platform diagnostics." }
 };

@@ -5,6 +5,7 @@ import { doc, onSnapshot, collection, query, where, updateDoc, addDoc } from 'fi
 import { Play, Square, Loader2, ShieldCheck, ChevronRight, ChevronLeft, ArrowLeft, Clock, User, Wrench, Camera, Plus, Lock, Unlock, Zap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { logBusinessActivity } from '../../lib/activityLogger';
+import { LocationHistoryTimeline } from './LocationHistoryTimeline';
 
 export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: string, allStaff?: any[], focusTask?: string }) {
     const { tenantId, currentUser } = useAuth();
@@ -583,8 +584,12 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
 
             {/* Main Content */}
             <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
-                <div className="max-w-4xl mx-auto space-y-4">
-                    <h2 className="text-sm font-black text-white uppercase tracking-widest border-b border-zinc-800 pb-2 mb-6">Work Order Tasks</h2>
+                <div className="max-w-4xl mx-auto space-y-6">
+                    
+                    <LocationHistoryTimeline history={job.locationHistory} />
+
+                    <div className="space-y-4">
+                        <h2 className="text-sm font-black text-white uppercase tracking-widest border-b border-zinc-800 pb-2 mb-6">Work Order Tasks</h2>
                     
                     {(job.tasks || []).map((task: any, idx: number) => {
                         const activeLogsForTask = openLogs.filter(l => l.taskName === task.title);
@@ -647,6 +652,7 @@ export function JobExecutionPortal({ jobId, allStaff, focusTask }: { jobId: stri
                             No tasks found on this Work Order.
                         </div>
                     )}
+                    </div>
                 </div>
             </div>
 

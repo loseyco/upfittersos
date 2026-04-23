@@ -32,7 +32,7 @@ import * as YAML from 'yamljs';
 import * as path from 'path';
 import { companyCamRoutes } from './routes/companyCam.routes';
 import { scanRoutes } from './routes/scan.routes';
-import { qboRoutes } from './routes/qbo.routes';
+import { qbwcRoutes } from './routes/qbwc.routes';
 import { unitRoutes } from './routes/units.routes';
 import { inventoryRoutes } from './routes/inventory.routes';
 import { tasksRoutes } from './routes/tasks.routes';
@@ -937,13 +937,7 @@ app.use('/units', unitRoutes);
 app.use('/inventory', inventoryRoutes);
 
 // --- QuickBooks Integration ---
-app.use('/qbo', qboRoutes);
-
-app.get('/testqbo', (req, res) => {
-    const { QboService } = require('./services/qbo.service');
-    const service = new QboService("123");
-    res.json({ url: service.getAuthorizationUrl() });
-});
+app.use('/qbwc', qbwcRoutes);
 
 // --- Assigned Tasks ---
 app.use('/tasks', tasksRoutes);

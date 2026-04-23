@@ -4,6 +4,7 @@ import { Clock, Coffee, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { db } from '../lib/firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { useLocationTracker } from '../hooks/useLocationTracker';
 
 export function GlobalTimeTracker() {
     const { currentUser, tenantId } = useAuth();
@@ -12,6 +13,10 @@ export function GlobalTimeTracker() {
     const [elapsedTime, setElapsedTime] = useState<string>('00:00:00');
     const [elapsedTaskTime, setElapsedTaskTime] = useState<string | null>(null);
     const [elapsedBreakTime, setElapsedBreakTime] = useState<string | null>(null);
+
+    // Track user location while they are actively clocked in
+    useLocationTracker(tenantId || '', currentUser?.uid || '', !!activeLog);
+
     
     // Subscribe to primary Time Logs
     useEffect(() => {

@@ -27,10 +27,15 @@ export function Login() {
             const tenantId = idTokenResult.claims.tenantId;
             const role = idTokenResult.claims.role;
             
+            const isMobileDevice = window.innerWidth <= 768;
             if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-                navigate('/dashboard');
+                if (isMobileDevice) {
+                    navigate('/mobile');
+                } else {
+                    navigate('/dashboard');
+                }
             } else {
                 navigate('/profile');
             }
@@ -102,10 +107,15 @@ export function Login() {
             const tenantId = idTokenResult.claims.tenantId;
             const role = idTokenResult.claims.role;
             
+            const isMobileDevice = window.innerWidth <= 768;
             if (role === 'system_owner' || role === 'super_admin') {
                 navigate('/admin');
             } else if (tenantId && tenantId !== 'GLOBAL' && tenantId !== 'unassigned') {
-                navigate('/dashboard');
+                if (isMobileDevice) {
+                    navigate('/mobile');
+                } else {
+                    navigate('/dashboard');
+                }
             } else {
                 navigate('/profile');
             }

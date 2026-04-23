@@ -195,6 +195,7 @@ exports.jobsRoutes.post('/', auth_middleware_1.authenticate, async (req, res) =>
 });
 // PUT /jobs/:id - Update a job
 exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) => {
+    var _a, _b;
     try {
         const caller = req.user;
         const jobId = req.params.id;
@@ -208,7 +209,7 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this job.' });
         }
-        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, archived, dropoffEta, completionEta, editLog, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions, lockedTaxRate, isChangeOrder, parentJobId, parentJobRefNum } = req.body;
+        const { title, description, status, priority, customerId, vehicleId, assignedStaffId, tags, dueDate, notes, tasks, parts, laborLines, bookTimeTotal, actualTimeTotal, skipCompanyCamSync, archived, dropoffEta, completionEta, editLog, sopSupplies, shipping, discount, desiredDropoffDate, desiredPickupDate, salesNotes, customerMeetingNotes, salesQuestions, lockedTaxRate, isChangeOrder, parentJobId, parentJobRefNum, parkedLocation, checkInNotes, vinVerified, intakePhotos, vehicleDetails, companyCamProjectId } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (title !== undefined)
             updates.title = title;
@@ -274,6 +275,41 @@ exports.jobsRoutes.put('/:id', auth_middleware_1.authenticate, async (req, res) 
             updates.parentJobId = parentJobId;
         if (parentJobRefNum !== undefined)
             updates.parentJobRefNum = parentJobRefNum;
+        if (parkedLocation !== undefined) {
+            const currentData = jobData;
+            if (parkedLocation !== currentData.parkedLocation) {
+                updates.parkedLocation = parkedLocation;
+                let history = currentData.locationHistory || [];
+                // Close out the most recent open entry
+                if (history.length > 0 && !history[history.length - 1].exitedAt) {
+                    history[history.length - 1].exitedAt = new Date().toISOString();
+                }
+                // Open new entry if not "Unknown / Pending"
+                if (parkedLocation !== "") {
+                    history.push({
+                        location: parkedLocation,
+                        enteredAt: new Date().toISOString(),
+                        exitedAt: null,
+                        movedByUid: ((_a = req.user) === null || _a === void 0 ? void 0 : _a.uid) || 'Unknown',
+                        movedByEmail: ((_b = req.user) === null || _b === void 0 ? void 0 : _b.email) || 'Unknown'
+                    });
+                }
+                updates.locationHistory = history;
+            }
+            else {
+                updates.parkedLocation = parkedLocation;
+            }
+        }
+        if (checkInNotes !== undefined)
+            updates.checkInNotes = checkInNotes;
+        if (vinVerified !== undefined)
+            updates.vinVerified = vinVerified;
+        if (intakePhotos !== undefined)
+            updates.intakePhotos = intakePhotos;
+        if (vehicleDetails !== undefined)
+            updates.vehicleDetails = vehicleDetails;
+        if (companyCamProjectId !== undefined)
+            updates.companyCamProjectId = companyCamProjectId;
         await jobRef.update(updates);
         const updatedJobData = Object.assign(Object.assign({}, jobData), updates);
         return res.json(Object.assign({ id: jobId }, updatedJobData));

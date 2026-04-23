@@ -70,15 +70,15 @@ inventoryRoutes.post('/', authenticate, async (req: Request, res: Response): Pro
             // Check if QBO is authenticated
             if (bizData?.qboAccessToken) {
                 // Import QboService dynamically to avoid circular references if any
-                const { QboService } = require('../services/qbo.service');
-                const qboService = new QboService(tenantId);
+                const { QbwcService } = require('../services/qbwc.service');
+                const qbwcService = new QbwcService(tenantId);
                 
                 // These defaults should ideally be configured per-tenant in business settings, but we fallback.
                 const assetAcc = bizData.qboDefaultAssetAccountRef || '79'; // Inventory Asset
                 const incomeAcc = bizData.qboDefaultIncomeAccountRef || '1'; // Sales of Product Income
                 const expenseAcc = bizData.qboDefaultExpenseAccountRef || '55'; // Cost of Goods Sold
 
-                const qboRes = await qboService.syncItemToQBO(
+                const qboRes = await qbwcService.syncItemToQBO(
                     payload.sku || `ITEM-${newItemRef.id}`, 
                     payload.name || `Asset ${newItemRef.id}`, 
                     payload.description || '', 
@@ -89,8 +89,9 @@ inventoryRoutes.post('/', authenticate, async (req: Request, res: Response): Pro
                     expenseAcc
                 );
                 
-                if (qboRes?.Item?.Id) {
-                    await newItemRef.update({ qboItemId: qboRes.Item.Id });
+                // Note: since QbwcService queues the command instead of directly hitting REST, qboRes won't immediately return Item ID.
+                if (qboRes && (qboRes as any).Item?.Id) {
+                    await newItemRef.update({ qboItemId: (qboRes as any).Item.Id });
                 }
             }
         } catch (qboErr: any) {
@@ -306,8 +307,8 @@ inventoryRoutes.post('/:id/log', authenticate, async (req: Request, res: Respons
             if (afterData.qboItemId) {
                 const bizDoc = await db.collection('businesses').doc(afterData.tenantId).get();
                 if (bizDoc.exists && bizDoc.data()?.qboAccessToken) {
-                    const { QboService } = require('../services/qbo.service');
-                    const qboService = new QboService(afterData.tenantId);
+                    const { QbwcService } = require('../services/qbwc.service');
+                    const qbwcService = new QbwcService(afterData.tenantId);
                     
                     // Uses a default COGS/Shrinkage account 
                     const adjAccountRef = bizDoc.data()?.qboDefaultAdjustmentAccountRef || '62'; 
@@ -326,7 +327,7 @@ inventoryRoutes.post('/:id/log', authenticate, async (req: Request, res: Respons
                     }
 
                     if (qtyDiff !== 0) {
-                        await qboService.adjustInventoryQuantity(afterData.qboItemId, adjAccountRef, qtyDiff);
+                        await qbwcService.adjustInventoryQuantity(afterData.qboItemId, adjAccountRef, qtyDiff);
                     }
                 }
             }

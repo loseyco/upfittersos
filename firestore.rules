@@ -169,6 +169,33 @@ service cloud.firestore {
       match /business_events/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /qb_items/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_customers/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_accounts/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_vendors/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_employees/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_estimates/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_invoices/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_purchase_orders/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_bills/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
     }
   }
 }

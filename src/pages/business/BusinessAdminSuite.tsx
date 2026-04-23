@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, ArrowLeft, Activity, ScanLine, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock, Megaphone, Camera, Package, FolderKanban } from 'lucide-react';
+import { Building2, Users, ArrowLeft, Activity, ScanLine, Search, Loader2, ShieldAlert, Truck, Briefcase, Settings, DollarSign, BarChart3, MessageSquare, ClipboardList, Map as MapIcon, MapPin, Clock, Megaphone, Camera, Package, FolderKanban, Database } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { StaffAdminTab } from './admin/StaffAdminTab';
@@ -23,6 +23,7 @@ import { TimeAdminTab } from './admin/TimeAdminTab';
 import { CompanyCamTestTab } from './admin/CompanyCamTestTab';
 import { AuditLogsTab } from './admin/AuditLogsTab';
 import { DeliveriesAdminTab } from './admin/DeliveriesAdminTab';
+import { QuickBooksAdminTab } from './admin/QuickBooksAdminTab';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
@@ -130,7 +131,8 @@ export function BusinessAdminSuite() {
         ...(checkPermission('manage_settings') ? [{ id: 'departments', label: 'Departments', icon: FolderKanban }] : []),
         ...(checkPermission('manage_roles') && !isHidden('roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
         ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
-        // Global & Utilities
+        // Internal Infrastructure
+        ...(checkPermission('manage_settings') ? [{ id: 'quickbooks', label: 'QuickBooks Sync', icon: Database }] : []),
         ...(checkPermission('manage_settings') && !isHidden('notices') ? [{ id: 'notices', label: 'Global Notices', icon: Megaphone }] : []),
         ...(checkPermission('manage_settings') && !isHidden('feedback') ? [{ id: 'feedback', label: 'Feedback & Ideas', icon: MessageSquare }] : []),
         ...(checkPermission('view_audit_logs') && !isHidden('audit') ? [{ id: 'audit', label: 'Security & Audit Logs', icon: ShieldAlert }] : []),
@@ -247,20 +249,35 @@ export function BusinessAdminSuite() {
                         <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest hidden md:block">Workspace Management</span>
                     </div>
                     {/* Mobile Quit Button */}
-                    <button 
-                        onClick={() => navigate('/dashboard')}
-                        className="md:hidden flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 transition-colors"
-                    >
-                        <ArrowLeft className="w-4 h-4" /> Back to Dashboard
-                    </button>
+                    <div className="md:hidden flex items-center gap-2">
+                        <button
+                            onClick={() => window.dispatchEvent(new CustomEvent('open-global-search'))}
+                            className="px-2 py-1.5 rounded-lg text-xs font-bold text-indigo-400 hover:text-white bg-indigo-500/10 border border-indigo-500/20 transition-colors shadow-sm"
+                        >
+                            <Search className="w-4 h-4" />
+                        </button>
+                        <button 
+                            onClick={() => navigate('/dashboard')}
+                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 transition-colors"
+                        >
+                            <ArrowLeft className="w-4 h-4" /> Back
+                        </button>
+                    </div>
                 </div>
 
-                <div className="pt-4 px-4 hidden md:block shrink-0">
+                <div className="pt-4 px-4 hidden md:flex items-center gap-2 shrink-0">
                     <button 
                         onClick={() => navigate('/dashboard')}
-                        className="w-full flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/80 border border-zinc-800/50 hover:border-zinc-700 transition-all shadow-sm"
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900/50 hover:bg-zinc-800/80 border border-zinc-800/50 hover:border-zinc-700 transition-all shadow-sm"
                     >
                         <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" /> Back to Dashboard
+                    </button>
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('open-global-search'))}
+                        className="px-3 py-2.5 rounded-lg text-xs font-bold text-indigo-400 hover:text-white bg-indigo-500/10 border border-indigo-500/20 transition-colors shadow-sm"
+                        title="Search Command Hub"
+                    >
+                        <Search className="w-4 h-4" />
                     </button>
                 </div>
 
@@ -299,6 +316,7 @@ export function BusinessAdminSuite() {
                     { activeTab === 'inventory' && <InventoryAdminTab tenantId={tenantId} /> }
                     { activeTab === 'time' && <TimeAdminTab tenantId={tenantId} /> }
                     { activeTab === 'finances' && <FinancesAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'quickbooks' && <QuickBooksAdminTab tenantId={tenantId} /> }
                     { activeTab === 'reports' && <ReportsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'feedback' && <FeedbackAdminTab tenantId={tenantId} /> }
                     { activeTab === 'notices' && <NoticesAdminTab tenantId={tenantId} /> }

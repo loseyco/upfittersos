@@ -90,14 +90,15 @@ exports.inventoryRoutes.post('/', auth_middleware_1.authenticate, async (req, re
             // Check if QBO is authenticated
             if (bizData === null || bizData === void 0 ? void 0 : bizData.qboAccessToken) {
                 // Import QboService dynamically to avoid circular references if any
-                const { QboService } = require('../services/qbo.service');
-                const qboService = new QboService(tenantId);
+                const { QbwcService } = require('../services/qbwc.service');
+                const qbwcService = new QbwcService(tenantId);
                 // These defaults should ideally be configured per-tenant in business settings, but we fallback.
                 const assetAcc = bizData.qboDefaultAssetAccountRef || '79'; // Inventory Asset
                 const incomeAcc = bizData.qboDefaultIncomeAccountRef || '1'; // Sales of Product Income
                 const expenseAcc = bizData.qboDefaultExpenseAccountRef || '55'; // Cost of Goods Sold
-                const qboRes = await qboService.syncItemToQBO(payload.sku || `ITEM-${newItemRef.id}`, payload.name || `Asset ${newItemRef.id}`, payload.description || '', payload.price || 0, payload.quantityOnHand || 0, assetAcc, incomeAcc, expenseAcc);
-                if ((_a = qboRes === null || qboRes === void 0 ? void 0 : qboRes.Item) === null || _a === void 0 ? void 0 : _a.Id) {
+                const qboRes = await qbwcService.syncItemToQBO(payload.sku || `ITEM-${newItemRef.id}`, payload.name || `Asset ${newItemRef.id}`, payload.description || '', payload.price || 0, payload.quantityOnHand || 0, assetAcc, incomeAcc, expenseAcc);
+                // Note: since QbwcService queues the command instead of directly hitting REST, qboRes won't immediately return Item ID.
+                if (qboRes && ((_a = qboRes.Item) === null || _a === void 0 ? void 0 : _a.Id)) {
                     await newItemRef.update({ qboItemId: qboRes.Item.Id });
                 }
             }
@@ -299,8 +300,8 @@ exports.inventoryRoutes.post('/:id/log', auth_middleware_1.authenticate, async (
             if (afterData.qboItemId) {
                 const bizDoc = await db.collection('businesses').doc(afterData.tenantId).get();
                 if (bizDoc.exists && ((_a = bizDoc.data()) === null || _a === void 0 ? void 0 : _a.qboAccessToken)) {
-                    const { QboService } = require('../services/qbo.service');
-                    const qboService = new QboService(afterData.tenantId);
+                    const { QbwcService } = require('../services/qbwc.service');
+                    const qbwcService = new QbwcService(afterData.tenantId);
                     // Uses a default COGS/Shrinkage account 
                     const adjAccountRef = ((_b = bizDoc.data()) === null || _b === void 0 ? void 0 : _b.qboDefaultAdjustmentAccountRef) || '62';
                     let qtyDiff = Number(quantityChange);
@@ -318,7 +319,7 @@ exports.inventoryRoutes.post('/:id/log', auth_middleware_1.authenticate, async (
                             qtyDiff = -qtyDiff;
                     }
                     if (qtyDiff !== 0) {
-                        await qboService.adjustInventoryQuantity(afterData.qboItemId, adjAccountRef, qtyDiff);
+                        await qbwcService.adjustInventoryQuantity(afterData.qboItemId, adjAccountRef, qtyDiff);
                     }
                 }
             }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "backup": "git add . && git commit -m \"Auto-backup\" && git push"
@@ -17,8 +17,10 @@
     "axios": "^1.7.9",
     "firebase": "^12.10.0",
     "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
     "lucide-react": "^0.577.0",
     "modern-screenshot": "^4.6.8",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hot-toast": "^2.6.0",

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<QBWCXML>
+   <AppName>SAE Group OS - Testing V0.1.1</AppName>
+   <AppID></AppID>
+   <AppURL>https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc</AppURL>
+   <AppDescription>Test Integration for SAE Group OS</AppDescription>
+   <AppSupport>https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc</AppSupport>
+   <UserName>6Jv3VUr8lwHmE19gGSAR</UserName>
+   <OwnerID>{E35D9B4A-7A12-4C3D-8B8E-1C2D3E4F5A6B}</OwnerID>
+   <FileID>{C12A345B-6789-4D0E-F12A-3B4C5D6E7F8A}</FileID>
+   <QBType>QBFS</QBType>
+   <Scheduler>
+      <RunEveryNMinutes>5</RunEveryNMinutes>
+   </Scheduler>
+   <IsReadOnly>false</IsReadOnly>
+</QBWCXML>
