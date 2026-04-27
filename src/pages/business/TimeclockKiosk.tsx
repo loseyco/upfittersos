@@ -117,14 +117,10 @@ export function TimeclockKiosk() {
                         <ul className="space-y-4">
                             <li className="flex items-start gap-4">
                                 <span className="bg-accent text-white w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">1</span>
-                                <p className="text-zinc-400">Open the Upfitters OS scanning camera scanner on your phone.</p>
-                            </li>
-                            <li className="flex items-start gap-4">
-                                <span className="bg-accent text-white w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</span>
                                 <p className="text-zinc-400">Scan the secure QR Code on the right.</p>
                             </li>
                             <li className="flex items-start gap-4">
-                                <span className="bg-accent text-white w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">3</span>
+                                <span className="bg-accent text-white w-6 h-6 rounded-full flex items-center justify-center font-bold text-sm shrink-0">2</span>
                                 <p className="text-zinc-400">Confirm your punch in the app.</p>
                             </li>
                         </ul>

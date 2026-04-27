@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { MapPolygonNode } from './canvas/MapPolygonNode';
 import { MapBackgroundNode } from './canvas/MapBackgroundNode';
 import { db } from '../../../lib/firebase';
-import { doc, setDoc, onSnapshot, deleteDoc, arrayUnion, query, collection, where } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, deleteDoc, arrayUnion, query, collection, where, writeBatch } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Loader2, Save, X, Plus, Layers, Image as ImageIcon, MousePointer2, PenTool, Trash2, MapPin, Square, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -45,6 +45,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
     const [activeFloorId, setActiveFloorId] = useState<string>('default');
     const [floors, setFloors] = useState<{id: string, name: string}[]>([{id: 'default', name: 'Ground Floor'}]);
     const [baseImages, setBaseImages] = useState<Record<string, string>>({});
+    const [baseImageScales, setBaseImageScales] = useState<Record<string, number>>({});
     const [availableAreas, setAvailableAreas] = useState<any[]>([]);
     const [activeJobs, setActiveJobs] = useState<any[]>([]);
     
@@ -196,15 +197,16 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                     draggable: canManage && n.id === selectedNodeId,
                     data: {
                         ...n.data,
+                        color: getColorForType((n.data.type as string) || 'Other'),
                         ...jobData,
                         tenantId,
                         canManage,
-                        disableTooltip: !!focusId,
+                        disableTooltip: !!focusId || isDrawing,
                         onPointsUpdated: canManage ? handlePointsUpdate : () => {}
                     }
                 };
             });
-    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate, canManage, activeJobs, allVehicles, allStaff]);
+    }, [allNodes, activeFloorId, selectedNodeId, handlePointsUpdate, canManage, activeJobs, allVehicles, allStaff, focusId, isDrawing]);
     // Add Object Modal State
     const [isObjectModalOpen, setIsObjectModalOpen] = useState(false);
     const [objFormData, setObjFormData] = useState({ name: 'New Object', widthFt: 10, lengthFt: 10, type: 'Equipment', wallHeight: 8 });
@@ -237,11 +239,13 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                             if (b && b.addressStreet && b.addressCity) {
                                 const fullAddr = `${b.addressStreet}, ${b.addressCity}, ${b.addressState || ''} ${b.addressZip || ''}`.trim();
                                 setBaseImages({ 'default': `address:${fullAddr}` });
+                                if (data.baseImageScales) setBaseImageScales(data.baseImageScales);
                                 hasUnsavedChangesRef.current = true;
                             }
                         }).catch(console.error);
                     } else {
                         setBaseImages(data.baseImages);
+                        if (data.baseImageScales) setBaseImageScales(data.baseImageScales);
                     }
                     
                     setIsLoading(false);
@@ -385,8 +389,24 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                 nodes: nodesToSave,
                 floors: floorsToSave,
                 baseImages: imagesToSave,
+                baseImageScales,
                 updatedAt: new Date()
             }, { merge: true });
+
+            // Backfill and cross-sync all drawn geometries so they natively appear in the Area Registry
+            const batch = writeBatch(db);
+            nodesToSave.forEach(n => {
+                const zoneRef = doc(db, 'business_zones', n.id);
+                batch.set(zoneRef, {
+                    ...n.data,
+                    id: n.id,
+                    tenantId,
+                    lastModifiedBy: 'System (Bulk Sync)',
+                    updatedAt: new Date().toISOString()
+                }, { merge: true });
+            });
+            await batch.commit();
+
             hasUnsavedChangesRef.current = false;
         } catch (err) {
             console.error("Failed to save map", err);
@@ -394,7 +414,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
         } finally {
             setIsSaving(false);
         }
-    }, [tenantId, floors, baseImages]);
+    }, [tenantId, floors, baseImages, baseImageScales]);
 
     useEffect(() => {
         if (!isCanvasLoaded || !hasUnsavedChangesRef.current) return;
@@ -402,7 +422,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
             handleSave();
         }, 1500);
         return () => clearTimeout(timer);
-    }, [allNodes, isCanvasLoaded, handleSave]);
+    }, [allNodes, baseImages, baseImageScales, isCanvasLoaded, handleSave]);
 
     // Handle React Flow changes (just for moving existing nodes)
     const onNodesChange = useCallback((changes: NodeChange[]) => {
@@ -452,8 +472,13 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
             return;
         }
         
-        // Use standard browser coordinates and strictly rely on screenToFlowPosition
-        const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        let position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        if (!event.shiftKey) { // Snap by default, hold shift to free-draw
+            position = {
+                x: Math.round(position.x / 5) * 5,
+                y: Math.round(position.y / 5) * 5
+            };
+        }
         
         setCurrentPolygonPoints(prev => [...prev, position]);
     }, [isDrawing, screenToFlowPosition]);
@@ -470,7 +495,13 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
     // Handle mouse movement for temp line during drawing
     const onPaneMouseMove = useCallback((event: React.MouseEvent) => {
         if (!isDrawing || currentPolygonPoints.length === 0 || liveDragVertexIdx !== null) return;
-        const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        let position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        if (!event.shiftKey) { // Snap by default, hold shift to free-draw
+            position = {
+                x: Math.round(position.x / 5) * 5,
+                y: Math.round(position.y / 5) * 5
+            };
+        }
         setTempMousePos(position);
     }, [isDrawing, currentPolygonPoints.length, screenToFlowPosition, liveDragVertexIdx]);
 
@@ -577,7 +608,92 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
     const handleKeyDown = useCallback((e: KeyboardEvent) => {
         if (!canManage) return;
         if (!isDrawing) {
-            if (selectedNodeId && (e.key === 'Delete' || e.key === 'Backspace')) {
+            if (selectedNodeId && (e.key === 'd' || e.key === 'D') && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                const nodeToCopy = allNodes.find(n => n.id === selectedNodeId);
+                if (nodeToCopy) {
+                    const newId = `zone_${Date.now()}`;
+                    const newNode = {
+                        ...nodeToCopy,
+                        id: newId,
+                        selected: true,
+                        position: { x: nodeToCopy.position.x + 20, y: nodeToCopy.position.y + 20 },
+                        data: {
+                            ...nodeToCopy.data,
+                            label: (nodeToCopy.data.label ? nodeToCopy.data.label + ' (Copy)' : 'Unassigned Geometry')
+                        }
+                    };
+                    setAllNodes(prev => [...prev.map(n => ({...n, selected: false})), newNode]);
+                    hasUnsavedChangesRef.current = true;
+                    setSelectedNodeId(newId);
+                    
+                    if (tenantId && tenantId !== 'GLOBAL') {
+                        const cleanData = Object.fromEntries(Object.entries(newNode.data || {}).filter(([_, v]) => typeof v !== 'function'));
+                        setDoc(doc(db, 'business_zones', newId), {
+                            ...cleanData,
+                            id: newId,
+                            tenantId,
+                            createdAt: new Date().toISOString(),
+                            updatedAt: new Date().toISOString(),
+                            createdBy: user?.displayName || user?.email || 'System (Duplicate)',
+                            lastModifiedBy: user?.displayName || user?.email || 'System (Duplicate)'
+                        }).catch(console.error);
+                    }
+                    toast.success('Node Duplicated');
+                }
+            } else if (selectedNodeId && (e.key === 'r' || e.key === 'R')) {
+                const nodeToRotate = allNodes.find(n => n.id === selectedNodeId);
+                if (nodeToRotate) {
+                    const cx = (nodeToRotate.data.width as number) / 2;
+                    const cy = (nodeToRotate.data.height as number) / 2;
+                    const angle = e.shiftKey ? -15 : 15;
+                    const rad = angle * Math.PI / 180;
+                    const cos = Math.cos(rad);
+                    const sin = Math.sin(rad);
+
+                    const newPoints = (nodeToRotate.data.points as {x: number, y: number}[]).map(p => {
+                        const nx = (cos * (p.x - cx)) + (sin * (p.y - cy)) + cx;
+                        const ny = (cos * (p.y - cy)) - (sin * (p.x - cx)) + cy;
+                        return { x: nx, y: ny };
+                    });
+
+                    const bbox = computeBoundingBox(newPoints);
+                    const normPoints = newPoints.map(p => ({
+                        x: p.x - bbox.minX,
+                        y: p.y - bbox.minY
+                    }));
+                    
+                    const newPosX = nodeToRotate.position.x + bbox.minX;
+                    const newPosY = nodeToRotate.position.y + bbox.minY;
+
+                    setAllNodes(prev => prev.map(n => {
+                        if (n.id === selectedNodeId) {
+                            return {
+                                ...n,
+                                position: { x: newPosX, y: newPosY },
+                                data: {
+                                    ...n.data,
+                                    width: bbox.width,
+                                    height: bbox.height,
+                                    points: normPoints
+                                }
+                            };
+                        }
+                        return n;
+                    }));
+                    hasUnsavedChangesRef.current = true;
+                    
+                    if (tenantId && tenantId !== 'GLOBAL') {
+                        setDoc(doc(db, 'business_zones', selectedNodeId), {
+                            width: bbox.width,
+                            height: bbox.height,
+                            points: normPoints,
+                            updatedAt: new Date().toISOString(),
+                            lastModifiedBy: user?.displayName || user?.email || 'System (Key Rotate)'
+                        }, { merge: true }).catch(console.error);
+                    }
+                }
+            } else if (selectedNodeId && (e.key === 'Delete' || e.key === 'Backspace')) {
                 if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
                 setAllNodes(prev => prev.filter(n => n.id !== selectedNodeId));
                 hasUnsavedChangesRef.current = true;
@@ -629,7 +745,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                 setTypedDistance(prev => prev + e.key);
             }
         }
-    }, [isDrawing, finishDrawing, selectedNodeId, typedDistance, currentPolygonPoints, tempMousePos, tenantId]);
+    }, [isDrawing, finishDrawing, selectedNodeId, typedDistance, currentPolygonPoints, tempMousePos, tenantId, allNodes, user, activeFloorId]);
 
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
@@ -690,6 +806,28 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                     actor: user?.displayName || user?.email || 'Unknown Staff',
                     action: `Rescaled to ${nextW/10}x${nextH/10} ft`
                 })
+            }, { merge: true }).catch(console.error);
+        }
+    };
+
+    const handleNodeMetaUpdate = (key: string, value: string) => {
+        if (!selectedNodeId) return;
+        setAllNodes(prev => prev.map(n => {
+            if (n.id === selectedNodeId) {
+                return {
+                    ...n,
+                    data: { ...n.data, [key]: value }
+                };
+            }
+            return n;
+        }));
+        hasUnsavedChangesRef.current = true;
+        
+        if (tenantId && tenantId !== 'GLOBAL') {
+            setDoc(doc(db, 'business_zones', selectedNodeId), {
+                [key]: value,
+                updatedAt: new Date().toISOString(),
+                lastModifiedBy: user?.displayName || user?.email || 'System'
             }, { merge: true }).catch(console.error);
         }
     };
@@ -893,6 +1031,25 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                             </button>
 
                             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            
+                            {canManage && (
+                                <div className="mt-8 flex flex-col items-center gap-1 w-full px-2" title="Adjust Map Satellite Scaling">
+                                    <label className="text-[9px] font-bold text-zinc-500 text-center uppercase leading-tight">Map<br/>Scale</label>
+                                    <input 
+                                        type="range" 
+                                        min="0.1" 
+                                        max="5" 
+                                        step="0.01" 
+                                        value={baseImageScales[activeFloorId] || 1}
+                                        onChange={(e) => {
+                                            setBaseImageScales(prev => ({...prev, [activeFloorId]: parseFloat(e.target.value)}));
+                                            hasUnsavedChangesRef.current = true;
+                                        }}
+                                        className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer mt-1 mb-1"
+                                    />
+                                    <div className="text-[10px] text-zinc-400 font-bold">{Math.round((baseImageScales[activeFloorId] || 1) * 100)}%</div>
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
@@ -929,7 +1086,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                             style={{ 
                                 left: 0, top: 0, width: '4000px', height: '4000px',
                                 transformOrigin: '0 0',
-                                transform: `translate(${transform[0] - 2000 * transform[2]}px, ${transform[1] - 2000 * transform[2]}px) scale(${transform[2]})`,
+                                transform: `translate(${transform[0] - 2000 * transform[2] * (baseImageScales[activeFloorId] || 1)}px, ${transform[1] - 2000 * transform[2] * (baseImageScales[activeFloorId] || 1)}px) scale(${transform[2] * (baseImageScales[activeFloorId] || 1)})`,
                                 zIndex: -5
                             }}
                         >
@@ -963,6 +1120,7 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                             <div className="flex items-center gap-2"><span className="bg-zinc-800 text-white px-2 py-0.5 rounded font-bold">Enter</span> Complete the shape</div>
                             <div className="flex items-center gap-2"><span className="bg-zinc-800 text-white px-2 py-0.5 rounded font-bold">Escape</span> Cancel drawing</div>
                             <div className="flex items-center gap-2"><span className="bg-zinc-800 text-emerald-400 px-2 py-0.5 rounded font-bold border border-emerald-500/20">Type Numbers</span> Set precise line length</div>
+                            <div className="flex items-center gap-2"><span className="bg-zinc-800 text-blue-400 px-2 py-0.5 rounded font-bold border border-blue-500/20">Shift (Hold)</span> Free-draw (disable snap)</div>
                         </div>
                     </div>
                 )}
@@ -1071,17 +1229,40 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
                         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 space-y-4">
                             <div>
                                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Name / Label</label>
-                                <div className="text-sm font-bold text-white truncate px-1">{(selectedNode.data.label as string) || 'Unassigned Geometry'}</div>
+                                <input 
+                                    type="text"
+                                    disabled={!canManage}
+                                    value={(selectedNode.data.label as string) || ''}
+                                    onChange={(e) => handleNodeMetaUpdate('label', e.target.value)}
+                                    placeholder="Unassigned Geometry"
+                                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-accent disabled:opacity-50"
+                                />
                             </div>
                             
                             <div className="grid grid-cols-2 gap-3 border-t border-zinc-800 pt-3">
                                 <div>
                                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Type</label>
-                                    <div className="text-sm text-zinc-300 font-medium px-1">{(selectedNode.data.type as string) || 'Other'}</div>
+                                    <select
+                                        disabled={!canManage}
+                                        value={(selectedNode.data.type as string) || 'Other'}
+                                        onChange={(e) => handleNodeMetaUpdate('type', e.target.value)}
+                                        className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-300 font-medium focus:outline-none focus:border-accent disabled:opacity-50"
+                                    >
+                                        <option value="Bay">Bay</option>
+                                        <option value="Parking">Parking</option>
+                                        <option value="Office">Office</option>
+                                        <option value="Equipment">Equipment</option>
+                                        <option value="Room">Room</option>
+                                        <option value="Building">Building</option>
+                                        <option value="Door - Garage">Door - Garage</option>
+                                        <option value="Door - Man">Door - Man</option>
+                                        <option value="Door - Misc">Door - Misc</option>
+                                        <option value="Other">Other</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 block">Status</label>
-                                    <div className="text-sm font-bold text-zinc-300 px-1">{(selectedNode.data.status as string) || 'Clear'}</div>
+                                    <div className="text-sm font-bold text-zinc-300 px-1 pt-1.5 truncate">{(selectedNode.data.status as string) || 'Clear'}</div>
                                 </div>
                             </div>
                         </div>

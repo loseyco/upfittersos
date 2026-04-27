@@ -83,6 +83,29 @@ exports.qbwcRoutes.get('/', (req, res) => {
     }
     return res.status(200).send('SAE Group Web Connector Endpoint Active');
 });
+exports.qbwcRoutes.get('/download/:tenantId', (req, res) => {
+    const tenantId = req.params.tenantId;
+    if (!tenantId)
+        return res.status(400).send('Missing tenant ID');
+    const qwcXML = `<?xml version="1.0"?>
+<QBWCXML>
+  <AppName>SAE Group OS  - Live Integrator</AppName>
+  <AppID></AppID>
+  <AppURL>https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc</AppURL>
+  <AppDescription>Connects your Quickbooks Desktop natively to the SaaS dashboard.</AppDescription>
+  <AppSupport>https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc</AppSupport>
+  <UserName>${tenantId}</UserName>
+  <OwnerID>{E35D9B4A-7A12-4C3D-8B8E-1C2D3E4F5A6B}</OwnerID>
+  <FileID>{57F3B9B1-5D12-4C3D-8B8E-1C2D3E4F5A6B}</FileID>
+  <QBType>QBFS</QBType>
+  <Scheduler>
+    <RunEveryNMinutes>5</RunEveryNMinutes>
+  </Scheduler>
+</QBWCXML>`;
+    res.setHeader('Content-Type', 'application/x-qbwc');
+    res.setHeader('Content-Disposition', 'attachment; filename="SAE_QuickBooks_Connector.qwc"');
+    return res.status(200).send(qwcXML);
+});
 // Intuit Web Connector SOAP Endpoint
 exports.qbwcRoutes.post('/', async (req, res) => {
     var _a, _b, _c;
@@ -126,15 +149,14 @@ exports.qbwcRoutes.post('/', async (req, res) => {
             if (queueConfig.exists && !(configData === null || configData === void 0 ? void 0 : configData.qbwcInitialized)) {
                 const batch = admin.firestore().batch();
                 const queueRef = admin.firestore().collection('qbwc_queue');
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq><ActiveStatus>All</ActiveStatus></ItemQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq><ActiveStatus>All</ActiveStatus></CustomerQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq><ActiveStatus>All</ActiveStatus></VendorQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><ActiveStatus>All</ActiveStatus></EmployeeQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><ActiveStatus>All</ActiveStatus></ClassQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'BillQuery', qbxml: '<BillQueryRq><IncludeLineItems>true</IncludeLineItems></BillQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq iterator="Start"><MaxReturned>5</MaxReturned></ItemQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq><MaxReturned>5</MaxReturned><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq><MaxReturned>5</MaxReturned></VendorQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><MaxReturned>5</MaxReturned></EmployeeQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><MaxReturned>5</MaxReturned></ClassQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
                 // Mark initialized
                 batch.update(admin.firestore().collection('businesses').doc(tenantId), { qbwcInitialized: true });
                 await batch.commit();
@@ -168,14 +190,13 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                     const queueRef = admin.firestore().collection('qbwc_queue');
                     // We safely omit Accounts & Classes from 5-min intervals as they rarely change and may lack FromModifiedDate support in older QBs.
                     const dynamicQueries = [
-                        { action: 'ItemQuery', xml: `<ItemQueryRq><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
-                        { action: 'CustomerQuery', xml: `<CustomerQueryRq><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></CustomerQueryRq>` },
-                        { action: 'VendorQuery', xml: `<VendorQueryRq><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
-                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
-                        { action: 'EstimateQuery', xml: `<EstimateQueryRq><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
-                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
-                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
-                        { action: 'BillQuery', xml: `<BillQueryRq><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></BillQueryRq>` },
+                        { action: 'ItemQuery', xml: `<ItemQueryRq><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
+                        { action: 'CustomerQuery', xml: `<CustomerQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
+                        { action: 'VendorQuery', xml: `<VendorQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
+                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
+                        { action: 'EstimateQuery', xml: `<EstimateQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
+                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
+                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
                         { action: 'HostQuery', xml: `<HostQueryRq></HostQueryRq>` }
                     ];
                     dynamicQueries.forEach(q => {
@@ -204,10 +225,12 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                 return res.type('text/xml').send(buildSoapResponse('sendRequestXML', ''));
             const tenantId = (_c = sessionDoc.data()) === null || _c === void 0 ? void 0 : _c.tenantId;
             // Fetch next pending queue item
-            // Sorting in-memory to avoid needing a Firestore composite index on tenantId + status + createdAt
+            // We use .limit(1) to save massive amounts of reads. 
+            // The QB Web Connector generic queries don't depend strictly on order.
             const snapshot = await admin.firestore().collection('qbwc_queue')
                 .where('tenantId', '==', tenantId)
                 .where('status', '==', 'pending')
+                .limit(1)
                 .get();
             if (snapshot.empty) {
                 // Successfully completed or empty queue! Checkpoint timestamp.
@@ -215,13 +238,7 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                 await admin.firestore().collection('businesses').doc(tenantId).update({ lastQbSyncTime: isoDate }).catch(e => console.error("Error setting timestamp empty queue:", e));
                 return res.type('text/xml').send(buildSoapResponse('sendRequestXML', '')); // No more requests
             }
-            // Sort by createdAt manually
-            const sortedDocs = snapshot.docs.sort((a, b) => {
-                const dateA = new Date(a.data().createdAt).getTime();
-                const dateB = new Date(b.data().createdAt).getTime();
-                return dateA - dateB;
-            });
-            const doc = sortedDocs[0];
+            const doc = snapshot.docs[0];
             // Construct full QBXML wrapping
             const reqXml = `<?xml version="1.0" encoding="utf-8"?>
 <?qbxml version="13.0"?>
@@ -261,9 +278,11 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                         }
                     }
                     // Check if there are more items pending to determine progress
+                    // We use .limit(1) to guarantee exactly 1 read, instead of fetching the whole queue
                     const remainingSnap = await admin.firestore().collection('qbwc_queue')
                         .where('tenantId', '==', tenantId)
                         .where('status', '==', 'pending')
+                        .limit(1)
                         .get();
                     const progress = remainingSnap.empty ? '100' : '50';
                     if (progress === '100') {
@@ -364,32 +383,32 @@ exports.qbwcRoutes.get('/reset', async (req, res) => {
         if (!tenantId)
             return res.status(400).send('tenantId required');
         const db = admin.firestore();
-        let customersMigrated = 0;
-        let inventoryMigrated = 0;
-        const customersSnap = await db.collection('businesses').doc(tenantId).collection('customers').get();
-        if (!customersSnap.empty) {
-            const batch = db.batch();
-            customersSnap.forEach(doc => {
-                batch.set(db.collection('customers').doc(doc.id), doc.data(), { merge: true });
+        // Wipe all qb_ collections and their production equivalents for a clean slate during testing
+        const collectionsToWipe = ['qb_customers', 'customers', 'qb_jobs', 'jobs', 'qb_items', 'inventory_items'];
+        const wipeBatch = db.batch();
+        let totalDeleted = 0;
+        for (const collName of collectionsToWipe) {
+            const snap = await db.collection(`businesses/${tenantId}/${collName}`).get();
+            snap.forEach(doc => {
+                wipeBatch.delete(doc.ref);
+                totalDeleted++;
             });
-            await batch.commit();
-            customersMigrated = customersSnap.size;
         }
-        const itemsSnap = await db.collection('businesses').doc(tenantId).collection('inventory_items').get();
-        if (!itemsSnap.empty) {
-            const batch = db.batch();
-            itemsSnap.forEach(doc => {
-                batch.set(db.collection('inventory_items').doc(doc.id), doc.data(), { merge: true });
-            });
-            await batch.commit();
-            inventoryMigrated = itemsSnap.size;
-        }
-        await db.collection('businesses').doc(tenantId).update({ qbwcInitialized: false });
+        // Wipe the tenant's queue
         const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
-        const batch2 = db.batch();
-        queueSnap.forEach(doc => batch2.delete(doc.ref));
-        await batch2.commit();
-        return res.json({ success: true, customersMigrated, inventoryMigrated, queueDeleted: queueSnap.size });
+        queueSnap.forEach(doc => {
+            wipeBatch.delete(doc.ref);
+            totalDeleted++;
+        });
+        // Reset the timer and init flag
+        await db.collection('businesses').doc(tenantId).update({
+            qbwcInitialized: false,
+            lastQbSyncTime: admin.firestore.FieldValue.delete()
+        });
+        // This assumes less than 500 documents since it's just testing 5 records.
+        // For larger environments, we would chunk this batch deletion.
+        await wipeBatch.commit();
+        return res.json({ success: true, message: `Successfully wiped ${totalDeleted} records and reset the initialization timer.` });
     }
     catch (e) {
         return res.status(500).json({ error: e.message });

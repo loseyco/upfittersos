@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Clock, CheckCircle, XCircle, Search, User, Activity, FileText, Download, Play, Coffee, ScanLine, Settings, FlaskConical } from 'lucide-react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { Clock, CheckCircle, XCircle, Search, User, Activity, FileText, Download, Play, Coffee, ScanLine, Settings, FlaskConical, AlertTriangle, Trash2 } from 'lucide-react';
+import { collection, onSnapshot, query, deleteDoc, doc, where } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
@@ -22,6 +22,7 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
     // Core Data State
     const [timeLogs, setTimeLogs] = useState<any[]>([]);
     const [requests, setRequests] = useState<any[]>([]);
+    const [activeTaskLogs, setActiveTaskLogs] = useState<any[]>([]);
     const [staff, setStaff] = useState<any[]>([]);
     
     // Settings Modal State
@@ -60,10 +61,18 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
             snapshot.forEach(doc => reqs.push({ id: doc.id, ...doc.data() }));
             setRequests(reqs);
         });
+
+        const qTasks = query(collection(db, 'businesses', tenantId, 'task_time_logs'), where('status', '==', 'open'));
+        const unsubTasks = onSnapshot(qTasks, (snapshot) => {
+            const tasks: any[] = [];
+            snapshot.forEach(doc => tasks.push({ id: doc.id, ...doc.data() }));
+            setActiveTaskLogs(tasks);
+        });
         
         return () => {
             unsubLogs();
             unsubReqs();
+            unsubTasks();
         };
     }, [tenantId]); // Maintain stable background connection regardless of activeTab
 
@@ -138,6 +147,18 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
         } catch (err) {
             console.error(err);
             toast.error("Failed to mutate timesheet.");
+        }
+    };
+
+    const handleDeleteLog = async () => {
+        if (!confirm('Are you sure you want to permanently delete this timesheet? This cannot be undone.')) return;
+        try {
+            await deleteDoc(doc(db, 'businesses', tenantId, 'time_logs', editingLog.id));
+            toast.success("Timesheet deleted.");
+            setShowManageModal(false);
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to delete timesheet.");
         }
     };
 
@@ -228,12 +249,43 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
     }, [anchorDate, payCycle, nowTick]);
 
     const filteredTimeLogs = useMemo(() => {
-        if (!activePayPeriod) return timeLogs;
-        return timeLogs.filter((log: any) => {
-            const logTime = new Date(log.clockIn).getTime();
-            return logTime >= activePayPeriod.start.getTime() && logTime <= activePayPeriod.end.getTime();
-        });
+        let logs = timeLogs;
+        if (activePayPeriod) {
+            logs = timeLogs.filter((log: any) => {
+                const logTime = new Date(log.clockIn).getTime();
+                return logTime >= activePayPeriod.start.getTime() && logTime <= activePayPeriod.end.getTime();
+            });
+        }
+        return [...logs].sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
     }, [timeLogs, activePayPeriod]);
+
+    const overlappingShiftIds = useMemo(() => {
+        const overlaps = new Set<string>();
+        const logsByUser = new Map<string, any[]>();
+        filteredTimeLogs.forEach(log => {
+            if (!logsByUser.has(log.userId)) logsByUser.set(log.userId, []);
+            logsByUser.get(log.userId)!.push(log);
+        });
+
+        logsByUser.forEach(logs => {
+            for (let i = 0; i < logs.length; i++) {
+                for (let j = i + 1; j < logs.length; j++) {
+                    const l1 = logs[i];
+                    const l2 = logs[j];
+                    const start1 = new Date(l1.clockIn).getTime();
+                    const end1 = l1.clockOut ? new Date(l1.clockOut).getTime() : nowTick;
+                    const start2 = new Date(l2.clockIn).getTime();
+                    const end2 = l2.clockOut ? new Date(l2.clockOut).getTime() : nowTick;
+                    
+                    if (start1 < end2 && end1 > start2) {
+                        overlaps.add(l1.id);
+                        overlaps.add(l2.id);
+                    }
+                }
+            }
+        });
+        return overlaps;
+    }, [filteredTimeLogs, nowTick]);
 
     // Segmented payroll calculation mapped down to the individual employee vector
     const payrollBreakdown = useMemo(() => {
@@ -515,14 +567,28 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                                     
                                                     let activeTask = '';
                                                     let taskTime = '';
-                                                    if (log.notes?.length) {
-                                                        const lastNote = log.notes[log.notes.length - 1];
-                                                        if (lastNote.text.startsWith('Started Task:')) {
-                                                            activeTask = lastNote.text.replace('Started Task: ', '');
-                                                            const msElapsed = nowTick - new Date(lastNote.time).getTime();
+                                                    
+                                                    const currentTaskLog = activeTaskLogs.find(t => t.userId === log.userId);
+                                                    if (currentTaskLog) {
+                                                        activeTask = currentTaskLog.taskName || 'Active Task';
+                                                        if (currentTaskLog.clockIn) {
+                                                            const msElapsed = nowTick - new Date(currentTaskLog.clockIn).getTime();
                                                             const hrs = Math.floor(msElapsed / 3600000);
                                                             const mins = Math.floor((msElapsed % 3600000) / 60000);
                                                             taskTime = `${hrs}h ${mins}m`;
+                                                        }
+                                                    } else if (log.notes?.length) {
+                                                        // Fallback to recent note if they used "Other (Manual Note)"
+                                                        for (let i = log.notes.length - 1; i >= 0; i--) {
+                                                            const note = log.notes[i];
+                                                            if (note.text) {
+                                                                activeTask = note.text.replace('Started Task: ', '');
+                                                                const msElapsed = nowTick - new Date(note.time).getTime();
+                                                                const hrs = Math.floor(msElapsed / 3600000);
+                                                                const mins = Math.floor((msElapsed % 3600000) / 60000);
+                                                                taskTime = `${hrs}h ${mins}m`;
+                                                                break;
+                                                            }
                                                         }
                                                     }
                                                     
@@ -660,7 +726,12 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                                                                 </div>
                                                                 <div>
                                                                     <div className="font-bold text-white">{userName}</div>
-                                                                    {log.status === 'open' && <div className="text-[10px] text-emerald-500 font-black uppercase tracking-wider">Active Shift</div>}
+                                                                    {log.status === 'open' && <div className="text-[10px] text-emerald-500 font-black uppercase tracking-wider mt-0.5">Active Shift</div>}
+                                                                    {overlappingShiftIds.has(log.id) && (
+                                                                        <div className="text-[10px] text-red-500 font-black uppercase tracking-wider mt-0.5 flex items-center gap-1">
+                                                                            <AlertTriangle className="w-3 h-3"/> Overlapping Shift
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -1133,7 +1204,13 @@ export function TimeAdminTab({ tenantId }: { tenantId: string }) {
                             </div>
                             </div>
                         </div>
-                        <div className="p-6 border-t border-zinc-800 bg-zinc-900/30 flex justify-end">
+                        <div className="p-6 border-t border-zinc-800 bg-zinc-900/30 flex justify-between">
+                            <button 
+                                onClick={handleDeleteLog}
+                                className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 font-bold px-6 py-3 rounded-xl transition-all shadow-lg flex items-center gap-2"
+                            >
+                                <Trash2 className="w-4 h-4" /> Delete Shift
+                            </button>
                             <button 
                                 onClick={handleApplyFix}
                                 className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg shadow-emerald-500/20"

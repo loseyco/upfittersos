@@ -13,8 +13,64 @@ export function MapPolygonNode({ data, selected, id }: any) {
     
     const [draggingIdx, setDraggingIdx] = useState<number | null>(null);
     const [isHovered, setIsHovered] = useState(false);
+    
+    // Rotation State
+    const [isRotating, setIsRotating] = useState(false);
+    const [startRotatePoints, setStartRotatePoints] = useState<{x:number,y:number}[]|null>(null);
+    const [startMouseAngle, setStartMouseAngle] = useState(0);
 
     const pointString = points?.map((p: any) => `${p.x},${p.y}`).join(' ') || '';
+
+    const getMouseAngle = (e: React.PointerEvent) => {
+        const svgEl = e.currentTarget.closest('svg');
+        if (!svgEl) return 0;
+        const rect = svgEl.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        return Math.atan2(e.clientY - cy, e.clientX - cx);
+    };
+
+    const handleRotatePointerDown = (e: React.PointerEvent) => {
+        if (data.canManage === false) return;
+        e.stopPropagation();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setIsRotating(true);
+        setStartRotatePoints([...points]);
+        setStartMouseAngle(getMouseAngle(e));
+    };
+
+    const handleRotatePointerMove = (e: React.PointerEvent) => {
+        if (!isRotating || !startRotatePoints) return;
+        e.stopPropagation();
+        
+        const currentAngle = getMouseAngle(e);
+        const delta = currentAngle - startMouseAngle;
+
+        const cx = (width || 100) / 2;
+        const cy = (height || 100) / 2;
+        const cos = Math.cos(delta);
+        const sin = Math.sin(delta);
+
+        const newPoints = startRotatePoints.map(p => {
+            const nx = (cos * (p.x - cx)) - (sin * (p.y - cy)) + cx;
+            const ny = (sin * (p.x - cx)) + (cos * (p.y - cy)) + cy;
+            return { x: nx, y: ny };
+        });
+        
+        updateNodeData(id, { points: newPoints });
+    };
+
+    const handleRotatePointerUp = (e: React.PointerEvent) => {
+        if (!isRotating) return;
+        e.stopPropagation();
+        e.currentTarget.releasePointerCapture(e.pointerId);
+        setIsRotating(false);
+        setStartRotatePoints(null);
+        
+        if (onPointsUpdated) {
+            onPointsUpdated(id, points); 
+        }
+    };
 
     const handlePointerDown = (e: React.PointerEvent, idx: number) => {
         e.stopPropagation();
@@ -75,94 +131,60 @@ export function MapPolygonNode({ data, selected, id }: any) {
         >
             <svg width="100%" height="100%" viewBox={`0 0 ${width || 100} ${height || 100}`} preserveAspectRatio="none" style={{ overflow: 'visible', pointerEvents: 'none' }}>
                 <polygon 
-                    className={selected && draggingIdx === null && data.canManage !== false ? "drag-handle" : ""}
+                    className={selected && draggingIdx === null && !isRotating && data.canManage !== false ? "drag-handle" : ""}
                     points={pointString} 
                     fill={getStatusFill()} 
                     fillOpacity={selected || isHovered ? (status === 'Clear' ? 0.2 : 0.6) : fillOpacity} 
                     stroke={color} 
                     strokeWidth={selected || isHovered ? 3 : 2}
-                    style={{ transition: 'all 0.2s', pointerEvents: 'all', cursor: selected && draggingIdx === null && data.canManage !== false ? 'grab' : 'default' }}
+                    style={{ transition: 'all 0.2s', pointerEvents: 'all', cursor: selected && draggingIdx === null && !isRotating && data.canManage !== false ? 'grab' : 'default' }}
                 />
+
+                {/* Handles */}
+                {selected && data.canManage !== false && (
+                    <g>
+                        {/* Rotation Knob */}
+                        <line 
+                            x1={(width || 100) / 2} 
+                            y1={0} 
+                            x2={(width || 100) / 2} 
+                            y2={-24} 
+                            stroke={color} 
+                            strokeWidth={2} 
+                        />
+                        <circle
+                            className="nodrag nopan"
+                            cx={(width || 100) / 2}
+                            cy={-24}
+                            r={6}
+                            fill="#ffffff"
+                            stroke={color}
+                            strokeWidth={2}
+                            onPointerDown={handleRotatePointerDown}
+                            onPointerMove={handleRotatePointerMove}
+                            onPointerUp={handleRotatePointerUp}
+                            style={{ pointerEvents: 'all', cursor: 'alias' }}
+                        />
+                        {/* Corner Points */}
+                        {points?.map((p: any, idx: number) => (
+                            <circle
+                                className="nodrag nopan"
+                                key={`pt-${idx}`}
+                                cx={p.x}
+                                cy={p.y}
+                                r={5}
+                                fill="#ffffff"
+                                stroke={color}
+                                strokeWidth={2}
+                                onPointerDown={(e) => handlePointerDown(e, idx)}
+                                onPointerMove={handlePointerMove}
+                                onPointerUp={handlePointerUp}
+                                style={{ pointerEvents: 'all', cursor: 'crosshair', transition: 'r 0.1s' }}
+                            />
+                        ))}
+                    </g>
+                )}
             </svg>
-            {/* Rich Hover Card Overlay */}
-            {label && !data.disableTooltip && (
-                <div 
-                    className="absolute group z-50 nodrag nopan"
-                    style={{ 
-                        left: '50%', 
-                        top: '50%', 
-                        transform: 'translate(-50%, -50%)',
-                    }}
-                >
-                    {/* The Blue Info Circle (Target) */}
-                    <div className="w-6 h-6 flex items-center justify-center rounded-full bg-blue-500 text-white font-bold border-[1.5px] border-white shadow-lg cursor-help transition-transform hover:scale-110">
-                        <span className="text-[12px] leading-none mb-[1px]">i</span>
-                    </div>
-
-                    {/* Invisible Bridge */}
-                    <div className="absolute bottom-[24px] left-1/2 -translate-x-1/2 w-16 h-4"></div>
-
-                    {/* The Popup Card */}
-                    <div 
-                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 min-w-64 bg-zinc-950 border border-zinc-700 shadow-2xl rounded-2xl p-4 flex flex-col gap-3 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transform translate-y-2 group-hover:translate-y-0 transition-all duration-200"
-                    >
-                        <div className="flex items-center justify-between border-b border-zinc-800 pb-3 gap-4">
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full shadow-inner" style={{ backgroundColor: color }}></div>
-                                <div className="font-bold text-white text-sm truncate">{label}</div>
-                            </div>
-                            
-                            {status !== 'Clear' && (
-                                <div className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                                    (status === 'Working' || status === 'In Progress') ? 'bg-blue-500/20 text-blue-400' : 
-                                    status === 'Approved' ? 'bg-emerald-500/20 text-emerald-400' :
-                                    status === 'Estimate' ? 'bg-indigo-500/20 text-indigo-400' :
-                                    (status === 'Ready for QC' || status === 'Ready for Delivery') ? 'bg-amber-500/20 text-amber-400' :
-                                    status === 'Blocked' ? 'bg-red-500/20 text-red-400' : 
-                                    status === 'Needs Help' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-zinc-800 text-zinc-400'
-                                }`}>
-                                    {status}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className={`text-xs font-semibold flex items-center gap-2 ${data.jobName ? 'text-blue-400' : 'text-zinc-500'}`}>
-                            <ClipboardList className="w-4 h-4" />
-                            {data.jobName || 'No Active Job'}
-                        </div>
-                        <div className={`text-xs font-semibold flex items-center gap-2 ${data.currentVehicle ? 'text-amber-400' : 'text-zinc-500'}`}>
-                            <Truck className="w-4 h-4" />
-                            {data.currentVehicle || 'No Vehicle Assigned'}
-                        </div>
-                        <div className={`text-xs font-semibold flex items-center gap-2 ${data.assignedTech ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                            <User className="w-4 h-4" />
-                            {data.assignedTech || 'No Staff Assigned'}
-                        </div>
-                        <div className="text-[10px] font-medium text-zinc-500 uppercase flex items-center justify-between mt-1">
-                            <span className="flex items-center gap-1"><Info className="w-3 h-3" /> {data.nodeType || 'Zone'}</span>
-                        </div>
-
-                        <div className="pt-3 mt-1 border-t border-zinc-800">
-                            {(!data.tenantId || !id) ? (
-                                <button disabled className="w-full bg-zinc-800/50 text-zinc-500 font-bold py-2.5 rounded-lg text-xs flex justify-center items-center gap-2 cursor-not-allowed">
-                                    Unlinked Zone
-                                </button>
-                            ) : (
-                                <button 
-                                    type="button" 
-                                    onPointerDown={(e) => {
-                                        e.stopPropagation();
-                                        navigate(`/business/areas/${id}`);
-                                    }}
-                                    className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-lg text-xs transition-colors flex justify-center items-center gap-2"
-                                >
-                                    View Area Details <ExternalLink className="w-3 h-3" />
-                                </button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

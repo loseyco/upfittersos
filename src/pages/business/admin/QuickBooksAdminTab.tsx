@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Database, RefreshCw, Box, Users, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Database, RefreshCw, Box, Users, Search, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 
@@ -88,6 +88,10 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
         };
     }, [tenantId]);
 
+    const generateAndDownloadQWC = () => {
+        window.location.href = `https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc/download/${tenantId}`;
+    };
+
     const filteredItems = qbItems.filter(i => 
         (i.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
         (i.fullName || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -132,6 +136,32 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                             Last Synced: {new Date(lastSyncTime).toLocaleString()}
                         </p>
                     )}
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={generateAndDownloadQWC}
+                            className="mt-4 flex items-center gap-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 border border-blue-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors w-fit"
+                        >
+                            <Download className="w-4 h-4" />
+                            Download Web Connector (.qwc)
+                        </button>
+                        <button 
+                            onClick={async () => {
+                                if (confirm('Are you sure you want to WIPE all extracted QuickBooks data and reset the sync timer? This will pull a fresh initialization batch next time the connector runs.')) {
+                                    try {
+                                        await fetch(`https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc/reset?tenantId=${tenantId}`);
+                                        alert('Database successfully wiped and timer reset!');
+                                    } catch (e) {
+                                        console.error(e);
+                                        alert('Failed to wipe database.');
+                                    }
+                                }
+                            }}
+                            className="mt-4 flex items-center gap-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors w-fit"
+                        >
+                            <RefreshCw className="w-4 h-4" />
+                            Wipe Database & Reset Sync
+                        </button>
+                    </div>
                 </div>
                 
                 <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 w-full md:w-64">
@@ -415,9 +445,6 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                     )}
                     {activeSubTab === 'customers' && filteredCustomers.length === 0 && !loading && (
                         <div className="p-12 text-center text-zinc-500">No customers found matching the current filter.</div>
-                    )}
-                    {activeSubTab === 'accounts' && filteredAccounts.length === 0 && !loading && (
-                        <div className="p-12 text-center text-zinc-500">No accounts found matching the current filter.</div>
                     )}
                 </div>
             </div>

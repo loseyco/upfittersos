@@ -55,10 +55,7 @@ export function VehicleCheckInApp() {
             setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
-        const qZones = query(collection(db, 'business_zones'), where('tenantId', '==', tenantId));
-        const unsubZones = onSnapshot(qZones, (snapshot) => {
-            setZones(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        const unsubZones = onSnapshot(query(collection(db, 'service_zones'), where('tenantId', '==', tenantId)), (s) => setZones(s.docs.map(d => ({id: d.id, ...d.data()}))));
 
         return () => {
             unsubJobs();
@@ -67,6 +64,16 @@ export function VehicleCheckInApp() {
             unsubZones();
         };
     }, [tenantId]);
+
+    // Handle Direct URL Intake Mounting
+    useEffect(() => {
+        if (jobId && jobs.length > 0) {
+            const targetJob = jobs.find(j => j.id === jobId);
+            if (targetJob && !activeJobForCheckin) {
+                setActiveJobForCheckin(targetJob);
+            }
+        }
+    }, [jobId, jobs, activeJobForCheckin]);
 
     if (permsLoading || loading) {
         return (
@@ -298,10 +305,10 @@ export function VehicleCheckInApp() {
                                             
                                             <button 
                                                 onClick={() => {
-                                                    if (window.history.length > 2) {
-                                                        navigate(-1);
-                                                    } else {
-                                                        navigate('/business/vehicles');
+                                                    setActiveJobForCheckin(job);
+                                                    if (!jobId) {
+                                                        // Sync the URL visually
+                                                        navigate(`/business/vehicles/${job.id}`);
                                                     }
                                                 }}     className="w-full mt-auto bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 hover:border-transparent py-3 rounded-xl font-black uppercase tracking-widest text-xs transition-colors"
                                             >
@@ -407,6 +414,25 @@ export function VehicleCheckInApp() {
                         toast.success("VIN scanned automatically.");
                     }}
                 />
+            )}
+
+            {activeJobForCheckin && (
+                <div className="fixed inset-0 z-[120]">
+                    <VehicleCheckInModal 
+                        job={activeJobForCheckin}
+                        onClose={() => {
+                            setActiveJobForCheckin(null);
+                            if (jobId) {
+                                navigate('/business/vehicles');
+                            }
+                        }}
+                        tenantId={tenantId!}
+                        customer={getCustomerDetails(activeJobForCheckin.customerId)}
+                        vehicle={getVehicleDetails(activeJobForCheckin.vehicleId)}
+                        zones={zones}
+                        standaloneAsPage={!!jobId}
+                    />
+                </div>
             )}
         </div>
     );

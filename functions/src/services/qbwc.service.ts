@@ -85,7 +85,23 @@ export class QbwcService {
   // Parse and process incoming data from QBWC response
   async processResponse(action: string, parsedXml: any) {
     const db = admin.firestore();
-    const batch = db.batch();
+    
+    // Firebase limits atomic batches to 500 operations. For massive enterprise payloads, we must dynamically split operations.
+    let batches: admin.firestore.WriteBatch[] = [db.batch()];
+    let operationCount = 0;
+
+    const safeBatchSet = (ref: admin.firestore.DocumentReference, data: any, opts?: any) => {
+        if (operationCount >= 490) {
+            batches.push(db.batch());
+            operationCount = 0;
+        }
+        if (opts) {
+            batches[batches.length - 1].set(ref, data, opts);
+        } else {
+            batches[batches.length - 1].set(ref, data);
+        }
+        operationCount++;
+    };
     
     try {
         const msgsRs = parsedXml?.QBXML?.QBXMLMsgsRs;
@@ -131,7 +147,9 @@ export class QbwcService {
 
                 allItems.forEach((item: any) => {
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_items').doc(item.ListID);
-                    batch.set(ref, {
+                    const prodRef = db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(item.ListID);
+                    
+                    const itemData = {
                         ...item,
                         sku: item.Name || '',
                         name: item.FullName || item.Name || '',
@@ -146,7 +164,10 @@ export class QbwcService {
                         notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`,
                         tenantId: this.tenantId,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
+                    };
+                    
+                    safeBatchSet(ref, itemData, { merge: true });
+                    safeBatchSet(prodRef, itemData, { merge: true });
                 });
             }
         }
@@ -156,8 +177,22 @@ export class QbwcService {
             if (!Array.isArray(customers)) customers = [customers];
 
             customers.forEach((cust: any) => {
-                const ref = db.collection('businesses').doc(this.tenantId).collection('qb_customers').doc(cust.ListID);
-                batch.set(ref, {
+                // Parse Custom Fields natively
+                const qbCustomFields: any = {};
+                if (cust.DataExtRet) {
+                    let exts = cust.DataExtRet;
+                    if (!Array.isArray(exts)) exts = [exts];
+                    exts.forEach((e: any) => {
+                        if (e.DataExtName && e.DataExtValue) {
+                            qbCustomFields[e.DataExtName] = e.DataExtValue;
+                        }
+                    });
+                }
+
+                const sublevel = Number(cust.Sublevel) || 0;
+                const isJob = sublevel > 0;
+                
+                const commonData = {
                     ...cust,
                     firstName: cust.FirstName || '',
                     middleName: cust.MiddleName || '',
@@ -167,7 +202,7 @@ export class QbwcService {
                     email: cust.Email?.Address || '',
                     mobilePhone: cust.Phone || '',
                     workPhone: cust.AltPhone || '',
-                    sublevel: Number(cust.Sublevel) || 0,
+                    sublevel: sublevel,
                     parentRefId: cust.ParentRef?.ListID || '',
                     addressStreet: cust.BillAddress?.Addr1 || '',
                     addressCity: cust.BillAddress?.City || '',
@@ -177,8 +212,41 @@ export class QbwcService {
                     notes: cust.Notes || 'Imported via QBWC.',
                     tags: ['QuickBooks'],
                     tenantId: this.tenantId,
+                    qbCustomFields,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
+                };
+
+                if (isJob) {
+                    // Extract vehicle based on fuzzy matching of custom fields
+                    let vehicle: any = null;
+                    if (Object.keys(qbCustomFields).length > 0) {
+                        let make = '', model = '', year = '', vin = '';
+                        Object.entries(qbCustomFields).forEach(([k, v]) => {
+                            const keyLower = k.toLowerCase();
+                            if (keyLower === 'vin' || keyLower.includes('v.i.n') || keyLower.includes('vin num')) vin = v as string;
+                            else if (keyLower.includes('make') || keyLower.includes('brand')) make = v as string;
+                            else if (keyLower.includes('model') && !keyLower.includes('year')) model = v as string;
+                            else if (keyLower.includes('year')) year = v as string;
+                        });
+                        if (make || model || vin || year) vehicle = { make, model, year, vin };
+                    }
+
+                    const jobData = {
+                        ...commonData,
+                        jobName: cust.Name || '',
+                        vehicle
+                    };
+
+                    const ref = db.collection('businesses').doc(this.tenantId).collection('qb_jobs').doc(cust.ListID);
+                    const prodRef = db.collection('businesses').doc(this.tenantId).collection('jobs').doc(cust.ListID);
+                    safeBatchSet(ref, jobData, { merge: true });
+                    safeBatchSet(prodRef, jobData, { merge: true });
+                } else {
+                    const ref = db.collection('businesses').doc(this.tenantId).collection('qb_customers').doc(cust.ListID);
+                    const prodRef = db.collection('businesses').doc(this.tenantId).collection('customers').doc(cust.ListID);
+                    safeBatchSet(ref, commonData, { merge: true });
+                    safeBatchSet(prodRef, commonData, { merge: true });
+                }
             });
         }
 
@@ -188,7 +256,7 @@ export class QbwcService {
 
             vendors.forEach((vendor: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_vendors').doc(vendor.ListID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...vendor,
                     listId: vendor.ListID,
                     name: vendor.Name,
@@ -209,7 +277,7 @@ export class QbwcService {
 
             employees.forEach((emp: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_employees').doc(emp.ListID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...emp,
                     listId: emp.ListID,
                     firstName: emp.FirstName || '',
@@ -229,7 +297,7 @@ export class QbwcService {
 
             classes.forEach((cls: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_classes').doc(cls.ListID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...cls,
                     listId: cls.ListID,
                     name: cls.Name,
@@ -246,7 +314,7 @@ export class QbwcService {
 
             estimates.forEach((est: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_estimates').doc(est.TxnID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...est,
                     txnId: est.TxnID,
                     refNumber: est.RefNumber || '',
@@ -266,7 +334,7 @@ export class QbwcService {
 
             invoices.forEach((inv: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_invoices').doc(inv.TxnID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...inv,
                     txnId: inv.TxnID,
                     refNumber: inv.RefNumber || '',
@@ -287,7 +355,7 @@ export class QbwcService {
 
             pos.forEach((po: any) => {
                 const ref = db.collection('businesses').doc(this.tenantId).collection('qb_purchase_orders').doc(po.TxnID);
-                batch.set(ref, {
+                safeBatchSet(ref, {
                     ...po,
                     txnId: po.TxnID,
                     refNumber: po.RefNumber || '',
@@ -301,30 +369,11 @@ export class QbwcService {
             });
         }
 
-        if (action === 'BillQuery' && msgsRs.BillQueryRs?.BillRet) {
-            let bills = msgsRs.BillQueryRs.BillRet;
-            if (!Array.isArray(bills)) bills = [bills];
-
-            bills.forEach((bill: any) => {
-                const ref = db.collection('businesses').doc(this.tenantId).collection('qb_bills').doc(bill.TxnID);
-                batch.set(ref, {
-                    ...bill,
-                    txnId: bill.TxnID,
-                    refNumber: bill.RefNumber || '',
-                    vendorRef: bill.VendorRef?.ListID || '',
-                    vendorName: bill.VendorRef?.FullName || '',
-                    txnDate: bill.TxnDate || '',
-                    amountDue: bill.AmountDue || 0,
-                    isPaid: bill.IsPaid === 'true' || bill.IsPaid === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            });
-        }
 
         // Broadcast System Event to Live Feed if anything was synced
         if (syncedCount > 0) {
             const feedRef = db.collection('businesses').doc(this.tenantId).collection('activity_feed').doc();
-            batch.set(feedRef, {
+            safeBatchSet(feedRef, {
                 type: 'qbwc_sync',
                 title: 'QuickBooks Integration',
                 message: `Imported ${syncedCount} ${syncedLabel} automatically.`,
@@ -335,8 +384,10 @@ export class QbwcService {
             });
         }
 
-        // Commit all extracted entities
-        await batch.commit();
+        // Commit all extracted entities natively across chunked segments
+        for (const b of batches) {
+            await b.commit();
+        }
         console.log(`Successfully processed and saved ${syncedCount} ${syncedLabel} for ${action} from QBWC.`);
     } catch (e) {
         console.error(`Error processing QBWC response for ${action}:`, e);

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 export function useLocationTracker(tenantId: string, userId: string, isActive: boolean) {
     const [error, setError] = useState<string | null>(null);
+    const lastUpdateRef = useRef<number>(0);
 
     useEffect(() => {
         if (!isActive || !tenantId || !userId || tenantId === 'GLOBAL') return;
@@ -14,9 +15,13 @@ export function useLocationTracker(tenantId: string, userId: string, isActive: b
         }
 
         const updateLocation = async (position: GeolocationPosition) => {
+            const now = Date.now();
+            // Throttle to update Firestore at most once every 60 seconds
+            if (now - lastUpdateRef.current < 60000) return;
+
             const { latitude: lat, longitude: lng, accuracy } = position.coords;
             try {
-                // Throttle updates or just write them. Writing them directly might be fine if watched is throttled.
+                lastUpdateRef.current = now;
                 const locationRef = doc(db, 'businesses', tenantId, 'staff_locations', userId);
                 await setDoc(locationRef, {
                     userId,

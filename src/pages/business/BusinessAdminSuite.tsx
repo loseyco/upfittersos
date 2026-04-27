@@ -24,6 +24,7 @@ import { CompanyCamTestTab } from './admin/CompanyCamTestTab';
 import { AuditLogsTab } from './admin/AuditLogsTab';
 import { DeliveriesAdminTab } from './admin/DeliveriesAdminTab';
 import { QuickBooksAdminTab } from './admin/QuickBooksAdminTab';
+import { CareerApplicationsTab } from './admin/CareerApplicationsTab';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import { signInWithCustomToken } from 'firebase/auth';
@@ -128,6 +129,7 @@ export function BusinessAdminSuite() {
         ...(checkPermission('manage_facility_map') && !isHidden('facility_map') ? [{ id: 'facility', label: 'Facility Map Editor', icon: MapIcon }] : []),
         // HR & Infrastructure
         ...(checkPermission('manage_staff') && !isHidden('staff') ? [{ id: 'staff', label: 'Staff Directory', icon: Users }] : []),
+        ...(checkPermission('manage_staff') ? [{ id: 'careers', label: 'Job Applications', icon: Briefcase }] : []),
         ...(checkPermission('manage_settings') ? [{ id: 'departments', label: 'Departments', icon: FolderKanban }] : []),
         ...(checkPermission('manage_roles') && !isHidden('roles') ? [{ id: 'roles', label: 'Roles & Access Rules', icon: ShieldAlert }] : []),
         ...(checkPermission('manage_settings') ? [{ id: 'settings', label: 'Business Profile', icon: Settings }] : []),
@@ -317,6 +319,7 @@ export function BusinessAdminSuite() {
                     { activeTab === 'time' && <TimeAdminTab tenantId={tenantId} /> }
                     { activeTab === 'finances' && <FinancesAdminTab tenantId={tenantId} /> }
                     { activeTab === 'quickbooks' && <QuickBooksAdminTab tenantId={tenantId} /> }
+                    { activeTab === 'careers' && <CareerApplicationsTab tenantId={tenantId} /> }
                     { activeTab === 'reports' && <ReportsAdminTab tenantId={tenantId} /> }
                     { activeTab === 'feedback' && <FeedbackAdminTab tenantId={tenantId} /> }
                     { activeTab === 'notices' && <NoticesAdminTab tenantId={tenantId} /> }

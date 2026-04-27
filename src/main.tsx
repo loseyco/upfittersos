@@ -66,6 +66,7 @@ import { Messenger } from './pages/business/Messenger'
 import { MobileDashboard } from './pages/mobile/MobileDashboard'
 import { VehicleCheckInApp } from './pages/business/VehicleCheckInApp'
 import { QrResolver } from './pages/QrResolver'
+import { CareersPage } from './pages/CareersPage'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -109,6 +110,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
             {/* Public Routes */}
             <Route path="/" element={<RootRedirect />} />
+            <Route path="/careers" element={<CareersPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/reset-password" element={<ResetPassword />} />
