@@ -9,8 +9,18 @@ interface YardControlWidgetProps {
     allJobs: any[];
 }
 
+const getMsFromTimestamp = (timestamp: any) => {
+    if (!timestamp) return 0;
+    if (typeof timestamp === 'object' && timestamp.seconds) return timestamp.seconds * 1000;
+    if (typeof timestamp === 'object' && timestamp.toMillis) return timestamp.toMillis();
+    return new Date(timestamp).getTime();
+};
+
 export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardControlWidgetProps) {
     const [zones, setZones] = useState<any[]>([]);
+    const [filter, setFilter] = useState<'ALL' | 'OCCUPIED' | 'EMPTY'>('ALL');
+    const [typeFilter, setTypeFilter] = useState<'ALL' | 'BAY' | 'PARKING'>('ALL');
+    
     
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL' || tenantId === 'unassigned') return;
@@ -20,13 +30,6 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
         });
         return () => unsub();
     }, [tenantId]);
-
-    const getMsFromTimestamp = (timestamp: any) => {
-        if (!timestamp) return 0;
-        if (typeof timestamp === 'object' && timestamp.seconds) return timestamp.seconds * 1000;
-        if (typeof timestamp === 'object' && timestamp.toMillis) return timestamp.toMillis();
-        return new Date(timestamp).getTime();
-    };
 
     const calculateDwellTime = (timestamp?: any) => {
         if (!timestamp) return 'Unknown';
@@ -66,43 +69,90 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
         return 'text-emerald-400';
     };
 
-    const yardData = useMemo(() => {
+    const rawYardData = useMemo(() => {
         return zones.map(zone => {
-            // Find what vehicle is mapped to this zone natively
             const nativeVehicle = globalVehicles.find(v => v.currentLocationId === zone.id);
-            
-            // Find if any job claims this zone
             const activeJob = allJobs.find(j => j.currentLocationId === zone.id && !j.archived && j.status !== 'Archived');
-            
-            // If job claims zone but no native vehicle mapping, see if job has a vehicle assigned
             let resolvedVehicle = nativeVehicle;
             if (activeJob && activeJob.vehicleId && !resolvedVehicle) {
                 resolvedVehicle = globalVehicles.find(v => v.id === activeJob.vehicleId);
             }
-
             return {
                 zone,
                 vehicle: resolvedVehicle || null,
                 job: activeJob || null
             };
-        }).sort((a, b) => a.zone.label?.localeCompare(b.zone.label || '') || 0);
+        });
     }, [zones, globalVehicles, allJobs]);
+
+    const yardData = useMemo(() => {
+        let filtered = rawYardData;
+        
+        if (filter === 'OCCUPIED') filtered = filtered.filter(d => d.vehicle || d.job);
+        if (filter === 'EMPTY') filtered = filtered.filter(d => !d.vehicle && !d.job);
+        
+        if (typeFilter === 'BAY') filtered = filtered.filter(d => d.zone.type === 'Bay');
+        if (typeFilter === 'PARKING') filtered = filtered.filter(d => d.zone.type === 'Parking');
+
+        return filtered.sort((a, b) => {
+            // 1. Occupied vs Empty MUST take absolute priority
+            const aOccupied = a.vehicle || a.job;
+            const bOccupied = b.vehicle || b.job;
+            if (aOccupied && !bOccupied) return -1;
+            if (!aOccupied && bOccupied) return 1;
+
+            // 2. Bays First (amongst items of the same occupancy status)
+            const aIsBay = a.zone.type?.toLowerCase().includes('bay') || false;
+            const bIsBay = b.zone.type?.toLowerCase().includes('bay') || false;
+            
+            if (aIsBay && !bIsBay) return -1;
+            if (!aIsBay && bIsBay) return 1;
+
+            // 3. Sort occupied by Dwell Time (Oldest timestamp first)
+            if (aOccupied && bOccupied) {
+                const aTime = getMsFromTimestamp(a.vehicle?.updatedAt || a.vehicle?.createdAt);
+                const bTime = getMsFromTimestamp(b.vehicle?.updatedAt || b.vehicle?.createdAt);
+                if (aTime !== bTime) {
+                    if (aTime === 0) return 1;
+                    if (bTime === 0) return -1;
+                    return aTime - bTime;
+                }
+            }
+
+            // 4. Alphabetical fallback
+            return (a.zone.label || '').localeCompare(b.zone.label || '');
+        });
+    }, [rawYardData, filter, typeFilter]);
 
     if (zones.length === 0) return null;
 
-    // Separate empty from occupied
-    const occupied = yardData.filter(d => d.vehicle || d.job);
-    const empty = yardData.filter(d => !d.vehicle && !d.job);
+    // Use raw stats for the header tally
+    const occupied = rawYardData.filter(d => d.vehicle || d.job);
+    const empty = rawYardData.filter(d => !d.vehicle && !d.job);
 
     return (
         <div className="w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 flex flex-col">
-            <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between mb-6 gap-4">
+                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2 shrink-0">
                     <MapPin className="w-5 h-5 text-indigo-400" /> Yard Control Matrix
                 </h2>
-                <div className="flex items-center gap-4 text-xs font-bold uppercase tracking-widest text-zinc-500">
-                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> {occupied.length} Occupied</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2 h-2 border border-zinc-600 rounded-full"></span> {empty.length} Empty</span>
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg p-1">
+                        <button onClick={() => setFilter('ALL')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${filter === 'ALL' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>All</button>
+                        <button onClick={() => setFilter('OCCUPIED')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${filter === 'OCCUPIED' ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-500 hover:text-zinc-300'}`}>Occupied</button>
+                        <button onClick={() => setFilter('EMPTY')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${filter === 'EMPTY' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Empty</button>
+                    </div>
+                    
+                    <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg p-1">
+                        <button onClick={() => setTypeFilter('ALL')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'ALL' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>All Types</button>
+                        <button onClick={() => setTypeFilter('BAY')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'BAY' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Bays First</button>
+                        <button onClick={() => setTypeFilter('PARKING')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'PARKING' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Parking</button>
+                    </div>
+
+                    <div className="hidden md:flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-2">
+                        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span> {occupied.length} In Use</span>
+                        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 border border-zinc-600 rounded-full"></span> {empty.length} Open</span>
+                    </div>
                 </div>
             </div>
 
