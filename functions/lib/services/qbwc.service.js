@@ -173,7 +173,7 @@ class QbwcService {
                     allItems.forEach((item) => {
                         const ref = db.collection('businesses').doc(this.tenantId).collection('qb_items').doc(item.ListID);
                         const prodRef = db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(item.ListID);
-                        const itemData = Object.assign(Object.assign({}, item), { sku: item.Name || '', name: item.FullName || item.Name || '', description: item.SalesDesc || item.PurchaseDesc || '', quantityOnHand: Number(item.QuantityOnHand) || 0, quantityAllocated: 0, quantityOnOrder: Number(item.QuantityOnOrder) || 0, cost: Number(item.PurchaseCost) || Number(item.AverageCost) || 0, price: Number(item.SalesPrice) || Number(item.Price) || 0, location: '', status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive', notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`, tenantId: this.tenantId, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                        const itemData = Object.assign(Object.assign({}, item), { sku: item.Name || '', name: item.FullName || item.Name || '', description: item.SalesDesc || item.PurchaseDesc || '', quantityOnHand: Number(item.QuantityOnHand) || 0, quantityAllocated: 0, quantityOnOrder: Number(item.QuantityOnOrder) || 0, cost: Number(item.PurchaseCost) || Number(item.AverageCost) || 0, price: Number(item.SalesPrice) || Number(item.Price) || 0, location: '', status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive', notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`, tenantId: this.tenantId });
                         safeBatchSet(ref, itemData, { merge: true });
                         safeBatchSet(prodRef, itemData, { merge: true });
                     });
@@ -199,7 +199,7 @@ class QbwcService {
                     }
                     const sublevel = Number(cust.Sublevel) || 0;
                     const isJob = sublevel > 0;
-                    const commonData = Object.assign(Object.assign({}, cust), { firstName: cust.FirstName || '', middleName: cust.MiddleName || '', lastName: cust.LastName || '', nickName: '', company: cust.CompanyName || cust.FullName || '', email: ((_a = cust.Email) === null || _a === void 0 ? void 0 : _a.Address) || '', mobilePhone: cust.Phone || '', workPhone: cust.AltPhone || '', sublevel: sublevel, parentRefId: ((_b = cust.ParentRef) === null || _b === void 0 ? void 0 : _b.ListID) || '', addressStreet: ((_c = cust.BillAddress) === null || _c === void 0 ? void 0 : _c.Addr1) || '', addressCity: ((_d = cust.BillAddress) === null || _d === void 0 ? void 0 : _d.City) || '', addressState: ((_e = cust.BillAddress) === null || _e === void 0 ? void 0 : _e.State) || '', addressZip: ((_f = cust.BillAddress) === null || _f === void 0 ? void 0 : _f.PostalCode) || '', status: (cust.IsActive === 'true' || cust.IsActive === true) ? 'Active' : 'Inactive', notes: cust.Notes || 'Imported via QBWC.', tags: ['QuickBooks'], tenantId: this.tenantId, qbCustomFields, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+                    const commonData = Object.assign(Object.assign({}, cust), { firstName: cust.FirstName || '', middleName: cust.MiddleName || '', lastName: cust.LastName || '', nickName: '', company: cust.CompanyName || cust.FullName || '', email: ((_a = cust.Email) === null || _a === void 0 ? void 0 : _a.Address) || '', mobilePhone: cust.Phone || '', workPhone: cust.AltPhone || '', sublevel: sublevel, parentRefId: ((_b = cust.ParentRef) === null || _b === void 0 ? void 0 : _b.ListID) || '', addressStreet: ((_c = cust.BillAddress) === null || _c === void 0 ? void 0 : _c.Addr1) || '', addressCity: ((_d = cust.BillAddress) === null || _d === void 0 ? void 0 : _d.City) || '', addressState: ((_e = cust.BillAddress) === null || _e === void 0 ? void 0 : _e.State) || '', addressZip: ((_f = cust.BillAddress) === null || _f === void 0 ? void 0 : _f.PostalCode) || '', status: (cust.IsActive === 'true' || cust.IsActive === true) ? 'Active' : 'Inactive', notes: cust.Notes || 'Imported via QBWC.', tags: ['QuickBooks'], tenantId: this.tenantId, qbCustomFields });
                     if (isJob) {
                         // Extract vehicle based on fuzzy matching of custom fields
                         let vehicle = null;
@@ -240,7 +240,7 @@ class QbwcService {
                 vendors.forEach((vendor) => {
                     var _a;
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_vendors').doc(vendor.ListID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, vendor), { listId: vendor.ListID, name: vendor.Name, fullName: vendor.FullName, companyName: vendor.CompanyName || vendor.FullName, email: ((_a = vendor.Email) === null || _a === void 0 ? void 0 : _a.Address) || '', phone: vendor.Phone || '', balance: vendor.Balance || 0, isActive: vendor.IsActive === 'true' || vendor.IsActive === true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, vendor), { listId: vendor.ListID, name: vendor.Name, fullName: vendor.FullName, companyName: vendor.CompanyName || vendor.FullName, email: ((_a = vendor.Email) === null || _a === void 0 ? void 0 : _a.Address) || '', phone: vendor.Phone || '', balance: vendor.Balance || 0, isActive: vendor.IsActive === 'true' || vendor.IsActive === true }), { merge: true });
                 });
             }
             if (action === 'EmployeeQuery' && ((_d = msgsRs.EmployeeQueryRs) === null || _d === void 0 ? void 0 : _d.EmployeeRet)) {
@@ -249,7 +249,7 @@ class QbwcService {
                     employees = [employees];
                 employees.forEach((emp) => {
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_employees').doc(emp.ListID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, emp), { listId: emp.ListID, firstName: emp.FirstName || '', lastName: emp.LastName || '', name: emp.Name, email: emp.Email || '', phone: emp.Phone || '', isActive: emp.IsActive === 'true' || emp.IsActive === true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, emp), { listId: emp.ListID, firstName: emp.FirstName || '', lastName: emp.LastName || '', name: emp.Name, email: emp.Email || '', phone: emp.Phone || '', isActive: emp.IsActive === 'true' || emp.IsActive === true }), { merge: true });
                 });
             }
             if (action === 'ClassQuery' && ((_e = msgsRs.ClassQueryRs) === null || _e === void 0 ? void 0 : _e.ClassRet)) {
@@ -258,7 +258,7 @@ class QbwcService {
                     classes = [classes];
                 classes.forEach((cls) => {
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_classes').doc(cls.ListID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, cls), { listId: cls.ListID, name: cls.Name, fullName: cls.FullName, isActive: cls.IsActive === 'true' || cls.IsActive === true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, cls), { listId: cls.ListID, name: cls.Name, fullName: cls.FullName, isActive: cls.IsActive === 'true' || cls.IsActive === true }), { merge: true });
                 });
             }
             if (action === 'EstimateQuery' && ((_f = msgsRs.EstimateQueryRs) === null || _f === void 0 ? void 0 : _f.EstimateRet)) {
@@ -268,7 +268,7 @@ class QbwcService {
                 estimates.forEach((est) => {
                     var _a, _b;
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_estimates').doc(est.TxnID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, est), { txnId: est.TxnID, refNumber: est.RefNumber || '', customerRef: ((_a = est.CustomerRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', customerName: ((_b = est.CustomerRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: est.TxnDate || '', totalAmount: est.TotalAmount || 0, isStale: est.IsActive === 'false', updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, est), { txnId: est.TxnID, refNumber: est.RefNumber || '', customerRef: ((_a = est.CustomerRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', customerName: ((_b = est.CustomerRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: est.TxnDate || '', totalAmount: est.TotalAmount || 0, isStale: est.IsActive === 'false' }), { merge: true });
                 });
             }
             if (action === 'InvoiceQuery' && ((_g = msgsRs.InvoiceQueryRs) === null || _g === void 0 ? void 0 : _g.InvoiceRet)) {
@@ -278,7 +278,7 @@ class QbwcService {
                 invoices.forEach((inv) => {
                     var _a, _b;
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_invoices').doc(inv.TxnID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, inv), { txnId: inv.TxnID, refNumber: inv.RefNumber || '', customerRef: ((_a = inv.CustomerRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', customerName: ((_b = inv.CustomerRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: inv.TxnDate || '', subtotal: inv.Subtotal || 0, balanceRemaining: inv.BalanceRemaining || 0, isPaid: inv.IsPaid === 'true' || inv.IsPaid === true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, inv), { txnId: inv.TxnID, refNumber: inv.RefNumber || '', customerRef: ((_a = inv.CustomerRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', customerName: ((_b = inv.CustomerRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: inv.TxnDate || '', subtotal: inv.Subtotal || 0, balanceRemaining: inv.BalanceRemaining || 0, isPaid: inv.IsPaid === 'true' || inv.IsPaid === true }), { merge: true });
                 });
             }
             if (action === 'PurchaseOrderQuery' && ((_h = msgsRs.PurchaseOrderQueryRs) === null || _h === void 0 ? void 0 : _h.PurchaseOrderRet)) {
@@ -288,7 +288,7 @@ class QbwcService {
                 pos.forEach((po) => {
                     var _a, _b;
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_purchase_orders').doc(po.TxnID);
-                    safeBatchSet(ref, Object.assign(Object.assign({}, po), { txnId: po.TxnID, refNumber: po.RefNumber || '', vendorRef: ((_a = po.VendorRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', vendorName: ((_b = po.VendorRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: po.TxnDate || '', totalAmount: po.TotalAmount || 0, isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true, updatedAt: admin.firestore.FieldValue.serverTimestamp() }), { merge: true });
+                    safeBatchSet(ref, Object.assign(Object.assign({}, po), { txnId: po.TxnID, refNumber: po.RefNumber || '', vendorRef: ((_a = po.VendorRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', vendorName: ((_b = po.VendorRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: po.TxnDate || '', totalAmount: po.TotalAmount || 0, isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true }), { merge: true });
                 });
             }
             // Broadcast System Event to Live Feed if anything was synced

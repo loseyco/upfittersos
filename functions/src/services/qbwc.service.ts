@@ -162,8 +162,7 @@ export class QbwcService {
                         location: '',
                         status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive',
                         notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`,
-                        tenantId: this.tenantId,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        tenantId: this.tenantId
                     };
                     
                     safeBatchSet(ref, itemData, { merge: true });
@@ -212,8 +211,7 @@ export class QbwcService {
                     notes: cust.Notes || 'Imported via QBWC.',
                     tags: ['QuickBooks'],
                     tenantId: this.tenantId,
-                    qbCustomFields,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    qbCustomFields
                 };
 
                 if (isJob) {
@@ -265,8 +263,7 @@ export class QbwcService {
                     email: vendor.Email?.Address || '',
                     phone: vendor.Phone || '',
                     balance: vendor.Balance || 0,
-                    isActive: vendor.IsActive === 'true' || vendor.IsActive === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isActive: vendor.IsActive === 'true' || vendor.IsActive === true
                 }, { merge: true });
             });
         }
@@ -285,8 +282,7 @@ export class QbwcService {
                     name: emp.Name,
                     email: emp.Email || '',
                     phone: emp.Phone || '',
-                    isActive: emp.IsActive === 'true' || emp.IsActive === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isActive: emp.IsActive === 'true' || emp.IsActive === true
                 }, { merge: true });
             });
         }
@@ -302,8 +298,7 @@ export class QbwcService {
                     listId: cls.ListID,
                     name: cls.Name,
                     fullName: cls.FullName,
-                    isActive: cls.IsActive === 'true' || cls.IsActive === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isActive: cls.IsActive === 'true' || cls.IsActive === true
                 }, { merge: true });
             });
         }
@@ -322,8 +317,7 @@ export class QbwcService {
                     customerName: est.CustomerRef?.FullName || '',
                     txnDate: est.TxnDate || '',
                     totalAmount: est.TotalAmount || 0,
-                    isStale: est.IsActive === 'false',
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isStale: est.IsActive === 'false'
                 }, { merge: true });
             });
         }
@@ -343,8 +337,7 @@ export class QbwcService {
                     txnDate: inv.TxnDate || '',
                     subtotal: inv.Subtotal || 0,
                     balanceRemaining: inv.BalanceRemaining || 0,
-                    isPaid: inv.IsPaid === 'true' || inv.IsPaid === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isPaid: inv.IsPaid === 'true' || inv.IsPaid === true
                 }, { merge: true });
             });
         }
@@ -363,8 +356,7 @@ export class QbwcService {
                     vendorName: po.VendorRef?.FullName || '',
                     txnDate: po.TxnDate || '',
                     totalAmount: po.TotalAmount || 0,
-                    isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true
                 }, { merge: true });
             });
         }

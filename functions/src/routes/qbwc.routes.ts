@@ -147,8 +147,8 @@ qbwcRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
                 const fallbackDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
                 const lastSync = configData?.lastQbSyncTime || fallbackDate;
 
-                // QuickBooks requires UTC explicitly listed as -00:00 without any decimal/millisecond precision.
-                const qbFormattedDate = lastSync.split('.')[0] + '-00:00';
+                // QuickBooks requires local time format. Removing the trailing UTC offsets/milliseconds to prevent 1970 fallback bugs.
+                const qbFormattedDate = lastSync.split('.')[0];
 
                 // Self-Heal: If there are jobs stuck in "processing" from a previous dropped session, bounce them back to "pending"
                 const processingSnap = await admin.firestore().collection('qbwc_queue')
@@ -176,7 +176,7 @@ qbwcRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
 
                     // We safely omit Accounts & Classes from 5-min intervals as they rarely change and may lack FromModifiedDate support in older QBs.
                     const dynamicQueries = [
-                        { action: 'ItemQuery', xml: `<ItemQueryRq><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
+                        { action: 'ItemQuery', xml: `<ItemQueryRq><MaxReturned>50</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
                         { action: 'CustomerQuery', xml: `<CustomerQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
                         { action: 'VendorQuery', xml: `<VendorQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
                         { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
@@ -402,33 +402,47 @@ qbwcRoutes.get('/reset', async (req, res) => {
         let totalDeleted = 0;
 
         for (const collName of collectionsToWipe) {
-            const snap = await db.collection(`businesses/${tenantId}/${collName}`).get();
-            snap.forEach(doc => {
-                wipeBatch.delete(doc.ref);
-                totalDeleted++;
-            });
+            try {
+                const snap = await db.collection(`businesses/${tenantId}/${collName}`).get();
+                snap.forEach(doc => {
+                    wipeBatch.delete(doc.ref);
+                    totalDeleted++;
+                });
+            } catch (e) {
+                console.error(`Failed to wipe ${collName}:`, e);
+            }
         }
         
         // Wipe the tenant's queue
-        const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
-        queueSnap.forEach(doc => {
-            wipeBatch.delete(doc.ref);
-            totalDeleted++;
-        });
+        try {
+            const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
+            queueSnap.forEach(doc => {
+                wipeBatch.delete(doc.ref);
+                totalDeleted++;
+            });
+        } catch (e) {}
 
-        // Reset the timer and init flag
-        await db.collection('businesses').doc(tenantId).update({ 
-            qbwcInitialized: false,
-            lastQbSyncTime: admin.firestore.FieldValue.delete()
-        });
+        // Reset the timer and init flag natively using set with merge to avoid update errors
+        try {
+            await db.collection('businesses').doc(tenantId).set({ 
+                qbwcInitialized: false,
+                lastQbSyncTime: admin.firestore.FieldValue.delete()
+            }, { merge: true });
+        } catch (updateErr: any) {
+            console.error("Failed to update timestamp:", updateErr);
+            throw new Error('Failed to update tenant configuration: ' + updateErr.message);
+        }
         
-        // This assumes less than 500 documents since it's just testing 5 records.
-        // For larger environments, we would chunk this batch deletion.
-        await wipeBatch.commit();
+        try {
+            await wipeBatch.commit();
+        } catch (commitErr: any) {
+            throw new Error('Failed to commit batch deletions: ' + commitErr.message);
+        }
 
         return res.json({ success: true, message: `Successfully wiped ${totalDeleted} records and reset the initialization timer.` });
     } catch (e: any) {
-        return res.status(500).json({ error: e.message });
+        console.error('Reset Wipe Error:', e);
+        return res.status(500).json({ error: e.message || 'Unknown Server Error' });
     }
 });
 

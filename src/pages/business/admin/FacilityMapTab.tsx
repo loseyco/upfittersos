@@ -152,43 +152,63 @@ function MapCanvasCore({ tenantId, user, readOnly = false, focusId }: { tenantId
             .filter(n => !focusId || n.id === focusId)
             .map(n => {
                 const jobAtLoc = activeJobs.find(j => j.currentLocationId === n.id);
+                const vehicleAtLoc = allVehicles.find(v => v.currentLocationId === n.id);
                 let jobData = {};
-                if (jobAtLoc) {
-                    let vehicleName = 'No Vehicle Assigned';
-                    if (jobAtLoc.vehicleId) {
+
+                if (jobAtLoc || vehicleAtLoc) {
+                    let vehicleName = 'Unidentified Asset';
+                    let assignedStaffStr = 'No Staff Assigned';
+                    let statusStr = 'Active';
+                    let jobNameStr = '';
+
+                    // Resolve vehicle mapping (Job takes priority, then direct assignment)
+                    if (jobAtLoc && jobAtLoc.vehicleId) {
                         const v = allVehicles.find(x => x.id === jobAtLoc.vehicleId);
-                        if (v) vehicleName = `${v.year} ${v.make} ${v.model}`.trim();
+                        if (v && (v.year || v.make)) vehicleName = `${v.year} ${v.make} ${v.model}`.trim();
                         else vehicleName = `Vehicle Linked`;
+                    } else if (vehicleAtLoc) {
+                        vehicleName = (vehicleAtLoc.year || vehicleAtLoc.make || vehicleAtLoc.model) 
+                            ? `${vehicleAtLoc.year} ${vehicleAtLoc.make} ${vehicleAtLoc.model}`.trim() 
+                            : 'Unnamed Vehicle';
+                    } else if (jobAtLoc) {
+                        vehicleName = 'No Vehicle Assigned';
                     }
 
-                    let assignedStaffStr = 'No Staff Assigned';
-                    if (jobAtLoc.tasks && jobAtLoc.tasks.length > 0) {
-                        const staffIds = new Set<string>();
-                        jobAtLoc.tasks.forEach((t: any) => {
-                            if (t.assignedTechId) staffIds.add(t.assignedTechId);
-                        });
-                        const names: string[] = [];
-                        staffIds.forEach(id => {
-                            const staff = allStaff.find(s => s.id === id);
-                            if (staff) {
-                                const parts = (staff.displayName || staff.name || '').split(' ');
-                                if (parts.length > 1) {
-                                    names.push(`${parts[0]} ${parts[parts.length - 1][0]}.`);
-                                } else if (parts.length === 1 && parts[0]) {
-                                    names.push(parts[0]);
+                    if (jobAtLoc) {
+                        jobNameStr = jobAtLoc.title || `Job ${jobAtLoc.id.substring(0, 8)}`;
+                        statusStr = jobAtLoc.status || 'Active';
+
+                        if (jobAtLoc.tasks && jobAtLoc.tasks.length > 0) {
+                            const staffIds = new Set<string>();
+                            jobAtLoc.tasks.forEach((t: any) => {
+                                if (t.assignedTechId) staffIds.add(t.assignedTechId);
+                            });
+                            const names: string[] = [];
+                            staffIds.forEach(id => {
+                                const staff = allStaff.find(s => s.id === id);
+                                if (staff) {
+                                    const parts = (staff.displayName || staff.name || '').split(' ');
+                                    if (parts.length > 1) {
+                                        names.push(`${parts[0]} ${parts[parts.length - 1][0]}.`);
+                                    } else if (parts.length === 1 && parts[0]) {
+                                        names.push(parts[0]);
+                                    }
                                 }
+                            });
+                            if (names.length > 0) {
+                                assignedStaffStr = names.join(', ');
                             }
-                        });
-                        if (names.length > 0) {
-                            assignedStaffStr = names.join(', ');
                         }
+                    } else {
+                        jobNameStr = 'Yard Intake / Storage';
+                        statusStr = vehicleAtLoc?.status || 'Waiting';
                     }
 
                     jobData = {
-                        jobName: jobAtLoc.title || `Job ${jobAtLoc.id.substring(0, 8)}`,
+                        jobName: jobNameStr,
                         currentVehicle: vehicleName,
                         assignedTech: assignedStaffStr,
-                        status: jobAtLoc.status || 'Active'
+                        status: statusStr
                     };
                 }
 

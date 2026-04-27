@@ -55,7 +55,7 @@ export function VehicleCheckInApp() {
             setCustomers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
-        const unsubZones = onSnapshot(query(collection(db, 'service_zones'), where('tenantId', '==', tenantId)), (s) => setZones(s.docs.map(d => ({id: d.id, ...d.data()}))));
+        const unsubZones = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => setZones(s.docs.map(d => ({id: d.id, ...d.data()}))));
 
         return () => {
             unsubJobs();
@@ -146,6 +146,7 @@ export function VehicleCheckInApp() {
                 ...newVehicleData,
                 tenantId,
                 status: 'Active',
+                ...(selectedZone ? { currentLocationId: selectedZone } : {}),
                 createdAt: serverTimestamp()
             });
 
@@ -156,9 +157,10 @@ export function VehicleCheckInApp() {
                 vehicleId: vRef.id,
                 ...(selectedCustomerId ? { customerId: selectedCustomerId } : {}),
                 ...(selectedZone ? { 
-                    parkedLocation: selectedZone,
+                    currentLocationId: selectedZone,
+                    parkedLocation: zones.find(z => z.id === selectedZone)?.label || selectedZone,
                     locationHistory: [{
-                        location: selectedZone,
+                        location: zones.find(z => z.id === selectedZone)?.label || selectedZone,
                         enteredAt: new Date().toISOString(),
                         exitedAt: null,
                         movedByUid: currentUser?.uid || 'system',
@@ -261,7 +263,7 @@ export function VehicleCheckInApp() {
                                                 const allowedTypes = ['Bay', 'Parking Spot', 'Parking', 'Door - Garage'];
                                                 return allowedTypes.includes(z.type);
                                             }).map(z => (
-                                                <option key={z.id} value={z.label || z.name}>{z.label || z.name} {z.type ? `(${z.type})` : ''}</option>
+                                                <option key={z.id} value={z.id}>{z.label || z.name} {z.type ? `(${z.type})` : ''}</option>
                                             ))}
                                         </select>
                                     </div>

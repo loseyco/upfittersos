@@ -148,11 +148,15 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                             onClick={async () => {
                                 if (confirm('Are you sure you want to WIPE all extracted QuickBooks data and reset the sync timer? This will pull a fresh initialization batch next time the connector runs.')) {
                                     try {
-                                        await fetch(`https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc/reset?tenantId=${tenantId}`);
+                                        const res = await fetch(`https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc/reset?tenantId=${tenantId}`);
+                                        if (!res.ok) {
+                                            const txt = await res.text();
+                                            throw new Error(txt);
+                                        }
                                         alert('Database successfully wiped and timer reset!');
-                                    } catch (e) {
+                                    } catch (e: any) {
                                         console.error(e);
-                                        alert('Failed to wipe database.');
+                                        alert('Failed to wipe database: ' + e.message);
                                     }
                                 }
                             }}

@@ -18,6 +18,7 @@ import { WorkspaceModal } from '../../components/ui/WorkspaceModal';
 import { ParkingModal } from '../../components/ui/ParkingModal';
 import { DashboardCommandHub } from '../../components/dashboard/DashboardCommandHub';
 import { JobIntakeWizard } from '../../components/jobs/JobIntakeWizard';
+import { YardControlWidget } from '../../components/dashboard/YardControlWidget';
 import { logBusinessActivity } from '../../lib/activityLogger';
 
 import { QuoteApprovalModal } from '../../components/jobs/QuoteApprovalModal';
@@ -170,7 +171,7 @@ export function MissionControlDashboard() {
             setGlobalCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
-        const unsubVehicles = onSnapshot(collection(db, 'businesses', tenantId, 'vehicles'), (snap) => {
+        const unsubVehicles = onSnapshot(query(collection(db, 'vehicles'), where('tenantId', '==', tenantId)), (snap) => {
             setGlobalVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() as any })));
         });
 
@@ -307,6 +308,13 @@ export function MissionControlDashboard() {
                                     </div>
                                 </button>
                             </div>
+
+                            {/* Core Yard Matrix */}
+                            <YardControlWidget 
+                                tenantId={tenantId || ''} 
+                                globalVehicles={globalVehicles} 
+                                allJobs={allJobs} 
+                            />
                             
                                 <div className="relative w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 flex flex-col">
                                     <div className={`flex-1 flex flex-col`}>

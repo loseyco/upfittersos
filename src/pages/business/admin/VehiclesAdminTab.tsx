@@ -14,6 +14,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
 
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [customers, setCustomers] = useState<any[]>([]);
+    const [zones, setZones] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // Edit State
@@ -31,6 +32,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
         color: '',
         status: 'Active',
         customerId: '',
+        currentLocationId: '',
         notes: ''
     });
 
@@ -57,9 +59,16 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             setCustomers(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
+        const unsubZones = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => {
+            const fetchedZones = s.docs.map(d => ({ id: d.id, ...d.data() }));
+            // Only show Parking, Bay, or Storage zones in the location dropdown
+            setZones(fetchedZones.filter(z => ['Parking', 'Bay'].includes((z as any).type || '')));
+        });
+
         return () => {
             unsubVehicles();
             unsubCustomers();
+            unsubZones();
         };
     }, [tenantId]);
 
@@ -76,6 +85,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             color: vehicle.color || '',
             status: vehicle.status || 'Active',
             customerId: vehicle.customerId || '',
+            currentLocationId: vehicle.currentLocationId || '',
             notes: vehicle.notes || ''
         };
         setEditForm(initialFormValues);
@@ -94,6 +104,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             color: '',
             status: 'Active',
             customerId: '',
+            currentLocationId: '',
             notes: ''
         };
         setEditForm(initialFormValues);
@@ -280,6 +291,15 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                     ))}
                                 </select>
                             </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">Current Yard Location</label>
+                                <select value={editForm.currentLocationId} onChange={(e) => setEditForm({...editForm, currentLocationId: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50 text-white appearance-none cursor-pointer">
+                                    <option value="">-- Off-site / Storage --</option>
+                                    {zones.map(z => (
+                                        <option key={z.id} value={z.id}>{z.label || `Zone ${z.id.substring(0,6)}`} ({z.type})</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                     </section>
 
@@ -407,7 +427,14 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                      <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><Activity className="w-4 h-4 text-accent"/> Overview</h3>
                                      <div className="space-y-4">
                                          <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Ownership / Client</p><p className="text-zinc-300 font-medium">{editForm.customerId ? getCustomerName(editForm.customerId) : 'Internal Fleet Asset'}</p></div>
-                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Color</p><p className="text-zinc-300 font-medium">{editForm.color || '—'}</p></div>
+                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Vehicle Match Details</p><p className="text-zinc-300 font-medium">{editForm.color || '—'}</p></div>
+                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Assigned Spot</p>
+                                             {editForm.currentLocationId ? (
+                                                 <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-widest">
+                                                     {zones.find(z => z.id === editForm.currentLocationId)?.label || 'Unknown'}
+                                                 </span>
+                                             ) : <p className="text-zinc-500 font-medium italic">Off-site</p>}
+                                         </div>
                                      </div>
                                  </div>
 
@@ -516,7 +543,9 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                 </div>
                                 <div className="hidden md:flex col-span-3 flex-col text-xs text-zinc-400">
                                     <span className="font-medium text-zinc-400 truncate">{vh.customerId ? getCustomerName(vh.customerId) : 'Internal Fleet'}</span>
-                                    {vh.licensePlate && <span className="text-[10px] uppercase font-black px-1.5 py-0.5 border border-zinc-800 rounded bg-zinc-900 w-fit mt-1">{vh.licensePlate}</span>}
+                                    <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mt-1">
+                                        Loc: {vh.currentLocationId && zones.find(z => z.id === vh.currentLocationId) ? zones.find(z => z.id === vh.currentLocationId)?.label : 'Off-site'}
+                                    </span>
                                 </div>
                                 <div className="col-span-3 md:col-span-2 flex items-center">
                                     <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${
