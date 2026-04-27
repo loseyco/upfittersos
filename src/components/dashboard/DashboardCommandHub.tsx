@@ -221,7 +221,7 @@ export function DashboardCommandHub({ onAction, onFilterChange, allJobs = [], al
                         onClick={() => onAction('vehicle')}
                         className="flex items-center gap-2 px-4 py-3 md:py-0 h-full bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 rounded-xl transition-all font-bold text-xs uppercase tracking-widest whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-zinc-400"
                     >
-                        <Car className="w-4 h-4" /> Intake
+                        <Car className="w-4 h-4" /> No Job Associated
                     </button>
                 </div>
 

@@ -5,7 +5,7 @@ import { api } from '../../lib/api';
 import { db } from '../../lib/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { Hammer, ArrowRight, User, Search, Command, Plus, UserPlus, Car } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { TimeClockApp } from './TimeClockApp';
 import { MyTasksWidget } from '../../components/dashboard/MyTasksWidget';
@@ -29,6 +29,7 @@ import { JobExecutionPortal } from '../../components/jobs/JobExecutionPortal';
 export function MissionControlDashboard() {
     const { currentUser, tenantId, role } = useAuth();
     const { checkPermission, loading } = usePermissions();
+    const navigate = useNavigate();
 
     const handleKanbanTaskClockToggle = async (job: any, task: any, isCurrentlyClockedIn: boolean, logId?: string) => {
         if (!currentUser?.uid || !tenantId) return;
@@ -588,7 +589,7 @@ export function MissionControlDashboard() {
                             onAction={(actionType, payload) => {
                                 if (actionType === 'estimate') setActiveDrawerContext({ id: 'NEW-EST', title: 'New Estimate Builder', type: 'job' });
                                 else if (actionType === 'customer') setActiveDrawerContext({ id: 'CUST-LOOKUP', title: `Customer: ${payload || 'Lookup'}`, type: 'job' });
-                                else if (actionType === 'vehicle') setActiveDrawerContext({ id: 'INTAKE', title: `Vehicle Intake: ${payload || ''}`, type: 'job' });
+                                else if (actionType === 'vehicle') navigate('/business/check-in');
                                 else if (actionType === 'scan') setActiveDrawerContext({ id: payload || 'SCAN', title: `Scanned: ${payload}`, type: 'job' });
                                 else if (actionType === 'open_job' && payload) setActiveDrawerContext({ id: payload, title: `Job Details`, type: 'job' });
                                 else if (actionType === 'open_staff' && payload) setActiveDrawerContext({ id: payload, title: `Staff Profile`, type: 'staff' });
