@@ -154,7 +154,7 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
 
     if (selectedArea && isEditing) {
         return (
-            <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto w-full">
+            <div className="flex flex-col bg-zinc-950 w-full relative">
                 <div className="p-6 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between sticky top-0 z-10 backdrop-blur-md">
                     <div className="flex items-center gap-4">
                         <button 
@@ -313,7 +313,7 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
         const dimensions = isMapped ? `${(selectedArea.width/10).toFixed(1)} x ${(selectedArea.height/10).toFixed(1)} ft` : 'Unmapped Location';
 
         return (
-            <div className="flex flex-col h-full bg-zinc-950 overflow-y-auto w-full">
+            <div className="flex flex-col bg-zinc-950 w-full relative">
                 {/* Profile Header */}
                 <div className="p-6 md:p-8 border-b border-zinc-800 bg-zinc-900/50 flex flex-col gap-6 sticky top-0 z-20 backdrop-blur-md">
                     <div className="flex items-center justify-between">
@@ -380,7 +380,7 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
     }
 
     return (
-        <div className="flex flex-col h-full bg-zinc-950 relative">
+        <div className="flex flex-col bg-zinc-950 relative w-full">
             {/* Alpha Banner */}
             <div className="bg-orange-500/5 border-b border-orange-500/20 px-6 py-3 flex items-start gap-3 shrink-0 relative z-10 transition-colors">
                 <FlaskConical className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
@@ -426,7 +426,7 @@ export function AreasAdminTab({ tenantId }: { tenantId: string }) {
             </div>
 
             {/* Table Body */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="w-full">
                 {areas.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-center">
                         <MapPin className="w-12 h-12 text-zinc-800 mb-4" />

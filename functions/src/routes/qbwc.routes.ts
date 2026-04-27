@@ -130,14 +130,14 @@ qbwcRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
             if (queueConfig.exists && !configData?.qbwcInitialized) {
                 const batch = admin.firestore().batch();
                 const queueRef = admin.firestore().collection('qbwc_queue');
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq iterator="Start"><MaxReturned>5</MaxReturned></ItemQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq><MaxReturned>5</MaxReturned><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq><MaxReturned>5</MaxReturned></VendorQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><MaxReturned>5</MaxReturned></EmployeeQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><MaxReturned>5</MaxReturned></ClassQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq><MaxReturned>5</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq><MaxReturned>500</MaxReturned></ItemQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq><MaxReturned>500</MaxReturned><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq><MaxReturned>500</MaxReturned></VendorQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><MaxReturned>500</MaxReturned></EmployeeQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><MaxReturned>500</MaxReturned></ClassQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
                 // Mark initialized
                 batch.update(admin.firestore().collection('businesses').doc(tenantId), { qbwcInitialized: true });
                 await batch.commit();
@@ -176,13 +176,13 @@ qbwcRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
 
                     // We safely omit Accounts & Classes from 5-min intervals as they rarely change and may lack FromModifiedDate support in older QBs.
                     const dynamicQueries = [
-                        { action: 'ItemQuery', xml: `<ItemQueryRq><MaxReturned>50</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
-                        { action: 'CustomerQuery', xml: `<CustomerQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
-                        { action: 'VendorQuery', xml: `<VendorQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
-                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><MaxReturned>5</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
-                        { action: 'EstimateQuery', xml: `<EstimateQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
-                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
-                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq><MaxReturned>5</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
+                        { action: 'ItemQuery', xml: `<ItemQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
+                        { action: 'CustomerQuery', xml: `<CustomerQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
+                        { action: 'VendorQuery', xml: `<VendorQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
+                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
+                        { action: 'EstimateQuery', xml: `<EstimateQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
+                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
+                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
                         { action: 'HostQuery', xml: `<HostQueryRq></HostQueryRq>` }
                     ];
 

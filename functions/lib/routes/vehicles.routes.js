@@ -91,7 +91,7 @@ exports.vehiclesRoutes.post('/', auth_middleware_1.authenticate, async (req, res
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes } = req.body;
+        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes, qbWorkOrder } = req.body;
         const newVehicle = {
             tenantId,
             make: make || '',
@@ -103,10 +103,12 @@ exports.vehiclesRoutes.post('/', auth_middleware_1.authenticate, async (req, res
             status: status || 'Active',
             customerId: customerId || null,
             currentLocationId: currentLocationId || null,
+            qbWorkOrder: qbWorkOrder || '',
             notes: notes || '',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            locationUpdatedAt: currentLocationId ? admin.firestore.FieldValue.serverTimestamp() : null
         };
         const docRef = await getDb().collection('vehicles').add(newVehicle);
         return res.status(201).json(Object.assign({ id: docRef.id }, newVehicle));
@@ -131,7 +133,7 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this vehicle.' });
         }
-        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes } = req.body;
+        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes, qbWorkOrder } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (make !== undefined)
             updates.make = make;
@@ -149,8 +151,14 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
             updates.status = status;
         if (customerId !== undefined)
             updates.customerId = customerId;
-        if (currentLocationId !== undefined)
+        if (currentLocationId !== undefined) {
             updates.currentLocationId = currentLocationId;
+            if (vehicleData.currentLocationId !== currentLocationId) {
+                updates.locationUpdatedAt = admin.firestore.FieldValue.serverTimestamp();
+            }
+        }
+        if (qbWorkOrder !== undefined)
+            updates.qbWorkOrder = qbWorkOrder;
         if (notes !== undefined)
             updates.notes = notes;
         await vehicleRef.update(updates);

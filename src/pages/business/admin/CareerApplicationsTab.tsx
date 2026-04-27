@@ -16,7 +16,7 @@ export function CareerApplicationsTab({ tenantId: _tenantId }: { tenantId: strin
     const fetchApplications = async () => {
         try {
             setLoading(true);
-            const data = await getApplications();
+            const data = await getApplications(_tenantId);
             setApplications(data);
         } catch (error) {
             console.error(error);

@@ -33,7 +33,7 @@ export function GlobalAlertsSystem() {
                     const noticeData = { id: change.doc.id, ...(change.doc.data() as any) };
                     
                     toast((t) => (
-                        <div className="flex flex-col gap-2 w-full min-w-[350px] max-w-lg">
+                        <div className="flex flex-col gap-2 w-full min-w-[350px] md:min-w-[500px] max-w-3xl">
                             <style>{`
                                 @keyframes police-strobe {
                                     0%, 20% { box-shadow: 0 0 40px rgba(239, 68, 68, 0.5) inset, 0 0 30px rgba(239, 68, 68, 0.8); border-color: #ef4444; }
@@ -75,7 +75,9 @@ export function GlobalAlertsSystem() {
                             color: '#fff',
                             padding: '24px',
                             borderRadius: '16px',
-                            boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)'
+                            boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)',
+                            maxWidth: 'none',
+                            width: 'auto'
                         }
                     });
                 }

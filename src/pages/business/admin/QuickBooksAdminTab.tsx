@@ -8,6 +8,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
     
     const [qbItems, setQbItems] = useState<any[]>([]);
     const [qbCustomers, setQbCustomers] = useState<any[]>([]);
+    const [qbJobs, setQbJobs] = useState<any[]>([]);
     const [qbVendors, setQbVendors] = useState<any[]>([]);
     const [qbEmployees, setQbEmployees] = useState<any[]>([]);
     const [qbEstimates, setQbEstimates] = useState<any[]>([]);
@@ -45,6 +46,10 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
             checkDone();
         });
 
+        const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/qb_jobs`), (snapshot) => {
+            setQbJobs(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         const unsubVendors = onSnapshot(collection(db, `businesses/${tenantId}/qb_vendors`), (snapshot) => {
             setQbVendors(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         });
@@ -78,6 +83,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
         return () => {
             unsubItems();
             unsubCustomers();
+            unsubJobs();
             unsubVendors();
             unsubEmployees();
             unsubEstimates();
@@ -92,12 +98,86 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
         window.location.href = `https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc/download/${tenantId}`;
     };
 
+    const exportToCSV = () => {
+        const attachSource = (arr: any[], source: string) => arr.map(item => ({ 'QB_TABLE': source, ...item }));
+        const allData = [
+            ...attachSource(qbItems, 'Items'),
+            ...attachSource([...qbCustomers, ...qbJobs], 'Customers/Jobs'),
+            ...attachSource(qbVendors, 'Vendors'),
+            ...attachSource(qbEmployees, 'Employees'),
+            ...attachSource(qbEstimates, 'Estimates'),
+            ...attachSource(qbInvoices, 'Invoices'),
+            ...attachSource(qbPurchaseOrders, 'Purchase Orders'),
+            ...attachSource(qbBills, 'Bills'),
+        ];
+
+        if (allData.length === 0) {
+            alert("No data available to export.");
+            return;
+        }
+
+        const allKeys = new Set<string>();
+        allData.forEach(row => Object.keys(row).forEach(k => {
+            if (!['id', 'tenantId'].includes(k)) allKeys.add(k);
+        }));
+
+        const headers = Array.from(allKeys);
+        let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
+
+        allData.forEach(row => {
+            const rowData = headers.map(header => {
+                let val = row[header];
+                if (val === undefined || val === null) return '""';
+                if (typeof val === 'object') val = JSON.stringify(val);
+                return `"${String(val).replace(/"/g, '""')}"`;
+            });
+            csvContent += rowData.join(",") + "\n";
+        });
+
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `QuickBooks_Audit_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const renderExcelTable = (data: any) => {
+        const entries = Object.entries(data).filter(([k]) => !['id', 'tenantId'].includes(k));
+        if (entries.length === 0) return <div className="text-zinc-500 italic p-4">No payload data available.</div>;
+
+        return (
+            <div className="bg-black w-full shadow-inner border-y border-zinc-800">
+                <table className="w-full text-left text-xs align-top border-collapse">
+                    <thead className="bg-zinc-900 border-b border-zinc-800 text-zinc-400">
+                        <tr>
+                            <th className="px-6 py-2.5 font-bold w-1/3 border-r border-zinc-800 uppercase tracking-widest text-[10px]">QB Field</th>
+                            <th className="px-6 py-2.5 font-bold uppercase tracking-widest text-[10px]">Extracted Value</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                        {entries.map(([k, v]) => (
+                            <tr key={k} className="hover:bg-zinc-900/50 transition-colors">
+                                <td className="px-6 py-2.5 font-mono text-emerald-400/70 border-r border-zinc-800 select-all">{k}</td>
+                                <td className="px-6 py-2.5 text-zinc-300 font-mono break-words whitespace-pre-wrap select-all">
+                                    {typeof v === 'object' && v !== null ? JSON.stringify(v, null, 2) : String(v)}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
     const filteredItems = qbItems.filter(i => 
         (i.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
         (i.fullName || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const filteredCustomers = qbCustomers.filter(c => 
+    const allCustomersAndJobs = [...qbCustomers, ...qbJobs];
+    const filteredCustomers = allCustomersAndJobs.filter(c => 
         (c.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
         (c.fullName || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
@@ -137,6 +217,13 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                         </p>
                     )}
                     <div className="flex gap-4">
+                        <button 
+                            onClick={exportToCSV}
+                            className="mt-4 flex items-center gap-2 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors w-fit"
+                        >
+                            <Download className="w-4 h-4" />
+                            Export Data to Excel (.csv)
+                        </button>
                         <button 
                             onClick={generateAndDownloadQWC}
                             className="mt-4 flex items-center gap-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 border border-blue-500/20 px-3 py-1.5 rounded text-xs font-bold transition-colors w-fit"
@@ -192,7 +279,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                     onClick={() => setActiveSubTab('customers')} 
                     className={`py-4 text-sm font-bold tracking-wide border-b-2 transition-colors whitespace-nowrap flex items-center gap-2 ${activeSubTab === 'customers' ? 'border-accent text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'}`}
                 >
-                    <Users className="w-4 h-4" /> Customers & Jobs <span className="bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-[4px] text-[10px] ml-1">{qbCustomers.length}</span>
+                    <Users className="w-4 h-4" /> Customers & Jobs <span className="bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-[4px] text-[10px] ml-1">{allCustomersAndJobs.length}</span>
                 </button>
                 <div className="w-[1px] h-6 bg-zinc-800 shrink-0 mx-2" />
                 <button 
@@ -268,13 +355,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === item.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === item.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner">
-                                    <pre className="text-xs text-sky-400/80 font-mono leading-relaxed">
-                                        {JSON.stringify(Object.fromEntries(Object.entries(item).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}
-                                    </pre>
-                                </div>
-                            )}
+                            {expandedId === item.id && renderExcelTable(item)}
                         </div>
                     ))}
 
@@ -303,13 +384,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === cust.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === cust.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner">
-                                    <pre className="text-xs text-sky-400/80 font-mono leading-relaxed">
-                                        {JSON.stringify(Object.fromEntries(Object.entries(cust).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}
-                                    </pre>
-                                </div>
-                            )}
+                            {expandedId === cust.id && renderExcelTable(cust)}
                         </div>
                     ))}
 
@@ -329,9 +404,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === v.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === v.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(v).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === v.id && renderExcelTable(v)}
                         </div>
                     ))}
 
@@ -349,9 +422,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === emp.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === emp.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(emp).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === emp.id && renderExcelTable(emp)}
                         </div>
                     ))}
 
@@ -371,9 +442,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === est.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === est.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(est).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === est.id && renderExcelTable(est)}
                         </div>
                     ))}
 
@@ -393,9 +462,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === inv.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === inv.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(inv).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === inv.id && renderExcelTable(inv)}
                         </div>
                     ))}
 
@@ -415,9 +482,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === po.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === po.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(po).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === po.id && renderExcelTable(po)}
                         </div>
                     ))}
 
@@ -437,9 +502,7 @@ export function QuickBooksAdminTab({ tenantId }: { tenantId: string }) {
                                     {expandedId === bill.id ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </div>
                             </div>
-                            {expandedId === bill.id && (
-                                <div className="px-6 py-4 bg-black/80 border-t border-zinc-800 overflow-x-auto shadow-inner"><pre className="text-xs text-sky-400/80 font-mono leading-relaxed">{JSON.stringify(Object.fromEntries(Object.entries(bill).filter(([k]) => !['id', 'tenantId'].includes(k))), null, 2)}</pre></div>
-                            )}
+                            {expandedId === bill.id && renderExcelTable(bill)}
                         </div>
                     ))}
                     

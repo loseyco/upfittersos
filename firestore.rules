@@ -112,6 +112,11 @@ service cloud.firestore {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
     }
+    match /career_applications/{docId} {
+      // Anyone can submit an application, but only tenant admins can read/manage them
+      allow create: if true;
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+    }
     match /vehicles/{docId} {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
@@ -173,6 +178,9 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /qb_customers/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_jobs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /qb_accounts/{docId} {

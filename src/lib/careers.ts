@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { collection, addDoc, getDocs, updateDoc, doc, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, updateDoc, doc, query, orderBy, where, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 export interface Experience {
   company: string;
@@ -18,6 +18,7 @@ export interface Reference {
 
 export interface CareerApplication {
   id?: string;
+  tenantId?: string;
   personalInfo: {
     firstName: string;
     lastName: string;
@@ -45,9 +46,12 @@ export async function submitApplication(appData: Omit<CareerApplication, 'id' | 
     });
 }
 
-export async function getApplications(): Promise<CareerApplication[]> {
+export async function getApplications(tenantId: string): Promise<CareerApplication[]> {
     const appsRef = collection(db, COLLECTION_NAME);
-    const q = query(appsRef, orderBy('submittedAt', 'desc'));
+    const q = tenantId !== 'GLOBAL' && tenantId !== 'unassigned'
+        ? query(appsRef, where('tenantId', '==', tenantId), orderBy('submittedAt', 'desc'))
+        : query(appsRef, orderBy('submittedAt', 'desc'));
+        
     const snapshot = await getDocs(q);
     return snapshot.docs.map(docSnap => ({
         id: docSnap.id,

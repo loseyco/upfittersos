@@ -111,8 +111,8 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs, globalCus
 
             // 3. Sort occupied by Dwell Time (Oldest timestamp first)
             if (aOccupied && bOccupied) {
-                const aTime = getMsFromTimestamp(a.vehicle?.updatedAt || a.vehicle?.createdAt);
-                const bTime = getMsFromTimestamp(b.vehicle?.updatedAt || b.vehicle?.createdAt);
+                const aTime = getMsFromTimestamp(a.vehicle?.locationUpdatedAt || a.vehicle?.createdAt);
+                const bTime = getMsFromTimestamp(b.vehicle?.locationUpdatedAt || b.vehicle?.createdAt);
                 if (aTime !== bTime) {
                     if (aTime === 0) return 1;
                     if (bTime === 0) return -1;
@@ -212,9 +212,9 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs, globalCus
                                     )}
 
                                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-zinc-800/50">
-                                        <Clock className={`w-3 h-3 ${getDwellColor(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}`} />
-                                        <span className={`text-[10px] font-bold tracking-widest ${getDwellColor(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}`}>
-                                            TIME IN AREA: {calculateDwellTime(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}
+                                        <Clock className={`w-3 h-3 ${getDwellColor(slot.vehicle?.locationUpdatedAt || slot.vehicle?.createdAt)}`} />
+                                        <span className={`text-[10px] font-bold tracking-widest ${getDwellColor(slot.vehicle?.locationUpdatedAt || slot.vehicle?.createdAt)}`}>
+                                            TIME IN AREA: {calculateDwellTime(slot.vehicle?.locationUpdatedAt || slot.vehicle?.createdAt)}
                                         </span>
                                     </div>
                                 </div>

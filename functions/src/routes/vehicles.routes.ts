@@ -69,7 +69,7 @@ vehiclesRoutes.post('/', authenticate, async (req: Request, res: Response): Prom
 
         const {
             make, model, year, vin, licensePlate,
-            color, status, customerId, currentLocationId, notes
+            color, status, customerId, currentLocationId, notes, qbWorkOrder
         } = req.body;
 
         const newVehicle = {
@@ -83,10 +83,12 @@ vehiclesRoutes.post('/', authenticate, async (req: Request, res: Response): Prom
             status: status || 'Active', 
             customerId: customerId || null,
             currentLocationId: currentLocationId || null,
+            qbWorkOrder: qbWorkOrder || '',
             notes: notes || '',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            locationUpdatedAt: currentLocationId ? admin.firestore.FieldValue.serverTimestamp() : null
         };
 
         const docRef = await getDb().collection('vehicles').add(newVehicle);
@@ -119,7 +121,7 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
 
         const {
             make, model, year, vin, licensePlate,
-            color, status, customerId, currentLocationId, notes
+            color, status, customerId, currentLocationId, notes, qbWorkOrder
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -132,7 +134,15 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
         if (color !== undefined) updates.color = color;
         if (status !== undefined) updates.status = status;
         if (customerId !== undefined) updates.customerId = customerId;
-        if (currentLocationId !== undefined) updates.currentLocationId = currentLocationId;
+        
+        if (currentLocationId !== undefined) {
+            updates.currentLocationId = currentLocationId;
+            if (vehicleData.currentLocationId !== currentLocationId) {
+                updates.locationUpdatedAt = admin.firestore.FieldValue.serverTimestamp();
+            }
+        }
+        
+        if (qbWorkOrder !== undefined) updates.qbWorkOrder = qbWorkOrder;
         if (notes !== undefined) updates.notes = notes;
 
         await vehicleRef.update(updates);

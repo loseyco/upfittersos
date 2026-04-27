@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Truck, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, FileText, Tag, BarChart3, Settings2, Activity, ChevronRight, Hash, FlaskConical, QrCode } from 'lucide-react';
+import { Truck, AlertTriangle, Edit2, Plus, RefreshCw, ArrowLeft, Save, FileText, Tag, BarChart3, Settings2, Activity, ChevronRight, Hash, FlaskConical, QrCode, Briefcase, Camera, Image as ImageIcon, MapPin } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { UnsavedChangesBanner } from '../../../components/UnsavedChangesBanner';
 import toast from 'react-hot-toast';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
+import { useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../../hooks/usePermissions';
 
@@ -15,7 +16,9 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
     const [vehicles, setVehicles] = useState<any[]>([]);
     const [customers, setCustomers] = useState<any[]>([]);
     const [zones, setZones] = useState<any[]>([]);
+    const [jobs, setJobs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchParams, setSearchParams] = useSearchParams();
 
     // Edit State
     const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
@@ -33,6 +36,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
         status: 'Active',
         customerId: '',
         currentLocationId: '',
+        qbWorkOrder: '',
         notes: ''
     });
 
@@ -65,17 +69,57 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             setZones(fetchedZones.filter(z => ['Parking', 'Bay'].includes((z as any).type || '')));
         });
 
+        const unsubJobs = onSnapshot(query(collection(db, 'jobs'), where('tenantId', '==', tenantId)), (s) => {
+            setJobs(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         return () => {
             unsubVehicles();
             unsubCustomers();
             unsubZones();
+            unsubJobs();
         };
     }, [tenantId]);
+
+    useEffect(() => {
+        const editId = searchParams.get('edit');
+        if (editId && vehicles.length > 0) {
+            if (!selectedVehicle || selectedVehicle.id !== editId) {
+                const vh = vehicles.find(v => v.id === editId);
+                if (vh) {
+                    setSelectedVehicle(vh);
+                    setIsEditing(false);
+                    setActiveProfileTab('info');
+                    const initialFormValues = {
+                        make: vh.make || '',
+                        model: vh.model || '',
+                        year: vh.year || '',
+                        vin: vh.vin || '',
+                        licensePlate: vh.licensePlate || '',
+                        color: vh.color || '',
+                        status: vh.status || 'Active',
+                        customerId: vh.customerId || '',
+                        currentLocationId: vh.currentLocationId || '',
+                        qbWorkOrder: vh.qbWorkOrder || '',
+                        notes: vh.notes || ''
+                    };
+                    setEditForm(initialFormValues);
+                    setInitialEditVehicle(initialFormValues);
+                }
+            }
+        }
+    }, [searchParams, vehicles]);
 
     const openVehicleProfile = (vehicle: any) => {
         setSelectedVehicle(vehicle);
         setIsEditing(false);
         setActiveProfileTab('info');
+        setSearchParams(prev => {
+            if (prev.get('edit') !== vehicle.id) {
+                prev.set('edit', vehicle.id);
+            }
+            return prev;
+        });
         const initialFormValues = {
             make: vehicle.make || '',
             model: vehicle.model || '',
@@ -86,6 +130,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             status: vehicle.status || 'Active',
             customerId: vehicle.customerId || '',
             currentLocationId: vehicle.currentLocationId || '',
+            qbWorkOrder: vehicle.qbWorkOrder || '',
             notes: vehicle.notes || ''
         };
         setEditForm(initialFormValues);
@@ -105,6 +150,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
             status: 'Active',
             customerId: '',
             currentLocationId: '',
+            qbWorkOrder: '',
             notes: ''
         };
         setEditForm(initialFormValues);
@@ -113,6 +159,10 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
 
     const closeEditVehicle = () => {
         setSelectedVehicle(null);
+        setSearchParams(prev => {
+            if (prev.has('edit')) prev.delete('edit');
+            return prev;
+        });
     };
 
     const checkDuplicateVin = (vin: string) => {
@@ -320,6 +370,10 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                     ))}
                                 </select>
                             </div>
+                            <div>
+                                <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">QuickBooks Work Order #</label>
+                                <input type="text" placeholder="WO-..." value={editForm.qbWorkOrder} onChange={(e) => setEditForm({...editForm, qbWorkOrder: e.target.value})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500/50 text-white font-mono uppercase" />
+                            </div>
                         </div>
                     </section>
 
@@ -441,39 +495,142 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                 <div className="p-6 md:p-8 max-w-5xl mx-auto w-full">
                      {activeProfileTab === 'info' && (
                          <div className="space-y-8">
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                 {/* Status Box */}
-                                 <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-                                     <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><Activity className="w-4 h-4 text-accent"/> Overview</h3>
-                                     <div className="space-y-4">
-                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Ownership / Client</p><p className="text-zinc-300 font-medium">{editForm.customerId ? getCustomerName(editForm.customerId) : 'Internal Fleet Asset'}</p></div>
-                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Vehicle Match Details</p><p className="text-zinc-300 font-medium">{editForm.color || '—'}</p></div>
-                                         <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Assigned Spot</p>
-                                             {editForm.currentLocationId ? (
-                                                 <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-widest">
-                                                     {zones.find(z => z.id === editForm.currentLocationId)?.label || 'Unknown'}
-                                                 </span>
-                                             ) : <p className="text-zinc-500 font-medium italic">Off-site</p>}
+                             {(() => {
+                                 const activeJob = jobs.find(j => j.vehicleId === selectedVehicle?.id && !['Completed', 'Cancelled', 'Archived'].includes(j.status));
+                                 const totalPhotos = activeJob?.intakePhotos?.length || 0;
+                                 return (
+                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                         {/* Status Box */}
+                                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
+                                             <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><Activity className="w-4 h-4 text-accent"/> Overview</h3>
+                                             <div className="space-y-4">
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Ownership / Client</p><p className="text-zinc-300 font-medium">{editForm.customerId ? getCustomerName(editForm.customerId) : 'Internal Fleet Asset'}</p></div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Vehicle Match Details</p><p className="text-zinc-300 font-medium">{editForm.color || '—'}</p></div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">License Plate</p><p className="text-zinc-300 font-medium">{editForm.licensePlate || '—'}</p></div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Current Mileage</p><p className="text-zinc-300 font-medium">{selectedVehicle?.mileage ? parseInt(selectedVehicle.mileage).toLocaleString() + ' mi' : 'Unknown'}</p></div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Assigned Spot</p>
+                                                     {editForm.currentLocationId ? (
+                                                         <span className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-widest">
+                                                             {zones.find(z => z.id === editForm.currentLocationId)?.label || 'Unknown'}
+                                                         </span>
+                                                     ) : <p className="text-zinc-500 font-medium italic">Off-site</p>}
+                                                 </div>
+                                             </div>
+                                         </div>
+
+                                         {/* Live System Status Box */}
+                                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
+                                             <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><Activity className="w-4 h-4 text-emerald-400"/> System Status</h3>
+                                             <div className="space-y-4">
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">CompanyCam Sync</p><p className="text-zinc-300 font-medium">{selectedVehicle?.companyCamProjectId ? `Linked (${selectedVehicle.companyCamProjectId})` : 'Unlinked'}</p></div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">QuickBooks WP#</p><p className="text-zinc-300 font-medium">{selectedVehicle?.qbWorkOrder || 'Unlinked'}</p></div>
+                                                 <div>
+                                                    <p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Active Job</p>
+                                                    {activeJob ? (
+                                                        <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-widest inline-flex truncate max-w-full">
+                                                            {activeJob.jobNumber ? `#${activeJob.jobNumber} - ${activeJob.title}` : activeJob.title}
+                                                        </span>
+                                                    ) : (
+                                                        <p className="text-zinc-600 font-medium italic">Idle</p>
+                                                    )}
+                                                 </div>
+                                                 <div><p className="text-xs font-bold text-zinc-500 uppercase tracking-widest mb-1">Recent Flow Photos</p><p className="text-zinc-300 font-medium">{totalPhotos} Assets Captured</p></div>
+                                             </div>
+                                         </div>
+
+                                         {/* Notes Box */}
+                                         <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
+                                             <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4 text-orange-400"/> Operational Notes</h3>
+                                             {editForm.notes ? (
+                                                <p className="text-zinc-300 whitespace-pre-wrap text-sm leading-relaxed">{editForm.notes}</p>
+                                             ) : <p className="text-zinc-600 italic text-sm">No notes written.</p>}
                                          </div>
                                      </div>
-                                 </div>
-
-                                 {/* Notes Box */}
-                                 <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
-                                     <h3 className="text-sm font-bold text-white mb-6 uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4 text-orange-400"/> Operational Notes</h3>
-                                     {editForm.notes ? (
-                                        <p className="text-zinc-300 whitespace-pre-wrap text-sm leading-relaxed">{editForm.notes}</p>
-                                     ) : <p className="text-zinc-600 italic text-sm">No notes written.</p>}
-                                 </div>
-                             </div>
+                                 );
+                             })()}
                          </div>
                      )}
 
                      {activeProfileTab === 'jobs' && (
-                         <div className="bg-zinc-900/50 border border-zinc-800 border-dashed rounded-2xl p-12 text-center">
-                             <BarChart3 className="w-8 h-8 text-zinc-700 mx-auto mb-4" />
-                             <h3 className="text-zinc-400 font-bold mb-1">No Active Work Orders</h3>
-                             <p className="text-zinc-600 text-sm">Track upfits, maintenance, and installations here.</p>
+                         <div className="space-y-6">
+                            {jobs.filter(j => j.vehicleId === selectedVehicle?.id).length === 0 ? (
+                                 <div className="bg-zinc-900/50 border border-zinc-800 border-dashed rounded-2xl p-12 text-center">
+                                     <Briefcase className="w-8 h-8 text-zinc-700 mx-auto mb-4" />
+                                     <h3 className="text-zinc-400 font-bold mb-1">No Historical Work Orders</h3>
+                                     <p className="text-zinc-600 text-sm">No historical jobs found for this vehicle.</p>
+                                 </div>
+                            ) : (
+                                jobs.filter(j => j.vehicleId === selectedVehicle?.id)
+                                .sort((a,b) => {
+                                    const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt?._seconds ? a.createdAt._seconds * 1000 : 0);
+                                    const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt?._seconds ? b.createdAt._seconds * 1000 : 0);
+                                    return timeB - timeA;
+                                })
+                                .map(vhJob => (
+                                    <div key={vhJob.id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden hover:border-zinc-700 transition-colors">
+                                        <div className="p-6 border-b border-zinc-800/50 flex items-start gap-4">
+                                            <div className="bg-zinc-800 rounded-lg p-3 shrink-0">
+                                                <Briefcase className="w-5 h-5 text-blue-400" />
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between gap-4 mb-2">
+                                                    <h3 className="font-bold text-white text-lg">{vhJob.title || `Job #${vhJob.jobNumber || vhJob.id.slice(-4)}`}</h3>
+                                                    <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-widest rounded border ${
+                                                        vhJob.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                                                        vhJob.status === 'In Progress' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                                        'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                                    }`}>
+                                                        {vhJob.status || 'Draft'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm text-zinc-400 mb-4">{vhJob.description || 'No operational description provided.'}</p>
+                                                
+                                                <div className="flex flex-wrap gap-4 text-xs font-medium text-zinc-500">
+                                                    {vhJob.parkedLocation && (
+                                                        <div className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" /> Checked in at: {vhJob.parkedLocation}</div>
+                                                    )}
+                                                    {vhJob.vehicleDetails?.mileage && (
+                                                        <div className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Mileage IN: {parseInt(vhJob.vehicleDetails.mileage).toLocaleString()} mi</div>
+                                                    )}
+                                                    {vhJob.companyCamProjectId && (
+                                                        <div className="flex items-center gap-1.5"><Camera className="w-3.5 h-3.5" /> Bound Cam: {vhJob.companyCamProjectId}</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Intake Media Details */}
+                                        {((vhJob.intakePhotos && vhJob.intakePhotos.length > 0) || vhJob.checkInNotes) && (
+                                            <div className="p-6 bg-zinc-900/30 flex flex-col md:flex-row gap-6">
+                                                
+                                                {vhJob.intakePhotos && vhJob.intakePhotos.length > 0 && (
+                                                    <div className="flex-1">
+                                                        <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><ImageIcon className="w-3.5 h-3.5"/> Attached Intake Media ({vhJob.intakePhotos.length})</h4>
+                                                        <div className="flex flex-wrap gap-3">
+                                                            {vhJob.intakePhotos.map((photo: any, i: number) => (
+                                                                <div key={i} className="w-24 h-24 rounded-lg bg-zinc-800 overflow-hidden border border-zinc-700 relative group cursor-pointer hover:border-accent transition-colors">
+                                                                    <img src={photo.url} alt="Intake" className="w-full h-full object-cover" />
+                                                                    <div className="absolute inset-x-0 bottom-0 bg-black/80 p-1 text-center backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <span className="text-[9px] font-bold text-white uppercase tracking-widest">{photo.category || 'Photo'}</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {vhJob.checkInNotes && (
+                                                    <div className="flex-1 py-4 px-5 bg-orange-500/5 rounded-xl border border-orange-500/10 h-fit">
+                                                        <h4 className="text-[10px] font-black text-orange-400 uppercase tracking-widest flex items-center gap-1.5 mb-2"><AlertTriangle className="w-3.5 h-3.5"/> Intake Diagnostic Log</h4>
+                                                        <p className="text-xs text-orange-200/80 leading-relaxed whitespace-pre-wrap">{vhJob.checkInNotes}</p>
+                                                    </div>
+                                                )}
+
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
                          </div>
                      )}
                      
@@ -490,7 +647,7 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
     }
 
     return (
-        <div className="flex flex-col h-full bg-zinc-950 relative">
+        <div className="flex flex-col w-full bg-zinc-950 relative overflow-visible">
             {/* Alpha Banner */}
             <div className="bg-orange-500/5 border-b border-orange-500/20 px-6 py-3 flex items-start gap-3 shrink-0 relative z-10">
                 <FlaskConical className="w-5 h-5 text-orange-400 shrink-0 mt-0.5" />
@@ -537,14 +694,15 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
 
             {/* Table Header */}
             <div className="grid grid-cols-12 gap-4 px-6 py-3 bg-zinc-900/50 border-b border-zinc-800 text-xs font-black text-zinc-500 uppercase tracking-widest shrink-0">
-                <div className="col-span-5 md:col-span-4 object-cover">Vehicle / VIN</div>
+                <div className="col-span-5 md:col-span-3 object-cover">Vehicle / VIN</div>
                 <div className="hidden md:block col-span-3">Assigned To</div>
-                <div className="col-span-3 md:col-span-2">Status</div>
-                <div className="col-span-4 md:col-span-3 text-right">Actions</div>
+                <div className="col-span-3 md:col-span-2">Health</div>
+                <div className="hidden md:block col-span-3">Live Status</div>
+                <div className="col-span-4 md:col-span-1 text-right">Actions</div>
             </div>
 
             {/* Table Body */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="w-full">
                 {vehicles.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-24 text-center">
                         <Truck className="w-12 h-12 text-zinc-800 mb-4" />
@@ -553,9 +711,14 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                     </div>
                 ) : (
                     <div className="divide-y divide-zinc-800/50">
-                        {vehicles.map((vh) => (
+                        {vehicles.map((vh) => {
+                            const activeJob = jobs.find(j => j.vehicleId === vh.id && !['Completed', 'Cancelled', 'Archived'].includes(j.status));
+                            const hasCompanyCam = !!vh.companyCamProjectId;
+                            const totalPhotos = activeJob?.intakePhotos?.length || 0;
+                            
+                            return (
                             <div key={vh.id} onClick={() => openVehicleProfile(vh)} className="grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-zinc-900/30 transition-colors group cursor-pointer">
-                                <div className="col-span-5 md:col-span-4 flex flex-col">
+                                <div className="col-span-5 md:col-span-3 flex flex-col">
                                     <span className="font-bold text-sm text-zinc-200 group-hover:text-accent transition-colors">
                                         {(vh.year || vh.make || vh.model) ? `${vh.year} ${vh.make} ${vh.model}`.trim() : 'Unnamed Vehicle'}
                                     </span>
@@ -576,13 +739,49 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                         {vh.status || 'Active'}
                                     </span>
                                 </div>
-                                <div className="col-span-4 md:col-span-3 flex items-center justify-end">
+                                <div className="hidden md:flex col-span-3 flex-wrap gap-1.5 items-center">
+                                    {activeJob ? (
+                                        <div className="flex items-center gap-1.5 bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-full">
+                                            <Briefcase className="w-3 h-3" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap">
+                                                {activeJob.jobNumber ? `#${activeJob.jobNumber}` : `#${activeJob.id.slice(-4)}`}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1.5 bg-zinc-800/50 text-zinc-600 border border-zinc-800/50 px-2 py-0.5 rounded-full">
+                                            <Briefcase className="w-3 h-3" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest">Idle</span>
+                                        </div>
+                                    )}
+                                    {hasCompanyCam ? (
+                                        <div title={`CompanyCam: ${vh.companyCamProjectId}`} className="flex items-center gap-1.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full hidden lg:flex">
+                                            <Camera className="w-3 h-3" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest hidden lg:block">Cam</span>
+                                        </div>
+                                    ) : (
+                                        <div title="No CompanyCam Linked" className="flex items-center gap-1.5 bg-zinc-800/50 text-zinc-600 border border-zinc-800/50 px-2 py-0.5 rounded-full hidden lg:flex w-fit">
+                                            <Camera className="w-3 h-3" />
+                                        </div>
+                                    )}
+                                    {totalPhotos > 0 ? (
+                                        <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full hidden xl:flex">
+                                            <ImageIcon className="w-3 h-3" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest">{totalPhotos}</span>
+                                        </div>
+                                    ) : (
+                                        <div title="No Intake Photos" className="flex items-center gap-1.5 bg-zinc-800/50 text-zinc-600 border border-zinc-800/50 px-2 py-0.5 rounded-full hidden xl:flex w-fit">
+                                            <ImageIcon className="w-3 h-3" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="col-span-4 md:col-span-1 flex items-center justify-end">
                                     <div className="text-zinc-600 group-hover:text-accent transition-colors ml-2 hidden md:block">
                                         <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                                     </div>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>

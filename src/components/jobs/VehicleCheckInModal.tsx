@@ -44,7 +44,7 @@ export function VehicleCheckInModal({
     );
     const [vinVerified, setVinVerified] = useState<boolean>(job?.vinVerified || false);
     const [damageNotes, setDamageNotes] = useState<string>(job?.checkInNotes || '');
-    const [companyCamProjectId, setCompanyCamProjectId] = useState<string>(job?.companyCamProjectId || '');
+    const [companyCamProjectId, setCompanyCamProjectId] = useState<string>(vehicle?.companyCamProjectId || job?.companyCamProjectId || '');
     const [localZones, setLocalZones] = useState<any[]>(zones || []);
     const [showVinScanner, setShowVinScanner] = useState(false);
     const [showTagScanner, setShowTagScanner] = useState(false);
@@ -161,18 +161,22 @@ export function VehicleCheckInModal({
 
         setLoading(true);
         try {
-            if (mileageIn && vehicle?.id) {
-                api.put(`/vehicles/${vehicle.id}`, { mileage: mileageIn, tenantId }).catch(console.error);
+            if (vehicle?.id) {
+                api.put(`/vehicles/${vehicle.id}`, { 
+                    mileage: mileageIn,
+                    tenantId,
+                    ...(companyCamProjectId ? { companyCamProjectId } : {}),
+                    ...(parkedLocation ? { currentLocationId: parkedLocation } : {})
+                }).catch(console.error);
             }
+
             const updates: any = {
                 status: 'In Progress',
-                parkedLocation,
                 vehicleDetails: {
                     ...job.vehicleDetails,
                     mileage: mileageIn
                 },
                 checkInNotes: damageNotes,
-                companyCamProjectId,
                 vinVerified,
                 intakePhotos: photos.filter(p => p.url && !p.error).map(p => ({
                     url: p.url,
