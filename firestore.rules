@@ -1,0 +1,227 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user belongs to the target tenant
+    function isTenant(tid) {
+      return request.auth != null && request.auth.token.tenantId == tid;
+    }
+
+    // Helper function for global admins
+    function isSuperAdmin() {
+      return request.auth != null && (request.auth.token.role == 'super_admin' || request.auth.token.role == 'system_owner');
+    }
+
+    // Helper function for business owners
+    function isBusinessOwner(tid) {
+      return isTenant(tid) && request.auth.token.role == 'business_owner';
+    }
+
+    match /{document=**} {
+      allow read, write: if false; 
+    }
+    
+    // ============================================
+    // V2 ARCHITECTURE - NEW PLATFORM LOGS
+    // ============================================
+    match /platform_logs/{logId} {
+      allow create: if request.auth != null;
+      allow read: if isSuperAdmin();
+      allow update, delete: if false; // Immutable
+    }
+    
+    // ============================================
+    // V1 ARCHITECTURE - ROOT COLLECTIONS
+    // ============================================
+    match /logs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /daily_logs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /meetings/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /announcements/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /report_configs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /generated_reports/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+    match /feedback/{docId} {
+      allow read, update: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if (request.resource.data.tenantId == 'GLOBAL') || isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      // Allow delete if author OR if manager/admin within the same tenant
+      allow delete: if (isTenant(resource.data.tenantId) && request.auth.uid == resource.data.authorId) 
+                    || (isTenant(resource.data.tenantId) && request.auth.token.role in ['manager', 'business_owner']) 
+                    || isSuperAdmin();
+    }
+    match /feedback/{docId}/comments/{commentId} {
+      allow read, write: if isTenant(get(/databases/$(database)/documents/feedback/$(docId)).data.tenantId) || isSuperAdmin();
+    }
+    match /features/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+    match /auditLogs/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if request.auth != null; 
+      // Allow self-updates to gracefully handle Firebase SDK offline-retries of the identical payload
+      allow update: if request.auth != null && resource.data.actorUid == request.auth.uid;
+      allow delete: if false; 
+    }
+    match /changelogs/{docId} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+    match /system_registry/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+    match /business_canvases/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /business_facility_maps/{tenantId} {
+      allow read, write: if isTenant(tenantId) || isSuperAdmin();
+    }
+    match /business_zones/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /users/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
+    }
+    match /user_fcm_tokens/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isSuperAdmin());
+    }
+    
+    // New Collections Enabled For Realtime Frontend Mirroring
+    match /messages/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+      allow update, delete: if (isTenant(resource.data.tenantId) && request.auth.uid == resource.data.senderId) || isSuperAdmin();
+    }
+    match /tasks/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /task_templates/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /jobs/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /career_applications/{docId} {
+      // Anyone can submit an application, but only tenant admins can read/manage them
+      allow create: if true;
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+    }
+    match /vehicles/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /customers/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /inventory/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /inventory_items/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /areas/{docId} {
+      allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
+    }
+    match /user_fcm_tokens/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if isSuperAdmin();
+    }
+    
+    // ============================================
+    // ROOT TENANT COLLECTIONS (V2 COMPLIANT)
+    // ============================================
+    match /businesses/{tenantId} {
+      allow read: if isTenant(tenantId) || isSuperAdmin();
+      allow write: if isSuperAdmin();
+      
+      // V2 AUDIT LOGS (Tenant Scoped)
+      match /audit_logs/{logId} {
+        allow create: if isTenant(tenantId);
+        allow read: if isTenant(tenantId) && request.auth.token.role == 'admin';
+        allow update, delete: if false; 
+      }
+      
+      match /meetings/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /staff/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /canvases/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_off_requests/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /task_time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /deliveries/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /business_events/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_items/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_customers/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_jobs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_accounts/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_vendors/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_employees/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_estimates/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_invoices/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_purchase_orders/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qb_bills/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+    }
+  }
+}
