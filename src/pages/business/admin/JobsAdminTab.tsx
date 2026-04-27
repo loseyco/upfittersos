@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, RefreshCw, Truck, FlaskConical } from 'lucide-react';
+import { Briefcase, Plus, RefreshCw, Truck, FlaskConical, MapPin } from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +14,7 @@ export function JobsAdminTab({ tenantId }: { tenantId: string }) {
     const [jobs, setJobs] = useState<any[]>([]);
     const [customers, setCustomers] = useState<any[]>([]);
     const [vehicles, setVehicles] = useState<any[]>([]);
+    const [zones, setZones] = useState<any[]>([]);
 
     const [loading, setLoading] = useState(true);
     const [showArchived, setShowArchived] = useState(false);
@@ -44,10 +45,15 @@ export function JobsAdminTab({ tenantId }: { tenantId: string }) {
             setVehicles(s.docs.map(d => ({ id: d.id, ...d.data() })));
         });
 
+        const unsubZones = onSnapshot(query(collection(db, 'business_zones'), where('tenantId', '==', tenantId)), (s) => {
+            setZones(s.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
         return () => {
             unsubJobs();
             unsubCustomers();
             unsubVehicles();
+            unsubZones();
         };
     }, [tenantId]);
 
@@ -63,6 +69,11 @@ export function JobsAdminTab({ tenantId }: { tenantId: string }) {
         const v = vehicles.find(x => x.id === vId);
         if (!v) return '—';
         return `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim() || 'Unknown Vehicle';
+    };
+
+    const getZoneName = (zoneId: string) => {
+        const z = zones.find(x => x.id === zoneId);
+        return z ? z.label || z.name || zoneId : zoneId;
     };
 
     if (loading) {
@@ -147,6 +158,16 @@ export function JobsAdminTab({ tenantId }: { tenantId: string }) {
                                 <div className="hidden md:flex col-span-3 flex-col text-xs text-zinc-400">
                                     <span className="font-bold text-zinc-300 truncate">{job.customerId ? getCustomerName(job.customerId) : 'No Customer'}</span>
                                     <span className="font-medium text-zinc-500 mt-0.5 truncate flex items-center gap-1"><Truck className="w-3 h-3" /> {job.vehicleId ? getVehicleName(job.vehicleId) : 'No Vehicle'}</span>
+                                    {job.currentLocationId && (
+                                        <span className="font-bold text-indigo-400 mt-0.5 truncate flex items-center gap-1">
+                                            <MapPin className="w-3 h-3" /> {getZoneName(job.currentLocationId)}
+                                        </span>
+                                    )}
+                                    {!job.currentLocationId && job.parkedLocation && (
+                                        <span className="font-bold text-indigo-400 mt-0.5 truncate flex items-center gap-1">
+                                            <MapPin className="w-3 h-3" /> {job.parkedLocation}
+                                        </span>
+                                    )}
                                 </div>
                                 <div className="col-span-2 md:col-span-2 flex items-center justify-center">
                                     <span className={`px-2 py-0.5 text-[10px] font-black uppercase tracking-widest rounded border whitespace-nowrap ${job.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
