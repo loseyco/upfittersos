@@ -91,7 +91,7 @@ exports.vehiclesRoutes.post('/', auth_middleware_1.authenticate, async (req, res
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
         }
-        const { make, model, year, vin, licensePlate, color, status, customerId, notes } = req.body;
+        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes } = req.body;
         const newVehicle = {
             tenantId,
             make: make || '',
@@ -102,6 +102,7 @@ exports.vehiclesRoutes.post('/', auth_middleware_1.authenticate, async (req, res
             color: color || '',
             status: status || 'Active',
             customerId: customerId || null,
+            currentLocationId: currentLocationId || null,
             notes: notes || '',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -130,7 +131,7 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this vehicle.' });
         }
-        const { make, model, year, vin, licensePlate, color, status, customerId, notes } = req.body;
+        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (make !== undefined)
             updates.make = make;
@@ -148,6 +149,8 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
             updates.status = status;
         if (customerId !== undefined)
             updates.customerId = customerId;
+        if (currentLocationId !== undefined)
+            updates.currentLocationId = currentLocationId;
         if (notes !== undefined)
             updates.notes = notes;
         await vehicleRef.update(updates);

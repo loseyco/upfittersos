@@ -134,9 +134,21 @@ export function VehicleCheckInApp() {
         return c;
     };
 
+    const checkDuplicateVin = (vin: string) => {
+        if (!vin || vin.length < 5) return null;
+        return vehicles.find(v => v.vin?.toLowerCase() === vin.toLowerCase()) || null;
+    };
+
+    const duplicateVehicleMatch = checkDuplicateVin(newVehicleData.vin);
+
     const handleCreateWalkIn = async () => {
         if (!newVehicleData.make || !newVehicleData.model) {
             toast.error("Please enter at least a make and model.");
+            return;
+        }
+
+        if (duplicateVehicleMatch) {
+            toast.error("This VIN is already registered. Please use the existing vehicle record if possible.");
             return;
         }
 
@@ -233,11 +245,18 @@ export function VehicleCheckInApp() {
                             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
                                 <h4 className="text-lg font-black text-white mb-4">Register New Check-In Vehicle</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                                    <div className="relative">
-                                        <input placeholder="VIN Number" value={newVehicleData.vin} onChange={e => setNewVehicleData({...newVehicleData, vin: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-4 pr-10 py-2.5 text-sm text-white focus:border-blue-500 outline-none" />
-                                        <button onClick={() => setShowVinScanner(true)} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-zinc-900 border border-transparent hover:border-zinc-800 rounded-md transition-colors">
-                                            <ScanLine className="w-4 h-4" />
-                                        </button>
+                                    <div>
+                                        <div className="relative">
+                                            <input placeholder="VIN Number" value={newVehicleData.vin} onChange={e => setNewVehicleData({...newVehicleData, vin: e.target.value.toUpperCase()})} className={`w-full bg-zinc-950 border ${duplicateVehicleMatch ? 'border-amber-500 focus:border-amber-500' : 'border-zinc-800 focus:border-blue-500'} rounded-xl pl-4 pr-10 py-2.5 text-sm text-white outline-none uppercase font-mono`} />
+                                            <button onClick={() => setShowVinScanner(true)} className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 text-zinc-500 hover:text-blue-400 hover:bg-zinc-900 border border-transparent hover:border-zinc-800 rounded-md transition-colors">
+                                                <ScanLine className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        {duplicateVehicleMatch && (
+                                            <p className="text-amber-400 text-[10px] font-bold mt-1.5 px-1 leading-tight">
+                                                Warning: Auto-detected existing ({duplicateVehicleMatch.year} {duplicateVehicleMatch.make} {duplicateVehicleMatch.model}).
+                                            </p>
+                                        )}
                                     </div>
                                     <input placeholder="Year" value={newVehicleData.year} onChange={e => setNewVehicleData({...newVehicleData, year: e.target.value})} className="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 outline-none" />
                                     <input placeholder="Make (e.g. Ford)" value={newVehicleData.make} onChange={e => setNewVehicleData({...newVehicleData, make: e.target.value})} className="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 outline-none" />

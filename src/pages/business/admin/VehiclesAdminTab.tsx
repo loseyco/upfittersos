@@ -115,9 +115,24 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
         setSelectedVehicle(null);
     };
 
+    const checkDuplicateVin = (vin: string) => {
+        if (!vin || vin.length < 5) return null;
+        return vehicles.find(v => 
+            v.id !== selectedVehicle?.id && 
+            v.vin?.toLowerCase() === vin.toLowerCase()
+        ) || null;
+    };
+
+    const duplicateVehicleMatch = checkDuplicateVin(editForm.vin);
+
     const handleSaveVehicle = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedVehicle) return;
+
+        if (duplicateVehicleMatch) {
+            toast.error("A vehicle with this VIN already exists in the system.");
+            return;
+        }
         
         try {
             setIsSaving(true);
@@ -254,8 +269,13 @@ export function VehiclesAdminTab({ tenantId }: { tenantId: string }) {
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">VIN</label>
                                 <div className="relative">
                                     <Hash className="w-4 h-4 absolute left-4 top-3.5 text-zinc-600" />
-                                    <input type="text" placeholder="1FTFW1EG..." value={editForm.vin} onChange={(e) => setEditForm({...editForm, vin: e.target.value.toUpperCase()})} className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-accent text-white uppercase font-mono" />
+                                    <input type="text" placeholder="1FTFW1EG..." value={editForm.vin} onChange={(e) => setEditForm({...editForm, vin: e.target.value.toUpperCase()})} className={`w-full bg-zinc-900 border ${duplicateVehicleMatch ? 'border-amber-500 focus:border-amber-500' : 'border-zinc-800 focus:border-accent'} rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none text-white uppercase font-mono`} />
                                 </div>
+                                {duplicateVehicleMatch && (
+                                    <p className="text-amber-400 text-[10px] font-bold mt-1.5 px-1 leading-tight flex items-center gap-1">
+                                        <AlertTriangle className="w-3 h-3" /> Already registered ({duplicateVehicleMatch.year} {duplicateVehicleMatch.make}).
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-[11px] font-bold text-zinc-400 uppercase tracking-widest mb-2 ml-1">License Plate</label>
