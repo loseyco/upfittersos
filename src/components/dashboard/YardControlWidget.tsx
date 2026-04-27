@@ -7,6 +7,7 @@ interface YardControlWidgetProps {
     tenantId: string;
     globalVehicles: any[];
     allJobs: any[];
+    globalCustomers?: any[];
 }
 
 const getMsFromTimestamp = (timestamp: any) => {
@@ -16,7 +17,7 @@ const getMsFromTimestamp = (timestamp: any) => {
     return new Date(timestamp).getTime();
 };
 
-export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardControlWidgetProps) {
+export function YardControlWidget({ tenantId, globalVehicles, allJobs, globalCustomers = [] }: YardControlWidgetProps) {
     const [zones, setZones] = useState<any[]>([]);
     const [filter, setFilter] = useState<'ALL' | 'OCCUPIED' | 'EMPTY'>('ALL');
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'BAY' | 'PARKING'>('ALL');
@@ -172,9 +173,27 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
                                     <h4 className="text-sm font-bold text-zinc-200">
                                         {slot.vehicle ? `${slot.vehicle.year || ''} ${slot.vehicle.make || ''} ${slot.vehicle.model || 'Unknown Model'}`.trim() : 'Unknown Vehicle'}
                                     </h4>
+
+                                    {(() => {
+                                        let customer = null;
+                                        if (slot.job) {
+                                            customer = slot.job.customer || globalCustomers.find(c => c.id === slot.job.customerId);
+                                        }
+                                        if (!customer && slot.vehicle?.customerId) {
+                                            customer = globalCustomers.find(c => c.id === slot.vehicle.customerId);
+                                        }
+                                        if (customer) {
+                                            return (
+                                                <p className="text-xs text-zinc-400 font-medium truncate -mt-1 mb-0.5">
+                                                    {customer.firstName} {customer.lastName}
+                                                </p>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
                                     
                                     {slot.vehicle?.vin && (
-                                        <p className="text-[10px] font-mono text-zinc-500 tracking-wider">VIN: {slot.vehicle.vin.substring(slot.vehicle.vin.length - 6)}</p>
+                                        <p className="text-[10px] font-mono text-zinc-500 tracking-wider">VIN: {slot.vehicle.vin}</p>
                                     )}
 
                                     {slot.job ? (

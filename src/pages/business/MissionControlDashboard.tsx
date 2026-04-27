@@ -315,6 +315,7 @@ export function MissionControlDashboard() {
                                 tenantId={tenantId || ''} 
                                 globalVehicles={globalVehicles} 
                                 allJobs={allJobs} 
+                                globalCustomers={globalCustomers}
                             />
                             
                                 <div className="relative w-full bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 flex flex-col">
