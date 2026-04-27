@@ -69,7 +69,7 @@ vehiclesRoutes.post('/', authenticate, async (req: Request, res: Response): Prom
 
         const {
             make, model, year, vin, licensePlate,
-            color, status, customerId, notes
+            color, status, customerId, currentLocationId, notes
         } = req.body;
 
         const newVehicle = {
@@ -82,6 +82,7 @@ vehiclesRoutes.post('/', authenticate, async (req: Request, res: Response): Prom
             color: color || '',
             status: status || 'Active', 
             customerId: customerId || null,
+            currentLocationId: currentLocationId || null,
             notes: notes || '',
             createdBy: caller.uid,
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -118,7 +119,7 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
 
         const {
             make, model, year, vin, licensePlate,
-            color, status, customerId, notes
+            color, status, customerId, currentLocationId, notes
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -131,6 +132,7 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
         if (color !== undefined) updates.color = color;
         if (status !== undefined) updates.status = status;
         if (customerId !== undefined) updates.customerId = customerId;
+        if (currentLocationId !== undefined) updates.currentLocationId = currentLocationId;
         if (notes !== undefined) updates.notes = notes;
 
         await vehicleRef.update(updates);
