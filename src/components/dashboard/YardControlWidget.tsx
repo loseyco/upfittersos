@@ -188,14 +188,14 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
                                         </span>
                                     ) : (
                                         <span className="w-fit px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded border bg-amber-500/10 text-amber-500 border-amber-500/20">
-                                            Inventory / Storage
+                                            No Job Assigned
                                         </span>
                                     )}
 
                                     <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-zinc-800/50">
                                         <Clock className={`w-3 h-3 ${getDwellColor(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}`} />
                                         <span className={`text-[10px] font-bold tracking-widest ${getDwellColor(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}`}>
-                                            DWELL: {calculateDwellTime(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}
+                                            TIME IN AREA: {calculateDwellTime(slot.vehicle?.updatedAt || slot.vehicle?.createdAt)}
                                         </span>
                                     </div>
                                 </div>
