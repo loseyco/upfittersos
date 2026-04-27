@@ -39,7 +39,9 @@ export function VehicleCheckInModal({
 }) {
     const [loading, setLoading] = useState(false);
     const [mileageIn, setMileageIn] = useState<string>(vehicle?.mileage || '');
-    const [parkedLocation, setParkedLocation] = useState<string>(job?.parkedLocation || '');
+    const [parkedLocation, setParkedLocation] = useState<string>(
+        job?.parkedLocation || (vehicle?.currentLocationId ? (zones?.find(z => z.id === vehicle.currentLocationId)?.label || vehicle.currentLocationId) : '')
+    );
     const [vinVerified, setVinVerified] = useState<boolean>(job?.vinVerified || false);
     const [damageNotes, setDamageNotes] = useState<string>(job?.checkInNotes || '');
     const [companyCamProjectId, setCompanyCamProjectId] = useState<string>(job?.companyCamProjectId || '');
@@ -54,7 +56,15 @@ export function VehicleCheckInModal({
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [activeCategory, setActiveCategory] = useState<string>('');
     const [wizardActive, setWizardActive] = useState(false);
-    const [photos, setPhotos] = useState<{ id: string, category: string, file?: File, url?: string, progress: number, error?: boolean }[]>([]);
+    const [photos, setPhotos] = useState<{ id: string, category: string, file?: File, url?: string, progress: number, error?: boolean }[]>(
+        job?.intakePhotos?.map((p: any) => ({
+            id: p.id || Math.random().toString(36).substring(7),
+            category: p.category,
+            url: p.url,
+            progress: 100,
+            error: false
+        })) || []
+    );
 
     useEffect(() => {
         if (!tenantId || tenantId === 'GLOBAL') return;
@@ -196,8 +206,8 @@ export function VehicleCheckInModal({
 
     const renderPhotoSquare = (photo: any) => (
         <div key={photo.id} className="relative w-full aspect-square rounded-xl overflow-hidden bg-zinc-900 border border-zinc-700 shadow-sm group">
-            {photo.file && (
-                <img src={URL.createObjectURL(photo.file)} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+            {(photo.file || photo.url) && (
+                <img src={photo.file ? URL.createObjectURL(photo.file) : photo.url} className="w-full h-full object-cover transition-transform group-hover:scale-105" />
             )}
             {photo.progress < 100 && !photo.error && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-900/80 backdrop-blur-sm">
