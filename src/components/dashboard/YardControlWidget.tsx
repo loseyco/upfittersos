@@ -21,20 +21,46 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
         return () => unsub();
     }, [tenantId]);
 
-    const calculateDwellTime = (timestampISO?: string) => {
-        if (!timestampISO) return 'Unknown';
-        const ms = Date.now() - new Date(timestampISO).getTime();
-        const days = Math.floor(ms / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        
-        if (days > 0) return `${days}d ${hours}h`;
-        if (hours > 0) return `${hours}h`;
-        return '< 1h';
+    const getMsFromTimestamp = (timestamp: any) => {
+        if (!timestamp) return 0;
+        if (typeof timestamp === 'object' && timestamp.seconds) return timestamp.seconds * 1000;
+        if (typeof timestamp === 'object' && timestamp.toMillis) return timestamp.toMillis();
+        return new Date(timestamp).getTime();
     };
 
-    const getDwellColor = (timestampISO?: string) => {
-        if (!timestampISO) return 'text-zinc-500';
-        const hours = (Date.now() - new Date(timestampISO).getTime()) / (1000 * 60 * 60);
+    const calculateDwellTime = (timestamp?: any) => {
+        if (!timestamp) return 'Unknown';
+        const ms = Date.now() - getMsFromTimestamp(timestamp);
+        if (ms < 0) return '< 1m';
+
+        const minutes = Math.floor(ms / (1000 * 60));
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        const weeks = Math.floor(days / 7);
+        const months = Math.floor(days / 30);
+
+        if (months > 0) {
+            const remDays = days % 30;
+            return remDays > 0 ? `${months}mo ${remDays}d` : `${months}mo`;
+        }
+        if (weeks > 0) {
+            const remDays = days % 7;
+            return remDays > 0 ? `${weeks}w ${remDays}d` : `${weeks}w`;
+        }
+        if (days > 0) {
+            const remHours = hours % 24;
+            return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
+        }
+        if (hours > 0) {
+            const remMinutes = minutes % 60;
+            return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+        }
+        return minutes > 0 ? `${minutes}m` : '< 1m';
+    };
+
+    const getDwellColor = (timestamp?: any) => {
+        if (!timestamp) return 'text-zinc-500';
+        const hours = (Date.now() - getMsFromTimestamp(timestamp)) / (1000 * 60 * 60);
         if (hours > 168) return 'text-red-400'; // 7 days
         if (hours > 72) return 'text-amber-400'; // 3 days
         return 'text-emerald-400';
