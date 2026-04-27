@@ -145,7 +145,7 @@ export function YardControlWidget({ tenantId, globalVehicles, allJobs }: YardCon
                     
                     <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg p-1">
                         <button onClick={() => setTypeFilter('ALL')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'ALL' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>All Types</button>
-                        <button onClick={() => setTypeFilter('BAY')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'BAY' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Bays First</button>
+                        <button onClick={() => setTypeFilter('BAY')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'BAY' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Bays</button>
                         <button onClick={() => setTypeFilter('PARKING')} className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-colors ${typeFilter === 'PARKING' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>Parking</button>
                     </div>
 
