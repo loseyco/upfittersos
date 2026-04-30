@@ -80,3 +80,6 @@ UpfittersOS is built for shop floors. We must design for harsh lightning, gloved
 ## 16. Human-Readable Identification
 - **Rule:** We NEVER expose raw database UUIDs or unique ID numbers in the UI. 
 - **Implementation:** Always resolve relational data to show information that is useful to the human user (e.g., displaying the "Business Name" instead of "tenantId", or "Customer Name" instead of "customerId"). Users should never need to look at a 24-character string to know what they are interacting with.
+## 17. Safe Deployment & Version Control
+- **Rule:** Never update "live" production environments or perform `git push` operations without explicit user discussion and approval.
+- **Implementation:** Favor local development tools (dev servers, emulators, manual test scripts) for verification. Only initiate deployment commands (`firebase deploy`, `npm run build:prod`) or version control pushes after the user has confirmed they are ready for the change to go public or be merged.

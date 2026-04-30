@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, addDoc, query, orderBy, deleteDoc, doc, updateDoc, getDoc, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, query, orderBy, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { MapPin, Plus, ArrowLeft, Calendar, Map, Car, Hotel, Ticket, Info, Map as MapIcon, Star, ExternalLink, Trash2, Edit2, Save, X, Tag } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { useAuthStore } from '../../lib/auth/store';
+
 import { useLocationStore } from '../../lib/store/locationStore';
 
 // Custom icons to avoid Leaflet default marker issues in React
@@ -50,7 +50,6 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
     navigate(id ? `/business/${tenantId}/events/${id}` : `/business/${tenantId}/events`);
   };
   
-  const { user } = useAuthStore();
   const { isSharing: isGlobalSharing, targetEventId, startSharing, stopSharing } = useLocationStore();
   const [isEditing, setIsEditing] = useState(false);
   const [isTagging, setIsTagging] = useState(false);
@@ -58,15 +57,6 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
 
   const isSharingThisEvent = isGlobalSharing && targetEventId === selectedEventId;
 
-  const { data: userProfile } = useQuery({
-    queryKey: ['userProfile', user?.uid],
-    queryFn: async () => {
-      if (!user?.uid) return null;
-      const snap = await getDoc(doc(db, 'users', user.uid));
-      return snap.exists() ? snap.data() : null;
-    },
-    enabled: !!user?.uid
-  });
 
   const { data: events, isLoading, refetch } = useQuery({
     queryKey: ['business-events', tenantId],
@@ -91,7 +81,7 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
     if (tagName && selectedEventId) {
       const selectedEvent = events?.find(e => e.id === selectedEventId);
       if (selectedEvent) {
-        const currentPois = selectedEvent.pois || [];
+        const currentPois = (selectedEvent as any).pois || [];
         await updateDoc(doc(db, `businesses/${tenantId}/business_events`, selectedEventId), {
           pois: [...currentPois, { name: tagName, lat, lng, createdAt: new Date().toISOString() }]
         });
@@ -162,14 +152,14 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
     return <div className="p-16 flex items-center justify-center text-zinc-500 animate-pulse">Loading events...</div>;
   }
 
-  const selectedEvent = events?.find(e => e.id === selectedEventId);
+  const selectedEvent = events?.find(e => e.id === selectedEventId) as any;
 
   if (selectedEvent) {
-    const pings = events?.filter(e => e.eventId === selectedEvent.id && e.name === '📍 Staff Location Ping') || [];
+    const pings = (events as any[])?.filter(e => e.eventId === selectedEvent.id && e.name === '📍 Staff Location Ping') || [];
     
     // Only show active pings (updated within the last 5 minutes)
     const now = new Date().getTime();
-    const activePings = pings.filter(ping => {
+    const activePings = pings.filter((ping: any) => {
       if (!ping.createdAt) return false;
       const pingTime = new Date(ping.createdAt).getTime();
       return (now - pingTime) < 5 * 60 * 1000;
@@ -466,7 +456,7 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
                 ))}
 
                 {/* Staff Ping Markers */}
-                {activePings.map(ping => (
+                {activePings.map((ping: any) => (
                   ping.lat && ping.lng ? (
                     <Marker key={ping.id} position={[ping.lat, ping.lng]} icon={userPingIcon}>
                       <Popup>
@@ -489,7 +479,7 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
               {activePings.length === 0 && (
                 <p className="text-zinc-500 dark:text-zinc-400 text-sm col-span-full">No active locations being shared right now.</p>
               )}
-              {activePings.map(ping => (
+              {activePings.map((ping: any) => (
                 <div key={ping.id} className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden shadow-sm flex flex-col">
                   {ping.lat && ping.lng ? (
                     <div className="h-32 w-full bg-zinc-100 dark:bg-zinc-900 relative z-0 border-b border-zinc-200 dark:border-zinc-700">
@@ -551,7 +541,7 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
         </button>
       </div>
 
-      {!events || events.filter(e => !e.eventId).length === 0 ? (
+      {!events || (events as any[]).filter(e => !e.eventId).length === 0 ? (
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-16 shadow-sm flex flex-col items-center justify-center text-center">
           <Map className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mb-4" />
           <p className="text-zinc-500 dark:text-zinc-400 font-medium text-lg">No events scheduled yet.</p>
@@ -559,7 +549,7 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events.filter(e => !e.eventId).map(event => (
+          {(events as any[]).filter(e => !e.eventId).map(event => (
             <div 
               key={event.id}
               onClick={() => setSelectedEventId(event.id)}

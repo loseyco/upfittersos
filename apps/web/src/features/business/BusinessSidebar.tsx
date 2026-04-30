@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Home, Users, Briefcase, Box, CheckSquare, Layers, Map, 
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Menu, Settings, UserCog, Car
+  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car
 } from 'lucide-react';
 
 export type NavItem = {

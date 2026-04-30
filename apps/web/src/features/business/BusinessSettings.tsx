@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
-import { doc, getDoc, updateDoc, collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { Building2, MapPin, Link2, Save, DownloadCloud } from 'lucide-react';

@@ -57,7 +57,7 @@ export function GenericDataGrid({
   } else {
     const allKeys = new Set<string>();
     displayData.forEach(item => Object.keys(item).forEach(k => allKeys.add(k)));
-    const keys = Array.from(allKeys).filter(k => typeof displayData[0][k] !== 'object' && k.length < 50).slice(0, 10);
+    const keys = Array.from(allKeys).filter(k => typeof (displayData[0] as any)[k] !== 'object' && k.length < 50).slice(0, 10);
     columns = keys.map(k => ({
       key: k,
       label: k.replace('qb_', '').replace(/([A-Z])/g, ' $1').trim()
@@ -85,11 +85,11 @@ export function GenericDataGrid({
                 className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors cursor-pointer"
               >
                 {columns.map(col => (
-                  <td key={col.key} className="px-6 py-4 text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title={String(row[col.key] ?? '')}>
-                    {col.format ? col.format(row[col.key], row) : (
-                      typeof row[col.key] === 'object' 
-                        ? JSON.stringify(row[col.key]).substring(0, 30) + '...' 
-                        : String(row[col.key] ?? '-')
+                  <td key={col.key} className="px-6 py-4 text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title={String((row as any)[col.key] ?? '')}>
+                    {col.format ? col.format((row as any)[col.key], row) : (
+                      typeof (row as any)[col.key] === 'object' 
+                        ? JSON.stringify((row as any)[col.key]).substring(0, 30) + '...' 
+                        : String((row as any)[col.key] ?? '-')
                     )}
                   </td>
                 ))}

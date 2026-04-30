@@ -1,7 +1,7 @@
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc, collection, getDocs, writeBatch, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { Building2, Menu } from 'lucide-react';
 import { useState } from 'react';
@@ -15,7 +15,7 @@ import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { ShipmentsTracker } from './ShipmentsTracker';
 
 import { BusinessSettings } from './BusinessSettings';
-
+import { ZonesManager } from './ZonesManager';
 export function TenantDashboard() {
   usePageTitle('Dashboard');
   const { tenantId } = useAuthStore();
@@ -54,7 +54,7 @@ export function TenantDashboard() {
     { 
       key: 'name', 
       label: 'Customer Name',
-      format: (_, row) => {
+      format: (_: any, row: any) => {
         const name = `${row.firstName || ''} ${row.lastName || ''}`.trim();
         return <span className="font-semibold">{name || row.company || row.nickName || 'Unnamed'}</span>;
       }
@@ -64,7 +64,7 @@ export function TenantDashboard() {
     { 
       key: 'status', 
       label: 'Status',
-      format: (val) => (
+      format: (val: any) => (
         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
           val === 'Active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
         }`}>
@@ -72,14 +72,14 @@ export function TenantDashboard() {
         </span>
       )
     },
-    { key: 'source', label: 'Source', format: (_, row) => getSource(row) }
+    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
   const jobColumns = [
     { key: 'title', label: 'Job Title' },
     { key: 'status', label: 'Status' },
     { key: 'priority', label: 'Priority' },
-    { key: 'source', label: 'Source', format: (_, row) => getSource(row) }
+    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
   const itemColumns = [
@@ -88,7 +88,7 @@ export function TenantDashboard() {
     { 
       key: 'price', 
       label: 'Price',
-      format: (val) => {
+      format: (val: any) => {
         const num = Number(val || 0);
         return <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">${num.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>;
       }
@@ -96,16 +96,16 @@ export function TenantDashboard() {
     { 
       key: 'quantityOnHand', 
       label: 'Stock',
-      format: (val) => <span className={`font-bold ${Number(val) <= 0 ? 'text-red-500' : 'text-zinc-600 dark:text-zinc-400'}`}>{val ?? 0}</span>
+      format: (val: any) => <span className={`font-bold ${Number(val) <= 0 ? 'text-red-500' : 'text-zinc-600 dark:text-zinc-400'}`}>{val ?? 0}</span>
     },
-    { key: 'source', label: 'Source', format: (_, row) => getSource(row) }
+    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
   const vehicleColumns = [
     { 
       key: 'vin', 
       label: 'VIN',
-      format: (val) => <span className="font-mono text-zinc-600 dark:text-zinc-400">{val || 'N/A'}</span>
+      format: (val: any) => <span className="font-mono text-zinc-600 dark:text-zinc-400">{val || 'N/A'}</span>
     },
     { key: 'year', label: 'Year' },
     { key: 'make', label: 'Make' },
@@ -113,24 +113,24 @@ export function TenantDashboard() {
     { 
       key: 'jobTitle', 
       label: 'Linked Job',
-      format: (val) => val ? <span className="font-semibold text-indigo-500">{val}</span> : <span className="text-zinc-500">-</span>
+      format: (val: any) => val ? <span className="font-semibold text-indigo-500">{val}</span> : <span className="text-zinc-500">-</span>
     },
-    { key: 'source', label: 'Source', format: (_, row) => getSource(row) }
+    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
   const staffColumns = [
     { 
       key: 'name', 
       label: 'Staff Member',
-      format: (_, row) => {
+      format: (_: any, row: any) => {
         const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.displayName || row.email || 'Unnamed';
         return <span className="font-semibold text-zinc-900 dark:text-zinc-100">{name}</span>;
       }
     },
     { key: 'email', label: 'Email' },
-    { key: 'role', label: 'Role', format: (val) => <span className="capitalize">{val?.replace('_', ' ') || 'Staff'}</span> },
+    { key: 'role', label: 'Role', format: (val: any) => <span className="capitalize">{val?.replace('_', ' ') || 'Staff'}</span> },
     { key: 'department', label: 'Department' },
-    { key: 'source', label: 'Source', format: (_, row) => getSource(row) }
+    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
   const { data: business, isLoading } = useQuery({
@@ -254,7 +254,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'zones' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/zones`} title="Zones" />
+              <ZonesManager tenantId={tenantId!} />
             )}
 
             {activeTab === 'facility_maps' && (
@@ -308,7 +308,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'events' && (
-              <BusinessEvents tenantId={tenantId} eventId={eventId} />
+              <BusinessEvents tenantId={tenantId as string} eventId={eventId} />
             )}
           </div>
         </main>

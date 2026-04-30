@@ -1,31 +1,5 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-export * from './notifications';
-export * from './triggers/qbSync';
-
-// TEMPORARY MIGRATION
-export const runOneTimeMigration = functions.https.onRequest(async (req, res) => {
-    try {
-        const jobsSnap = await admin.firestore().collection('jobs').get();
-        let updatedJobs = 0;
-        const updatesArr: Promise<any>[] = [];
-        for (const doc of jobsSnap.docs) {
-            const data = doc.data();
-            let needsUpdate = false;
-            const updates: any = {};
-            if (data.sopSupplies === undefined) { updates.sopSupplies = 0; needsUpdate = true; }
-            if (data.shipping === undefined) { updates.shipping = 0; needsUpdate = true; }
-            if (needsUpdate) {
-                updatesArr.push(doc.ref.update(updates));
-                updatedJobs++;
-            }
-        }
-        await Promise.all(updatesArr);
-        res.status(200).send(`Migrated ${updatedJobs} jobs successfully.`);
-    } catch (e: any) {
-        res.status(500).send(e.toString());
-    }
-});
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
@@ -46,9 +20,168 @@ import { timeRoutes } from './routes/time.routes';
 import { purchaseOrdersRoutes } from './routes/purchase_orders.routes';
 import { deliveriesRoutes } from './routes/deliveries.routes';
 
+export * from './notifications';
+export * from './triggers/qbSync';
+
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
+
+const corsHandler = cors({ origin: true });
+
+// TEMPORARY MIGRATION
+export const runOneTimeMigration = functions.https.onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const jobsSnap = await admin.firestore().collection('jobs').get();
+            let updatedJobs = 0;
+            const updatesArr: Promise<any>[] = [];
+            for (const doc of jobsSnap.docs) {
+                const data = doc.data();
+                let needsUpdate = false;
+                const updates: any = {};
+                if (data.sopSupplies === undefined) { updates.sopSupplies = 0; needsUpdate = true; }
+                if (data.shipping === undefined) { updates.shipping = 0; needsUpdate = true; }
+                if (needsUpdate) {
+                    updatesArr.push(doc.ref.update(updates));
+                    updatedJobs++;
+                }
+            }
+            await Promise.all(updatesArr);
+            res.status(200).send(`Migrated ${updatedJobs} jobs successfully.`);
+        } catch (e: any) {
+            res.status(500).send(e.toString());
+        }
+    });
+});
+
+export const migrateZones = functions.https.onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const targetTenantId = req.query.tenantId as string;
+            console.log(`Starting migration for tenant: ${targetTenantId || 'ALL'}`);
+            
+            let query: any = admin.firestore().collection('business_zones');
+            if (targetTenantId) {
+                query = query.where('tenantId', '==', targetTenantId);
+            }
+            
+            const zonesSnap = await query.get();
+            let migratedCount = 0;
+            let skippedCount = 0;
+            
+            const batch = admin.firestore().batch();
+            
+            for (const zoneDoc of zonesSnap.docs) {
+                const data = zoneDoc.data();
+                const tenantId = data.tenantId || targetTenantId; 
+                
+                if (!tenantId) {
+                    skippedCount++;
+                    continue;
+                }
+                
+                const newRef = admin.firestore().collection('businesses').doc(tenantId).collection('zones').doc(zoneDoc.id);
+                
+                // Be more aggressive with finding the name
+                const name = data.label || data.name || data.areaName || data.displayName || data.title || zoneDoc.id || 'Unnamed Bay';
+                const type = (data.type || 'bay').toLowerCase();
+
+                const migratedData: any = {
+                    ...data,
+                    name,
+                    type,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    migratedAt: admin.firestore.FieldValue.serverTimestamp()
+                };
+                
+                // If it was already migrated but is "Unnamed Bay", force the new name
+                if (name !== 'Unnamed Bay' || !data.name) {
+                    migratedData.name = name;
+                }
+                
+                if (data.currentVehicleVin) {
+                    migratedData.currentVehicleVin = data.currentVehicleVin.toUpperCase();
+                }
+                
+                batch.set(newRef, migratedData, { merge: true });
+                migratedCount++;
+
+                if (data.currentVehicleVin) {
+                    const vehicleRef = admin.firestore().collection('businesses').doc(tenantId).collection('vehicles').doc(data.currentVehicleVin.toUpperCase());
+                    batch.set(vehicleRef, {
+                        vin: data.currentVehicleVin.toUpperCase(),
+                        tenantId,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        source: 'Migration'
+                    }, { merge: true });
+                }
+            }
+            
+            await batch.commit();
+
+            // Part 2: Look for vehicles in the root that might have assignments
+            const vehiclesSnap = await admin.firestore().collection('vehicles')
+                .where('tenantId', '==', targetTenantId)
+                .get();
+            
+            // Build a map of names to new zone IDs for fallback matching
+            const zoneNameMap = new Map();
+            const zonesSnap = await admin.firestore().collection('businesses').doc(targetTenantId).collection('zones').get();
+            zonesSnap.forEach(doc => {
+                const zData = doc.data();
+                if (zData.name) zoneNameMap.set(zData.name.toLowerCase(), doc.id);
+            });
+
+            let vehicleMigratedCount = 0;
+            const vehicleBatch = admin.firestore().batch();
+
+            for (const vDoc of vehiclesSnap.docs) {
+                const vData = vDoc.data();
+                const vin = (vData.vin || vDoc.id).toUpperCase();
+                
+                // Migrate the vehicle record itself
+                const newVRef = admin.firestore().collection('businesses').doc(targetTenantId).collection('vehicles').doc(vin);
+                vehicleBatch.set(newVRef, {
+                    ...vData,
+                    vin,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    source: 'Migration (Enhanced v3)'
+                }, { merge: true });
+                vehicleMigratedCount++;
+
+                // Assignment logic
+                let targetZoneId = vData.currentLocationId;
+                
+                // Fallback: If we have a location name but no ID match, try to find by name
+                if (!targetZoneId && vData.locationName) {
+                    targetZoneId = zoneNameMap.get(vData.locationName.toLowerCase());
+                }
+
+                if (targetZoneId) {
+                    const zoneRef = admin.firestore().collection('businesses').doc(targetTenantId).collection('zones').doc(targetZoneId);
+                    vehicleBatch.update(zoneRef, {
+                        currentVehicleVin: vin
+                    });
+                }
+            }
+
+            if (vehicleMigratedCount > 0) {
+                await vehicleBatch.commit();
+            }
+            
+            res.status(200).json({
+                message: `Migration complete.`,
+                zonesMigrated: migratedCount,
+                vehiclesMigrated: vehicleMigratedCount,
+                tenantId: targetTenantId
+            });
+        } catch (e: any) {
+            console.error("Migration failed:", e);
+            res.status(500).send(e.toString());
+        }
+    });
+});
 
 // Initialize Express
 const app = express();

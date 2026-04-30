@@ -8,7 +8,7 @@ import { db } from '../../lib/firebase/config';
 export function GlobalLocationTracker() {
   const { isSharing, targetEventId } = useLocationStore();
   const { user, tenantId } = useAuthStore();
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<any>(null);
   const lastEventIdRef = useRef<string | null>(null);
   const queryClient = useQueryClient();
 

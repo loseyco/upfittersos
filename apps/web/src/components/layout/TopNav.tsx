@@ -11,7 +11,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { UserProfileSheet } from '../../features/users/UserProfileSheet';
 import { useLocationStore } from '../../lib/store/locationStore';
 import { GlobalLocationTracker } from '../telemetry/GlobalLocationTracker';
-import { MapPin } from 'lucide-react';
+
 
 export function TopNav() {
   const { user, isSuperAdmin, tenantId } = useAuthStore();

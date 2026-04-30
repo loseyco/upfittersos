@@ -159,7 +159,7 @@ service cloud.firestore {
     // ============================================
     match /businesses/{tenantId} {
       allow read: if isTenant(tenantId) || isSuperAdmin();
-      allow write: if isSuperAdmin();
+      allow write: if isBusinessOwner(tenantId) || isSuperAdmin();
       
       // V2 AUDIT LOGS (Tenant Scoped)
       match /audit_logs/{logId} {
@@ -232,6 +232,9 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /zones/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /zone_assignments/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /facility_maps/{docId} {
