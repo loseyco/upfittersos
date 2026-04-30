@@ -1,9 +1,8 @@
-import { Navigate, Outlet, useParams } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 
 export function TenantGuard() {
   const { user, isSuperAdmin, loading } = useAuthStore();
-  const { tenantId } = useParams<{ tenantId: string }>();
 
   if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-gray-900 text-white">Loading OS...</div>;
 

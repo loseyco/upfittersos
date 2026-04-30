@@ -9,10 +9,14 @@ import { useThemeStore } from '../../lib/theme/store';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc } from 'firebase/firestore';
 import { UserProfileSheet } from '../../features/users/UserProfileSheet';
+import { useLocationStore } from '../../lib/store/locationStore';
+import { GlobalLocationTracker } from '../telemetry/GlobalLocationTracker';
+import { MapPin } from 'lucide-react';
 
 export function TopNav() {
   const { user, isSuperAdmin, tenantId } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
+  const { isSharing, stopSharing } = useLocationStore();
   const navigate = useNavigate();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
@@ -52,32 +56,47 @@ export function TopNav() {
       </div>
 
       <div className="flex items-center gap-6">
+        {isSharing && (
+          <button 
+            onClick={stopSharing} 
+            className="flex items-center gap-2 bg-rose-500/10 text-rose-500 active:bg-rose-500 active:text-white px-3 h-8 sm:h-10 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider transition-all ring-1 ring-rose-500/30 mr-2"
+            title="Stop sharing location"
+          >
+            <span className="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-rose-500"></span>
+            </span>
+            Stop Sharing
+          </button>
+        )}
+
         <button
           onClick={toggleTheme}
-          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition-all active:scale-[0.95]"
+          className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition-all active:scale-[0.95]"
           title="Toggle theme"
         >
-          {theme === 'dark' ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
+          {theme === 'dark' ? <Sun className="w-5 h-5 sm:w-6 sm:h-6" /> : <Moon className="w-5 h-5 sm:w-6 sm:h-6" />}
         </button>
         <button
           onClick={() => setIsProfileOpen(true)}
-          className="flex items-center justify-center gap-3 h-12 px-2 sm:px-4 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition-all active:scale-[0.95]"
+          className="flex items-center justify-center gap-3 h-10 sm:h-12 px-2 sm:px-4 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition-all active:scale-[0.95]"
         >
-          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-zinc-200 dark:bg-zinc-900 flex items-center justify-center border border-zinc-300 dark:border-zinc-700 shadow-sm">
-            <UserIcon className="w-5 h-5 text-zinc-600 dark:text-zinc-300" />
+          <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-zinc-200 dark:bg-zinc-900 flex items-center justify-center border border-zinc-300 dark:border-zinc-700 shadow-sm">
+            <UserIcon className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-600 dark:text-zinc-300" />
           </div>
           <span className="hidden sm:block font-medium text-zinc-900 dark:text-zinc-100">{user?.email}</span>
         </button>
         <button 
           onClick={handleLogout}
-          className="flex items-center justify-center gap-2 h-12 px-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-xl transition-all active:scale-[0.95] border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 text-sm font-medium"
+          className="flex items-center justify-center gap-2 h-10 sm:h-12 px-3 sm:px-4 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white rounded-xl transition-all active:scale-[0.95] border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 text-sm font-medium"
         >
-          <LogOut className="w-5 h-5" />
+          <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
           <span className="hidden sm:inline">Switch Account</span>
         </button>
       </div>
 
       <UserProfileSheet isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
+      <GlobalLocationTracker />
     </div>
   );
 }

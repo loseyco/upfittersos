@@ -222,6 +222,43 @@ service cloud.firestore {
       match /qb_bills/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /customers/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /jobs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /inventory_items/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /zones/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /facility_maps/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /canvases/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /audit_logs/{docId} {
+        allow read: if isTenant(tenantId) || isSuperAdmin();
+        allow create: if request.auth != null;
+      }
+      match /tasks/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /messages/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /announcements/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /vehicles/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /shipments/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
     }
   }
 }

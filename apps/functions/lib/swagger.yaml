@@ -1,0 +1,581 @@
+openapi: 3.0.0
+info:
+  title: SAE Group Upfitter OS API
+  description: Professional documentation for the SAE Group Operational API. Covers Jobs, Tasks, Daily Logs, CRM, Vehicles, Tools, HR, Inventory, and Sales.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5001/saegroup-os/us-central1/api
+    description: Local emulator
+  - url: https://us-central1-saegroup-os.cloudfunctions.net/api
+    description: Production API
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        uid: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        firstName: { type: string }
+        middleName: { type: string }
+        lastName: { type: string }
+        nickName: { type: string }
+        jobTitle: { type: string }
+        department: { type: string }
+        role: { type: string, enum: [admin, manager, technician, hr, sales, customer] }
+
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        status: { type: string }
+        assignedTo: { type: string }
+        customerId: { type: string }
+
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        jobId: { type: string }
+        title: { type: string }
+        status: { type: string }
+
+    Vehicle:
+      type: object
+      properties:
+        id: { type: string }
+        vin: { type: string }
+        make: { type: string }
+        model: { type: string }
+        year: { type: integer }
+        status: { type: string, enum: ['Active', 'In Maintenance', 'Out of Service'] }
+        assignedTo: { type: string }
+
+    Tool:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        serialNumber: { type: string }
+        condition: { type: string, enum: ['Good', 'Fair', 'Damaged'] }
+        checkedOutTo: { type: string, nullable: true }
+
+    InventoryItem:
+      type: object
+      properties:
+        id: { type: string }
+        sku: { type: string }
+        name: { type: string }
+        quantity: { type: integer }
+        location: { type: string }
+        price: { type: number }
+
+    SaleOrder:
+      type: object
+      properties:
+        id: { type: string }
+        customerId: { type: string }
+        items: 
+          type: array
+          items:
+            type: object
+            properties:
+              itemId: { type: string }
+              quantity: { type: integer }
+              priceAtSale: { type: number }
+        totalAmount: { type: number }
+        status: { type: string, enum: ['Pending', 'Paid', 'Shipped', 'Completed'] }
+
+    StaffRecord:
+      type: object
+      properties:
+        id: { type: string }
+        userId: { type: string }
+        department: { type: string }
+        hourlyRate: { type: number }
+        hireDate: { type: string, format: date }
+
+    Area:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        type: { type: string }
+        label: { type: string }
+        status: { type: string }
+        capacity: { type: string }
+        wallHeight: { type: number }
+        color: { type: string }
+        points:
+          type: array
+          items:
+            type: object
+            properties:
+              x: { type: number }
+              y: { type: number }
+
+    QBOItem:
+      type: object
+      properties:
+        Id: { type: string }
+        Name: { type: string }
+        Sku: { type: string }
+        Type: { type: string, enum: ['Inventory', 'NonInventory', 'Service', 'Category'] }
+        QtyOnHand: { type: number }
+        InvStartDate: { type: string, format: date }
+        IncomeAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        ExpenseAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        AssetAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+
+    QBOInventoryAdjustment:
+      type: object
+      properties:
+        Id: { type: string }
+        AdjustAccountRef:
+          type: object
+          properties:
+            value: { type: string }
+        Line:
+          type: array
+          items:
+            type: object
+            properties:
+              Id: { type: string }
+              DetailType: { type: string, enum: ['ItemAdjustmentLineDetail'] }
+              ItemAdjustmentLineDetail:
+                type: object
+                properties:
+                  ItemRef:
+                    type: object
+                    properties:
+                      value: { type: string }
+                  QtyDiff: { type: number }
+
+security:
+  - BearerAuth: []
+
+paths:
+  /users/me:
+    get:
+      summary: Get current authenticated user
+      tags: [Users]
+      responses:
+        '200':
+          description: OK
+
+  /admin/impersonate:
+    post:
+      summary: Assume the identity of any user (Super Admin only)
+      tags: [Admin & Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetUid: { type: string }
+      responses:
+        '200':
+          description: Returns an Impersonation Custom Token
+
+  /admin/enter-workspace:
+    post:
+      summary: Programmatically enter a workspace while preserving God Rank
+      tags: [Admin & Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                targetTenantId: { type: string }
+      responses:
+        '200':
+          description: Returns a Contextual Bind Token
+
+  /businesses:
+    get:
+      summary: List all provisioned client workspaces
+      tags: [Businesses]
+      responses:
+        '200':
+          description: Array of Workspaces
+    post:
+      summary: Provision a new client business
+      tags: [Businesses]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                ownerEmail: { type: string }
+                subscriptionPlan: { type: string }
+      responses:
+        '201':
+          description: Workspace Created
+
+  /businesses/{id}:
+    get:
+      summary: Get specific business metadata
+      tags: [Businesses]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workspace Object
+
+  /businesses/{id}/staff:
+    get:
+      summary: Fetch all users belonging to this specific workspace
+      tags: [Businesses]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of localized employees
+
+  /businesses/{id}/staff/{uid}/metadata:
+    post:
+      summary: Inject rank overrides and department allocations
+      tags: [Businesses]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: uid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName: { type: string }
+                middleName: { type: string }
+                lastName: { type: string }
+                nickName: { type: string }
+                jobTitle: { type: string }
+                department: { type: string }
+                workPhone: { type: string }
+                mobilePhone: { type: string }
+                addressStreet: { type: string }
+                addressCity: { type: string }
+                addressState: { type: string }
+                addressZip: { type: string }
+                photoURL: { type: string }
+                dob: { type: string }
+                emergencyContactName: { type: string }
+                emergencyContactPhone: { type: string }
+                payRate: { type: string }
+                payType: { type: string }
+                startDate: { type: string }
+                notes: { type: string }
+                skills: 
+                  type: array
+                  items: 
+                    type: string
+                certificates: 
+                  type: array
+                  items: 
+                    type: object
+      responses:
+        '200':
+          description: Successfully written to target user profile
+
+  /jobs:
+    get:
+      summary: List all Jobs
+      tags: [Jobs]
+      responses:
+        '200':
+          description: OK
+
+  /areas:
+    get:
+      summary: List all Areas and Map Zones
+      tags: [Areas & Facilities]
+      parameters:
+        - in: query
+          name: tenantId
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Array of Areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Area'
+    post:
+      summary: Register a new Area
+      tags: [Areas & Facilities]
+      responses:
+        '201':
+          description: Area Registered
+  
+  /areas/{id}:
+    put:
+      summary: Update Area Details
+      tags: [Areas & Facilities]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete an Area
+      tags: [Areas & Facilities]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+
+  /vehicles:
+    get:
+      summary: List all Fleet Vehicles
+      tags: [Vehicles]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vehicle'
+    post:
+      summary: Add a new Vehicle to the fleet
+      tags: [Vehicles]
+      responses:
+        '201':
+          description: Created
+
+  /tools:
+    get:
+      summary: List all Tools and Equipment
+      tags: [Tools]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tool'
+    post:
+      summary: Add a new Tool
+      tags: [Tools]
+      responses:
+        '201':
+          description: Created
+
+  /tools/{toolId}/checkout:
+    post:
+      summary: Check out a tool to a technician
+      tags: [Tools]
+      parameters:
+        - in: path
+          name: toolId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tool Checked Out
+
+  /inventory:
+    get:
+      summary: Get unified inventory stock levels
+      tags: [Inventory]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InventoryItem'
+    post:
+      summary: Create new inventory SKU
+      tags: [Inventory]
+      responses:
+        '201':
+          description: Created
+
+  /inventory/{itemId}/adjust:
+    patch:
+      summary: Adjust inventory stock count manually
+      tags: [Inventory]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Adjusted
+
+  /sales/orders:
+    get:
+      summary: View Sales Orders
+      tags: [Sales]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SaleOrder'
+    post:
+      summary: Process a new sale
+      tags: [Sales]
+      responses:
+        '201':
+          description: Sale Order Created
+
+  /hr/staff:
+    get:
+      summary: View full staff roster and directory
+      tags: [HR Department]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaffRecord'
+
+  /companycam/projects:
+    get:
+      summary: Fetch CompanyCam Projects
+      tags: [CompanyCam]
+      responses:
+        '200':
+          description: OK
+
+  /companycam/webhook:
+    post:
+      summary: Receive CompanyCam webhooks
+      tags: [CompanyCam]
+      responses:
+        '200':
+          description: Webhook received successfully
+
+  /qbo/auth:
+    get:
+      summary: Start QuickBooks OAuth 2.0 flow
+      tags: [QuickBooks]
+      responses:
+        '302':
+          description: Redirects to Intuit
+
+  /qbo/callback:
+    get:
+      summary: QuickBooks OAuth callback handler
+      tags: [QuickBooks]
+      responses:
+        '200':
+          description: Success HTML payload
+
+  /qbo/accounts:
+    get:
+      summary: Get all QBO Accounts for the business
+      tags: [QuickBooks]
+      responses:
+        '200':
+          description: OK
+
+  /qbo/inventory/items:
+    get:
+      summary: Fetch existing inventory items from QuickBooks Online
+      tags: [QuickBooks]
+      responses:
+        '200':
+          description: List of QBOItems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QBOItem'
+    post:
+      summary: Push an Upfitters OS Part to QuickBooks Online as an Inventory Item
+      tags: [QuickBooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QBOItem'
+      responses:
+        '201':
+          description: Successfully created/updated in QBO
+
+  /qbo/inventory/adjust:
+    post:
+      summary: Send an inventory adjustment to QuickBooks Online
+      tags: [QuickBooks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QBOInventoryAdjustment'
+      responses:
+        '201':
+          description: Adjustment successful

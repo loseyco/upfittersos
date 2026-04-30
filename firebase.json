@@ -1,7 +1,7 @@
 {
   "hosting": {
     "site": "upftitersos",
-    "public": "dist",
+    "public": "apps/web/dist",
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -16,5 +16,14 @@
   },
   "firestore": {
     "rules": "firestore.rules"
+  },
+  "functions": {
+    "source": "apps/functions",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log"
+    ]
   }
 }
