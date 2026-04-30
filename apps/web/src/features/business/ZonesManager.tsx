@@ -375,7 +375,7 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
             className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
           />
           {isOpen && (inputValue.length > 0 || filtered.length > 0) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-50 overflow-hidden">
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden">
               <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
                 {filtered.map(v => (
                   <button key={v.vin} onClick={() => { onAssign(v.vin); setIsOpen(false); }} className="w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-left flex flex-col rounded-lg transition-colors">
@@ -433,7 +433,7 @@ function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-all group overflow-hidden relative">
+    <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-all group relative">
       {vehicle && (
         <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
           <CarFront className="w-24 h-24 -mr-6 -mt-6 rotate-12" />

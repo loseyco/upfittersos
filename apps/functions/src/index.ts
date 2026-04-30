@@ -127,8 +127,8 @@ export const migrateZones = functions.https.onRequest(async (req, res) => {
             
             // Build a map of names to new zone IDs for fallback matching
             const zoneNameMap = new Map();
-            const zonesSnap = await admin.firestore().collection('businesses').doc(targetTenantId).collection('zones').get();
-            zonesSnap.forEach(doc => {
+            const migratedZonesSnap = await admin.firestore().collection('businesses').doc(targetTenantId).collection('zones').get();
+            migratedZonesSnap.forEach(doc => {
                 const zData = doc.data();
                 if (zData.name) zoneNameMap.set(zData.name.toLowerCase(), doc.id);
             });
