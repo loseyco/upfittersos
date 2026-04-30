@@ -111,7 +111,7 @@ class QbwcService {
     }
     // Parse and process incoming data from QBWC response
     async processResponse(action, parsedXml) {
-        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         const db = admin.firestore();
         // Firebase limits atomic batches to 500 operations. For massive enterprise payloads, we must dynamically split operations.
         let batches = [db.batch()];
@@ -148,6 +148,28 @@ class QbwcService {
                         items = [items];
                     syncedCount += items.length;
                 });
+            }
+            // Check for iterator pagination to dynamically enqueue the next batch of records
+            if (queryRs && queryRs.$) {
+                const iteratorRemainingCount = Number(queryRs.$.iteratorRemainingCount) || 0;
+                const iteratorID = queryRs.$.iteratorID;
+                if (iteratorRemainingCount > 0 && iteratorID) {
+                    // If this query used IncludeLineItems, we must ensure the continuation query does too
+                    const includeLineItems = ['EstimateQuery', 'InvoiceQuery', 'PurchaseOrderQuery'].includes(action)
+                        ? '<IncludeLineItems>true</IncludeLineItems>'
+                        : '';
+                    // Construct the continuation query using the same root tag name (e.g. CustomerQueryRq)
+                    const rqTag = `${action}Rq`;
+                    const continuationXml = `<${rqTag} iterator="Continue" iteratorID="${iteratorID}"><MaxReturned>500</MaxReturned>${includeLineItems}</${rqTag}>`;
+                    // Enqueue the continuation query
+                    await db.collection('qbwc_queue').add({
+                        tenantId: this.tenantId,
+                        status: 'pending',
+                        action: action,
+                        qbxml: continuationXml,
+                        createdAt: new Date().toISOString()
+                    });
+                }
             }
             // Discarding AccountQuery entirely as per user request to not store Chart of Accounts
             // Discarding HostQuery because it's a dummy hack simply appended to clear Web Connector UI warnings
@@ -289,6 +311,16 @@ class QbwcService {
                     var _a, _b;
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_purchase_orders').doc(po.TxnID);
                     safeBatchSet(ref, Object.assign(Object.assign({}, po), { txnId: po.TxnID, refNumber: po.RefNumber || '', vendorRef: ((_a = po.VendorRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', vendorName: ((_b = po.VendorRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', txnDate: po.TxnDate || '', totalAmount: po.TotalAmount || 0, isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true }), { merge: true });
+                });
+            }
+            if (action === 'TimeTrackingQuery' && ((_j = msgsRs.TimeTrackingQueryRs) === null || _j === void 0 ? void 0 : _j.TimeTrackingRet)) {
+                let times = msgsRs.TimeTrackingQueryRs.TimeTrackingRet;
+                if (!Array.isArray(times))
+                    times = [times];
+                times.forEach((time) => {
+                    var _a, _b, _c, _d, _e, _f, _g, _h;
+                    const ref = db.collection('businesses').doc(this.tenantId).collection('qb_time_tracking').doc(time.TxnID);
+                    safeBatchSet(ref, Object.assign(Object.assign({}, time), { txnId: time.TxnID, txnDate: time.TxnDate || '', entityRef: ((_a = time.EntityRef) === null || _a === void 0 ? void 0 : _a.ListID) || '', entityName: ((_b = time.EntityRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', customerRef: ((_c = time.CustomerRef) === null || _c === void 0 ? void 0 : _c.ListID) || '', customerName: ((_d = time.CustomerRef) === null || _d === void 0 ? void 0 : _d.FullName) || '', itemServiceRef: ((_e = time.ItemServiceRef) === null || _e === void 0 ? void 0 : _e.ListID) || '', itemServiceName: ((_f = time.ItemServiceRef) === null || _f === void 0 ? void 0 : _f.FullName) || '', duration: time.Duration || '', classRef: ((_g = time.ClassRef) === null || _g === void 0 ? void 0 : _g.ListID) || '', className: ((_h = time.ClassRef) === null || _h === void 0 ? void 0 : _h.FullName) || '', notes: time.Notes || '', billableStatus: time.BillableStatus || '', isBillable: time.IsBillable === 'true' || time.IsBillable === true }), { merge: true });
                 });
             }
             // Broadcast System Event to Live Feed if anything was synced

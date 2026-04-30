@@ -123,6 +123,32 @@ export class QbwcService {
             });
         }
 
+        // Check for iterator pagination to dynamically enqueue the next batch of records
+        if (queryRs && queryRs.$) {
+            const iteratorRemainingCount = Number(queryRs.$.iteratorRemainingCount) || 0;
+            const iteratorID = queryRs.$.iteratorID;
+            
+            if (iteratorRemainingCount > 0 && iteratorID) {
+                // If this query used IncludeLineItems, we must ensure the continuation query does too
+                const includeLineItems = ['EstimateQuery', 'InvoiceQuery', 'PurchaseOrderQuery'].includes(action) 
+                    ? '<IncludeLineItems>true</IncludeLineItems>' 
+                    : '';
+                
+                // Construct the continuation query using the same root tag name (e.g. CustomerQueryRq)
+                const rqTag = `${action}Rq`;
+                const continuationXml = `<${rqTag} iterator="Continue" iteratorID="${iteratorID}"><MaxReturned>500</MaxReturned>${includeLineItems}</${rqTag}>`;
+                
+                // Enqueue the continuation query
+                await db.collection('qbwc_queue').add({
+                    tenantId: this.tenantId,
+                    status: 'pending',
+                    action: action,
+                    qbxml: continuationXml,
+                    createdAt: new Date().toISOString()
+                });
+            }
+        }
+
         // Discarding AccountQuery entirely as per user request to not store Chart of Accounts
         // Discarding HostQuery because it's a dummy hack simply appended to clear Web Connector UI warnings
         if (action === 'AccountQuery' || action === 'HostQuery') {
@@ -357,6 +383,32 @@ export class QbwcService {
                     txnDate: po.TxnDate || '',
                     totalAmount: po.TotalAmount || 0,
                     isFullyReceived: po.IsFullyReceived === 'true' || po.IsFullyReceived === true
+                }, { merge: true });
+            });
+        }
+
+        if (action === 'TimeTrackingQuery' && msgsRs.TimeTrackingQueryRs?.TimeTrackingRet) {
+            let times = msgsRs.TimeTrackingQueryRs.TimeTrackingRet;
+            if (!Array.isArray(times)) times = [times];
+
+            times.forEach((time: any) => {
+                const ref = db.collection('businesses').doc(this.tenantId).collection('qb_time_tracking').doc(time.TxnID);
+                safeBatchSet(ref, {
+                    ...time,
+                    txnId: time.TxnID,
+                    txnDate: time.TxnDate || '',
+                    entityRef: time.EntityRef?.ListID || '',
+                    entityName: time.EntityRef?.FullName || '',
+                    customerRef: time.CustomerRef?.ListID || '',
+                    customerName: time.CustomerRef?.FullName || '',
+                    itemServiceRef: time.ItemServiceRef?.ListID || '',
+                    itemServiceName: time.ItemServiceRef?.FullName || '',
+                    duration: time.Duration || '',
+                    classRef: time.ClassRef?.ListID || '',
+                    className: time.ClassRef?.FullName || '',
+                    notes: time.Notes || '',
+                    billableStatus: time.BillableStatus || '',
+                    isBillable: time.IsBillable === 'true' || time.IsBillable === true
                 }, { merge: true });
             });
         }

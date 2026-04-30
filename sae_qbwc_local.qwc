@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<QBWCXML>
+   <AppName>SAE Group OS (Local Dev)</AppName>
+   <AppID></AppID>
+   <AppURL>http://localhost:5001/saegroup-c6487/us-central1/api/qbwc</AppURL>
+   <AppDescription>Integration for SAE Group OS Local Development</AppDescription>
+   <AppSupport>http://localhost:5001/saegroup-c6487/us-central1/api/qbwc</AppSupport>
+   <UserName>test-tenant</UserName>
+   <OwnerID>{57F3B9B1-86F1-4FCE-B1AD-E1CEE344DE3E}</OwnerID>
+   <FileID>{A2B45CD7-12F8-48AF-BB99-CC87E7D1FEA9}</FileID>
+   <QBType>QBFS</QBType>
+   <Scheduler>
+      <RunEveryNMinutes>5</RunEveryNMinutes>
+   </Scheduler>
+   <IsReadOnly>false</IsReadOnly>
+</QBWCXML>

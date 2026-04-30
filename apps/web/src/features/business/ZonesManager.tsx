@@ -421,15 +421,43 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
 function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }: any) {
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!vehicle) return;
+    // Update the local timestamp every 60 seconds to keep "Time in Area" live
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [vehicle]);
   
   const timeInArea = () => {
-    if (!zone.lastAssignedAt) return null;
-    const date = zone.lastAssignedAt.toDate?.() || new Date(zone.lastAssignedAt.seconds * 1000);
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    const timestamp = zone.lastAssignedAt || zone.updatedAt || zone.createdAt;
+    if (!timestamp) return null;
+
+    let date;
+    if (typeof timestamp.toDate === 'function') {
+      date = timestamp.toDate();
+    } else if (timestamp.seconds !== undefined) {
+      date = new Date(timestamp.seconds * 1000);
+    } else if (timestamp._seconds !== undefined) {
+      date = new Date(timestamp._seconds * 1000);
+    } else {
+      date = new Date(timestamp);
+    }
+    
+    if (isNaN(date.getTime())) return null;
+
+    const diff = Math.floor((now - date.getTime()) / 1000);
+    if (diff < 0) return 'Just now';
     const days = Math.floor(diff / 86400);
     const hours = Math.floor((diff % 86400) / 3600);
-    if (days > 0) return `${days}d ${hours}h`;
-    return `${hours}h`;
+    const minutes = Math.floor((diff % 3600) / 60);
+    
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
   };
 
   return (

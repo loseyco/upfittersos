@@ -134,7 +134,7 @@ export function TenantDashboard() {
   ];
 
   const { data: business, isLoading } = useQuery({
-    queryKey: ['business', tenantId],
+    queryKey: ['tenant-dashboard-business', tenantId],
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return null;
       const snap = await getDoc(doc(db, 'businesses', tenantId));
