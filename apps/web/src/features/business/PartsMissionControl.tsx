@@ -9,12 +9,22 @@ import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
   Clock, Box, Wrench, User, Search, Package, Info, Calendar, AlertCircle,
-  Trash2, CheckCircle, ShoppingCart, MoreHorizontal
+  Trash2, CheckCircle, ShoppingCart, MoreHorizontal, Hash, FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 type RequestStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
 type ShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception';
+
+interface QuickBooksPO {
+  id: string;
+  refNumber: string;
+  vendorName: string;
+  totalAmount: number;
+  txnDate: string;
+  isFullyReceived: boolean;
+  trackingNumber?: string;
+}
 
 interface PartsRequest {
   id: string;
@@ -156,6 +166,54 @@ export function PartsMissionControl() {
     },
     enabled: !!tenantId
   });
+
+  // Fetch QuickBooks POs
+  const { data: qbPOs } = useQuery({
+    queryKey: ['qb-pos', tenantId],
+    queryFn: async () => {
+      const q = query(
+        collection(db, `businesses/${tenantId}/qb_purchase_orders`),
+        orderBy('txnDate', 'desc'),
+        limit(20)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as QuickBooksPO));
+    },
+    enabled: !!tenantId
+  });
+
+  const handleAddTrackingToPO = async (po: QuickBooksPO) => {
+    const tracking = prompt(`Enter tracking number for PO #${po.refNumber}:`);
+    if (!tracking || !tenantId) return;
+
+    const carrier = detectCarrier(tracking);
+    
+    try {
+      // 1. Create a shipment record
+      await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
+        trackingNumber: tracking.trim(),
+        carrier,
+        description: `PO #${po.refNumber} - ${po.vendorName}`,
+        status: 'pending',
+        eta: null,
+        poId: po.id,
+        createdAt: serverTimestamp(),
+      });
+
+      // 2. Update the PO record with the tracking number (for local reference)
+      const { updateDoc, doc } = await import('firebase/firestore');
+      await updateDoc(doc(db, `businesses/${tenantId}/qb_purchase_orders`, po.id), {
+        trackingNumber: tracking.trim()
+      });
+
+      toast.success('Tracking added and shipment created');
+      queryClient.invalidateQueries({ queryKey: ['qb-pos'] });
+      queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
+    } catch (err) {
+      console.error('Error adding tracking to PO:', err);
+      toast.error('Failed to add tracking');
+    }
+  };
 
   const detectCarrier = (tracking: string) => {
     const t = tracking.toUpperCase().replace(/\s/g, '');
@@ -583,7 +641,58 @@ export function PartsMissionControl() {
             )}
           </div>
 
-          {/* Active Shipments */}
+          {/* QuickBooks Purchase Orders */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              QuickBooks Purchase Orders
+            </h3>
+            {!qbPOs || qbPOs.length === 0 ? (
+              <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                No recent POs from QuickBooks.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {qbPOs.map(po => (
+                  <div key={po.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/50 transition-colors">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Hash className="w-4 h-4 text-zinc-400" />
+                        <span className="font-bold text-zinc-900 dark:text-white">PO #{po.refNumber}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${po.isFullyReceived ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                        {po.isFullyReceived ? 'RECEIVED' : 'OPEN'}
+                      </span>
+                    </div>
+                    
+                    <div className="flex justify-between items-end">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{po.vendorName}</p>
+                        <p className="text-[10px] text-zinc-400">Total: ${po.totalAmount.toLocaleString()}</p>
+                      </div>
+                      
+                      {po.trackingNumber ? (
+                        <div className="flex items-center gap-1.5 text-xs font-mono text-indigo-500 bg-indigo-500/5 px-2 py-1 rounded-lg">
+                          <Truck className="w-3.5 h-3.5" />
+                          {po.trackingNumber}
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => handleAddTrackingToPO(po)}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 px-2 py-1 bg-indigo-500/10 rounded-lg transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          ADD TRACKING
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Inbound Shipments */}
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
               <Package className="w-4 h-4" />

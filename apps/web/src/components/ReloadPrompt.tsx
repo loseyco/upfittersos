@@ -3,7 +3,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { RefreshCw, X, Sparkles, Clock, ArrowRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-const UPDATE_CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
+const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const SNOOZE_DURATION = 4 * 60 * 60 * 1000; // 4 hours
 
 export function ReloadPrompt() {
@@ -29,15 +29,28 @@ export function ReloadPrompt() {
     },
   });
 
-  // Periodic update check
+  // Periodic update check & visibility check
   useEffect(() => {
     if (!registration) return;
 
-    const interval = setInterval(() => {
+    const checkUpdate = () => {
       registration.update();
-    }, UPDATE_CHECK_INTERVAL);
+    };
 
-    return () => clearInterval(interval);
+    const interval = setInterval(checkUpdate, UPDATE_CHECK_INTERVAL);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkUpdate();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [registration]);
 
   const close = () => {
