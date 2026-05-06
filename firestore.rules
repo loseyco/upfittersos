@@ -262,6 +262,9 @@ service cloud.firestore {
       match /shipments/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /parts_requests/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin() || request.auth != null;
+      }
     }
   }
 }

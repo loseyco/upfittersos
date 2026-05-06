@@ -150,11 +150,41 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     try {
       const trimmedVin = vin.trim().toUpperCase();
       const zone = zones.find(z => z.id === zoneId);
+      const previousVin = zone?.currentVehicleVin || null;
+      const previousAssignedAt = zone?.lastAssignedAt || null;
       
       if (trimmedVin && zone?.currentVehicleVin === trimmedVin) {
         toast.info("Vehicle already in this bay.");
         return;
       }
+
+      if (trimmedVin && trimmedVin.length < 10) {
+        toast.error(`"${trimmedVin}" is too short to be a valid VIN. Please scan a valid vehicle barcode.`);
+        return;
+      }
+
+      const undoAssignment = async () => {
+        try {
+          await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+            currentVehicleVin: previousVin,
+            lastAssignedAt: previousAssignedAt
+          }, { merge: true });
+          
+          await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+            zoneId,
+            zoneName: zone?.name || 'Unknown Zone',
+            vin: previousVin,
+            assignedAt: serverTimestamp(),
+            assignedBy: user?.uid || 'system',
+            assignedByEmail: user?.email || null,
+            assignedByName: user?.displayName || null,
+            action: 'undo_assignment'
+          });
+          toast.success("Assignment undone.");
+        } catch(e) {
+          toast.error("Failed to undo assignment.");
+        }
+      };
       
       await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
         currentVehicleVin: trimmedVin || null,
@@ -209,9 +239,13 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           });
           
           if (details.make) {
-            toast.success(`Identified: ${details.year} ${details.make} ${details.model}`);
+            toast.success(`Identified: ${details.year} ${details.make} ${details.model}`, {
+              action: { label: 'Undo', onClick: undoAssignment }
+            });
           } else {
-            toast.warning("Vehicle not found in database. You may need to enter details manually.");
+            toast.warning("Vehicle not found in database. You may need to enter details manually.", {
+              action: { label: 'Undo', onClick: undoAssignment }
+            });
           }
         } else {
           // Vehicle exists. Try auto-decode if it's missing make/model
@@ -231,13 +265,24 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
                   gvwr: result.GVWR || '',
                   updatedAt: serverTimestamp()
                 });
-                toast.success(`Updated missing vehicle data: ${result.ModelYear || ''} ${result.Make} ${result.Model || ''}`);
+                toast.success(`Updated missing vehicle data: ${result.ModelYear || ''} ${result.Make} ${result.Model || ''}`, {
+                  action: { label: 'Undo', onClick: undoAssignment }
+                });
+              } else {
+                 toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
               }
             } catch (apiErr) {
               console.warn("NHTSA API backfill failed", apiErr);
+              toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
             }
+          } else {
+            toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
           }
         }
+      } else {
+        toast.success(`Cleared vehicle from bay.`, {
+          action: { label: 'Undo', onClick: undoAssignment }
+        });
       }
     } catch (err) {
       console.error("Error in vehicle assignment:", err);

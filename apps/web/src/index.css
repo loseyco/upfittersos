@@ -24,6 +24,10 @@
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
   }
+
+  html, body {
+    touch-action: manipulation;
+  }
 }
 
 

@@ -19,7 +19,6 @@ const ITEMS: NavItem[] = [
   { id: 'items', label: 'Inventory', icon: Box, group: 'ops' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops' },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
-  { id: 'shipments', label: 'Shipments', icon: Box, group: 'ops' },
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
   { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },

@@ -12,7 +12,6 @@ import { BusinessSidebar } from './BusinessSidebar';
 
 import { MissionControl } from './MissionControl';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
-import { ShipmentsTracker } from './ShipmentsTracker';
 import { PartsMissionControl } from './PartsMissionControl';
 
 import { BusinessSettings } from './BusinessSettings';
@@ -209,9 +208,6 @@ export function TenantDashboard() {
               <StaffManager tenantId={tenantId!} />
             )}
 
-            {activeTab === 'shipments' && (
-              <ShipmentsTracker />
-            )}
             
             {activeTab === 'parts' && (
               <PartsMissionControl />
