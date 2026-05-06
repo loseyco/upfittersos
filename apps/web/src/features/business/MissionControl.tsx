@@ -1,10 +1,23 @@
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, limit, query, orderBy, getCountFromServer } from 'firebase/firestore';
-import { db } from '../../lib/firebase/config';
-import {
-  Users, Briefcase, Box, CheckSquare, TrendingUp,
+import { 
+  Users, Briefcase, Box, CheckSquare, TrendingUp, 
   Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck
 } from 'lucide-react';
+import { 
+  collection, getDocs, limit, query, orderBy,
+  getCountFromServer, onSnapshot, doc, updateDoc, 
+  addDoc, serverTimestamp
+} from 'firebase/firestore';
+import { db } from '../../lib/firebase/config';
+import { useAuthStore } from '../../lib/auth/store';
+import { toast } from 'sonner';
+import { ShopFloorActivity } from './ShopFloorActivity';
+import { ZoneDetailsModal } from './ZoneModals';
+import { QuickAddVehicleModal } from './VehicleSelector';
+import { VehicleDetailsModal } from './VehiclesManager';
+import { QuickAddJobModal } from './JobSelectionComponents';
+import { ConfirmModal } from '../../components/ConfirmModal';
 
 interface MissionControlProps {
   tenantId: string;
@@ -42,14 +55,113 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
-  // Zones Fetching
-  const { data: zones, isLoading: zonesLoading } = useQuery({
-    queryKey: ['mission-control-zones', tenantId],
-    queryFn: async () => {
-      const snap = await getDocs(collection(db, `businesses/${tenantId}/zones`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    }
+  const [zones, setZones] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [allJobs, setAllJobs] = useState<any[]>([]);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+  const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
+  const [quickAddJob, setQuickAddJob] = useState<{zoneId: string, title: string, vin: string | null} | null>(null);
+  const { user } = useAuthStore();
+
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
   });
+
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' = 'assign', jobId?: string) => {
+    try {
+      const trimmedVin = vin?.trim().toUpperCase();
+      const zone = zones.find(z => z.id === zoneId);
+      const previousVin = zone?.currentVehicleVin || null;
+      const previousJobId = zone?.currentJobId || null;
+      
+      // AUTO-MOVE: If this VIN or Job is already in another zone, clear it from there first
+      if (actionType === 'assign' && (trimmedVin || jobId)) {
+        const otherZones = zones.filter(z => z.id !== zoneId);
+        for (const oz of otherZones) {
+          let needsClear = false;
+          if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
+          else if (jobId && oz.currentJobId === jobId) needsClear = true;
+          else if (trimmedVin && oz.currentVehicleVins?.includes(trimmedVin)) needsClear = true;
+          
+          if (needsClear) {
+            await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
+              currentVehicleVin: null, 
+              currentJobId: null,
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+            });
+          }
+        }
+      }
+
+      if (zone?.allowMultiple) {
+        let newVins = [...(zone.currentVehicleVins || [])];
+        if (actionType === 'assign' && trimmedVin) {
+          if (!newVins.includes(trimmedVin)) newVins.push(trimmedVin);
+        } else if (actionType === 'remove' && trimmedVin) {
+          newVins = newVins.filter(v => v !== trimmedVin);
+        } else if (actionType === 'clear') {
+          newVins = [];
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { 
+          currentVehicleVins: newVins,
+          lastAssignedAt: serverTimestamp() 
+        });
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+          currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
+          currentJobId: actionType === 'clear' ? null : jobId || previousJobId,
+          lastAssignedAt: serverTimestamp()
+        });
+      }
+
+      await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+        zoneId,
+        zoneName: zone?.name || 'Unknown',
+        vin: trimmedVin || null,
+        jobId: jobId || null,
+        action: actionType === 'clear' ? 'cleared' : 'assigned',
+        assignedAt: serverTimestamp(),
+        assignedBy: user?.uid || 'system',
+        assignedByName: user?.displayName || user?.email || 'Staff'
+      });
+
+      toast.success(actionType === 'clear' ? 'Zone cleared' : 'Vehicle assigned');
+    } catch (err) {
+      console.error(err);
+      toast.error("Operation failed");
+    }
+  };
+
+  // Real-time Listeners
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
+      setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
+      setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => {
+      unsubZones();
+      unsubVehicles();
+      unsubJobs();
+    };
+  }, [tenantId]);
+
+  const zonesLoading = zones.length === 0 && !tenantId;
 
   // Shipments Fetching
   const { data: shipments, isLoading: shipmentsLoading } = useQuery({
@@ -65,14 +177,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
-  // All Vehicles Fetching (for detail mapping)
-  const { data: vehicles } = useQuery({
-    queryKey: ['mission-control-vehicles-list', tenantId],
-    queryFn: async () => {
-      const snap = await getDocs(collection(db, `businesses/${tenantId}/vehicles`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    }
-  });
+
 
   const activeShipments = shipments?.filter((s: any) => s.status !== 'delivered') || [];
   const activeShipmentsCount = activeShipments.length;
@@ -156,6 +261,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
+
+
       {/* KPI Grid */}
       <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-4">
         {kpis.map((kpi) => (
@@ -180,9 +287,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         ))}
       </div>
 
-      <div className="space-y-4 sm:space-y-6">
-        {/* Main Content Area */}
-
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
+          {/* Action Required */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
             <div className="p-4 sm:p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -229,8 +336,14 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
             </div>
           </div>
 
+          {/* Utilization Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            <button onClick={() => onTabChange('zones')} className="flex flex-col p-4 sm:p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-900 dark:text-white shadow-sm hover:border-indigo-500/50 transition-colors group">
+            <div className="flex flex-col p-4 sm:p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-900 dark:text-white shadow-sm transition-colors group relative overflow-hidden">
+              <button 
+                onClick={() => onTabChange('zones')}
+                className="absolute inset-0 z-0 rounded-2xl hover:bg-zinc-50 dark:hover:bg-zinc-800/20 transition-all active:scale-[0.98] border border-transparent hover:border-indigo-500/50"
+              />
+              <div className="relative z-10 pointer-events-none w-full">
               <div className="flex items-center justify-between w-full mb-3 sm:mb-4">
                 <div className="flex items-center gap-2 sm:gap-3">
                   <div className="p-2 bg-indigo-500/10 rounded-xl">
@@ -251,111 +364,258 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                 {totalBays > 0 && occupiedBays / totalBays > 0.8 ? 'Approaching max capacity!' : 'Healthy capacity.'}
               </p>
 
-              {sortedBays.length > 0 && (
-                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5 sm:space-y-2">
-                  {sortedBays.map((bay: any) => {
-                    const vehicle = vehicles?.find((v: any) => v.vin === bay.currentVehicleVin) as any;
-                    const vehicleDisplay = vehicle 
-                      ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`
-                      : `VIN: ${bay.currentVehicleVin}`;
-                    const timestamp = bay.lastAssignedAt || bay.updatedAt;
+                {sortedBays.length > 0 && (
+                  <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5 sm:space-y-2 w-full">
+                    {sortedBays.map((bay: any) => {
+                      const vehicle = vehicles?.find((v: any) => v.vin === bay.currentVehicleVin) as any;
+                      const jobId = bay.currentJobId || vehicle?.jobId;
+                      const job = allJobs?.find((j: any) => j.id === jobId) as any;
+                      const customerName = bay.customerName || vehicle?.customerName || job?.customerName;
+                      
+                      const vehicleDisplay = vehicle 
+                        ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`) 
+                        : (bay.currentVehicleVin ? `VIN: ${bay.currentVehicleVin}` : 'Unlinked');
+                      const timestamp = bay.lastAssignedAt || bay.updatedAt;
 
-                    return (
-                      <div key={bay.id} className="flex items-center justify-between text-[10px]">
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="font-bold text-zinc-400 dark:text-zinc-500 w-12 truncate">{bay.name}</span>
-                          <span className="text-zinc-900 dark:text-white truncate font-medium">
-                            {vehicleDisplay}
-                          </span>
+                      return (
+                        <div key={bay.id} className="relative group/item pointer-events-auto">
+                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0">
+                            <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{bay.name}</span>
+                                <span className="text-zinc-900 dark:text-white truncate font-bold text-base">
+                                  {vehicleDisplay}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
+                                {job ? (
+                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                  </span>
+                                ) : (
+                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                    Missing Job
+                                  </span>
+                                )}
+                                {customerName ? (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="truncate">{customerName}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                      Missing Customer
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {(() => {
+                              if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+                              const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+                              const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
+                              const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
+                              return (
+                                <div className="flex flex-col items-end shrink-0">
+                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
+                                    {calculateDuration(timestamp)}
+                                  </span>
+                                  <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                                    Updated: {new Date(assignedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedZoneId(bay.id); }}
+                            className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
+                          />
                         </div>
-                        {(() => {
-                          if (!timestamp) {
-                            return (
-                              <span className="text-zinc-400 font-mono font-bold whitespace-nowrap ml-2">
-                                ---
-                              </span>
-                            );
-                          }
-                          const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
-                          const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
-                          const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
-                          return (
-                            <span className={`${colorClass} font-mono font-bold whitespace-nowrap ml-2`}>
-                              {calculateDuration(timestamp)}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </button>
-
-            <button onClick={() => onTabChange('zones?type=parking&occupancy=occupied')} className="flex flex-col p-4 sm:p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-900 dark:text-white shadow-sm hover:border-indigo-500/50 transition-colors group">
-              <div className="flex items-center justify-between w-full mb-3 sm:mb-4">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="p-2 bg-emerald-500/10 rounded-xl">
-                    <Car className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
+                      );
+                    })}
                   </div>
-                  <p className="font-bold text-sm sm:text-base">Parking Lot</p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col p-4 sm:p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-900 dark:text-white shadow-sm transition-colors group relative overflow-hidden">
+              <button 
+                onClick={() => onTabChange('zones?type=parking&occupancy=occupied')}
+                className="absolute inset-0 z-0 rounded-2xl hover:bg-zinc-50 dark:hover:bg-zinc-800/20 transition-all active:scale-[0.98] border border-transparent hover:border-indigo-500/50"
+              />
+              <div className="relative z-10 pointer-events-none w-full">
+                <div className="flex items-center justify-between w-full mb-3 sm:mb-4">
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="p-2 bg-emerald-500/10 rounded-xl">
+                      <Car className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-500" />
+                    </div>
+                    <p className="font-bold text-sm sm:text-base">Parking Lot</p>
+                  </div>
+                  <span className="text-[10px] sm:text-xs font-bold text-zinc-500">{occupiedParking} / {totalParking}</span>
                 </div>
-                <span className="text-[10px] sm:text-xs font-bold text-zinc-500">{occupiedParking} / {totalParking}</span>
-              </div>
-              
-              <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2 mb-1 overflow-hidden">
-                <div 
-                  className={`h-2 rounded-full ${totalParking > 0 && occupiedParking / totalParking > 0.8 ? 'bg-red-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${totalParking > 0 ? (occupiedParking / totalParking) * 100 : 0}%` }}
-                ></div>
-              </div>
-              <p className="text-[10px] text-zinc-400 mt-2 text-left">
-                {totalParking > 0 && occupiedParking / totalParking > 0.8 ? 'Lot is nearly full!' : 'Parking available.'}
-              </p>
+                
+                <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2 mb-1 overflow-hidden">
+                  <div 
+                    className={`h-2 rounded-full ${totalParking > 0 && occupiedParking / totalParking > 0.8 ? 'bg-red-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${totalParking > 0 ? (occupiedParking / totalParking) * 100 : 0}%` }}
+                  ></div>
+                </div>
+                <p className="text-[10px] text-zinc-400 mt-2 text-left">
+                  {totalParking > 0 && occupiedParking / totalParking > 0.8 ? 'Lot is nearly full!' : 'Parking available.'}
+                </p>
 
-              {sortedParking.length > 0 && (
-                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5 sm:space-y-2">
-                  {sortedParking.map((zone: any) => {
-                    const vehicle = vehicles?.find((v: any) => v.vin === zone.currentVehicleVin) as any;
-                    const vehicleDisplay = vehicle 
-                      ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin}`
-                      : `VIN: ${zone.currentVehicleVin}`;
-                    const timestamp = zone.lastAssignedAt || zone.updatedAt;
+                {sortedParking.length > 0 && (
+                  <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5 sm:space-y-2 w-full">
+                    {sortedParking.map((zone: any) => {
+                      const vehicle = vehicles?.find((v: any) => v.vin === zone.currentVehicleVin) as any;
+                      const jobId = zone.currentJobId || vehicle?.jobId;
+                      const job = allJobs?.find((j: any) => j.id === jobId) as any;
+                      const customerName = zone.customerName || vehicle?.customerName || job?.customerName;
+                      
+                      const vehicleDisplay = vehicle 
+                        ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin}`) 
+                        : (zone.currentVehicleVin ? `VIN: ${zone.currentVehicleVin}` : 'Unlinked');
+                      const timestamp = zone.lastAssignedAt || zone.updatedAt;
 
-                    return (
-                      <div key={zone.id} className="flex items-center justify-between text-[10px]">
-                        <div className="flex items-center gap-2 truncate">
-                          <span className="font-bold text-zinc-400 dark:text-zinc-500 w-12 truncate">{zone.name}</span>
-                          <span className="text-zinc-900 dark:text-white truncate font-medium">
-                            {vehicleDisplay}
-                          </span>
+                      return (
+                        <div key={zone.id} className="relative group/item pointer-events-auto">
+                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0">
+                            <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{zone.name}</span>
+                                <span className="text-zinc-900 dark:text-white truncate font-bold text-base">
+                                  {vehicleDisplay}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
+                                {job ? (
+                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                  </span>
+                                ) : (
+                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                    Missing Job
+                                  </span>
+                                )}
+                                {customerName ? (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="truncate">{customerName}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                      Missing Customer
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {(() => {
+                              if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+                              const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+                              const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
+                              // Parking rules: 1 week (168h), 2 weeks (336h)
+                              const colorClass = hours >= 336 ? 'text-red-500' : hours >= 168 ? 'text-amber-500' : 'text-emerald-500';
+                              return (
+                                <div className="flex flex-col items-end shrink-0">
+                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
+                                    {calculateDuration(timestamp)}
+                                  </span>
+                                  <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 168 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                                    Updated: {new Date(assignedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setSelectedZoneId(zone.id); }}
+                            className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
+                          />
                         </div>
-                        {(() => {
-                          if (!timestamp) {
-                            return (
-                              <span className="text-zinc-400 font-mono font-bold whitespace-nowrap ml-2">
-                                ---
-                              </span>
-                            );
-                          }
-                          const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
-                          const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
-                          const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
-                          return (
-                            <span className={`${colorClass} font-mono font-bold whitespace-nowrap ml-2`}>
-                              {calculateDuration(timestamp)}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+        </div>
 
+        {/* Live Activity Feed */}
+        <div className="lg:col-span-1 h-[600px] lg:h-auto">
+          <ShopFloorActivity tenantId={tenantId} />
+        </div>
       </div>
+
+      {selectedZone && (
+        <ZoneDetailsModal 
+          zone={selectedZone} 
+          tenantId={tenantId}
+          vehicles={vehicles}
+          jobs={allJobs}
+          onClose={() => setSelectedZoneId(null)}
+          onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
+          onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
+          onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
+          onDelete={() => {}} // Archiving disabled from dashboard for safety
+          onQuickAddRequest={(vin: string) => setQuickAddVin({ zoneId: selectedZone.id, vin })}
+          onQuickAddJobRequest={(title: string) => setQuickAddJob({ zoneId: selectedZone.id, title, vin: selectedZone.currentVehicleVin })}
+          onOpenVehicle={(vin: string) => {
+            const v = vehicles.find(veh => veh.vin === vin);
+            if (v) setSelectedVehicle(v);
+          }}
+        />
+      )}
+
+      {selectedVehicle && (
+        <VehicleDetailsModal
+          tenantId={tenantId}
+          vehicle={selectedVehicle}
+          onClose={() => setSelectedVehicle(null)}
+          onConfirmAction={setConfirmConfig}
+          onEdit={() => {}} 
+          getSource={(row: any) => {
+            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
+            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+          }}
+        />
+      )}
+
+      {quickAddVin && (
+        <QuickAddVehicleModal
+          tenantId={tenantId}
+          initialVin={quickAddVin.vin}
+          onClose={() => setQuickAddVin(null)}
+          onAssign={(vin) => handleAssignVehicle(quickAddVin.zoneId, vin)}
+        />
+      )}
+
+      {quickAddJob && (
+        <QuickAddJobModal 
+          tenantId={tenantId}
+          initialTitle={quickAddJob.title}
+          initialVin={quickAddJob.vin || undefined}
+          onClose={() => setQuickAddJob(null)}
+          onSuccess={(jobId) => {
+            handleAssignVehicle(quickAddJob.zoneId, quickAddJob.vin || '', 'assign', jobId);
+            setQuickAddJob(null);
+          }}
+        />
+      )}
+
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

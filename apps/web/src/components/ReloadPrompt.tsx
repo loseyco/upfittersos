@@ -144,7 +144,11 @@ export function ReloadPrompt() {
         {needRefresh && (
           <div className="flex flex-col gap-3 relative">
             <button
-              onClick={() => updateServiceWorker(true)}
+              onClick={() => {
+                updateServiceWorker(true);
+                // Fallback for some desktop browsers that might not auto-reload
+                setTimeout(() => window.location.reload(), 1500);
+              }}
               className="group w-full py-3.5 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-2xl font-bold text-sm shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               <span>Refresh & Update Now</span>

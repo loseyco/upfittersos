@@ -47,7 +47,7 @@ export function TopNav() {
         <img src="/favicon.png" alt="UpFittersOS Icon" className="w-8 h-8 rounded-lg shrink-0" />
         <div className="flex items-baseline gap-1.5 shrink-0">
           <span className="hidden sm:inline text-zinc-900 dark:text-white font-medium tracking-tight">UpFittersOS</span>
-          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded">v1.2.1</span>
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded">v1.2.2</span>
         </div>
         {isSuperAdmin && <span className="hidden sm:inline px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded-md border border-blue-500/20 font-medium whitespace-nowrap">Super Admin</span>}
         {tenantId && tenantId !== 'GLOBAL' && business && (

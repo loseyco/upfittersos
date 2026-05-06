@@ -6,6 +6,8 @@ import { doc, updateDoc, collection, getDocs, addDoc, serverTimestamp } from 'fi
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { ConfirmModal } from '../../components/ConfirmModal';
+
 
 function formatDuration(startMs: number, endMs: number) {
   const diffMs = Math.max(0, endMs - startMs);
@@ -47,6 +49,18 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchParams] = useSearchParams();
   const filterType = searchParams.get('filter');
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
 
   const { data: zones } = useQuery<Zone[]>({
     queryKey: ['zones-selector', tenantId],
@@ -158,24 +172,32 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
         <VehicleDetailsModal 
           tenantId={tenantId}
           vehicle={selectedVehicle}
+          onConfirmAction={setConfirmConfig}
           onClose={() => setSelectedVehicle(null)}
+
           onEdit={() => {
             setEditingVehicle(selectedVehicle);
             setSelectedVehicle(null);
           }}
           onArchive={async () => {
-            if (window.confirm("Are you sure you want to archive this vehicle?")) {
-              try {
-                await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, selectedVehicle.id), { isArchived: true });
-                toast.success("Vehicle archived");
-                queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
-                queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
-                setSelectedVehicle(null);
-              } catch (e) {
-                toast.error("Failed to archive vehicle");
+            setConfirmConfig({
+              isOpen: true,
+              title: 'Archive Vehicle',
+              message: `Are you sure you want to archive this ${selectedVehicle.year} ${selectedVehicle.make}? This will hide it from active database lists.`,
+              onConfirm: async () => {
+                try {
+                  await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, selectedVehicle.id), { isArchived: true });
+                  toast.success("Vehicle archived");
+                  queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
+                  queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
+                  setSelectedVehicle(null);
+                } catch (e) {
+                  toast.error("Failed to archive vehicle");
+                }
               }
-            }
+            });
           }}
+
           getSource={getSource}
         />
       )}
@@ -193,11 +215,21 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
           }}
         />
       )}
+
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
+
   );
 }
 
-export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArchive, getSource }: { tenantId: string, vehicle: any, onClose: () => void, onEdit: () => void, onArchive?: () => void, getSource: (row: any) => React.ReactNode }) {
+export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArchive, getSource, onConfirmAction }: { tenantId: string, vehicle: any, onClose: () => void, onEdit: () => void, onArchive?: () => void, getSource: (row: any) => React.ReactNode, onConfirmAction: (config: any) => void }) {
+
   const queryClient = useQueryClient();
   const isQB = vehicle.tags?.includes('QuickBooks') || 
                vehicle.notes?.includes('Imported via QBWC') || 
@@ -233,38 +265,44 @@ export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArch
   };
 
   const handleRelease = async () => {
-    if (!window.confirm("Are you sure you want to release this vehicle? It will be unassigned from its current zone.")) return;
-    setIsUpdatingStatus(true);
-    try {
-      const batchUpdates = [];
-      batchUpdates.push(updateDoc(doc(db, `businesses/${tenantId}/vehicles`, vehicle.id), {
-        departedAt: serverTimestamp()
-      }));
-      
-      // Auto-clear zone assignment if any
-      if (currentZone?.id) {
-        batchUpdates.push(updateDoc(doc(db, `businesses/${tenantId}/zones`, currentZone.id), { currentVehicleVin: null }));
-        batchUpdates.push(addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
-          zoneId: currentZone.id,
-          zoneName: currentZone.name || 'Unknown Zone',
-          vin: null,
-          assignedAt: serverTimestamp(),
-          assignedBy: 'system',
-          action: 'cleared (released)'
-        }));
+    onConfirmAction({
+      isOpen: true,
+      title: 'Release Vehicle',
+      message: 'Are you sure you want to release this vehicle? It will be unassigned from its current zone and marked as departed.',
+      onConfirm: async () => {
+        setIsUpdatingStatus(true);
+        try {
+          const batchUpdates = [];
+          batchUpdates.push(updateDoc(doc(db, `businesses/${tenantId}/vehicles`, vehicle.id), {
+            departedAt: serverTimestamp()
+          }));
+          
+          if (currentZone?.id) {
+            batchUpdates.push(updateDoc(doc(db, `businesses/${tenantId}/zones`, currentZone.id), { currentVehicleVin: null }));
+            batchUpdates.push(addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+              zoneId: currentZone.id,
+              zoneName: currentZone.name || 'Unknown Zone',
+              vin: null,
+              assignedAt: serverTimestamp(),
+              assignedBy: 'system',
+              action: 'cleared (released)'
+            }));
+          }
+          
+          await Promise.all(batchUpdates);
+          toast.success("Vehicle released");
+          queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
+          queryClient.invalidateQueries({ queryKey: ['zones-selector', tenantId] });
+          queryClient.invalidateQueries({ queryKey: ['zones', tenantId] }); 
+        } catch (err) {
+          toast.error("Failed to release vehicle");
+        } finally {
+          setIsUpdatingStatus(false);
+        }
       }
-      
-      await Promise.all(batchUpdates);
-      toast.success("Vehicle released");
-      queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
-      queryClient.invalidateQueries({ queryKey: ['zones-selector', tenantId] });
-      queryClient.invalidateQueries({ queryKey: ['zones', tenantId] }); 
-    } catch (err) {
-      toast.error("Failed to release vehicle");
-    } finally {
-      setIsUpdatingStatus(false);
-    }
+    });
   };
+
 
   const handleZoneChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newZoneId = e.target.value;
@@ -274,11 +312,21 @@ export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArch
     if (newZoneId) {
       const targetZone = zones?.find(z => z.id === newZoneId);
       if (targetZone && targetZone.currentVehicleVin) {
-        if (!window.confirm(`Are you sure? This zone is currently occupied by vehicle VIN: ${targetZone.currentVehicleVin}. Continuing will unassign that vehicle.`)) {
-          return; // The select dropdown will automatically revert to the currentZone.id
-        }
+        onConfirmAction({
+          isOpen: true,
+          title: 'Zone Occupied',
+          message: `This zone is currently occupied by vehicle VIN: ${targetZone.currentVehicleVin}. Continuing will unassign that vehicle. Proceed?`,
+          onConfirm: () => performZoneChange(newZoneId, oldZoneId)
+        });
+        return;
       }
     }
+
+    performZoneChange(newZoneId, oldZoneId);
+  };
+
+  const performZoneChange = async (newZoneId: string, oldZoneId?: string) => {
+
 
     try {
       if (oldZoneId) {

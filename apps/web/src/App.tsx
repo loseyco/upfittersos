@@ -16,7 +16,7 @@ const queryClient = new QueryClient();
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Toaster position="bottom-right" richColors theme="system" closeButton />
+      <Toaster position="top-right" richColors theme="system" closeButton expand={true} />
       <AuthProvider>
         <ReloadPrompt />
         <Router>

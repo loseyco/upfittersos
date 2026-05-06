@@ -1,10 +1,11 @@
+import React from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc, query, collection, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Building2, Menu, RefreshCw, ShieldAlert } from 'lucide-react';
-import { PermissionKey } from '../../lib/auth/permissions';
+import { Building2, Menu, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import type { PermissionKey } from '../../lib/auth/permissions';
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { BusinessEvents } from './BusinessEvents';
@@ -19,9 +20,17 @@ import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
 import { VehiclesManager } from './VehiclesManager';
 import { StaffManager } from './StaffManager';
+import { ReportsManager } from './ReportsManager';
+import { StaffPerformance } from './StaffPerformance';
+import { JobsManager } from './JobsManager';
+import { CustomersManager } from './CustomersManager';
+import { TimeClockBar } from '../timeclock/TimeClockBar';
+import { TimeclockAdmin } from '../timeclock/TimeclockAdmin';
+import { StaffRoster } from './StaffRoster';
+
 export function TenantDashboard() {
   usePageTitle('Dashboard');
-  const { tenantId } = useAuthStore();
+  const { tenantId, impersonatedStaff, stopImpersonating } = useAuthStore();
   const navigate = useNavigate();
   const params = useParams();
   
@@ -52,38 +61,6 @@ export function TenantDashboard() {
       </span>
     );
   };
-
-  const customerColumns = [
-    { 
-      key: 'name', 
-      label: 'Customer Name',
-      format: (_: any, row: any) => {
-        const name = `${row.firstName || ''} ${row.lastName || ''}`.trim();
-        return <span className="font-semibold">{name || row.company || row.nickName || 'Unnamed'}</span>;
-      }
-    },
-    { key: 'email', label: 'Email' },
-    { key: 'mobilePhone', label: 'Phone' },
-    { 
-      key: 'status', 
-      label: 'Status',
-      format: (val: any) => (
-        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-          val === 'Active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'
-        }`}>
-          {val || 'Active'}
-        </span>
-      )
-    },
-    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
-  ];
-
-  const jobColumns = [
-    { key: 'title', label: 'Job Title' },
-    { key: 'status', label: 'Status' },
-    { key: 'priority', label: 'Priority' },
-    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
-  ];
 
   const itemColumns = [
     { key: 'name', label: 'Item Name' },
@@ -146,6 +123,7 @@ export function TenantDashboard() {
       />
 
       <div className="flex-1 flex flex-col min-w-0">
+        <TimeClockBar />
         <TopNav />
         
         {/* Mobile Header */}
@@ -164,6 +142,26 @@ export function TenantDashboard() {
         </div>
 
         <main className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar">
+          {impersonatedStaff && (
+            <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                  <ShieldAlert className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-widest opacity-80">Impersonation Mode</p>
+                  <p className="text-sm font-bold">Viewing platform as <span className="underline decoration-2 underline-offset-4">{impersonatedStaff.name}</span></p>
+                </div>
+              </div>
+              <button 
+                onClick={stopImpersonating}
+                className="px-4 py-2 bg-white text-emerald-600 rounded-xl text-xs font-black hover:bg-emerald-50 transition-all flex items-center gap-2"
+              >
+                <X className="w-3.5 h-3.5" />
+                Stop Viewing As
+              </button>
+            </div>
+          )}
           {!isLoading && (
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-4">
@@ -215,6 +213,30 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'reports' && (
+              <PermissionGate permission="reports.view">
+                <ReportsManager tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'performance' && (
+              <PermissionGate permission="reports.view">
+                <StaffPerformance tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'schedule' && (
+              <PermissionGate permission="reports.view">
+                <StaffRoster tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'timeclock' && (
+              <PermissionGate permission="timeclock.manage">
+                <TimeclockAdmin tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'parts' && (
               <PermissionGate permission="parts.view">
                 <PartsMissionControl />
@@ -223,21 +245,13 @@ export function TenantDashboard() {
 
             {activeTab === 'customers' && (
               <PermissionGate permission="customers.view">
-                <GenericDataGrid 
-                  collectionPath={`businesses/${tenantId}/customers`} 
-                  title="Upfitters Customers" 
-                  columns={customerColumns}
-                />
+                <CustomersManager tenantId={tenantId!} />
               </PermissionGate>
             )}
 
             {activeTab === 'jobs' && (
               <PermissionGate permission="jobs.view">
-                <GenericDataGrid 
-                  collectionPath={`businesses/${tenantId}/jobs`} 
-                  title="Upfitters Jobs" 
-                  columns={jobColumns}
-                />
+                <JobsManager tenantId={tenantId!} />
               </PermissionGate>
             )}
 
@@ -350,3 +364,4 @@ function PermissionGate({
     </div>
   );
 }
+

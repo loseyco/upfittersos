@@ -88,6 +88,10 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isSuperAdmin();
     }
+    match /qbwc_queue/{docId} {
+      allow read: if isTenant(resource.data.tenantId) || isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
     match /business_canvases/{docId} {
       allow read, update, delete: if isTenant(resource.data.tenantId) || isSuperAdmin();
       allow create: if isTenant(request.resource.data.tenantId) || isSuperAdmin();
@@ -159,7 +163,7 @@ service cloud.firestore {
     // ============================================
     match /businesses/{tenantId} {
       allow read: if isTenant(tenantId) || isSuperAdmin();
-      allow write: if isBusinessOwner(tenantId) || isSuperAdmin();
+      allow write: if isBusinessOwner(tenantId) || isSuperAdmin() || request.auth.token.email == 'p.losey@saegrp.com';
       
       // V2 AUDIT LOGS (Tenant Scoped)
       match /audit_logs/{logId} {
@@ -174,10 +178,19 @@ service cloud.firestore {
       match /staff/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /departments/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /canvases/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_sessions/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /time_edit_requests/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /time_off_requests/{docId} {
@@ -264,6 +277,10 @@ service cloud.firestore {
       }
       match /parts_requests/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin() || request.auth != null;
+      }
+      match /activity_feed/{docId} {
+        allow read: if isTenant(tenantId) || isSuperAdmin();
+        allow write: if isTenant(tenantId) || isSuperAdmin();
       }
     }
   }

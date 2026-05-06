@@ -7,8 +7,11 @@ import { MapPin, Plus, ArrowLeft, Calendar, Map, Car, Hotel, Ticket, Info, Map a
 import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { toast } from 'sonner';
 
 import { useLocationStore } from '../../lib/store/locationStore';
+import { ConfirmModal } from '../../components/ConfirmModal';
+
 
 // Custom icons to avoid Leaflet default marker issues in React
 const eventIcon = L.divIcon({
@@ -56,6 +59,18 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
   const [editForm, setEditForm] = useState<any>({});
 
   const isSharingThisEvent = isGlobalSharing && targetEventId === selectedEventId;
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
 
 
   const { data: events, isLoading, refetch } = useQuery({
@@ -95,12 +110,24 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
 
   const handleDeleteEvent = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm('Are you sure you want to delete this event? This cannot be undone.')) {
-      await deleteDoc(doc(db, `businesses/${tenantId}/business_events`, id));
-      if (selectedEventId === id) setSelectedEventId(null);
-      refetch();
-    }
+    const event = events?.find(ev => ev.id === id) as any;
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Delete Event',
+      message: `Are you sure you want to delete "${event?.name || 'this event'}"? This action cannot be undone and will remove all associated data.`,
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, `businesses/${tenantId}/business_events`, id));
+          if (selectedEventId === id) setSelectedEventId(null);
+          refetch();
+          toast.success("Event deleted");
+        } catch (e) {
+          toast.error("Failed to delete event");
+        }
+      }
+    });
   };
+
 
   const handleStartEdit = (event: any) => {
     setEditForm({ ...event });
@@ -588,6 +615,13 @@ export function BusinessEvents({ tenantId, eventId }: { tenantId: string, eventI
           ))}
         </div>
       )}
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

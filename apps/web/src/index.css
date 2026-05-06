@@ -27,15 +27,19 @@
 
   html, body {
     touch-action: manipulation;
+    overscroll-behavior-y: auto;
+  }
+
+  /* Prevent pull-to-refresh when a modal/dialog is open */
+  body:has([role="dialog"]) {
     overscroll-behavior-y: none;
   }
 }
 
-
-
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
+    width: 4px;
+    height: 4px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     background: transparent;
@@ -43,11 +47,28 @@
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: #e4e4e7;
     border-radius: 10px;
+    opacity: 0.5;
   }
   .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #3f3f46;
+    background: #27272a;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #a1a1aa;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  .animate-blink {
+    animation: blink 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }

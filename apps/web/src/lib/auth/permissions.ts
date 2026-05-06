@@ -14,6 +14,10 @@ export const PERMISSIONS = {
   'staff.manage': 'Manage Staff',
   'settings.view': 'View Settings',
   'settings.manage': 'Manage Settings',
+  'timeclock.view': 'View Timeclock',
+  'timeclock.manage': 'Manage Timeclock',
+  'timeclock.offsite': 'Clock In/Out Offsite',
+  'reports.view': 'View Reports',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;

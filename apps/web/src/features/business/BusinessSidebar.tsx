@@ -1,10 +1,11 @@
 import React from 'react';
 import { 
-  Home, Users, Briefcase, Box, CheckSquare, Layers, Map, 
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package
+  Home, Users, Briefcase, CheckSquare, Layers, Map, 
+  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
+  BarChart3, Clock, Trophy
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
-import { PermissionKey } from '../../lib/auth/permissions';
+import type { PermissionKey } from '../../lib/auth/permissions';
 
 export type NavItem = {
   id: string;
@@ -16,13 +17,15 @@ export type NavItem = {
 
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: Home, group: 'ops', permission: 'mission_control.view' },
-  { id: 'customers', label: 'Customers', icon: Users, group: 'ops', permission: 'customers.view' },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops', permission: 'jobs.view' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops', permission: 'vehicles.view' },
-  { id: 'items', label: 'Inventory', icon: Box, group: 'ops', permission: 'parts.view' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops', permission: 'parts.view' },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
-  { id: 'shipments', label: 'Shipments', icon: Box, group: 'ops' },
+  { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'ops', permission: 'timeclock.manage' },
+  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'ops', permission: 'reports.view' },
+  { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'ops', permission: 'reports.view' },
+  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops', permission: 'vehicles.view' },
+  { id: 'customers', label: 'Customers', icon: Users, group: 'ops', permission: 'customers.view' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, group: 'ops', permission: 'reports.view' },
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'zones.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
   { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },
@@ -114,7 +117,7 @@ export function BusinessSidebar({
       {/* Sidebar Container */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 
-        transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:block
+        transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:block
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
         <div className="flex items-center justify-between px-8 py-6 lg:hidden border-b border-zinc-100 dark:border-zinc-900">

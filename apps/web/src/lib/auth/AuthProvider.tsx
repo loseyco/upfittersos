@@ -3,7 +3,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from '../firebase/config';
 import { useAuthStore } from './store';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { resolvePermissions } from './permissions';
+import { resolvePermissions, PERMISSIONS } from './permissions';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setSuperAdmin, setTenantId, setPermissions, setLoading } = useAuthStore();
@@ -47,7 +47,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
                 
                 const resolved = resolvePermissions(deptPermissions, staffData.individualPermissions);
-                setPermissions(resolved);
+                
+                // Grant full tenant permissions to p.losey@saegrp.com
+                if (user.email === 'p.losey@saegrp.com') {
+                  const allPerms = Object.keys(PERMISSIONS).reduce((acc, key) => ({ ...acc, [key]: true }), {});
+                  setPermissions(allPerms);
+                } else {
+                  setPermissions(resolved);
+                }
               } else {
                 setPermissions({});
               }

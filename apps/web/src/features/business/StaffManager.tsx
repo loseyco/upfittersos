@@ -1,29 +1,46 @@
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { 
-  X, Edit2, UserPlus, Search, Archive, Mail, Phone, Briefcase, 
-  Building2, Loader2, Save, ShieldCheck, ChevronRight, Check,
-  ShieldAlert, Settings2
+  X, Edit2, UserPlus, Search, Archive, Mail, Phone, 
+  Building2, Loader2, Save, ShieldCheck, Check,
+  ShieldAlert, Trophy, Eye, Settings2, Calendar
 } from 'lucide-react';
-import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { StaffLink } from './StaffPerformance';
+import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { getDocs } from 'firebase/firestore';
-import { PERMISSIONS, PermissionKey, PermissionSet, resolvePermissions } from '../../lib/auth/permissions';
+import { PERMISSIONS, resolvePermissions } from '../../lib/auth/permissions';
+import type { PermissionKey, PermissionSet } from '../../lib/auth/permissions';
+import { useAuthStore } from '../../lib/auth/store';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { useNavigate } from 'react-router-dom';
+import { cn } from '../../lib/utils';
+
+
+interface WorkSchedule {
+  days: number[]; // [1, 2, 3, 4, 5] where 1=Mon
+  startTime: string; // "08:00"
+  endTime: string; // "17:00"
+  expectedHoursPerDay: number;
+}
 
 interface StaffMember {
   id: string;
+  userId?: string;
   firstName: string;
   lastName: string;
   email: string;
   phone?: string;
-  role: string;
   departmentId?: string;
+  jobTitle?: string;
+  role?: string;
+  payRate?: number;
+  payType?: 'hourly' | 'salary';
   individualPermissions?: PermissionSet;
   isArchived?: boolean;
   tags?: string[];
-  notes?: string[];
+  notes?: string;
   hireDate?: string;
   fireDate?: string;
   shirtSize?: string;
@@ -39,21 +56,36 @@ interface StaffMember {
   ListID?: string;
   qb_ListID?: string;
   quickbooksId?: string;
+  individualSchedule?: WorkSchedule;
 }
 
 interface Department {
   id: string;
   name: string;
   permissions: PermissionSet;
+  defaultSchedule?: WorkSchedule;
 }
 
 export function StaffManager({ tenantId }: { tenantId: string }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [view, setView] = useState<'staff' | 'departments'>('staff');
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
 
   const { data: departments } = useQuery<Department[]>({
     queryKey: ['departments', tenantId],
@@ -103,11 +135,10 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
       label: 'Staff Member',
       format: (_: any, row: any) => {
         const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.displayName || row.email || 'Unnamed';
-        return <span className="font-semibold text-zinc-900 dark:text-zinc-100">{name}</span>;
+        return <StaffLink name={name} tenantId={tenantId} className="font-semibold text-zinc-900 dark:text-zinc-100" />;
       }
     },
     { key: 'email', label: 'Email' },
-    { key: 'role', label: 'Role', format: (val: any) => <span className="capitalize">{val?.replace('_', ' ') || 'Staff'}</span> },
     { 
       key: 'departmentId', 
       label: 'Department', 
@@ -179,12 +210,14 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
           onRowClick={(row) => setSelectedStaff(row as StaffMember)}
         />
       ) : (
-        <DepartmentManager tenantId={tenantId} departments={departments || []} />
+        <DepartmentManager tenantId={tenantId} departments={departments || []} onConfirmAction={setConfirmConfig} />
       )}
+
 
       {selectedStaff && !editingStaff && (
         <StaffDetailsModal 
           staff={selectedStaff}
+          tenantId={tenantId}
           departments={departments || []}
           onClose={() => setSelectedStaff(null)}
           onEdit={() => {
@@ -192,16 +225,38 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
             setSelectedStaff(null);
           }}
           onArchive={async () => {
-            if (window.confirm("Are you sure you want to archive this staff member?")) {
-              try {
-                await updateDoc(doc(db, `businesses/${tenantId}/staff`, selectedStaff.id), { isArchived: true });
-                toast.success("Staff member archived");
-                queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/staff`] });
-                setSelectedStaff(null);
-              } catch (e) {
-                toast.error("Failed to archive staff member");
+            setConfirmConfig({
+              isOpen: true,
+              title: 'Archive Staff Member',
+              message: `Are you sure you want to archive ${selectedStaff.firstName}? They will no longer be able to log in or appear in active lists.`,
+              onConfirm: async () => {
+                try {
+                  await updateDoc(doc(db, `businesses/${tenantId}/staff`, selectedStaff.id), { isArchived: true });
+                  toast.success("Staff member archived");
+                  queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/staff`] });
+                  setSelectedStaff(null);
+                } catch (e) {
+                  toast.error("Failed to archive staff member");
+                }
               }
-            }
+            });
+          }}
+
+          onImpersonate={() => {
+            const dept = departments?.find(d => d.id === selectedStaff.departmentId);
+            const resolved = resolvePermissions(dept?.permissions, selectedStaff.individualPermissions);
+            useAuthStore.getState().impersonate({
+              id: selectedStaff.id,
+              name: `${selectedStaff.firstName} ${selectedStaff.lastName}`,
+              permissions: resolved
+            });
+            setSelectedStaff(null);
+            toast.success(`Viewing as ${selectedStaff.firstName}`);
+          }}
+          onViewPerformance={() => {
+            const name = `${selectedStaff.firstName} ${selectedStaff.lastName}`;
+            navigate(`/business/${tenantId}/performance?staffName=${encodeURIComponent(name)}`);
+            setSelectedStaff(null);
           }}
           getSource={getSource}
         />
@@ -223,25 +278,42 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
           }}
         />
       )}
+
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
+
   );
 }
 
-function DepartmentManager({ tenantId, departments }: { tenantId: string, departments: Department[] }) {
+function DepartmentManager({ tenantId, departments, onConfirmAction }: { tenantId: string, departments: Department[], onConfirmAction: (config: any) => void }) {
+
   const queryClient = useQueryClient();
   const [editingDept, setEditingDept] = useState<Department | null>(null);
   const [isAddingDept, setIsAddingDept] = useState(false);
 
   const handleArchive = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this department? Staff assigned to it will lose their inherited permissions.")) return;
-    try {
-      await deleteDoc(doc(db, `businesses/${tenantId}/departments`, id));
-      toast.success("Department deleted");
-      queryClient.invalidateQueries({ queryKey: ['departments', tenantId] });
-    } catch (e) {
-      toast.error("Failed to delete department");
-    }
+    onConfirmAction({
+      isOpen: true,
+      title: 'Delete Department',
+      message: 'Are you sure you want to delete this department? Staff assigned to it will lose their inherited permissions.',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, `businesses/${tenantId}/departments`, id));
+          toast.success("Department deleted");
+          queryClient.invalidateQueries({ queryKey: ['departments', tenantId] });
+        } catch (e) {
+          toast.error("Failed to delete department");
+        }
+      }
+    });
   };
+
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -252,16 +324,18 @@ function DepartmentManager({ tenantId, departments }: { tenantId: string, depart
               <div className="p-2.5 bg-indigo-500/10 text-indigo-500 rounded-xl">
                 <Building2 className="w-5 h-5" />
               </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 transition-opacity">
                 <button 
                   onClick={() => setEditingDept(dept)}
-                  className="p-1.5 text-zinc-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                  className="p-2 text-zinc-400 hover:text-indigo-500 dark:hover:text-indigo-400 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors border border-zinc-200 dark:border-zinc-700"
+                  title="Edit Department"
                 >
                   <Edit2 className="w-4 h-4" />
                 </button>
                 <button 
                   onClick={() => handleArchive(dept.id)}
-                  className="p-1.5 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                  className="p-2 text-zinc-400 hover:text-rose-500 dark:hover:text-rose-400 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-colors border border-zinc-200 dark:border-zinc-700"
+                  title="Delete Department"
                 >
                   <Archive className="w-4 h-4" />
                 </button>
@@ -322,6 +396,12 @@ function DepartmentManager({ tenantId, departments }: { tenantId: string, depart
 function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: string, dept?: Department, onClose: () => void, onSaved: () => void }) {
   const [name, setName] = useState(dept?.name || '');
   const [permissions, setPermissions] = useState<PermissionSet>(dept?.permissions || {});
+  const [defaultSchedule, setDefaultSchedule] = useState<WorkSchedule>(dept?.defaultSchedule || {
+    days: [1, 2, 3, 4, 5],
+    startTime: '08:00',
+    endTime: '17:00',
+    expectedHoursPerDay: 8
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -332,6 +412,7 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
       const data = {
         name: name.trim(),
         permissions,
+        defaultSchedule,
         updatedAt: serverTimestamp()
       };
       if (dept?.id) {
@@ -370,6 +451,80 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
                 placeholder="e.g. Sales, Service, Admin..."
                 className="w-full px-6 py-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-lg font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
               />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 mb-6">
+                <Calendar className="w-5 h-5 text-indigo-500" />
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Default Work Schedule</label>
+              </div>
+              
+              <div className="space-y-6 bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-3">Operating Days</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, idx) => {
+                      const dayNum = idx + 1;
+                      const isSelected = defaultSchedule.days.includes(dayNum);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => {
+                            const newDays = isSelected 
+                              ? defaultSchedule.days.filter(d => d !== dayNum)
+                              : [...defaultSchedule.days, dayNum].sort();
+                            setDefaultSchedule(prev => ({ ...prev, days: newDays }));
+                          }}
+                          className={cn(
+                            "px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+                            isSelected 
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-600/20" 
+                              : "bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-500/50"
+                          )}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Default Start</label>
+                    <input 
+                      type="time" 
+                      value={defaultSchedule.startTime} 
+                      onChange={e => setDefaultSchedule(prev => ({ ...prev, startTime: e.target.value }))}
+                      className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Default End</label>
+                    <input 
+                      type="time" 
+                      value={defaultSchedule.endTime} 
+                      onChange={e => setDefaultSchedule(prev => ({ ...prev, endTime: e.target.value }))}
+                      className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Expected Hours Per Day</label>
+                  <div className="relative">
+                    <input 
+                      type="number" 
+                      step="0.5"
+                      value={defaultSchedule.expectedHoursPerDay} 
+                      onChange={e => setDefaultSchedule(prev => ({ ...prev, expectedHoursPerDay: Number(e.target.value) }))}
+                      className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    />
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">Hours</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div>
@@ -415,6 +570,7 @@ function PermissionGrid({
     'General': ['mission_control.view'],
     'Inventory & Vehicles': ['vehicles.view', 'vehicles.manage', 'zones.view', 'zones.manage', 'parts.view', 'parts.manage'],
     'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'staff.view', 'staff.manage'],
+    'Timeclock': ['timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
     'System': ['settings.view', 'settings.manage']
   };
 
@@ -494,17 +650,23 @@ function PermissionGrid({
 
 function StaffDetailsModal({ 
   staff, 
+  tenantId,
   departments,
   onClose, 
   onEdit, 
   onArchive, 
+  onImpersonate,
+  onViewPerformance,
   getSource 
 }: { 
   staff: StaffMember, 
+  tenantId: string,
   departments: Department[],
   onClose: () => void, 
   onEdit: () => void, 
   onArchive?: () => void, 
+  onImpersonate?: () => void,
+  onViewPerformance?: () => void,
   getSource: (row: any) => React.ReactNode 
 }) {
   const isQB = staff.tags?.includes('QuickBooks') || 
@@ -524,12 +686,12 @@ function StaffDetailsModal({
               <span className="text-2xl font-bold">{staff.firstName[0]}{staff.lastName[0]}</span>
             </div>
             <div>
-              <h3 className="font-black text-2xl text-zinc-900 dark:text-white leading-tight">
-                {staff.firstName} {staff.lastName}
+              <h3 className="text-xl font-bold text-zinc-900 dark:text-white">
+                <StaffLink name={`${staff.firstName} ${staff.lastName}`} tenantId={tenantId} />
               </h3>
               <div className="flex items-center gap-2 mt-1">
                 <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-wider rounded-md">
-                  {staff.role || 'Staff'}
+                  Active Member
                 </span>
                 {dept && (
                   <span className="px-2 py-0.5 bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-[10px] font-bold uppercase tracking-wider rounded-md">
@@ -540,6 +702,15 @@ function StaffDetailsModal({
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {onImpersonate && (
+              <button 
+                onClick={onImpersonate}
+                className="p-3 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-xl transition-all"
+                title="View As Staff Member"
+              >
+                <Eye className="w-5 h-5" />
+              </button>
+            )}
             {!isQB && onArchive && (
               <button 
                 onClick={onArchive}
@@ -549,6 +720,13 @@ function StaffDetailsModal({
                 <Archive className="w-5 h-5" />
               </button>
             )}
+            <button 
+              onClick={onViewPerformance}
+              className="p-3 text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 rounded-xl transition-all"
+              title="View Performance Leaderboard"
+            >
+              <Trophy className="w-5 h-5" />
+            </button>
             <button 
               onClick={onEdit}
               className="p-3 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 rounded-xl transition-all"
@@ -668,7 +846,6 @@ function StaffEditModal({
   const [lastName, setLastName] = useState(staff?.lastName || '');
   const [email, setEmail] = useState(staff?.email || '');
   const [phone, setPhone] = useState(staff?.phone || '');
-  const [role, setRole] = useState(staff?.role || 'staff');
   const [departmentId, setDepartmentId] = useState(staff?.departmentId || '');
   const [hireDate, setHireDate] = useState(staff?.hireDate || '');
   const [fireDate, setFireDate] = useState(staff?.fireDate || '');
@@ -680,9 +857,15 @@ function StaffEditModal({
   const [emergencyName, setEmergencyName] = useState(staff?.emergencyContact?.name || '');
   const [emergencyPhone, setEmergencyPhone] = useState(staff?.emergencyContact?.phone || '');
   const [emergencyRelation, setEmergencyRelation] = useState(staff?.emergencyContact?.relation || '');
+  const [jobTitle, setJobTitle] = useState(staff?.jobTitle || '');
+  const [role, setRole] = useState(staff?.role || '');
+  const [payRate, setPayRate] = useState(staff?.payRate || 0);
+  const [payType, setPayType] = useState(staff?.payType || 'hourly');
+  const [notes, setNotes] = useState(staff?.notes || '');
   const [individualPermissions, setIndividualPermissions] = useState<PermissionSet>(staff?.individualPermissions || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'permissions'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'permissions' | 'schedule'>('details');
+  const [individualSchedule, setIndividualSchedule] = useState<WorkSchedule | null>(staff?.individualSchedule || null);
 
   const selectedDept = departments.find(d => d.id === departmentId);
 
@@ -710,8 +893,12 @@ function StaffEditModal({
         lastName: lastName.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),
-        role: role.toLowerCase(),
         departmentId: departmentId || null,
+        jobTitle: jobTitle.trim(),
+        role: role.trim(),
+        payRate: Number(payRate) || 0,
+        payType,
+        notes: notes.trim(),
         hireDate: hireDate || null,
         fireDate: fireDate || null,
         shirtSize: shirtSize || null,
@@ -725,18 +912,61 @@ function StaffEditModal({
           relation: emergencyRelation.trim()
         },
         individualPermissions,
+        individualSchedule,
         updatedAt: serverTimestamp()
       };
 
       if (staff?.id) {
         await updateDoc(doc(db, `businesses/${tenantId}/staff`, staff.id), data);
+        
+        // Sync to global users collection if we have a userId or email match
+        const uid = staff.userId;
+        if (uid) {
+          await setDoc(doc(db, 'users', uid), {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            phone: data.phone,
+            emergencyContactName: data.emergencyContact.name,
+            emergencyContactPhone: data.emergencyContact.phone,
+            jobTitle: data.jobTitle,
+            department: data.departmentId,
+            role: data.role,
+            payRate: data.payRate,
+            payType: data.payType,
+            startDate: data.hireDate,
+            notes: data.notes,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+
         toast.success('Staff member updated');
       } else {
-        await addDoc(collection(db, `businesses/${tenantId}/staff`), {
+        const docRef = await addDoc(collection(db, `businesses/${tenantId}/staff`), {
           ...data,
           createdAt: serverTimestamp(),
           isArchived: false
         });
+
+        // Try to find a user with this email to link immediately
+        const userQ = query(collection(db, 'users'), where('email', '==', data.email));
+        const userSnap = await getDocs(userQ);
+        if (!userSnap.empty) {
+          const userDoc = userSnap.docs[0];
+          await updateDoc(docRef, { userId: userDoc.id });
+          
+          // Also push staff data to their user record
+          await setDoc(userDoc.ref, {
+            jobTitle: data.jobTitle,
+            department: data.departmentId,
+            role: data.role,
+            payRate: data.payRate,
+            payType: data.payType,
+            startDate: data.hireDate,
+            notes: data.notes,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        }
+
         toast.success('Staff member added');
       }
       onSaved();
@@ -771,7 +1001,13 @@ function StaffEditModal({
               onClick={() => setActiveTab('permissions')}
               className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'permissions' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700'}`}
             >
-              <ShieldCheck className="w-4 h-4" /> Permissions & Access
+              <ShieldCheck className="w-4 h-4" /> Permissions
+            </button>
+            <button 
+              onClick={() => setActiveTab('schedule')}
+              className={`flex-1 py-3 px-4 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${activeTab === 'schedule' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700'}`}
+            >
+              <Calendar className="w-4 h-4" /> Schedule
             </button>
           </div>
         </div>
@@ -810,19 +1046,6 @@ function StaffEditModal({
                     className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Assigned Role</label>
-                    <select 
-                      value={role} onChange={e => setRole(e.target.value)}
-                      className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
-                    >
-                      <option value="staff">Standard Staff</option>
-                      <option value="technician">Technician</option>
-                      <option value="manager">Dept Manager</option>
-                      <option value="admin">System Admin</option>
-                    </select>
-                  </div>
                   <div>
                     <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Business Department</label>
                     <select 
@@ -835,18 +1058,68 @@ function StaffEditModal({
                       ))}
                     </select>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Job Title</label>
+                      <input 
+                        type="text" value={jobTitle} onChange={e => setJobTitle(e.target.value)} 
+                        placeholder="e.g. Lead Technician"
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Internal Role</label>
+                      <input 
+                        type="text" value={role} onChange={e => setRole(e.target.value)} 
+                        placeholder="e.g. Administrator"
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Pay Rate</label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">$</span>
+                        <input 
+                          type="number" step="0.01" value={payRate} onChange={e => setPayRate(Number(e.target.value))} 
+                          className="w-full pl-8 pr-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Pay Type</label>
+                      <select 
+                        value={payType} onChange={e => setPayType(e.target.value as any)}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                      >
+                        <option value="hourly">Hourly</option>
+                        <option value="salary">Salary</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Hire Date</label>
-                    <input 
-                      type="date" value={hireDate} onChange={e => setHireDate(e.target.value)} 
-                      className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Administrative Notes</label>
+                    <textarea 
+                      value={notes} onChange={e => setNotes(e.target.value)}
+                      placeholder="Confidential notes about this staff member..."
+                      className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all h-32 resize-none"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Termination Date</label>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Hire Date</label>
+                      <input 
+                        type="date" value={hireDate} onChange={e => setHireDate(e.target.value)} 
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Termination Date</label>
                     <input 
                       type="date" value={fireDate} onChange={e => setFireDate(e.target.value)} 
                       className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
@@ -902,7 +1175,7 @@ function StaffEditModal({
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : activeTab === 'permissions' ? (
               <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-6 flex gap-4">
                   <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl h-fit">
@@ -923,6 +1196,123 @@ function StaffEditModal({
                   onOverrideChange={handleOverrideChange}
                   onChange={() => {}}
                 />
+              </div>
+            ) : (
+              <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+                <div className="bg-indigo-600/5 border border-indigo-600/20 rounded-2xl p-6 flex gap-4">
+                  <div className="p-3 bg-indigo-600/10 text-indigo-600 rounded-xl h-fit">
+                    <Calendar className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-zinc-900 dark:text-white">Custom Work Schedule</h4>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                      Override the department defaults for this specific staff member. 
+                      This schedule will be used to calculate overtime and tardiness.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-4">Work Days</label>
+                    <div className="flex flex-wrap gap-2">
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, idx) => {
+                        const dayNum = idx + 1;
+                        const isSelected = individualSchedule?.days.includes(dayNum);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => {
+                              const currentDays = individualSchedule?.days || [];
+                              const newDays = isSelected 
+                                ? currentDays.filter(d => d !== dayNum)
+                                : [...currentDays, dayNum].sort();
+                              
+                              setIndividualSchedule(prev => ({
+                                days: newDays,
+                                startTime: prev?.startTime || '08:00',
+                                endTime: prev?.endTime || '17:00',
+                                expectedHoursPerDay: prev?.expectedHoursPerDay || 8
+                              }));
+                            }}
+                            className={cn(
+                              "px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+                              isSelected 
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-600/20" 
+                                : "bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-500/50"
+                            )}
+                          >
+                            {day}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Shift Start</label>
+                      <input 
+                        type="time" 
+                        value={individualSchedule?.startTime || '08:00'} 
+                        onChange={e => setIndividualSchedule(prev => ({
+                          days: prev?.days || [],
+                          startTime: e.target.value,
+                          endTime: prev?.endTime || '17:00',
+                          expectedHoursPerDay: prev?.expectedHoursPerDay || 8
+                        }))}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Shift End</label>
+                      <input 
+                        type="time" 
+                        value={individualSchedule?.endTime || '17:00'} 
+                        onChange={e => setIndividualSchedule(prev => ({
+                          days: prev?.days || [],
+                          startTime: prev?.startTime || '08:00',
+                          endTime: e.target.value,
+                          expectedHoursPerDay: prev?.expectedHoursPerDay || 8
+                        }))}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Expected Daily Hours</label>
+                    <div className="relative">
+                      <input 
+                        type="number" 
+                        step="0.5"
+                        value={individualSchedule?.expectedHoursPerDay || 8} 
+                        onChange={e => setIndividualSchedule(prev => ({
+                          days: prev?.days || [],
+                          startTime: prev?.startTime || '08:00',
+                          endTime: prev?.endTime || '17:00',
+                          expectedHoursPerDay: Number(e.target.value)
+                        }))}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                      />
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">Hours</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mt-2 italic px-1">
+                      Overtime will be calculated as any time logged beyond this value per day.
+                    </p>
+                  </div>
+
+                  {individualSchedule && (
+                    <button 
+                      type="button"
+                      onClick={() => setIndividualSchedule(null)}
+                      className="text-[10px] font-bold text-rose-500 uppercase tracking-widest hover:text-rose-600 transition-colors"
+                    >
+                      Reset to Department Defaults
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

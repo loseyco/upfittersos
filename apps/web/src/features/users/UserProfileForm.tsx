@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { submitAuditLog } from '../../lib/logging/audit';
@@ -34,15 +34,16 @@ export interface UserProfile {
 }
 
 // Reusable oversized input component conforming to Rule 15
-function FormInput({ label, value, onChange, type = "text", placeholder = "", required = false }: any) {
+function FormInput({ label, value, onChange, type = "text", placeholder = "", required = false, disabled = false }: any) {
   return (
-    <div>
+    <div className={disabled ? 'opacity-60 grayscale-[0.5]' : ''}>
       <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">{label}{required && <span className="text-red-500 ml-1">*</span>}</label>
       <input
         type={type}
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full h-14 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl px-4 text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all shadow-sm"
+        disabled={disabled}
+        className="w-full h-14 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl px-4 text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all shadow-sm disabled:bg-zinc-100 dark:disabled:bg-zinc-800/50"
         placeholder={placeholder}
         required={required}
       />
@@ -51,9 +52,12 @@ function FormInput({ label, value, onChange, type = "text", placeholder = "", re
 }
 
 // Reusable oversized toggle component conforming to Rule 15
-function FormToggle({ label, description, checked, onChange }: any) {
+function FormToggle({ label, description, checked, onChange, disabled = false }: any) {
   return (
-    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl cursor-pointer active:scale-[0.98] transition-transform" onClick={() => onChange(!checked)}>
+    <div 
+      className={`flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'}`} 
+      onClick={() => !disabled && onChange(!checked)}
+    >
       <div>
         <p className="font-semibold text-lg text-zinc-900 dark:text-white">{label}</p>
         {description && <p className="text-sm text-zinc-500 dark:text-zinc-400">{description}</p>}
@@ -66,16 +70,53 @@ function FormToggle({ label, description, checked, onChange }: any) {
 }
 
 export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
-  const { user, isSuperAdmin, tenantId } = useAuthStore();
+  const { user, isSuperAdmin, tenantId, permissions } = useAuthStore();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<Partial<UserProfile>>({});
 
   const { data: profile, isLoading } = useQuery({
-    queryKey: ['userProfile', user?.uid],
+    queryKey: ['userProfile', user?.uid, tenantId],
     queryFn: async () => {
       if (!user?.uid) return null;
-      const snap = await getDoc(doc(db, 'users', user.uid));
-      return snap.exists() ? snap.data() as UserProfile : null;
+      
+      // 1. Fetch Global User Profile
+      const userSnap = await getDoc(doc(db, 'users', user.uid));
+      const userData = userSnap.exists() ? userSnap.data() as UserProfile : {} as UserProfile;
+
+      // 2. Fetch Tenant Staff Record (Source of Truth for Employment)
+      let staffData: Partial<UserProfile> = {};
+      if (tenantId) {
+        const staffRef = collection(db, `businesses/${tenantId}/staff`);
+        const q = query(staffRef, where('email', '==', user.email?.toLowerCase()));
+        const staffSnap = await getDocs(q);
+        
+        if (!staffSnap.empty) {
+          const docSnap = staffSnap.docs[0];
+          const rawStaff = docSnap.data();
+          
+          // Link UID if not present
+          if (!rawStaff.userId) {
+            await updateDoc(docSnap.ref, { userId: user.uid });
+          }
+
+          staffData = {
+            firstName: rawStaff.firstName,
+            lastName: rawStaff.lastName,
+            phone: rawStaff.phone,
+            emergencyContactName: rawStaff.emergencyContact?.name,
+            emergencyContactPhone: rawStaff.emergencyContact?.phone,
+            jobTitle: rawStaff.jobTitle,
+            department: rawStaff.departmentId, // We'll need to resolve name later or just use ID
+            role: rawStaff.role,
+            payRate: rawStaff.payRate,
+            payType: rawStaff.payType,
+            startDate: rawStaff.hireDate,
+            notes: rawStaff.notes
+          };
+        }
+      }
+
+      return { ...userData, ...staffData };
     },
     enabled: !!user?.uid
   });
@@ -88,18 +129,54 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
     mutationFn: async (newData: Partial<UserProfile>) => {
       if (!user?.uid) throw new Error('No user authenticated');
       
-      // Update logic maintaining createdAt via merge
+      // Update User Record
       await setDoc(doc(db, 'users', user.uid), {
         ...newData,
         updatedAt: new Date().toISOString()
       }, { merge: true });
+
+      // Update Staff Record if exists and user has permission or is updating self
+      if (tenantId) {
+        const staffRef = collection(db, `businesses/${tenantId}/staff`);
+        const q = query(staffRef, where('email', '==', user.email?.toLowerCase()));
+        const staffSnap = await getDocs(q);
+
+        if (!staffSnap.empty) {
+          const docRef = staffSnap.docs[0].ref;
+          
+          // Only allow non-admins to update identity fields, not employment fields
+          const canManageStaff = permissions['staff.manage'];
+          
+          const staffUpdate: any = {
+            firstName: newData.firstName,
+            lastName: newData.lastName,
+            phone: newData.phone,
+            emergencyContact: {
+              name: newData.emergencyContactName,
+              phone: newData.emergencyContactPhone
+            },
+            updatedAt: serverTimestamp()
+          };
+
+          // Only sync employment fields if user is admin
+          if (canManageStaff) {
+            staffUpdate.jobTitle = newData.jobTitle;
+            staffUpdate.hireDate = newData.startDate;
+            staffUpdate.payRate = newData.payRate;
+            staffUpdate.payType = newData.payType;
+            staffUpdate.notes = newData.notes;
+          }
+
+          await updateDoc(docRef, staffUpdate);
+        }
+      }
       
       // Rule 14 Telemetry
       await submitAuditLog(isSuperAdmin ? 'GLOBAL' : (tenantId || 'GLOBAL'), {
         userId: user.uid,
         actionType: 'DATA_MUTATION',
         targetEntityId: user.uid,
-        details: { action: 'UPDATED_PROFILE' } // Omitting full payload for generic telemetry
+        details: { action: 'UPDATED_PROFILE_AND_STAFF_SYNC' }
       });
     },
     onMutate: () => {
@@ -195,23 +272,29 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
 
       {/* Category 3: Employment */}
       <section className="space-y-4">
-        <h3 className="text-xl flex items-center gap-2 font-bold text-zinc-900 dark:text-white border-b border-zinc-200 dark:border-zinc-800 pb-2">
-          <Briefcase className="w-6 h-6 text-amber-500" /> Employment Details
-        </h3>
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
+          <h3 className="text-xl flex items-center gap-2 font-bold text-zinc-900 dark:text-white">
+            <Briefcase className="w-6 h-6 text-amber-500" /> Employment Details
+          </h3>
+          {!permissions['staff.manage'] && (
+            <span className="text-[10px] font-bold text-zinc-400 uppercase bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">Read Only</span>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormInput label="Job Title" value={formData.jobTitle} onChange={(v: string) => updateField('jobTitle', v)} />
-          <FormInput label="Department" value={formData.department} onChange={(v: string) => updateField('department', v)} />
-          <FormInput label="Primary Role" value={formData.role} onChange={(v: string) => updateField('role', v)} />
-          <FormInput label="Start Date" type="date" value={formData.startDate} onChange={(v: string) => updateField('startDate', v)} />
-          <FormInput label="Pay Rate" type="number" value={formData.payRate} onChange={(v: string) => updateField('payRate', v)} placeholder="e.g. 32" />
-          <FormInput label="Pay Type" value={formData.payType} onChange={(v: string) => updateField('payType', v)} placeholder="hourly / salary" />
+          <FormInput label="Job Title" disabled={!permissions['staff.manage']} value={formData.jobTitle} onChange={(v: string) => updateField('jobTitle', v)} />
+          <FormInput label="Department" disabled={!permissions['staff.manage']} value={formData.department} onChange={(v: string) => updateField('department', v)} />
+          <FormInput label="Primary Role" disabled={!permissions['staff.manage']} value={formData.role} onChange={(v: string) => updateField('role', v)} />
+          <FormInput label="Start Date" disabled={!permissions['staff.manage']} type="date" value={formData.startDate} onChange={(v: string) => updateField('startDate', v)} />
+          <FormInput label="Pay Rate" disabled={!permissions['staff.manage']} type="number" value={formData.payRate} onChange={(v: string) => updateField('payRate', v)} placeholder="e.g. 32" />
+          <FormInput label="Pay Type" disabled={!permissions['staff.manage']} value={formData.payType} onChange={(v: string) => updateField('payType', v)} placeholder="hourly / salary" />
         </div>
         <div>
           <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Administrative Notes</label>
           <textarea
+            disabled={!permissions['staff.manage']}
             value={formData.notes || ''}
             onChange={(e) => updateField('notes', e.target.value)}
-            className="w-full min-h-[80px] p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-y"
+            className="w-full min-h-[80px] p-4 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none resize-y disabled:bg-zinc-100 dark:disabled:bg-zinc-800/50 disabled:opacity-60"
             placeholder="Internal notes regarding this staff member..."
           />
         </div>

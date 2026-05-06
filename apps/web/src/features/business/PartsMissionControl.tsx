@@ -9,12 +9,16 @@ import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
   Clock, Box, Wrench, User, Search, Package, Calendar, AlertCircle,
-  Trash2, CheckCircle, ShoppingCart, Hash, FileText
+  Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { PackageIntakeModal } from './PackageIntakeModal';
+import { StaffLink } from './StaffPerformance';
+
 
 type RequestStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
-type ShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception';
+type ShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception' | 'received';
 
 interface QuickBooksPO {
   id: string;
@@ -44,6 +48,10 @@ interface Shipment {
   carrier: string;
   description: string;
   status: ShipmentStatus;
+  location?: string;
+  notes?: string;
+  deliveredAt?: any;
+  receivedBy?: string;
   eta: string | null;
   jobId?: string;
   createdAt: any;
@@ -55,9 +63,22 @@ interface Job {
 }
 
 export function PartsMissionControl() {
-  const { tenantId, user } = useAuthStore();
+  const { tenantId, user, permissions, isSuperAdmin } = useAuthStore();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const canManage = isSuperAdmin || permissions['parts.manage'];
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
+
   
   // Parts Request Form State
   const [partName, setPartName] = useState('');
@@ -75,6 +96,18 @@ export function PartsMissionControl() {
   // Data State
   const [requests, setRequests] = useState<PartsRequest[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+
+  // Real-time listener for Zones
+  React.useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/zones`), orderBy('name'));
+    const unsub = onSnapshot(q, (snap) => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [tenantId]);
 
   // Real-time listener for Parts Requests
   React.useEffect(() => {
@@ -198,6 +231,9 @@ export function PartsMissionControl() {
         eta: null,
         poId: po.id,
         createdAt: serverTimestamp(),
+        createdBy: user?.uid || 'system',
+        createdByName: user?.displayName || user?.email?.split('@')[0] || null,
+        createdByEmail: user?.email || null,
       });
 
       // 2. Update the PO record with the tracking number (for local reference)
@@ -237,31 +273,34 @@ export function PartsMissionControl() {
     if (!tenantId || !partName.trim()) return;
 
     setIsSubmitting(true);
-    try {
-      await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
-        partName: partName.trim(),
-        partNumber: partNumber.trim() || null,
-        jobId: reqJobId || null,
-        requestedBy: user?.displayName || user?.email || 'Unknown',
-        urgency,
-        status: 'pending',
-        notes: notes.trim() || null,
-        createdAt: serverTimestamp(),
-      });
-      
-      setPartName('');
-      setPartNumber('');
-      setReqJobId('');
-      setUrgency('normal');
-      setNotes('');
-      toast.success('Parts request submitted successfully');
-      queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
-    } catch (err) {
-      console.error('Error adding parts request:', err);
-      toast.error('Failed to submit request');
-    } finally {
-      setIsSubmitting(false);
-    }
+    const promise = addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+      partName: partName.trim(),
+      partNumber: partNumber.trim() || null,
+      jobId: reqJobId || null,
+      requestedBy: user?.displayName || user?.email || 'Unknown',
+      urgency,
+      status: 'pending',
+      notes: notes.trim() || null,
+      createdAt: serverTimestamp(),
+      createdBy: user?.uid || 'system',
+      createdByName: user?.displayName || user?.email?.split('@')[0] || null,
+      createdByEmail: user?.email || null,
+    });
+
+    toast.promise(promise, {
+      loading: 'Submitting parts request...',
+      success: () => {
+        setPartName('');
+        setPartNumber('');
+        setReqJobId('');
+        setUrgency('normal');
+        setNotes('');
+        queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
+        return 'Parts request submitted successfully';
+      },
+      error: 'Failed to submit request'
+    });
+
   };
 
   const handleSubmitShipment = async (e: React.FormEvent) => {
@@ -269,27 +308,47 @@ export function PartsMissionControl() {
     if (!tenantId || !trackingNumber.trim()) return;
     
     setIsSubmitting(true);
+    const promise = addDoc(collection(db, `businesses/${tenantId}/shipments`), {
+      trackingNumber: trackingNumber.trim(),
+      carrier,
+      description: shipDescription.trim(),
+      jobId: shipJobId || null,
+      status: 'pending',
+      eta: null,
+      createdAt: serverTimestamp(),
+      createdBy: user?.uid || 'system',
+      createdByName: user?.displayName || user?.email?.split('@')[0] || null,
+      createdByEmail: user?.email || null,
+    });
+
+    toast.promise(promise, {
+      loading: 'Adding shipment to tracking...',
+      success: () => {
+        setTrackingNumber('');
+        setShipDescription('');
+        setShipJobId('');
+        queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
+        queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
+        return 'Shipment added to tracking';
+      },
+      error: 'Failed to add shipment'
+    });
+  };
+
+  const handleMarkPutAway = async (shipmentId: string) => {
+    if (!tenantId) return;
     try {
-      await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
-        trackingNumber: trackingNumber.trim(),
-        carrier,
-        description: shipDescription.trim(),
-        jobId: shipJobId || null,
-        status: 'pending',
-        eta: null,
-        createdAt: serverTimestamp(),
+      const { updateDoc, doc } = await import('firebase/firestore');
+      await updateDoc(doc(db, `businesses/${tenantId}/shipments`, shipmentId), {
+        status: 'delivered',
+        putAwayAt: serverTimestamp()
       });
-      setTrackingNumber('');
-      setShipDescription('');
-      setShipJobId('');
-      toast.success('Shipment added to tracking');
+      toast.success('Package marked as put away');
       queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
       queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
     } catch (err) {
-      console.error('Error adding shipment:', err);
-      toast.error('Failed to add shipment');
-    } finally {
-      setIsSubmitting(false);
+      console.error('Error marking as put away:', err);
+      toast.error('Failed to update status');
     }
   };
 
@@ -308,17 +367,25 @@ export function PartsMissionControl() {
   };
 
   const handleDeleteRequest = async (requestId: string) => {
-    if (!tenantId || !confirm('Are you sure you want to delete this request?')) return;
-    try {
-      const { deleteDoc, doc } = await import('firebase/firestore');
-      await deleteDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId));
-      toast.success('Request deleted');
-      queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
-    } catch (err) {
-      console.error('Error deleting request:', err);
-      toast.error('Failed to delete request');
-    }
+    if (!tenantId) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Delete Parts Request',
+      message: 'Are you sure you want to delete this parts request? This action cannot be undone.',
+      onConfirm: async () => {
+        try {
+          const { deleteDoc, doc } = await import('firebase/firestore');
+          await deleteDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId));
+          toast.success('Request deleted');
+          queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
+        } catch (err) {
+          console.error('Error deleting request:', err);
+          toast.error('Failed to delete request');
+        }
+      }
+    });
   };
+
 
   const getStatusColor = (status: RequestStatus | ShipmentStatus) => {
     switch (status) {
@@ -334,8 +401,36 @@ export function PartsMissionControl() {
   };
 
   const activeShipments = shipments?.filter(s => s.status !== 'delivered') || [];
+  const recentReceived = shipments?.filter(s => s.status === 'delivered').slice(0, 10) || [];
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      <PackageIntakeModal 
+        isOpen={isIntakeOpen}
+        onClose={() => setIsIntakeOpen(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
+          queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
+        }}
+        zones={zones}
+      />
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Parts Mission Control</h1>
+          <p className="text-zinc-500 text-sm mt-1">Manage requests, track shipments, and intake packages.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsIntakeOpen(true)}
+            className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2"
+          >
+            <Package className="w-5 h-5" />
+            RECEIVE PACKAGE
+          </button>
+        </div>
+      </div>
+
       {/* KPI Header */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
@@ -375,180 +470,194 @@ export function PartsMissionControl() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         {/* Left Column: Requests and Shipments Forms */}
-        <div className="space-y-8">
-          {/* Parts Request Form */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-zinc-900 dark:text-white">
-              <Wrench className="w-5 h-5 text-indigo-500" />
-              New Parts Request
-            </h2>
-            <form onSubmit={handleSubmitRequest} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Name / Description</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={partName}
-                    onChange={(e) => setPartName(e.target.value)}
-                    placeholder="e.g. Brake Pads"
-                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Number (Optional)</label>
-                  <input 
-                    type="text" 
-                    value={partNumber}
-                    onChange={(e) => setPartNumber(e.target.value)}
-                    placeholder="e.g. PN-12345"
-                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Link to Job</label>
-                  <select 
-                    value={reqJobId}
-                    onChange={(e) => setReqJobId(e.target.value)}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="">No Job Linked</option>
-                    {jobs.map(job => (
-                      <option key={job.id} value={job.id}>{job.title}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Urgency</label>
-                  <div className="flex gap-2">
-                    <button 
-                      type="button"
-                      onClick={() => setUrgency('normal')}
-                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                        urgency === 'normal' 
-                          ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white' 
-                          : 'border-transparent text-zinc-500'
-                      }`}
-                    >
-                      Normal
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setUrgency('urgent')}
-                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                        urgency === 'urgent' 
-                          ? 'bg-red-500/10 border-red-500/20 text-red-600' 
-                          : 'border-transparent text-zinc-500'
-                      }`}
-                    >
-                      Urgent
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Notes</label>
-                <textarea 
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Additional details..."
-                  className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20"
-                />
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={isSubmitting || !partName.trim()}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-              >
-                <Plus className="w-5 h-5" />
-                Submit Request
-              </button>
-            </form>
-          </div>
-
-          {/* Incoming Shipment Form */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-            <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-zinc-900 dark:text-white">
-              <Truck className="w-5 h-5 text-indigo-500" />
-              Track Incoming Shipment
-            </h2>
-            <form onSubmit={handleSubmitShipment} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-2 space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Tracking Number</label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Search className="h-4 w-4 text-zinc-400" />
-                    </div>
+        {canManage ? (
+          <div className="space-y-8">
+            {/* Parts Request Form */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+              <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-zinc-900 dark:text-white">
+                <Wrench className="w-5 h-5 text-indigo-500" />
+                New Parts Request
+              </h2>
+              <form onSubmit={handleSubmitRequest} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Name / Description</label>
                     <input 
                       type="text" 
                       required
-                      value={trackingNumber}
-                      onChange={handleTrackingChange}
-                      placeholder="Paste tracking number..."
-                      className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                      value={partName}
+                      onChange={(e) => setPartName(e.target.value)}
+                      placeholder="e.g. Brake Pads"
+                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Number (Optional)</label>
+                    <input 
+                      type="text" 
+                      value={partNumber}
+                      onChange={(e) => setPartNumber(e.target.value)}
+                      placeholder="e.g. PN-12345"
+                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Carrier</label>
-                  <select 
-                    value={carrier}
-                    onChange={(e) => setCarrier(e.target.value)}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="UPS">UPS</option>
-                    <option value="FedEx">FedEx</option>
-                    <option value="USPS">USPS</option>
-                    <option value="Amazon">Amazon</option>
-                    <option value="DHL">DHL</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Link to Job</label>
+                    <select 
+                      value={reqJobId}
+                      onChange={(e) => setReqJobId(e.target.value)}
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="">No Job Linked</option>
+                      {jobs.map(job => (
+                        <option key={job.id} value={job.id}>{job.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Urgency</label>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setUrgency('normal')}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                          urgency === 'normal' 
+                            ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white' 
+                            : 'border-transparent text-zinc-500'
+                        }`}
+                      >
+                        Normal
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setUrgency('urgent')}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                          urgency === 'urgent' 
+                            ? 'bg-red-500/10 border-red-500/20 text-red-600' 
+                            : 'border-transparent text-zinc-500'
+                        }`}
+                      >
+                        Urgent
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Description / PO</label>
-                  <input 
-                    type="text" 
-                    value={shipDescription}
-                    onChange={(e) => setShipDescription(e.target.value)}
-                    placeholder="e.g. Parts for Smith Job"
-                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Notes</label>
+                  <textarea 
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Additional details..."
+                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Link to Job</label>
-                  <select 
-                    value={shipJobId}
-                    onChange={(e) => setShipJobId(e.target.value)}
-                    className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="">No Job Linked</option>
-                    {jobs.map(job => (
-                      <option key={job.id} value={job.id}>{job.title}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <button 
-                type="submit" 
-                disabled={isSubmitting || !trackingNumber.trim()}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-              >
-                <Truck className="w-5 h-5" />
-                Track Shipment
-              </button>
-            </form>
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting || !partName.trim()}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  <Plus className="w-5 h-5" />
+                  Submit Request
+                </button>
+              </form>
+            </div>
+
+            {/* Incoming Shipment Form */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+              <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-zinc-900 dark:text-white">
+                <Truck className="w-5 h-5 text-indigo-500" />
+                Track Incoming Shipment
+              </h2>
+              <form onSubmit={handleSubmitShipment} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Tracking Number</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Search className="h-4 w-4 text-zinc-400" />
+                      </div>
+                      <input 
+                        type="text" 
+                        required
+                        value={trackingNumber}
+                        onChange={handleTrackingChange}
+                        placeholder="Paste tracking number..."
+                        className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Carrier</label>
+                    <select 
+                      value={carrier}
+                      onChange={(e) => setCarrier(e.target.value)}
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="UPS">UPS</option>
+                      <option value="FedEx">FedEx</option>
+                      <option value="USPS">USPS</option>
+                      <option value="Amazon">Amazon</option>
+                      <option value="DHL">DHL</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Description / PO</label>
+                    <input 
+                      type="text" 
+                      value={shipDescription}
+                      onChange={(e) => setShipDescription(e.target.value)}
+                      placeholder="e.g. Parts for Smith Job"
+                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Link to Job</label>
+                    <select 
+                      value={shipJobId}
+                      onChange={(e) => setShipJobId(e.target.value)}
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="">No Job Linked</option>
+                      {jobs.map(job => (
+                        <option key={job.id} value={job.id}>{job.title}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting || !trackingNumber.trim()}
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                >
+                  <Truck className="w-5 h-5" />
+                  Track Shipment
+                </button>
+              </form>
+            </div>
+
           </div>
-        </div>
+        ) : (
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-8 shadow-sm flex flex-col items-center justify-center text-center">
+            <div className="p-4 bg-zinc-100 dark:bg-zinc-800 rounded-full mb-4">
+              <AlertCircle className="w-8 h-8 text-zinc-400" />
+            </div>
+            <h3 className="font-bold text-zinc-900 dark:text-white mb-2">Restricted Access</h3>
+            <p className="text-sm text-zinc-500 max-w-xs">
+              You do not have the required permissions to create parts requests or track shipments. 
+              Please contact an administrator if you believe this is an error.
+            </p>
+          </div>
+        )}
 
         {/* Right Column: Feeds */}
         <div className="space-y-8">
@@ -575,19 +684,21 @@ export function PartsMissionControl() {
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider ring-1 ${getStatusColor(request.status)}`}>
                           {request.status.toUpperCase()}
                         </span>
-                        <button 
-                          onClick={() => handleDeleteRequest(request.id)}
-                          className="p-1 text-zinc-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canManage && (
+                          <button 
+                            onClick={() => handleDeleteRequest(request.id)}
+                            className="p-1 text-zinc-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mb-3">
                       <div className="flex items-center gap-1.5">
                         <User className="w-3.5 h-3.5" />
-                        {request.requestedBy}
+                        <StaffLink name={request.requestedBy} tenantId={tenantId!} />
                       </div>
                       <div className="flex items-center gap-1.5 justify-end">
                         <Clock className="w-3.5 h-3.5" />
@@ -602,41 +713,185 @@ export function PartsMissionControl() {
                     )}
 
                     {/* Status Management Actions */}
-                    <div className="flex items-center gap-1 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                      {request.status === 'pending' && (
-                        <button 
-                          onClick={() => handleUpdateStatus(request.id, 'ordered')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-all"
-                        >
-                          <ShoppingCart className="w-3 h-3" />
-                          MARK ORDERED
-                        </button>
-                      )}
-                      {request.status === 'ordered' && (
-                        <button 
-                          onClick={() => handleUpdateStatus(request.id, 'received')}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-all"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          MARK RECEIVED
-                        </button>
-                      )}
-                      {(request.status === 'pending' || request.status === 'ordered') && (
-                        <button 
-                          onClick={() => handleUpdateStatus(request.id, 'cancelled')}
-                          className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-zinc-400 hover:text-red-500 hover:bg-red-500/10 transition-all"
-                        >
-                          CANCEL
-                        </button>
-                      )}
-                      {request.status === 'received' && (
-                        <div className="flex-1 text-center text-[10px] font-bold text-emerald-600/50 py-1.5">
-                          ✓ COMPLETED
+                    {canManage && (
+                      <div className="flex items-center gap-1 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                        {request.status === 'pending' && (
+                          <button 
+                            onClick={() => handleUpdateStatus(request.id, 'ordered')}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-all"
+                          >
+                            <ShoppingCart className="w-3 h-3" />
+                            MARK ORDERED
+                          </button>
+                        )}
+                        {request.status === 'ordered' && (
+                          <button 
+                            onClick={() => handleUpdateStatus(request.id, 'received')}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-all"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            MARK RECEIVED
+                          </button>
+                        )}
+                        {(request.status === 'pending' || request.status === 'ordered') && (
+                          <button 
+                            onClick={() => handleUpdateStatus(request.id, 'cancelled')}
+                            className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-zinc-400 hover:text-red-500 hover:bg-red-500/10 transition-all"
+                          >
+                            CANCEL
+                          </button>
+                        )}
+                        {request.status === 'received' && (
+                          <div className="flex-1 text-center text-[10px] font-bold text-emerald-600/50 py-1.5">
+                            ✓ COMPLETED
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recently Arrived Packages */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-500" />
+              Recently Arrived
+            </h3>
+            {recentReceived.length === 0 ? (
+              <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                No recent arrivals.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentReceived.map(shipment => (
+                  <div key={shipment.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-emerald-500/50 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-zinc-900 dark:text-white truncate max-w-[150px]">{shipment.description || 'Arrived Package'}</span>
+                        <span className="text-[10px] font-mono text-zinc-400 truncate">{shipment.trackingNumber}</span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 text-[10px] font-bold">
+                        RECEIVED
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                      <div className="flex flex-col gap-1 flex-1">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                          <MapPin className="w-3.5 h-3.5 text-zinc-400" />
+                          {shipment.location || 'Unknown Location'}
                         </div>
-                      )}
+                        {shipment.notes && (
+                          <div className="flex items-start gap-1.5 text-[10px] text-zinc-500 bg-zinc-50 dark:bg-zinc-800/50 p-1.5 rounded-lg border border-zinc-100 dark:border-zinc-800">
+                            <FileText className="w-3 h-3 mt-0.5 text-zinc-400 shrink-0" />
+                            <span className="italic">"{shipment.notes}"</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                          <User className="w-3.5 h-3.5" />
+                          Received by <StaffLink name={shipment.receivedBy || 'Staff'} tenantId={tenantId!} />
+                        </div>
+                      </div>
+                      <div className="text-[10px] text-zinc-400 flex flex-col items-end">
+                        <span className="font-bold">{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleDateString() : 'Today'}</span>
+                        <span>{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Inbound Shipments */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+              <Package className="w-4 h-4" />
+              Inbound Shipments
+            </h3>
+            {activeShipments.length === 0 ? (
+              <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                No active shipments.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeShipments.map(shipment => {
+                  const isLocalIntake = (shipment as any).isIntake;
+                  return (
+                    <div key={shipment.id} className={`bg-white dark:bg-zinc-900 border ${isLocalIntake ? 'border-emerald-500/30' : 'border-zinc-200 dark:border-zinc-800'} rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-500/50 transition-colors`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${isLocalIntake ? 'bg-emerald-500 text-white' : 'bg-indigo-500 text-white'}`}>
+                            {isLocalIntake ? 'LOCAL INTAKE' : 'SHIPMENT'}
+                          </span>
+                          <span className="font-bold text-zinc-900 dark:text-white">
+                            {isLocalIntake ? 'Package Received' : shipment.carrier}
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-400 truncate max-w-[100px]">
+                            {shipment.trackingNumber}
+                          </span>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider ring-1 ${getStatusColor(shipment.status)}`}>
+                          {shipment.status.replace(/_/g, ' ').toUpperCase()}
+                        </span>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                          {shipment.description || 'No description'}
+                        </p>
+                        {shipment.location && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                            <MapPin className="w-3 h-3 text-emerald-500" />
+                            Stored at: <span className="font-bold text-zinc-700 dark:text-zinc-300">{shipment.location}</span>
+                          </div>
+                        )}
+                        {shipment.notes && (
+                          <p className="text-[10px] text-zinc-400 italic mt-1 line-clamp-2">"{shipment.notes}"</p>
+                        )}
+                      </div>
+                      
+                      <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                        <div className="flex items-center gap-3">
+                          {shipment.eta && (
+                            <div className="flex items-center gap-1 text-[10px] text-zinc-400">
+                              <Calendar className="w-3 h-3" /> {shipment.eta}
+                            </div>
+                          )}
+                          {shipment.jobId && (
+                            <div className="text-[10px] font-semibold text-indigo-500">
+                              Job: {jobs.find(j => j.id === shipment.jobId)?.title || 'Linked'}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isLocalIntake && shipment.status === 'received' && (
+                            <button 
+                              onClick={() => handleMarkPutAway(shipment.id)}
+                              className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1"
+                            >
+                              <CheckCircle className="w-3 h-3" />
+                              MARK PUT AWAY
+                            </button>
+                          )}
+                          {!isLocalIntake && (
+                            <a 
+                              href={`https://parcelsapp.com/en/tracking/${shipment.trackingNumber}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="p-1.5 text-zinc-400 hover:text-indigo-500 transition-colors"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -677,68 +932,16 @@ export function PartsMissionControl() {
                           {po.trackingNumber}
                         </div>
                       ) : (
-                        <button 
-                          onClick={() => handleAddTrackingToPO(po)}
-                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 px-2 py-1 bg-indigo-500/10 rounded-lg transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          ADD TRACKING
-                        </button>
+                        canManage && (
+                          <button 
+                            onClick={() => handleAddTrackingToPO(po)}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 px-2 py-1 bg-indigo-500/10 rounded-lg transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            ADD TRACKING
+                          </button>
+                        )
                       )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Inbound Shipments */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-              <Package className="w-4 h-4" />
-              Inbound Shipments
-            </h3>
-            {activeShipments.length === 0 ? (
-              <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
-                No active shipments.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {activeShipments.map(shipment => (
-                  <div key={shipment.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-500/50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-zinc-900 dark:text-white">{shipment.carrier}</span>
-                        <span className="text-[10px] font-mono text-zinc-400 truncate">{shipment.trackingNumber}</span>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider ring-1 ${getStatusColor(shipment.status)}`}>
-                        {shipment.status.replace(/_/g, ' ').toUpperCase()}
-                      </span>
-                    </div>
-                    
-                    <p className="text-xs text-zinc-500">{shipment.description || 'No description'}</p>
-                    
-                    <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                      <div className="flex items-center gap-3">
-                        {shipment.eta && (
-                          <div className="flex items-center gap-1 text-[10px] text-zinc-400">
-                            <Calendar className="w-3 h-3" /> {shipment.eta}
-                          </div>
-                        )}
-                        {shipment.jobId && (
-                          <div className="text-[10px] font-semibold text-indigo-500">
-                            Job: {jobs.find(j => j.id === shipment.jobId)?.title || 'Linked'}
-                          </div>
-                        )}
-                      </div>
-                      <a 
-                        href={`https://parcelsapp.com/en/tracking/${shipment.trackingNumber}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="p-1.5 text-zinc-400 hover:text-indigo-500 transition-colors"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </a>
                     </div>
                   </div>
                 ))}
@@ -773,6 +976,13 @@ export function PartsMissionControl() {
           </div>
         </div>
       </div>
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

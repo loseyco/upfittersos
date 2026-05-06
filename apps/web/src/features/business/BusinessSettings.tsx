@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
-import { doc, updateDoc, collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
-import { Building2, MapPin, Link2, Save, DownloadCloud } from 'lucide-react';
+import { Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map } from 'lucide-react';
+import { toast } from 'sonner';
 
 export function BusinessSettings({ tenantId, initialData }: { tenantId: string; initialData?: any }) {
   const { user } = useAuthStore();
   const [isSaving, setIsSaving] = useState(false);
-  const [isMigrating, setIsMigrating] = useState(false);
-  const [message, setMessage] = useState('');
 
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
@@ -22,7 +21,14 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     addressZip: initialData?.addressZip || '',
     companyCamToken: initialData?.companyCamToken || '',
     companyCamRefreshToken: initialData?.companyCamRefreshToken || '',
-    easyPostApiKey: initialData?.easyPostApiKey || ''
+    easyPostApiKey: initialData?.easyPostApiKey || '',
+    timeclockEnabled: initialData?.timeclockEnabled ?? false,
+    allowOffsiteClockIn: initialData?.allowOffsiteClockIn ?? false,
+    lunchPaid: initialData?.lunchPaid ?? false,
+    breakPaid: initialData?.breakPaid ?? false,
+    siteLat: initialData?.siteLat || '',
+    siteLng: initialData?.siteLng || '',
+    siteRadius: initialData?.siteRadius || 500
   });
 
   useEffect(() => {
@@ -38,21 +44,42 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         addressZip: initialData.addressZip || '',
         companyCamToken: initialData.companyCamToken || '',
         companyCamRefreshToken: initialData.companyCamRefreshToken || '',
-        easyPostApiKey: initialData.easyPostApiKey || ''
+        easyPostApiKey: initialData.easyPostApiKey || '',
+        timeclockEnabled: initialData.timeclockEnabled ?? false,
+        allowOffsiteClockIn: initialData.allowOffsiteClockIn ?? false,
+        lunchPaid: initialData.lunchPaid ?? false,
+        breakPaid: initialData.breakPaid ?? false,
+        siteLat: initialData.siteLat || '',
+        siteLng: initialData.siteLng || '',
+        siteRadius: initialData.siteRadius || 500
       });
     }
   }, [initialData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setFormData(prev => ({ ...prev, [e.target.name]: value }));
+  };
+
+  const handleGetCurrentLocation = () => {
+    navigator.geolocation.getCurrentPosition((position) => {
+      setFormData(prev => ({
+        ...prev,
+        siteLat: position.coords.latitude.toString(),
+        siteLng: position.coords.longitude.toString()
+      }));
+      toast.success("Location updated");
+    }, (err) => {
+      toast.error("Failed to get location: " + err.message);
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || tenantId === 'GLOBAL' || !user) return;
     setIsSaving(true);
-    setMessage('');
-    try {
+    
+    const savePromise = (async () => {
       await updateDoc(doc(db, 'businesses', tenantId), {
         ...formData,
         updatedAt: new Date()
@@ -65,74 +92,26 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         targetEntityId: tenantId,
         details: { action: 'UPDATED_BUSINESS_SETTINGS', changedFields: Object.keys(formData) }
       });
+    })();
 
-      setMessage('Settings saved successfully.');
-      setTimeout(() => setMessage(''), 3000);
+    toast.promise(savePromise, {
+      loading: 'Saving changes...',
+      success: 'Settings updated successfully',
+      error: 'Failed to save settings'
+    });
+
+    try {
+      await savePromise;
     } catch (err) {
       console.error('Failed to save settings:', err);
-      setMessage('Failed to save settings. Please try again.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleMigrateLegacyVehicles = async () => {
-    if (!tenantId || tenantId === 'GLOBAL') return;
-    if (!window.confirm("Are you sure you want to import legacy vehicles? This will copy them from the root database to this business.")) return;
-    
-    setIsMigrating(true);
-    setMessage('');
-    try {
-      const q = query(collection(db, 'vehicles'), where('tenantId', '==', tenantId));
-      const rootVehiclesSnap = await getDocs(q);
-      
-      if (rootVehiclesSnap.empty) {
-        setMessage('No legacy vehicles found to import for this business.');
-        setIsMigrating(false);
-        return;
-      }
-
-      const batch = writeBatch(db);
-      let count = 0;
-
-      rootVehiclesSnap.forEach((docSnap) => {
-        const data = docSnap.data();
-        const destRef = doc(db, 'businesses', tenantId, 'vehicles', docSnap.id);
-        
-        // We do NOT delete the original, just clone it to the business sublevel.
-        batch.set(destRef, {
-          ...data,
-          source: 'Legacy Migration',
-          migratedAt: new Date(),
-        }, { merge: true });
-        count++;
-      });
-
-      await batch.commit();
-      
-      await submitAuditLog(tenantId, {
-        userId: user!.uid,
-        actionType: 'DATA_MUTATION',
-        targetEntityId: tenantId,
-        details: { action: 'MIGRATED_LEGACY_VEHICLES', count }
-      });
-
-      setMessage(`Successfully imported ${count} legacy vehicles!`);
-    } catch (err) {
-      console.error('Failed to migrate vehicles:', err);
-      setMessage('Failed to migrate vehicles. Make sure you have Super Admin permissions.');
-    } finally {
-      setIsMigrating(false);
-    }
-  };
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      {message && (
-        <div className={`p-4 rounded-xl text-sm font-medium ${message.includes('success') ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20' : 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-500/10 dark:text-red-400 dark:border-red-500/20'}`}>
-          {message}
-        </div>
-      )}
 
       <form onSubmit={handleSave} className="space-y-8">
         
@@ -200,6 +179,81 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
           </div>
         </section>
 
+        {/* Timeclock Configuration */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
+            <div className="p-2 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg">
+              <Clock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Timeclock System</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Configure staff attendance and break policies.</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm font-medium">Enable Timeclock</span>
+                  </div>
+                  <input type="checkbox" name="timeclockEnabled" checked={formData.timeclockEnabled} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <MapPin className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm font-medium">Allow Offsite Clock-in</span>
+                  </div>
+                  <input type="checkbox" name="allowOffsiteClockIn" checked={formData.allowOffsiteClockIn} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Pizza className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm font-medium">Lunch Break is Paid</span>
+                  </div>
+                  <input type="checkbox" name="lunchPaid" checked={formData.lunchPaid} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Coffee className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm font-medium">Normal Break is Paid</span>
+                  </div>
+                  <input type="checkbox" name="breakPaid" checked={formData.breakPaid} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Map className="w-4 h-4 text-zinc-400" />
+                  <label className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Business Site Coordinates</label>
+                </div>
+                <button type="button" onClick={handleGetCurrentLocation} className="text-xs font-bold text-indigo-600 hover:text-indigo-500 flex items-center gap-1.5 transition-colors">
+                  <MapPin className="w-3 h-3" /> Use Current Location
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-500 mb-1.5">Latitude</label>
+                  <input type="text" name="siteLat" value={formData.siteLat} onChange={handleChange} placeholder="e.g. 41.1234" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white font-mono text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-500 mb-1.5">Longitude</label>
+                  <input type="text" name="siteLng" value={formData.siteLng} onChange={handleChange} placeholder="e.g. -73.5678" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white font-mono text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-500 mb-1.5">Geofence Radius (meters)</label>
+                  <input type="number" name="siteRadius" value={formData.siteRadius} onChange={handleChange} placeholder="500" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white font-mono text-sm" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* API Integrations */}
         <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
           <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
@@ -227,31 +281,6 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
           </div>
         </section>
 
-        {/* Legacy Data Management */}
-        <section className="bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-2xl overflow-hidden shadow-sm">
-          <div className="p-6 border-b border-amber-200 dark:border-amber-500/20 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-amber-100 dark:bg-amber-500/20 rounded-lg">
-                <DownloadCloud className="w-5 h-5 text-amber-700 dark:text-amber-400" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-amber-900 dark:text-amber-100">Legacy Data Management</h2>
-                <p className="text-sm text-amber-700 dark:text-amber-400/80">Import data from older versions of the platform.</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleMigrateLegacyVehicles}
-              disabled={isMigrating}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
-            >
-              {isMigrating ? 'Importing...' : 'Import Legacy Vehicles'}
-            </button>
-          </div>
-          <div className="p-4 px-6 text-sm text-amber-800 dark:text-amber-500/80">
-            Clicking this will scan the root legacy database for any vehicles from V1 and safely copy them into this business's operational database. The original records will not be deleted.
-          </div>
-        </section>
 
         <div className="flex justify-end">
           <button

@@ -6,6 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { toast } from 'sonner';
 import { VehicleDetailsModal, EditVehicleModal } from '../../features/business/VehiclesManager';
+import { ConfirmModal } from '../ConfirmModal';
 
 type SearchResult = {
   id: string;
@@ -22,6 +23,17 @@ export function GlobalSearchModal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   const getSource = (row: any) => {
@@ -240,8 +252,17 @@ export function GlobalSearchModal() {
             }
           }}
           getSource={getSource}
+          onConfirmAction={setConfirmConfig}
         />
       )}
+
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
 
       {editingVehicle && (
         <EditVehicleModal
