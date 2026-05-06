@@ -157,22 +157,22 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
       {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+      <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-4">
         {kpis.map((kpi) => (
           <button
             key={kpi.label}
             onClick={() => onTabChange(kpi.tab)}
-            className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]"
+            className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 sm:p-6 shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]"
           >
-            <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
               <div className={`p-2 sm:p-3 rounded-xl ${kpi.bg}`}>
-                <kpi.icon className={`w-5 h-5 sm:w-6 sm:h-6 ${kpi.color}`} />
+                <kpi.icon className={`w-4 h-4 sm:w-6 sm:h-6 ${kpi.color}`} />
               </div>
               <TrendingUp className="hidden sm:block w-4 h-4 text-zinc-300 dark:text-zinc-700" />
             </div>
             <div className="space-y-0.5 sm:space-y-1">
-              <h3 className="text-xs sm:text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate">{kpi.label}</h3>
-              <p className="text-2xl sm:text-3xl font-bold text-zinc-900 dark:text-white">
+              <h3 className="text-[10px] sm:text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate">{kpi.label}</h3>
+              <p className="text-xl sm:text-3xl font-bold text-zinc-900 dark:text-white">
                 {kpi.loading ? '...' : kpi.value}
               </p>
             </div>
@@ -182,6 +182,52 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
       <div className="space-y-4 sm:space-y-6">
         {/* Main Content Area */}
+
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+            <div className="p-4 sm:p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className={`w-4 h-4 sm:w-5 sm:h-5 ${alerts.length > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
+                <h2 className="font-bold text-base sm:text-lg dark:text-white">Action Required</h2>
+                {alerts.length > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {alerts.length}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {jobsLoading || zonesLoading || shipmentsLoading ? (
+                <div className="p-12 text-center text-zinc-400 animate-pulse">Scanning for action items...</div>
+              ) : alerts.length > 0 ? (
+                alerts.map((alert: any) => (
+                  <button key={alert.id} onClick={alert.onClick} className="w-full text-left p-3 sm:p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors flex items-center justify-between group">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+                      <div className={`shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
+                        alert.type === 'danger' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
+                      }`}>
+                        <alert.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1 pr-2">
+                        <p className="font-semibold text-sm sm:text-base text-zinc-900 dark:text-white truncate">{alert.title}</p>
+                        <p className="text-[10px] sm:text-xs text-zinc-500 truncate">{alert.description}</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="hidden sm:block shrink-0 w-4 h-4 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ))
+              ) : (
+                <div className="p-4 sm:p-6 text-center flex items-center justify-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
+                    <CheckSquare className="w-4 h-4 text-emerald-500" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-bold text-sm text-zinc-900 dark:text-white">All Clear!</p>
+                    <p className="text-[10px] sm:text-xs text-zinc-500">No action items or urgent alerts required.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <button onClick={() => onTabChange('zones')} className="flex flex-col p-4 sm:p-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-zinc-900 dark:text-white shadow-sm hover:border-indigo-500/50 transition-colors group">
@@ -307,52 +353,6 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                 </div>
               )}
             </button>
-          </div>
-
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
-            <div className="p-4 sm:p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className={`w-4 h-4 sm:w-5 sm:h-5 ${alerts.length > 0 ? 'text-red-500' : 'text-emerald-500'}`} />
-                <h2 className="font-bold text-base sm:text-lg dark:text-white">Action Required</h2>
-                {alerts.length > 0 && (
-                  <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {alerts.length}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {jobsLoading || zonesLoading || shipmentsLoading ? (
-                <div className="p-12 text-center text-zinc-400 animate-pulse">Scanning for action items...</div>
-              ) : alerts.length > 0 ? (
-                alerts.map((alert: any) => (
-                  <button key={alert.id} onClick={alert.onClick} className="w-full text-left p-3 sm:p-4 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors flex items-center justify-between group">
-                    <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                      <div className={`shrink-0 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center ${
-                        alert.type === 'danger' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
-                      }`}>
-                        <alert.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                      </div>
-                      <div className="min-w-0 flex-1 pr-2">
-                        <p className="font-semibold text-sm sm:text-base text-zinc-900 dark:text-white truncate">{alert.title}</p>
-                        <p className="text-[10px] sm:text-xs text-zinc-500 truncate">{alert.description}</p>
-                      </div>
-                    </div>
-                    <ArrowRight className="hidden sm:block shrink-0 w-4 h-4 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                ))
-              ) : (
-                <div className="p-12 text-center flex flex-col items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                    <CheckSquare className="w-6 h-6 text-emerald-500" />
-                  </div>
-                  <div>
-                    <p className="font-bold text-zinc-900 dark:text-white">All Clear!</p>
-                    <p className="text-zinc-500 text-sm">No action items or urgent alerts required.</p>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
 
       </div>

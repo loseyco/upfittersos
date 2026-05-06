@@ -42,19 +42,22 @@ export function TopNav() {
   };
 
   return (
-    <div className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center justify-between px-6 sticky top-0 z-50 transition-colors">
-      <div className="flex items-center gap-4">
-        <img src="/favicon.png" alt="UpFittersOS Icon" className="w-8 h-8 rounded-lg" />
-        <span className="text-zinc-900 dark:text-white font-medium tracking-tight">UpFittersOS</span>
-        {isSuperAdmin && <span className="px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded-md border border-blue-500/20 font-medium whitespace-nowrap">Super Admin</span>}
+    <div className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-50 transition-colors gap-2">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        <img src="/favicon.png" alt="UpFittersOS Icon" className="w-8 h-8 rounded-lg shrink-0" />
+        <div className="flex items-baseline gap-1.5 shrink-0">
+          <span className="hidden sm:inline text-zinc-900 dark:text-white font-medium tracking-tight">UpFittersOS</span>
+          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/50 px-1.5 py-0.5 rounded">v1.2.1</span>
+        </div>
+        {isSuperAdmin && <span className="hidden sm:inline px-2 py-1 bg-blue-500/10 text-blue-400 text-xs rounded-md border border-blue-500/20 font-medium whitespace-nowrap">Super Admin</span>}
         {tenantId && tenantId !== 'GLOBAL' && business && (
-          <span className="px-2 py-1 bg-indigo-500/10 text-indigo-400 text-xs rounded-md border border-indigo-500/20 font-medium whitespace-nowrap">
+          <span className="px-2 py-1 bg-indigo-500/10 text-indigo-400 text-[10px] sm:text-xs rounded-md border border-indigo-500/20 font-medium whitespace-nowrap truncate min-w-0 max-w-[100px] sm:max-w-none">
             {business.name}
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-2 sm:gap-6 shrink-0">
         {isSharing && (
           <button 
             onClick={stopSharing} 

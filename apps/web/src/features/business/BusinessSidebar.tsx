@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Home, Users, Briefcase, Box, CheckSquare, Layers, Map, 
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car
+  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package
 } from 'lucide-react';
 
 export type NavItem = {
@@ -17,6 +17,7 @@ const ITEMS: NavItem[] = [
   { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops' },
   { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops' },
   { id: 'items', label: 'Inventory', icon: Box, group: 'ops' },
+  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops' },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
   { id: 'shipments', label: 'Shipments', icon: Box, group: 'ops' },
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility' },

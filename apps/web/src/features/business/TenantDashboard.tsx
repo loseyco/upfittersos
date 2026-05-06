@@ -13,10 +13,12 @@ import { BusinessSidebar } from './BusinessSidebar';
 import { MissionControl } from './MissionControl';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { ShipmentsTracker } from './ShipmentsTracker';
+import { PartsMissionControl } from './PartsMissionControl';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
 import { VehiclesManager } from './VehiclesManager';
+import { StaffManager } from './StaffManager';
 export function TenantDashboard() {
   usePageTitle('Dashboard');
   const { tenantId } = useAuthStore();
@@ -219,15 +221,15 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'staff' && (
-              <GenericDataGrid 
-                collectionPath={`businesses/${tenantId}/staff`} 
-                title="Staff Management" 
-                columns={staffColumns}
-              />
+              <StaffManager tenantId={tenantId!} />
             )}
 
             {activeTab === 'shipments' && (
               <ShipmentsTracker />
+            )}
+            
+            {activeTab === 'parts' && (
+              <PartsMissionControl />
             )}
 
             {activeTab === 'customers' && (
