@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, onSnapshot, query, orderBy, addDoc, getDocs, limit, where, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Plus, MapPin, Warehouse, CarFront, Briefcase, LayoutDashboard, History, X, Search, Camera } from 'lucide-react';
+import { Plus, MapPin, Warehouse, CarFront, Briefcase, LayoutDashboard, History, X, Search, Camera, Edit2 } from 'lucide-react';
 
 import { toast } from 'sonner';
 import { VehicleDetailsModal } from './VehiclesManager';
@@ -15,6 +15,8 @@ interface Zone {
   name: string;
   type: 'bay' | 'parking' | 'office' | 'other' | string;
   currentVehicleVin: string | null;
+  allowMultiple?: boolean;
+  currentVehicleVins?: string[];
   lastAssignedAt?: any;
   createdAt?: any;
   updatedAt?: any;
@@ -46,6 +48,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneType, setNewZoneType] = useState<'bay' | 'parking' | 'office' | 'other'>('bay');
+  const [newZoneAllowMultiple, setNewZoneAllowMultiple] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) || null : null;
@@ -97,7 +100,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   // Smart Default: If filtering for occupied but nothing is occupied, show all
   useEffect(() => {
     if (zones.length > 0 && filterOccupancy === 'occupied') {
-      const hasOccupied = zones.some(z => z.currentVehicleVin);
+      const hasOccupied = zones.some(z => z.currentVehicleVin || (z.currentVehicleVins && z.currentVehicleVins.length > 0));
       if (!hasOccupied) {
         setFilterOccupancy('all');
         setFilterType('all');
@@ -108,9 +111,12 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const filteredZones = zones.filter(zone => {
     if (zone.isArchived) return false;
     const typeMatch = filterType === 'all' || zone.type === filterType;
+    const hasSingle = !!zone.currentVehicleVin;
+    const hasMultiple = !!(zone.currentVehicleVins && zone.currentVehicleVins.length > 0);
+    const isOccupied = hasSingle || hasMultiple;
     const occupancyMatch = filterOccupancy === 'all' || 
-      (filterOccupancy === 'occupied' && zone.currentVehicleVin) || 
-      (filterOccupancy === 'empty' && !zone.currentVehicleVin);
+      (filterOccupancy === 'occupied' && isOccupied) || 
+      (filterOccupancy === 'empty' && !isOccupied);
     return typeMatch && occupancyMatch;
   });
 
@@ -122,11 +128,14 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
       await setDoc(newZoneRef, {
         name: newZoneName.trim(),
         type: newZoneType,
+        allowMultiple: newZoneAllowMultiple,
         currentVehicleVin: null,
+        currentVehicleVins: [],
         createdAt: serverTimestamp(),
         createdBy: user?.uid || 'system'
       });
       setNewZoneName('');
+      setNewZoneAllowMultiple(false);
       setIsAdding(false);
       toast.success("Zone created");
     } catch (err) {
@@ -147,34 +156,46 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   };
 
 
-  const handleAssignVehicle = async (zoneId: string, vin: string) => {
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'remove' | 'clear' = 'assign') => {
     try {
       const trimmedVin = vin.trim().toUpperCase();
       const zone = zones.find(z => z.id === zoneId);
       const previousVin = zone?.currentVehicleVin || null;
+      const previousVins = zone?.currentVehicleVins || [];
       const previousAssignedAt = zone?.lastAssignedAt || null;
       
-      if (trimmedVin && zone?.currentVehicleVin === trimmedVin) {
-        toast.info("Vehicle already in this bay.");
-        return;
-      }
-
-      if (trimmedVin && trimmedVin.length < 10) {
+      if (actionType === 'assign' && trimmedVin && trimmedVin.length < 10) {
         toast.error(`"${trimmedVin}" is too short to be a valid VIN. Please scan a valid vehicle barcode.`);
         return;
       }
 
+      if (zone?.allowMultiple) {
+        if (actionType === 'assign') {
+          if (trimmedVin && previousVins.includes(trimmedVin)) {
+            toast.info("Vehicle already in this lot.");
+            return;
+          }
+        }
+        if (actionType === 'remove' && !trimmedVin) return; // Need a vin to remove
+      } else {
+        if (actionType === 'assign' && trimmedVin && zone?.currentVehicleVin === trimmedVin) {
+          toast.info("Vehicle already in this bay.");
+          return;
+        }
+      }
+
       const undoAssignment = async () => {
         try {
-          await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
-            currentVehicleVin: previousVin,
-            lastAssignedAt: previousAssignedAt
-          }, { merge: true });
+          if (zone?.allowMultiple) {
+             await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { currentVehicleVins: previousVins, lastAssignedAt: previousAssignedAt }, { merge: true });
+          } else {
+             await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { currentVehicleVin: previousVin, lastAssignedAt: previousAssignedAt }, { merge: true });
+          }
           
           await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
             zoneId,
             zoneName: zone?.name || 'Unknown Zone',
-            vin: previousVin,
+            vin: zone?.allowMultiple ? trimmedVin : previousVin,
             assignedAt: serverTimestamp(),
             assignedBy: user?.uid || 'system',
             assignedByEmail: user?.email || null,
@@ -186,11 +207,21 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           toast.error("Failed to undo assignment.");
         }
       };
-      
-      await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
-        currentVehicleVin: trimmedVin || null,
-        lastAssignedAt: serverTimestamp()
-      }, { merge: true });
+
+      if (zone?.allowMultiple) {
+        if (actionType === 'assign') {
+          const newVins = [...previousVins, trimmedVin];
+          await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { currentVehicleVins: newVins, lastAssignedAt: serverTimestamp() }, { merge: true });
+        } else if (actionType === 'remove') {
+          const newVins = previousVins.filter(v => v !== trimmedVin);
+          await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { currentVehicleVins: newVins, lastAssignedAt: serverTimestamp() }, { merge: true });
+        }
+      } else {
+        await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+          currentVehicleVin: actionType === 'assign' ? (trimmedVin || null) : null,
+          lastAssignedAt: serverTimestamp()
+        }, { merge: true });
+      }
 
       await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
         zoneId,
@@ -200,10 +231,10 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         assignedBy: user?.uid || 'system',
         assignedByEmail: user?.email || null,
         assignedByName: user?.displayName || null,
-        action: trimmedVin ? 'assigned' : 'cleared'
+        action: actionType === 'assign' && trimmedVin ? 'assigned' : 'cleared'
       });
 
-      if (trimmedVin) {
+      if (actionType === 'assign' && trimmedVin) {
         const vehicleRef = doc(db, `businesses/${tenantId}/vehicles`, trimmedVin);
         const vehicleDoc = await getDoc(vehicleRef);
         
@@ -215,38 +246,20 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
               const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${trimmedVin}?format=json`);
               const data = await res.json();
               const result = data.Results?.[0];
-              // ErrorCode usually starts with "0" for a successful decode.
               if (result && result.Make && result.ErrorCode && result.ErrorCode.startsWith('0')) {
-                details = {
-                  year: result.ModelYear || '',
-                  make: result.Make || '',
-                  model: result.Model || '',
-                  bodyClass: result.BodyClass || '',
-                  driveType: result.DriveType || '',
-                  gvwr: result.GVWR || ''
-                };
+                details = { year: result.ModelYear || '', make: result.Make || '', model: result.Model || '', bodyClass: result.BodyClass || '', driveType: result.DriveType || '', gvwr: result.GVWR || '' };
               }
             } catch (apiErr) {
               console.warn("NHTSA API fetch failed", apiErr);
             }
           }
 
-          await setDoc(vehicleRef, {
-            vin: trimmedVin,
-            ...details,
-            tenantId,
-            createdAt: serverTimestamp(),
-            source: 'Zone Manager'
-          });
+          await setDoc(vehicleRef, { vin: trimmedVin, ...details, tenantId, createdAt: serverTimestamp(), source: 'Zone Manager' });
           
           if (details.make) {
-            toast.success(`Identified: ${details.year} ${details.make} ${details.model}`, {
-              action: { label: 'Undo', onClick: undoAssignment }
-            });
+            toast.success(`Identified: ${details.year} ${details.make} ${details.model}`, { action: { label: 'Undo', onClick: undoAssignment } });
           } else {
-            toast.warning("Vehicle not found in database. You may need to enter details manually.", {
-              action: { label: 'Undo', onClick: undoAssignment }
-            });
+            toast.warning("Vehicle not found in database. You may need to enter details manually.", { action: { label: 'Undo', onClick: undoAssignment } });
           }
         } else {
           // Vehicle exists. Try auto-decode if it's missing make/model
@@ -257,33 +270,21 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
               const apiData = await res.json();
               const result = apiData.Results?.[0];
               if (result && result.Make && result.ErrorCode && result.ErrorCode.startsWith('0')) {
-                await updateDoc(vehicleRef, {
-                  year: result.ModelYear || '',
-                  make: result.Make || '',
-                  model: result.Model || '',
-                  bodyClass: result.BodyClass || '',
-                  driveType: result.DriveType || '',
-                  gvwr: result.GVWR || '',
-                  updatedAt: serverTimestamp()
-                });
-                toast.success(`Updated missing vehicle data: ${result.ModelYear || ''} ${result.Make} ${result.Model || ''}`, {
-                  action: { label: 'Undo', onClick: undoAssignment }
-                });
+                await updateDoc(vehicleRef, { year: result.ModelYear || '', make: result.Make || '', model: result.Model || '', bodyClass: result.BodyClass || '', driveType: result.DriveType || '', gvwr: result.GVWR || '', updatedAt: serverTimestamp() });
+                toast.success(`Updated missing vehicle data: ${result.ModelYear || ''} ${result.Make} ${result.Model || ''}`, { action: { label: 'Undo', onClick: undoAssignment } });
               } else {
-                 toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
+                 toast.success(zone?.allowMultiple ? `Vehicle added to lot.` : `Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
               }
             } catch (apiErr) {
               console.warn("NHTSA API backfill failed", apiErr);
-              toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
+              toast.success(zone?.allowMultiple ? `Vehicle added to lot.` : `Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
             }
           } else {
-            toast.success(`Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
+            toast.success(zone?.allowMultiple ? `Vehicle added to lot.` : `Vehicle assigned to bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
           }
         }
       } else {
-        toast.success(`Cleared vehicle from bay.`, {
-          action: { label: 'Undo', onClick: undoAssignment }
-        });
+        toast.success(zone?.allowMultiple ? `Removed vehicle from lot.` : `Cleared vehicle from bay.`, { action: { label: 'Undo', onClick: undoAssignment } });
       }
     } catch (err) {
       console.error("Error in vehicle assignment:", err);
@@ -387,6 +388,17 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
                 <option value="other">Other</option>
               </select>
             </div>
+            <div className="sm:w-48">
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Capacity</label>
+              <select
+                value={newZoneAllowMultiple ? 'multiple' : 'single'}
+                onChange={(e) => setNewZoneAllowMultiple(e.target.value === 'multiple')}
+                className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              >
+                <option value="single">Single Vehicle</option>
+                <option value="multiple">Multiple (Open Lot)</option>
+              </select>
+            </div>
             <div className="flex items-end">
               <button type="submit" className="px-6 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold">
                 Save
@@ -426,8 +438,9 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           tenantId={tenantId}
           vehicles={vehicles}
           onClose={() => setSelectedZoneId(null)}
-          onAssign={(vin: string) => handleAssignVehicle(selectedZone.id, vin)}
-          onClear={() => handleAssignVehicle(selectedZone.id, '')}
+          onAssign={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'assign')}
+          onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
+          onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
           onDelete={() => {
             handleArchiveZone(selectedZone.id);
             setSelectedZoneId(null);
@@ -579,13 +592,14 @@ function VinSelector({ vin, onAssign, onClear, onQuickAddRequest, vehicles }: { 
 function ZoneCard({ zone, vehicles, onSelect }: { zone: Zone, vehicles: any[], onSelect: () => void }) {
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
+  const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    if (!vehicle) return;
+    if (!vehicle && zoneVehicles.length === 0) return;
     const interval = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(interval);
-  }, [vehicle]);
+  }, [vehicle, zoneVehicles.length]);
   
   const timeInArea = () => {
     const timestamp = zone.lastAssignedAt || zone.updatedAt || zone.createdAt;
@@ -630,7 +644,28 @@ function ZoneCard({ zone, vehicles, onSelect }: { zone: Zone, vehicles: any[], o
       </div>
 
       <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-        {vehicle ? (
+        {zone.allowMultiple ? (
+          zoneVehicles.length > 0 ? (
+            <div>
+              <div className="flex justify-between items-start mb-1">
+                <h4 className="font-bold text-zinc-900 dark:text-white text-sm">
+                  {zoneVehicles.length} Vehicle{zoneVehicles.length === 1 ? '' : 's'} Parked
+                </h4>
+                <p className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded">Lot</p>
+              </div>
+              <div className="flex flex-col gap-1 mt-2">
+                {zoneVehicles.slice(0, 2).map((v: any) => (
+                  <p key={v.vin} className="text-xs text-zinc-500 truncate">
+                    • {v.year} {v.make} {v.model || v.vin}
+                  </p>
+                ))}
+                {zoneVehicles.length > 2 && <p className="text-[10px] text-zinc-400 italic mt-1">+{zoneVehicles.length - 2} more</p>}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm font-medium text-zinc-400 italic py-2">Empty Lot</p>
+          )
+        ) : vehicle ? (
           <div>
             <div className="flex justify-between items-start mb-1">
               <h4 className="font-bold text-zinc-900 dark:text-white text-sm">
@@ -649,18 +684,39 @@ function ZoneCard({ zone, vehicles, onSelect }: { zone: Zone, vehicles: any[], o
   );
 }
 
-function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear, onQuickAddRequest, onOpenVehicle }: any) {
+function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear, onRemoveVehicle, onQuickAddRequest, onOpenVehicle, onDelete }: any) {
   useBodyScrollLock(true);
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
+  const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
   const [history, setHistory] = useState<any[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(zone.name || '');
+  const [editType, setEditType] = useState(zone.type || 'bay');
+  const [editAllowMultiple, setEditAllowMultiple] = useState(!!zone.allowMultiple);
 
   useEffect(() => {
-    if (!vehicle) return;
+    if (!vehicle && zoneVehicles.length === 0) return;
     const interval = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(interval);
-  }, [vehicle]);
+  }, [vehicle, zoneVehicles.length]);
+
+  const handleSaveEdit = async () => {
+    try {
+      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), {
+        name: editName.trim(),
+        type: editType,
+        allowMultiple: editAllowMultiple,
+        updatedAt: serverTimestamp()
+      });
+      setIsEditing(false);
+      toast.success("Zone updated");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update zone");
+    }
+  };
 
   const timeInArea = () => {
     const timestamp = zone.lastAssignedAt || zone.updatedAt || zone.createdAt;
@@ -702,16 +758,61 @@ function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
       <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-lg overflow-hidden shadow-xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex flex-col relative">
-          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"><X className="w-4 h-4"/></button>
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            {!isEditing && (
+              <button onClick={() => setIsEditing(true)} className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors">
+                <Edit2 className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"><X className="w-4 h-4"/></button>
+          </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 mt-2">
             <div className={`p-4 rounded-2xl ${vehicle ? 'bg-indigo-500/10 text-indigo-500' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}`}>
               <Icon className="w-8 h-8" />
             </div>
-            <div>
-              <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">{zone.type} Details</p>
-              <h2 className="text-2xl font-bold text-zinc-900 dark:text-white leading-tight">{zone.name || 'Unnamed Bay'}</h2>
-            </div>
+            {isEditing ? (
+              <div className="flex-1 space-y-3">
+                <input 
+                  type="text" 
+                  value={editName} 
+                  onChange={e => setEditName(e.target.value)} 
+                  className="w-full px-3 py-1.5 text-lg font-bold bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                />
+                <div className="flex gap-2">
+                  <select 
+                    value={editType} 
+                    onChange={e => setEditType(e.target.value as any)}
+                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="bay">Service Bay</option>
+                    <option value="parking">Parking Spot</option>
+                    <option value="office">Office</option>
+                    <option value="other">Other</option>
+                  </select>
+                  <select 
+                    value={editAllowMultiple ? 'multiple' : 'single'} 
+                    onChange={e => setEditAllowMultiple(e.target.value === 'multiple')}
+                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="single">Single Vehicle</option>
+                    <option value="multiple">Multiple (Open Lot)</option>
+                  </select>
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <button onClick={onDelete} className="text-xs font-bold text-red-500 hover:text-red-600 px-2 py-1">Archive Zone</button>
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">Cancel</button>
+                    <button onClick={handleSaveEdit} className="px-3 py-1.5 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">{zone.type} Details</p>
+                <h2 className="text-2xl font-bold text-zinc-900 dark:text-white leading-tight">{zone.name || 'Unnamed Bay'}</h2>
+              </div>
+            )}
           </div>
         </div>
 
@@ -721,16 +822,37 @@ function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear
           <section>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                <CarFront className="w-4 h-4 text-indigo-500" /> Current Vehicle
+                <CarFront className="w-4 h-4 text-indigo-500" /> Current Vehicle{zone.allowMultiple ? 's' : ''}
               </h3>
-              {vehicle && (
+              {!zone.allowMultiple && vehicle && (
                 <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
                   Parked here for {timeInArea() || '--'}
                 </p>
               )}
             </div>
             <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl">
-              {vehicle ? (
+              {zone.allowMultiple ? (
+                <div className="space-y-3 mb-4">
+                  {zoneVehicles.length > 0 ? zoneVehicles.map((v: any) => (
+                    <div key={v.vin} className="flex items-center gap-2">
+                      <button onClick={() => onOpenVehicle(v.vin)} className="flex-1 text-left p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 shadow-sm rounded-xl transition-all group flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold text-zinc-900 dark:text-white group-hover:text-indigo-600 transition-colors">
+                            {v.year} {v.make} {v.model || 'Unknown'}
+                          </h4>
+                          <p className="text-xs font-mono text-zinc-500 mt-0.5">{v.vin}</p>
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">Open</span>
+                      </button>
+                      <button onClick={() => onRemoveVehicle(v.vin)} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors">
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-zinc-500 italic p-3 text-center">Lot is empty.</p>
+                  )}
+                </div>
+              ) : vehicle ? (
                 <div className="mb-4">
                   <button onClick={() => onOpenVehicle(vehicle.vin)} className="w-full text-left p-3 bg-white dark:bg-zinc-900 border border-indigo-100 dark:border-indigo-500/20 hover:border-indigo-500 dark:hover:border-indigo-500 shadow-sm rounded-xl transition-all group flex items-center justify-between">
                     <div>
@@ -743,7 +865,7 @@ function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear
                   </button>
                 </div>
               ) : null}
-              <VinSelector vin={zone.currentVehicleVin || ''} onAssign={onAssign} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} />
+              <VinSelector vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} onAssign={onAssign} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} />
             </div>
           </section>
 
