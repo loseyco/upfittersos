@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuthStore } from '../../lib/auth/store';
 import { useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { auth } from '../../lib/firebase/config';
@@ -9,10 +10,23 @@ import { usePageTitle } from '../../lib/hooks/usePageTitle';
 export function Login() {
   usePageTitle('Login');
   const navigate = useNavigate();
+  const { user, isSuperAdmin, tenantId, loading: authLoading } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      if (isSuperAdmin) {
+        navigate('/super-admin');
+      } else if (tenantId) {
+        navigate(`/business/${tenantId}`);
+      }
+    }
+  }, [user, isSuperAdmin, tenantId, authLoading, navigate]);
+
+  if (authLoading) return null;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

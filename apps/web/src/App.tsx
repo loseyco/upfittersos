@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './lib/auth/AuthProvider';
+import { AnalyticsProvider } from './lib/analytics/AnalyticsProvider';
 import { Login } from './features/auth/Login';
 import { SuperAdminGuard } from './components/guards/SuperAdminGuard';
 import { TenantGuard } from './components/guards/TenantGuard';
@@ -8,6 +9,7 @@ import { TenantDashboard } from './features/business/TenantDashboard';
 import { UserProfilePage } from './features/users/UserProfilePage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { ReloadPrompt } from './components/ReloadPrompt';
 
 const queryClient = new QueryClient();
 
@@ -16,8 +18,10 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <Toaster position="bottom-right" richColors theme="system" closeButton />
       <AuthProvider>
+        <ReloadPrompt />
         <Router>
-          <Routes>
+          <AnalyticsProvider>
+            <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
@@ -32,7 +36,8 @@ function App() {
                <Route path="/business/:tenantId/*" element={<TenantDashboard />} />
                <Route path="/business/:tenantId/profile" element={<UserProfilePage />} />
             </Route>
-          </Routes>
+            </Routes>
+          </AnalyticsProvider>
         </Router>
       </AuthProvider>
     </QueryClientProvider>

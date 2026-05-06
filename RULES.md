@@ -83,3 +83,12 @@ UpfittersOS is built for shop floors. We must design for harsh lightning, gloved
 ## 17. Safe Deployment & Version Control
 - **Rule:** Never update "live" production environments or perform `git push` operations without explicit user discussion and approval.
 - **Implementation:** Favor local development tools (dev servers, emulators, manual test scripts) for verification. Only initiate deployment commands (`firebase deploy`, `npm run build:prod`) or version control pushes after the user has confirmed they are ready for the change to go public or be merged.
+
+## 18. Database Deletion Protection
+- **Rule:** You MUST NEVER run database wipe scripts, reset synchronization timers that trigger massive deletion/re-syncs, or perform any destructive database operations without explicit, direct confirmation from the user.
+- **Agent Constraint:** Even if a wipe or reset seems like the most logical solution to a problem, the agent must propose the action and WAIT for the user to type an explicit "yes" or "proceed" before executing the deletion script.
+
+## 19. Professional Terminology & Tone
+- **Rule:** The platform UI must maintain a strictly professional, enterprise-grade tone. Slang, overly casual terminology, or internal developer jargon must never be exposed to the end-user.
+- **Agent Constraint:** When designing dashboards, alerts, or status indicators, always use formal business language (e.g., use "Extended Occupancy" instead of "Bay Hog", "Inactive Job" instead of "Stale Job", "Action Items" instead of "Bottlenecks").
+

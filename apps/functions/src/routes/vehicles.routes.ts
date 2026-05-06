@@ -121,7 +121,8 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
 
         const {
             make, model, year, vin, licensePlate,
-            color, status, customerId, currentLocationId, notes, qbWorkOrder
+            color, status, customerId, currentLocationId, notes, qbWorkOrder,
+            arrivedAt, departedAt
         } = req.body;
 
         const updates: any = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
@@ -144,6 +145,10 @@ vehiclesRoutes.put('/:id', authenticate, async (req: Request, res: Response): Pr
         
         if (qbWorkOrder !== undefined) updates.qbWorkOrder = qbWorkOrder;
         if (notes !== undefined) updates.notes = notes;
+        
+        // Handle explicit timestamps coming from the client (usually serverTimestamp object)
+        if (arrivedAt !== undefined) updates.arrivedAt = arrivedAt;
+        if (departedAt !== undefined) updates.departedAt = departedAt;
 
         await vehicleRef.update(updates);
         return res.json({ id: vehicleId, ...vehicleData, ...updates });

@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { collection, doc, setDoc, deleteDoc, serverTimestamp, onSnapshot, query, orderBy, addDoc, getDocs, limit, where, getDoc } from 'firebase/firestore';
+import { useSearchParams } from 'react-router-dom';
+import { collection, doc, setDoc, updateDoc, serverTimestamp, onSnapshot, query, orderBy, addDoc, getDocs, limit, where, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Plus, Trash2, MapPin, Warehouse, CarFront, Briefcase, LayoutDashboard, History, X, Search, Car } from 'lucide-react';
+import { Plus, MapPin, Warehouse, CarFront, Briefcase, LayoutDashboard, History, X, Search, Camera } from 'lucide-react';
 
 import { toast } from 'sonner';
+import { VehicleDetailsModal } from './VehiclesManager';
+import { VinScanner } from './VinScanner';
 
 interface Zone {
   id: string;
@@ -13,9 +16,12 @@ interface Zone {
   currentVehicleVin: string | null;
   lastAssignedAt?: any;
   createdAt?: any;
+  updatedAt?: any;
+  isArchived?: boolean;
 }
 
 interface Vehicle {
+  id: string;
   vin: string;
   year?: string | number;
   make?: string;
@@ -40,9 +46,16 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneType, setNewZoneType] = useState<'bay' | 'parking' | 'office' | 'other'>('bay');
   const [isAdding, setIsAdding] = useState(false);
-  const [selectedZoneForHistory, setSelectedZoneForHistory] = useState<Zone | null>(null);
-  const [filterType, setFilterType] = useState<string>('bay');
-  const [filterOccupancy, setFilterOccupancy] = useState<string>('occupied');
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) || null : null;
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+  const [searchParams] = useSearchParams();
+  const initialType = searchParams.get('type') || 'bay';
+  const initialOccupancy = searchParams.get('occupancy') || 'occupied';
+
+  const [filterType, setFilterType] = useState<string>(initialType);
+  const [filterOccupancy, setFilterOccupancy] = useState<string>(initialOccupancy);
+  const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
   const { user } = useAuthStore();
 
 
@@ -66,7 +79,15 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     const q = query(collection(db, `businesses/${tenantId}/vehicles`), limit(1000));
     const unsub = onSnapshot(q, (snap) => {
       const data: Vehicle[] = [];
-      snap.forEach(doc => data.push({ ...doc.data() } as Vehicle));
+      const seen = new Set();
+      snap.forEach(doc => {
+        const v = { id: doc.id, ...doc.data() } as Vehicle;
+        const key = (v.vin || v.id).toUpperCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          data.push(v);
+        }
+      });
       setVehicles(data);
     });
     return () => unsub();
@@ -84,6 +105,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   }, [zones, filterOccupancy]);
 
   const filteredZones = zones.filter(zone => {
+    if (zone.isArchived) return false;
     const typeMatch = filterType === 'all' || zone.type === filterType;
     const occupancyMatch = filterOccupancy === 'all' || 
       (filterOccupancy === 'occupied' && zone.currentVehicleVin) || 
@@ -112,14 +134,14 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleDeleteZone = async (zoneId: string) => {
-    if (!window.confirm("Are you sure you want to delete this zone?")) return;
+  const handleArchiveZone = async (zoneId: string) => {
+    if (!window.confirm("Are you sure you want to archive this zone?")) return;
     try {
-      await deleteDoc(doc(db, `businesses/${tenantId}/zones`, zoneId));
-      toast.success("Zone deleted");
+      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { isArchived: true });
+      toast.success("Zone archived");
     } catch (err) {
-      console.error("Error deleting zone:", err);
-      toast.error("Failed to delete zone");
+      console.error("Error archiving zone:", err);
+      toast.error("Failed to archive zone");
     }
   };
 
@@ -128,6 +150,11 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     try {
       const trimmedVin = vin.trim().toUpperCase();
       const zone = zones.find(z => z.id === zoneId);
+      
+      if (trimmedVin && zone?.currentVehicleVin === trimmedVin) {
+        toast.info("Vehicle already in this bay.");
+        return;
+      }
       
       await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
         currentVehicleVin: trimmedVin || null,
@@ -140,6 +167,8 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         vin: trimmedVin || null,
         assignedAt: serverTimestamp(),
         assignedBy: user?.uid || 'system',
+        assignedByEmail: user?.email || null,
+        assignedByName: user?.displayName || null,
         action: trimmedVin ? 'assigned' : 'cleared'
       });
 
@@ -150,22 +179,25 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         if (!vehicleDoc.exists()) {
           // Fetch comprehensive details from NHTSA API
           let details: any = { year: '', make: '', model: '', bodyClass: '', driveType: '', gvwr: '' };
-          try {
-            const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${trimmedVin}?format=json`);
-            const data = await res.json();
-            const result = data.Results?.[0];
-            if (result && result.Make) {
-              details = {
-                year: result.ModelYear || '',
-                make: result.Make || '',
-                model: result.Model || '',
-                bodyClass: result.BodyClass || '',
-                driveType: result.DriveType || '',
-                gvwr: result.GVWR || ''
-              };
+          if (trimmedVin.length === 17) {
+            try {
+              const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${trimmedVin}?format=json`);
+              const data = await res.json();
+              const result = data.Results?.[0];
+              // ErrorCode usually starts with "0" for a successful decode.
+              if (result && result.Make && result.ErrorCode && result.ErrorCode.startsWith('0')) {
+                details = {
+                  year: result.ModelYear || '',
+                  make: result.Make || '',
+                  model: result.Model || '',
+                  bodyClass: result.BodyClass || '',
+                  driveType: result.DriveType || '',
+                  gvwr: result.GVWR || ''
+                };
+              }
+            } catch (apiErr) {
+              console.warn("NHTSA API fetch failed", apiErr);
             }
-          } catch (apiErr) {
-            console.warn("NHTSA API fetch failed", apiErr);
           }
 
           await setDoc(vehicleRef, {
@@ -178,6 +210,32 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           
           if (details.make) {
             toast.success(`Identified: ${details.year} ${details.make} ${details.model}`);
+          } else {
+            toast.warning("Vehicle not found in database. You may need to enter details manually.");
+          }
+        } else {
+          // Vehicle exists. Try auto-decode if it's missing make/model
+          const data = vehicleDoc.data();
+          if (!data.make && trimmedVin.length === 17) {
+            try {
+              const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${trimmedVin}?format=json`);
+              const apiData = await res.json();
+              const result = apiData.Results?.[0];
+              if (result && result.Make && result.ErrorCode && result.ErrorCode.startsWith('0')) {
+                await updateDoc(vehicleRef, {
+                  year: result.ModelYear || '',
+                  make: result.Make || '',
+                  model: result.Model || '',
+                  bodyClass: result.BodyClass || '',
+                  driveType: result.DriveType || '',
+                  gvwr: result.GVWR || '',
+                  updatedAt: serverTimestamp()
+                });
+                toast.success(`Updated missing vehicle data: ${result.ModelYear || ''} ${result.Make} ${result.Model || ''}`);
+              }
+            } catch (apiErr) {
+              console.warn("NHTSA API backfill failed", apiErr);
+            }
           }
         }
       }
@@ -298,10 +356,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
             key={zone.id}
             zone={zone}
             vehicles={vehicles}
-            onAssign={(vin: string) => handleAssignVehicle(zone.id, vin)}
-            onClear={() => handleAssignVehicle(zone.id, '')}
-            onDelete={() => handleDeleteZone(zone.id)}
-            onViewHistory={() => setSelectedZoneForHistory(zone)}
+            onSelect={() => setSelectedZoneId(zone.id)}
           />
         ))}
 
@@ -319,20 +374,55 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         )}
       </div>
 
-      {selectedZoneForHistory && (
-        <HistoryModal 
-          zone={selectedZoneForHistory} 
-          tenantId={tenantId} 
-          onClose={() => setSelectedZoneForHistory(null)} 
+      {selectedZone && !selectedVehicle && (
+        <ZoneDetailsModal 
+          zone={selectedZone} 
+          tenantId={tenantId}
+          vehicles={vehicles}
+          onClose={() => setSelectedZoneId(null)}
+          onAssign={(vin: string) => handleAssignVehicle(selectedZone.id, vin)}
+          onClear={() => handleAssignVehicle(selectedZone.id, '')}
+          onDelete={() => {
+            handleArchiveZone(selectedZone.id);
+            setSelectedZoneId(null);
+          }}
+          onQuickAddRequest={(vin: string) => setQuickAddVin({ zoneId: selectedZone.id, vin })}
+          onOpenVehicle={(vin: string) => {
+            const v = vehicles.find(veh => veh.vin === vin);
+            if (v) setSelectedVehicle(v);
+          }}
+        />
+      )}
+
+      {selectedVehicle && (
+        <VehicleDetailsModal
+          tenantId={tenantId}
+          vehicle={selectedVehicle}
+          onClose={() => setSelectedVehicle(null)}
+          onEdit={() => {}} // Could wire this up to edit if needed, but view-only is fine for now
+          getSource={(row: any) => {
+            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
+            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+          }}
+        />
+      )}
+
+      {quickAddVin && (
+        <QuickAddVehicleModal
+          tenantId={tenantId}
+          initialVin={quickAddVin.vin}
+          onClose={() => setQuickAddVin(null)}
+          onAssign={(vin) => handleAssignVehicle(quickAddVin.zoneId, vin)}
         />
       )}
     </div>
   );
 }
 
-function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssign: (v: string) => void, onClear: () => void, vehicles: Vehicle[] }) {
+function VinSelector({ vin, onAssign, onClear, onQuickAddRequest, vehicles }: { vin: string, onAssign: (v: string) => void, onClear: () => void, onQuickAddRequest: (vin: string) => void, vehicles: Vehicle[] }) {
   const [inputValue, setInputValue] = useState(vin || '');
   const [isOpen, setIsOpen] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setInputValue(vin || ''); }, [vin]);
@@ -346,24 +436,37 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
   }, []);
 
   const filtered = vehicles.filter(v => {
-    const searchStr = inputValue.toLowerCase();
-    return v.vin.toLowerCase().includes(searchStr) || 
-           (v.make?.toLowerCase() || '').includes(searchStr) || 
-           (v.model?.toLowerCase() || '').includes(searchStr) ||
-           (v.customerName?.toLowerCase() || '').includes(searchStr) ||
-           (v.qbWorkOrder?.toLowerCase() || '').includes(searchStr);
+    const searchStr = inputValue.toLowerCase().trim();
+    if (!searchStr) return true;
+    
+    return String(v.vin || '').toLowerCase().includes(searchStr) || 
+           String(v.make || '').toLowerCase().includes(searchStr) || 
+           String(v.model || '').toLowerCase().includes(searchStr) ||
+           String(v.customerName || '').toLowerCase().includes(searchStr) ||
+           String(v.qbWorkOrder || '').toLowerCase().includes(searchStr);
   });
-  const exact = vehicles.find(v => v.vin.toUpperCase() === inputValue.trim().toUpperCase());
+  const exact = vehicles.find(v => String(v.vin || '').toUpperCase() === inputValue.trim().toUpperCase());
 
   return (
     <div className="relative" ref={dropdownRef}>
-      {vin ? (
-        <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-500/5 rounded-lg border border-emerald-100 dark:border-emerald-500/20">
-          <div className="p-1 bg-emerald-500 rounded text-white"><Car className="w-3.5 h-3.5" /></div>
-          <span className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-400">{vin}</span>
-          <button onClick={onClear} className="ml-auto p-1 text-zinc-400 hover:text-red-500 rounded"><X className="w-4 h-4" /></button>
-        </div>
-      ) : (
+      {showScanner && (
+        <VinScanner 
+          onScan={(scannedVin) => {
+            setInputValue(scannedVin);
+            onAssign(scannedVin);
+            setShowScanner(false);
+          }} 
+          onClose={() => setShowScanner(false)} 
+        />
+      )}
+      <div className="space-y-3">
+        <button 
+          onClick={() => setShowScanner(true)}
+          className="w-full py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold text-xs transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-transparent dark:border-zinc-800"
+        >
+          <Camera className="w-4 h-4" /> Scan VIN Barcode
+        </button>
+
         <div className="relative">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"><Search className="w-4 h-4" /></div>
           <input
@@ -378,7 +481,7 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden">
               <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
                 {filtered.map(v => (
-                  <button key={v.vin} onClick={() => { onAssign(v.vin); setIsOpen(false); }} className="w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-left flex flex-col rounded-lg transition-colors">
+                  <button key={v.id || v.vin} onClick={() => { onAssign(v.vin); setIsOpen(false); }} className="w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-left flex flex-col rounded-lg transition-colors">
                     <span className="font-mono text-xs font-bold text-zinc-900 dark:text-white">{v.vin}</span>
                     <div className="flex flex-wrap gap-x-2 text-[10px] text-zinc-500 uppercase tracking-tight font-medium">
                       {v.make && <span>{v.year} {v.make} {v.model}</span>}
@@ -391,7 +494,7 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
                 
                 {!exact && inputValue.trim().length >= 3 && (
                   <button 
-                    onClick={() => { onAssign(inputValue.trim()); setIsOpen(false); }} 
+                    onClick={() => { onQuickAddRequest(inputValue.trim()); setIsOpen(false); }} 
                     className="w-full mt-1 px-3 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-left flex items-center gap-3 rounded-lg transition-all shadow-sm active:scale-[0.98]"
                   >
                     <div className="p-1.5 bg-white/20 rounded-md">
@@ -413,22 +516,28 @@ function VinSelector({ vin, onAssign, onClear, vehicles }: { vin: string, onAssi
             </div>
           )}
         </div>
-      )}
+
+        {vin && (
+          <button 
+            onClick={onClear} 
+            className="w-full py-2.5 border border-red-200 dark:border-red-900/30 text-red-600 dark:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2"
+          >
+            <X className="w-4 h-4" /> Remove Car from Bay
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }: any) {
+function ZoneCard({ zone, vehicles, onSelect }: { zone: Zone, vehicles: any[], onSelect: () => void }) {
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (!vehicle) return;
-    // Update the local timestamp every 60 seconds to keep "Time in Area" live
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 60000);
+    const interval = setInterval(() => setNow(Date.now()), 60000);
     return () => clearInterval(interval);
   }, [vehicle]);
   
@@ -437,15 +546,10 @@ function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }
     if (!timestamp) return null;
 
     let date;
-    if (typeof timestamp.toDate === 'function') {
-      date = timestamp.toDate();
-    } else if (timestamp.seconds !== undefined) {
-      date = new Date(timestamp.seconds * 1000);
-    } else if (timestamp._seconds !== undefined) {
-      date = new Date(timestamp._seconds * 1000);
-    } else {
-      date = new Date(timestamp);
-    }
+    if (typeof timestamp.toDate === 'function') date = timestamp.toDate();
+    else if (timestamp.seconds !== undefined) date = new Date(timestamp.seconds * 1000);
+    else if (timestamp._seconds !== undefined) date = new Date(timestamp._seconds * 1000);
+    else date = new Date(timestamp);
     
     if (isNaN(date.getTime())) return null;
 
@@ -461,15 +565,14 @@ function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md transition-all group relative">
-      {vehicle && (
-        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-          <CarFront className="w-24 h-24 -mr-6 -mt-6 rotate-12" />
-        </div>
-      )}
+    <button 
+      onClick={onSelect}
+      className="w-full text-left bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md hover:border-indigo-500/30 transition-all group relative overflow-hidden"
+    >
+
       
-      <div className="flex items-center gap-4 mb-6">
-        <div className="p-3 bg-zinc-100 dark:bg-zinc-800 rounded-xl text-zinc-600 dark:text-zinc-400">
+      <div className="flex items-center gap-4 mb-4">
+        <div className={`p-3 rounded-xl ${vehicle ? 'bg-indigo-500/10 text-indigo-500' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}`}>
           <Icon className="w-6 h-6" />
         </div>
         <div className="flex-1 min-w-0">
@@ -480,54 +583,60 @@ function ZoneCard({ zone, vehicles, onAssign, onClear, onDelete, onViewHistory }
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
         {vehicle ? (
-          <div className="bg-zinc-50 dark:bg-zinc-950/50 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-800/50">
-            <div className="flex justify-between items-start mb-2">
-              <div>
-                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Current Vehicle</p>
-                <h4 className="font-bold text-zinc-900 dark:text-white">
-                  {vehicle.year} {vehicle.make} {vehicle.model || 'Unknown'}
-                </h4>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Time In Area</p>
-                <p className="text-xs font-mono font-bold text-zinc-600 dark:text-zinc-400">{timeInArea() || '--'}</p>
-              </div>
+          <div>
+            <div className="flex justify-between items-start mb-1">
+              <h4 className="font-bold text-zinc-900 dark:text-white text-sm">
+                {vehicle.year} {vehicle.make} {vehicle.model || 'Unknown'}
+              </h4>
+              <p className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded">{timeInArea() || '--'}</p>
             </div>
-            
-            <div className="flex items-center gap-2 mb-3">
-              <span className="px-2 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-400">
-                {vehicle.vin}
-              </span>
-              {vehicle.customerName && (
-                <span className="text-[10px] font-medium text-zinc-500 truncate italic">
-                  • {vehicle.customerName}
-                </span>
-              )}
-            </div>
-
-            <VinSelector vin={zone.currentVehicleVin || ''} onAssign={onAssign} onClear={onClear} vehicles={vehicles} />
+            <p className="text-xs text-zinc-500 font-mono mb-1">{vehicle.vin}</p>
+            {vehicle.customerName && <p className="text-[10px] text-zinc-400 truncate italic">{vehicle.customerName}</p>}
           </div>
         ) : (
-          <VinSelector vin={zone.currentVehicleVin || ''} onAssign={onAssign} onClear={onClear} vehicles={vehicles} />
+          <p className="text-sm font-medium text-zinc-400 italic py-2">Empty</p>
         )}
       </div>
-
-      <div className="flex items-center justify-between mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-        <button onClick={onViewHistory} className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 hover:text-indigo-600 transition-colors">
-          <History className="w-3.5 h-3.5" /> History
-        </button>
-        <button onClick={onDelete} className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 hover:text-red-500 transition-colors">
-          <Trash2 className="w-3.5 h-3.5" /> Delete
-        </button>
-      </div>
-    </div>
+    </button>
   );
 }
 
-function HistoryModal({ zone, tenantId, onClose }: { zone: Zone, tenantId: string, onClose: () => void }) {
+function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear, onQuickAddRequest, onOpenVehicle }: any) {
+  const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
+  const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const [history, setHistory] = useState<any[]>([]);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!vehicle) return;
+    const interval = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, [vehicle]);
+
+  const timeInArea = () => {
+    const timestamp = zone.lastAssignedAt || zone.updatedAt || zone.createdAt;
+    if (!timestamp) return null;
+
+    let date;
+    if (typeof timestamp.toDate === 'function') date = timestamp.toDate();
+    else if (timestamp.seconds !== undefined) date = new Date(timestamp.seconds * 1000);
+    else if (timestamp._seconds !== undefined) date = new Date(timestamp._seconds * 1000);
+    else date = new Date(timestamp);
+    
+    if (isNaN(date.getTime())) return null;
+
+    const diff = Math.floor((now - date.getTime()) / 1000);
+    if (diff < 0) return 'Just now';
+    const days = Math.floor(diff / 86400);
+    const hours = Math.floor((diff % 86400) / 3600);
+    const minutes = Math.floor((diff % 3600) / 60);
+    
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  };
 
   useEffect(() => {
     const q = query(
@@ -536,31 +645,229 @@ function HistoryModal({ zone, tenantId, onClose }: { zone: Zone, tenantId: strin
       orderBy('assignedAt', 'desc'),
       limit(10)
     );
-    getDocs(q).then(snap => setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+    const unsub = onSnapshot(q, snap => {
+      setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
   }, [zone.id, tenantId]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-md overflow-hidden shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <h3 className="font-bold">History: {zone.name}</h3>
-          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-white"><X className="w-5 h-5"/></button>
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-lg overflow-hidden shadow-xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex flex-col relative">
+          <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"><X className="w-4 h-4"/></button>
+          
+          <div className="flex items-center gap-4">
+            <div className={`p-4 rounded-2xl ${vehicle ? 'bg-indigo-500/10 text-indigo-500' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}`}>
+              <Icon className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-1">{zone.type} Details</p>
+              <h2 className="text-2xl font-bold text-zinc-900 dark:text-white leading-tight">{zone.name || 'Unnamed Bay'}</h2>
+            </div>
+          </div>
         </div>
-        <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
-          {history.length === 0 ? <p className="text-center text-zinc-500 text-sm py-8">No history found</p> : 
-            history.map(item => (
-              <div key={item.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-between text-sm">
-                <div>
-                  <span className={`font-bold ${item.action === 'assigned' ? 'text-emerald-600' : 'text-zinc-500'}`}>{item.action === 'assigned' ? 'Assigned' : 'Cleared'}</span>
-                  {item.vin && <span className="ml-2 font-mono">{item.vin}</span>}
+
+        <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-8">
+          
+          {/* Current Occupancy */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <CarFront className="w-4 h-4 text-indigo-500" /> Current Vehicle
+              </h3>
+              {vehicle && (
+                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
+                  Parked here for {timeInArea() || '--'}
+                </p>
+              )}
+            </div>
+            <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl">
+              {vehicle ? (
+                <div className="mb-4">
+                  <button onClick={() => onOpenVehicle(vehicle.vin)} className="w-full text-left p-3 bg-white dark:bg-zinc-900 border border-indigo-100 dark:border-indigo-500/20 hover:border-indigo-500 dark:hover:border-indigo-500 shadow-sm rounded-xl transition-all group flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        {vehicle.year} {vehicle.make} {vehicle.model || 'Unknown'}
+                      </h4>
+                      <p className="text-xs font-mono text-zinc-500 mt-0.5">{vehicle.vin}</p>
+                    </div>
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full">Open</span>
+                  </button>
                 </div>
-                <span className="text-[10px] text-zinc-400">
-                  {item.assignedAt?.seconds ? new Date(item.assignedAt.seconds * 1000).toLocaleDateString() : 'Just now'}
-                </span>
-              </div>
-            ))
-          }
+              ) : null}
+              <VinSelector vin={zone.currentVehicleVin || ''} onAssign={onAssign} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} />
+            </div>
+          </section>
+
+          {/* History */}
+          <section>
+            <h3 className="text-sm font-bold text-zinc-900 dark:text-white mb-3 flex items-center gap-2">
+              <History className="w-4 h-4 text-zinc-500" /> Recent Assignment History
+            </h3>
+            <div className="space-y-2">
+              {history.length === 0 ? <p className="text-sm text-zinc-500 italic px-2">No history available.</p> : 
+                history.map(item => {
+                  const author = item.assignedByName || item.assignedByEmail || (item.assignedBy !== 'system' ? 'Staff Member' : 'System');
+                  return (
+                    <div key={item.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-between text-sm">
+                      <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className={`font-bold ${item.action === 'assigned' ? 'text-emerald-600 dark:text-emerald-500' : 'text-zinc-500'}`}>{item.action === 'assigned' ? 'Assigned' : 'Cleared'}</span>
+                          {item.vin && <span className="font-mono text-zinc-900 dark:text-white">{item.vin}</span>}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 font-medium tracking-wide">by {author}</p>
+                      </div>
+                      <span className="text-[10px] text-zinc-400 font-medium tracking-wide text-right">
+                        {item.assignedAt?.seconds ? (
+                          <>
+                            {new Date(item.assignedAt.seconds * 1000).toLocaleDateString()}
+                            <br />
+                            {new Date(item.assignedAt.seconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          </>
+                        ) : 'Just now'}
+                      </span>
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </section>
+
         </div>
+
+      </div>
+    </div>
+  );
+}
+
+function QuickAddVehicleModal({ tenantId, initialVin, onClose, onAssign }: { tenantId: string, initialVin: string, onClose: () => void, onAssign: (vin: string) => void }) {
+  const [vin, setVin] = useState(initialVin || '');
+  const [make, setMake] = useState('');
+  const [model, setModel] = useState('');
+  const [year, setYear] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDecoding, setIsDecoding] = useState(false);
+
+  useEffect(() => {
+    if (vin.trim().length === 17) {
+      setIsDecoding(true);
+      fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${vin.trim()}?format=json`)
+        .then(res => res.json())
+        .then(data => {
+          const result = data.Results?.[0];
+          if (result && result.Make && result.ErrorCode && result.ErrorCode.startsWith('0')) {
+            if (result.ModelYear) setYear(result.ModelYear);
+            if (result.Make) setMake(result.Make);
+            if (result.Model) setModel(result.Model);
+          }
+        })
+        .catch(err => console.warn("NHTSA decode failed", err))
+        .finally(() => setIsDecoding(false));
+    }
+  }, [vin]);
+
+  useEffect(() => {
+    getDocs(collection(db, `businesses/${tenantId}/customers`)).then(snap => {
+      const data: any[] = [];
+      snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
+      data.sort((a, b) => {
+        const nameA = a.name || a.displayName || a.CompanyName || a.FullName || '';
+        const nameB = b.name || b.displayName || b.CompanyName || b.FullName || '';
+        return nameA.localeCompare(nameB);
+      });
+      setCustomers(data);
+    }).catch(err => console.warn("Could not fetch customers", err));
+  }, [tenantId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vin.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const trimmedVin = vin.trim().toUpperCase();
+      const vehicleRef = doc(db, `businesses/${tenantId}/vehicles`, trimmedVin);
+      const vehicleDoc = await getDoc(vehicleRef);
+      if (!vehicleDoc.exists()) {
+        await setDoc(vehicleRef, {
+          vin: trimmedVin,
+          make: make.trim().toUpperCase(),
+          model: model.trim().toUpperCase(),
+          year: year.trim(),
+          customerName: customerName.trim(),
+          tenantId,
+          createdAt: serverTimestamp(),
+          source: 'Quick Add'
+        });
+      }
+      onAssign(trimmedVin);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to register new vehicle');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-md overflow-hidden shadow-xl animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+          <h3 className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+            Register New Vehicle
+            {isDecoding && <span className="text-[10px] font-medium text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded-full animate-pulse">Decoding VIN...</span>}
+          </h3>
+          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"><X className="w-5 h-5"/></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">VIN or Identifier *</label>
+            <input required type="text" value={vin} onChange={e => setVin(e.target.value.toUpperCase())} placeholder="e.g. 1FMCU9..." className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono" />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Year</label>
+              <input type="text" value={year} onChange={e => setYear(e.target.value)} placeholder="e.g. 2025" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Make</label>
+              <input type="text" value={make} onChange={e => setMake(e.target.value)} placeholder="e.g. Ford" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Model</label>
+              <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder="e.g. Explorer" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Customer</label>
+            <input 
+              type="text" 
+              list="customer-list"
+              value={customerName} 
+              onChange={e => setCustomerName(e.target.value)} 
+              placeholder="Start typing or select from list..." 
+              className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+            />
+            <datalist id="customer-list">
+              {customers.map(c => {
+                const name = c.name || c.displayName || c.CompanyName || c.FullName || c.id;
+                return <option key={c.id} value={name} />;
+              })}
+            </datalist>
+            <p className="mt-1.5 text-[10px] text-zinc-500">
+              When QuickBooks syncs this VIN on a job, it will verify against this customer.
+            </p>
+          </div>
+          <div className="pt-4">
+            <button disabled={isSubmitting || isDecoding} type="submit" className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold transition-all shadow-sm flex items-center justify-center gap-2">
+              <Plus className="w-4 h-4" />
+              {isSubmitting ? 'Saving...' : 'Register & Assign'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

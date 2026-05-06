@@ -14,12 +14,14 @@ export function GenericDataGrid({
   collectionPath, 
   title, 
   localFilter,
-  columns: propColumns
+  columns: propColumns,
+  onRowClick
 }: { 
   collectionPath: string, 
   title?: string, 
   localFilter?: (item: any) => boolean,
-  columns?: DataColumn[]
+  columns?: DataColumn[],
+  onRowClick?: (row: any) => void
 }) {
   const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null);
 
@@ -81,7 +83,7 @@ export function GenericDataGrid({
             {displayData.map(row => (
               <tr 
                 key={row.id} 
-                onClick={() => setSelectedRow(row)}
+                onClick={() => onRowClick ? onRowClick(row) : setSelectedRow(row)}
                 className="hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors cursor-pointer"
               >
                 {columns.map(col => (

@@ -1,9 +1,9 @@
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, query, collection, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Building2, Menu } from 'lucide-react';
+import { Building2, Menu, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { BusinessEvents } from './BusinessEvents';
@@ -16,6 +16,7 @@ import { ShipmentsTracker } from './ShipmentsTracker';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
+import { VehiclesManager } from './VehiclesManager';
 export function TenantDashboard() {
   usePageTitle('Dashboard');
   const { tenantId } = useAuthStore();
@@ -101,23 +102,6 @@ export function TenantDashboard() {
     { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
-  const vehicleColumns = [
-    { 
-      key: 'vin', 
-      label: 'VIN',
-      format: (val: any) => <span className="font-mono text-zinc-600 dark:text-zinc-400">{val || 'N/A'}</span>
-    },
-    { key: 'year', label: 'Year' },
-    { key: 'make', label: 'Make' },
-    { key: 'model', label: 'Model' },
-    { 
-      key: 'jobTitle', 
-      label: 'Linked Job',
-      format: (val: any) => val ? <span className="font-semibold text-indigo-500">{val}</span> : <span className="text-zinc-500">-</span>
-    },
-    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
-  ];
-
   const staffColumns = [
     { 
       key: 'name', 
@@ -144,6 +128,23 @@ export function TenantDashboard() {
         .filter(([key]) => key.startsWith('qb_'))
         .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {} as Record<string, any>);
       return { id: snap.id, name: data.name, qbData, rawData: data } as any;
+    },
+    enabled: !!tenantId && tenantId !== 'GLOBAL'
+  });
+
+  const { data: lastSync } = useQuery({
+    queryKey: ['last-qb-sync', tenantId],
+    queryFn: async () => {
+      if (!tenantId || tenantId === 'GLOBAL') return null;
+      const q = query(
+        collection(db, 'businesses', tenantId, 'activity_feed'),
+        where('type', '==', 'qbwc_sync'),
+        orderBy('timestamp', 'desc'),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      return snap.docs[0].data();
     },
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
@@ -189,6 +190,18 @@ export function TenantDashboard() {
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
                     {activeTab === 'overview' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
                   </p>
+                  {activeTab === 'overview' && lastSync && (
+                    <div className="flex items-center gap-1.5 mt-2 text-zinc-400">
+                      <RefreshCw className="w-3 h-3 text-emerald-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider">
+                        QuickBooks Synced: {(() => {
+                          const ts = lastSync.timestamp;
+                          const date = ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : new Date(lastSync.createdAt);
+                          return date.toLocaleString();
+                        })()}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               
@@ -198,7 +211,7 @@ export function TenantDashboard() {
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
-              <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} business={business} />
+              <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} />
             )}
 
             {activeTab === 'settings' && (
@@ -242,11 +255,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'vehicles' && (
-              <GenericDataGrid 
-                collectionPath={`businesses/${tenantId}/vehicles`} 
-                title="Customer Vehicles" 
-                columns={vehicleColumns}
-              />
+              <VehiclesManager tenantId={tenantId!} />
             )}
 
             {activeTab === 'tasks' && (
