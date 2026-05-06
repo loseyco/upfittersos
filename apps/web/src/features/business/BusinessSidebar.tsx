@@ -3,30 +3,34 @@ import {
   Home, Users, Briefcase, Box, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package
 } from 'lucide-react';
+import { useAuthStore } from '../../lib/auth/store';
+import { PermissionKey } from '../../lib/auth/permissions';
 
 export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
   group: 'ops' | 'facility' | 'comm' | 'sync' | 'config';
+  permission?: PermissionKey;
 };
 
 const ITEMS: NavItem[] = [
-  { id: 'overview', label: 'Overview', icon: Home, group: 'ops' },
-  { id: 'customers', label: 'Customers', icon: Users, group: 'ops' },
-  { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops' },
-  { id: 'items', label: 'Inventory', icon: Box, group: 'ops' },
-  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops' },
+  { id: 'overview', label: 'Overview', icon: Home, group: 'ops', permission: 'mission_control.view' },
+  { id: 'customers', label: 'Customers', icon: Users, group: 'ops', permission: 'customers.view' },
+  { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops', permission: 'jobs.view' },
+  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops', permission: 'vehicles.view' },
+  { id: 'items', label: 'Inventory', icon: Box, group: 'ops', permission: 'parts.view' },
+  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops', permission: 'parts.view' },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
-  { id: 'zones', label: 'Zones', icon: Layers, group: 'facility' },
+  { id: 'shipments', label: 'Shipments', icon: Box, group: 'ops' },
+  { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'zones.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
   { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },
   { id: 'messages', label: 'Messages', icon: MessageSquare, group: 'comm' },
   { id: 'announcements', label: 'Announcements', icon: Megaphone, group: 'comm' },
   { id: 'events', label: 'Events', icon: Calendar, group: 'comm' },
-  { id: 'staff', label: 'Staff', icon: UserCog, group: 'config' },
-  { id: 'settings', label: 'Settings', icon: Settings, group: 'config' },
+  { id: 'staff', label: 'Staff', icon: UserCog, group: 'config', permission: 'staff.view' },
+  { id: 'settings', label: 'Settings', icon: Settings, group: 'config', permission: 'settings.view' },
   { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, group: 'sync' },
   { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, group: 'sync' },
   { id: 'qb_items', label: 'QB Items', icon: RefreshCw, group: 'sync' },
@@ -53,34 +57,47 @@ export function BusinessSidebar({
     sync: 'Sync Data (Raw)'
   };
 
+  const { permissions, isSuperAdmin } = useAuthStore();
+
   const NavContent = () => (
     <div className="flex flex-col h-full py-6 px-4 space-y-8 overflow-y-auto no-scrollbar">
-      {Object.entries(groups).map(([groupId, groupLabel]) => (
-        <div key={groupId} className="space-y-2">
-          <h3 className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mb-4">
-            {groupLabel}
-          </h3>
-          <div className="space-y-1">
-            {ITEMS.filter(i => i.group === groupId).map(item => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setIsOpen(false);
-                }}
-                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-200 active:scale-95 ${
-                  activeTab === item.id
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"
-                    : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
-                }`}
-              >
-                <item.icon className={`w-5 h-5 ${activeTab === item.id ? "text-white" : "text-zinc-400"}`} />
-                <span className="text-sm font-semibold tracking-tight">{item.label}</span>
-              </button>
-            ))}
+      {Object.entries(groups).map(([groupId, groupLabel]) => {
+        const visibleItems = ITEMS.filter(i => {
+          if (i.group !== groupId) return false;
+          if (isSuperAdmin) return true;
+          if (!i.permission) return true;
+          return permissions[i.permission];
+        });
+
+        if (visibleItems.length === 0) return null;
+
+        return (
+          <div key={groupId} className="space-y-2">
+            <h3 className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mb-4">
+              {groupLabel}
+            </h3>
+            <div className="space-y-1">
+              {visibleItems.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-200 active:scale-95 ${
+                    activeTab === item.id
+                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"
+                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 ${activeTab === item.id ? "text-white" : "text-zinc-400"}`} />
+                  <span className="text-sm font-semibold tracking-tight">{item.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 

@@ -3,7 +3,8 @@ import { TopNav } from '../../components/layout/TopNav';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc, query, collection, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Building2, Menu, RefreshCw } from 'lucide-react';
+import { Building2, Menu, RefreshCw, ShieldAlert } from 'lucide-react';
+import { PermissionKey } from '../../lib/auth/permissions';
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { BusinessEvents } from './BusinessEvents';
@@ -197,56 +198,73 @@ export function TenantDashboard() {
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
-              <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} />
+              <PermissionGate permission="mission_control.view">
+                <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} />
+              </PermissionGate>
             )}
 
             {activeTab === 'settings' && (
-              <BusinessSettings tenantId={tenantId!} initialData={business?.rawData} />
+              <PermissionGate permission="settings.view">
+                <BusinessSettings tenantId={tenantId!} initialData={business?.rawData} />
+              </PermissionGate>
             )}
 
             {activeTab === 'staff' && (
-              <StaffManager tenantId={tenantId!} />
+              <PermissionGate permission="staff.view">
+                <StaffManager tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
-            
             {activeTab === 'parts' && (
-              <PartsMissionControl />
+              <PermissionGate permission="parts.view">
+                <PartsMissionControl />
+              </PermissionGate>
             )}
 
             {activeTab === 'customers' && (
-              <GenericDataGrid 
-                collectionPath={`businesses/${tenantId}/customers`} 
-                title="Upfitters Customers" 
-                columns={customerColumns}
-              />
+              <PermissionGate permission="customers.view">
+                <GenericDataGrid 
+                  collectionPath={`businesses/${tenantId}/customers`} 
+                  title="Upfitters Customers" 
+                  columns={customerColumns}
+                />
+              </PermissionGate>
             )}
 
             {activeTab === 'jobs' && (
-              <GenericDataGrid 
-                collectionPath={`businesses/${tenantId}/jobs`} 
-                title="Upfitters Jobs" 
-                columns={jobColumns}
-              />
+              <PermissionGate permission="jobs.view">
+                <GenericDataGrid 
+                  collectionPath={`businesses/${tenantId}/jobs`} 
+                  title="Upfitters Jobs" 
+                  columns={jobColumns}
+                />
+              </PermissionGate>
             )}
 
             {activeTab === 'items' && (
-              <GenericDataGrid 
-                collectionPath={`businesses/${tenantId}/inventory_items`} 
-                title="Upfitters Inventory" 
-                columns={itemColumns}
-              />
+              <PermissionGate permission="parts.view">
+                <GenericDataGrid 
+                  collectionPath={`businesses/${tenantId}/inventory_items`} 
+                  title="Upfitters Inventory" 
+                  columns={itemColumns}
+                />
+              </PermissionGate>
             )}
 
             {activeTab === 'vehicles' && (
-              <VehiclesManager tenantId={tenantId!} />
+              <PermissionGate permission="vehicles.view">
+                <VehiclesManager tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'zones' && (
+              <PermissionGate permission="zones.view">
+                <ZonesManager tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'tasks' && (
               <GenericDataGrid collectionPath={`businesses/${tenantId}/tasks`} title="Tasks" />
-            )}
-
-            {activeTab === 'zones' && (
-              <ZonesManager tenantId={tenantId!} />
             )}
 
             {activeTab === 'facility_maps' && (
@@ -305,6 +323,30 @@ export function TenantDashboard() {
           </div>
         </main>
       </div>
+    </div>
+  );
+}
+
+function PermissionGate({ 
+  permission, 
+  children 
+}: { 
+  permission?: PermissionKey, 
+  children: React.ReactNode 
+}) {
+  const { permissions, isSuperAdmin } = useAuthStore();
+  if (isSuperAdmin) return <>{children}</>;
+  if (!permission) return <>{children}</>;
+  if (permissions[permission]) return <>{children}</>;
+  return (
+    <div className="p-12 text-center animate-in fade-in duration-500">
+      <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+        <ShieldAlert className="w-10 h-10 text-rose-500" />
+      </div>
+      <h3 className="text-xl font-black text-zinc-900 dark:text-white mb-2">Access Restricted</h3>
+      <p className="text-zinc-500 max-w-sm mx-auto">
+        Your account does not have the required permissions to access this department. Please contact your administrator for elevated access.
+      </p>
     </div>
   );
 }

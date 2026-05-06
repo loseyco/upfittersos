@@ -132,3 +132,77 @@ export const onQbJobWrite = functions.firestore
 
     return null;
   });
+
+/**
+ * Trigger: When a document in qb_employees is created or updated.
+ * Goal: Promote to 'staff' collection and resolve emails.
+ */
+export const onQbEmployeeWrite = functions.firestore
+  .document('businesses/{tenantId}/qb_employees/{employeeId}')
+  .onWrite(async (change, context) => {
+    const { tenantId, employeeId } = context.params;
+    
+    if (!change.after.exists) return null;
+
+    const data = change.after.data();
+    if (!data) return null;
+
+    // 1. Promote to Staff Collection
+    const staffRef = admin.firestore().collection('businesses').doc(tenantId).collection('staff').doc(employeeId);
+    
+    // Resolve email if missing
+    let resolvedEmail = data.email || data.Email || '';
+    if (!resolvedEmail) {
+      const firstName = data.firstName || data.FirstName || '';
+      const lastName = data.lastName || data.LastName || '';
+      const fullName = (data.name || data.Name || `${firstName} ${lastName}`).trim();
+
+      if (fullName) {
+        // Search root users collection for a matching name
+        const userQuery = admin.firestore().collection('users')
+          .where('displayName', '==', fullName)
+          .limit(1);
+        const userSnap = await userQuery.get();
+        
+        if (!userSnap.empty) {
+          resolvedEmail = userSnap.docs[0].data().email || '';
+          console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via users collection`);
+        } else if (firstName && lastName) {
+           // Try searching by first/last combo if displayName search failed
+           const userQueryAlt = admin.firestore().collection('users')
+            .where('firstName', '==', firstName)
+            .where('lastName', '==', lastName)
+            .limit(1);
+           const userSnapAlt = await userQueryAlt.get();
+           if (!userSnapAlt.empty) {
+             resolvedEmail = userSnapAlt.docs[0].data().email || '';
+             console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via firstName/lastName search`);
+           }
+        }
+      }
+    }
+
+    const staffMappedData = {
+      firstName: data.firstName || data.FirstName || '',
+      lastName: data.lastName || data.LastName || '',
+      email: resolvedEmail.toLowerCase(),
+      phone: data.phone || data.Phone || '',
+      role: 'staff', // Default role
+      hireDate: data.HiredDate || data.hiredDate || null,
+      fireDate: data.ReleasedDate || data.releasedDate || null,
+      quickbooksId: data.ListID || data.listId || '',
+      source: 'QuickBooks',
+      tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
+      notes: admin.firestore.FieldValue.arrayUnion('Imported via QBWC.'),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    try {
+      await staffRef.set(staffMappedData, { merge: true });
+      console.log(`Successfully promoted QB Employee ${employeeId} to staff in tenant ${tenantId}`);
+    } catch (err) {
+      console.error(`Failed to promote employee ${employeeId}`, err);
+    }
+    
+    return null;
+  });

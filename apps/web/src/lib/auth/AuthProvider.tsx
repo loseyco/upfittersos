@@ -1,10 +1,12 @@
 import { useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase/config';
+import { auth, db } from '../firebase/config';
 import { useAuthStore } from './store';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { resolvePermissions } from './permissions';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { setUser, setSuperAdmin, setTenantId, setLoading } = useAuthStore();
+  const { setUser, setSuperAdmin, setTenantId, setPermissions, setLoading } = useAuthStore();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -15,25 +17,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (user.email === 'loseyp@gmail.com') {
           setSuperAdmin(true);
           setTenantId('GLOBAL');
+          // Super admin gets all permissions
+          setPermissions({}); // Logical check will handle GLOBAL/SuperAdmin
         } else {
           setSuperAdmin(false);
+          let currentTenantId = null;
           try {
             const token = await user.getIdTokenResult();
-            setTenantId((token.claims?.tenantId as string) || null);
+            currentTenantId = (token.claims?.tenantId as string) || null;
+            setTenantId(currentTenantId);
+
+            if (currentTenantId) {
+              // Fetch staff permissions
+              const staffQuery = query(
+                collection(db, `businesses/${currentTenantId}/staff`),
+                where('email', '==', user.email?.toLowerCase())
+              );
+              const staffSnap = await getDocs(staffQuery);
+              
+              if (!staffSnap.empty) {
+                const staffData = staffSnap.docs[0].data();
+                let deptPermissions = {};
+                
+                if (staffData.departmentId) {
+                  const deptDoc = await getDoc(doc(db, `businesses/${currentTenantId}/departments`, staffData.departmentId));
+                  if (deptDoc.exists()) {
+                    deptPermissions = deptDoc.data().permissions || {};
+                  }
+                }
+                
+                const resolved = resolvePermissions(deptPermissions, staffData.individualPermissions);
+                setPermissions(resolved);
+              } else {
+                setPermissions({});
+              }
+            }
           } catch (e) {
+            console.error("Error fetching permissions", e);
             setTenantId(null);
+            setPermissions({});
           }
         }
       } else {
         setSuperAdmin(false);
         setTenantId(null);
+        setPermissions({});
       }
       
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [setUser, setSuperAdmin, setTenantId, setLoading]);
+  }, [setUser, setSuperAdmin, setTenantId, setPermissions, setLoading]);
 
   return <>{children}</>;
 }

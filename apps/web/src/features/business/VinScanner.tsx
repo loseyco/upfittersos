@@ -124,8 +124,40 @@ export function VinScanner({ onScan, onClose }: VinScannerProps) {
     }
 
     try {
-      const imageUrl = URL.createObjectURL(file);
-      const result = await codeReaderRef.current.decodeFromImageUrl(imageUrl);
+      const originalUrl = URL.createObjectURL(file);
+      
+      // Load image to resize it down to a manageable resolution for ZXing
+      const img = new Image();
+      img.src = originalUrl;
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+
+      const MAX_DIMENSION = 1200;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height && width > MAX_DIMENSION) {
+        height = Math.round((height * MAX_DIMENSION) / width);
+        width = MAX_DIMENSION;
+      } else if (height > width && height > MAX_DIMENSION) {
+        width = Math.round((width * MAX_DIMENSION) / height);
+        height = MAX_DIMENSION;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        // Draw the image, modern browsers handle EXIF rotation automatically here
+        ctx.drawImage(img, 0, 0, width, height);
+      }
+
+      const resizedImageUrl = canvas.toDataURL('image/jpeg', 0.9);
+      
+      const result = await codeReaderRef.current.decodeFromImageUrl(resizedImageUrl);
       let cleanedVin = result.getText().trim().toUpperCase();
       
       // Many automotive barcodes prefix the VIN with an 'I' identifier
