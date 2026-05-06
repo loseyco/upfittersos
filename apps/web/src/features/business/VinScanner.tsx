@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { BrowserMultiFormatReader, Result } from '@zxing/library';
 import { X, Camera, ImagePlus, Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';

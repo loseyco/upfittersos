@@ -7,11 +7,10 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Package, Truck, Plus, Search, ExternalLink, 
-  AlertCircle, Clock, CheckCircle2, Box, Wrench,
-  TrendingUp, ArrowRight, User
+  Truck, Plus, ExternalLink, 
+  Clock, Box, Wrench, User
 } from 'lucide-react';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
 
 type RequestStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
 

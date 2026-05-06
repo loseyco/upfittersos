@@ -115,7 +115,6 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
 
       {selectedStaff && !editingStaff && (
         <StaffDetailsModal 
-          tenantId={tenantId}
           staff={selectedStaff}
           onClose={() => setSelectedStaff(null)}
           onEdit={() => {
@@ -158,14 +157,12 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
 }
 
 function StaffDetailsModal({ 
-  tenantId, 
   staff, 
   onClose, 
   onEdit, 
   onArchive, 
   getSource 
 }: { 
-  tenantId: string, 
   staff: StaffMember, 
   onClose: () => void, 
   onEdit: () => void, 

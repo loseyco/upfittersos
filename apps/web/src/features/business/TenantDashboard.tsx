@@ -104,21 +104,6 @@ export function TenantDashboard() {
     { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
   ];
 
-  const staffColumns = [
-    { 
-      key: 'name', 
-      label: 'Staff Member',
-      format: (_: any, row: any) => {
-        const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.displayName || row.email || 'Unnamed';
-        return <span className="font-semibold text-zinc-900 dark:text-zinc-100">{name}</span>;
-      }
-    },
-    { key: 'email', label: 'Email' },
-    { key: 'role', label: 'Role', format: (val: any) => <span className="capitalize">{val?.replace('_', ' ') || 'Staff'}</span> },
-    { key: 'department', label: 'Department' },
-    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
-  ];
-
   const { data: business, isLoading } = useQuery({
     queryKey: ['tenant-dashboard-business', tenantId],
     queryFn: async () => {
