@@ -8,8 +8,8 @@ import {
 import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
-  Clock, Box, Wrench, User, Search, Package, Info, Calendar, AlertCircle,
-  Trash2, CheckCircle, ShoppingCart, MoreHorizontal, Hash, FileText
+  Clock, Box, Wrench, User, Search, Package, Calendar, AlertCircle,
+  Trash2, CheckCircle, ShoppingCart, Hash, FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
 

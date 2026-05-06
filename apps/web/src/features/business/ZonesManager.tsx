@@ -8,6 +8,7 @@ import { Plus, MapPin, Warehouse, CarFront, Briefcase, LayoutDashboard, History,
 import { toast } from 'sonner';
 import { VehicleDetailsModal } from './VehiclesManager';
 import { VinScanner } from './VinScanner';
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 
 interface Zone {
   id: string;
@@ -649,6 +650,7 @@ function ZoneCard({ zone, vehicles, onSelect }: { zone: Zone, vehicles: any[], o
 }
 
 function ZoneDetailsModal({ zone, tenantId, vehicles, onClose, onAssign, onClear, onQuickAddRequest, onOpenVehicle }: any) {
+  useBodyScrollLock(true);
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const [history, setHistory] = useState<any[]>([]);
