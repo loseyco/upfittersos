@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { BrowserMultiFormatReader, Result } from '@zxing/library';
+import { BrowserMultiFormatReader, Result, BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { X, Camera, ImagePlus, Loader2, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -19,7 +19,16 @@ export function VinScanner({ onScan, onClose }: VinScannerProps) {
 
   // Initialize ZXing and list cameras
   useEffect(() => {
-    const reader = new BrowserMultiFormatReader();
+    const hints = new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_39,
+      BarcodeFormat.CODE_128,
+      BarcodeFormat.QR_CODE,
+      BarcodeFormat.DATA_MATRIX
+    ]);
+    hints.set(DecodeHintType.TRY_HARDER, true);
+    
+    const reader = new BrowserMultiFormatReader(hints);
     codeReaderRef.current = reader;
 
     reader.listVideoInputDevices()
@@ -59,7 +68,13 @@ export function VinScanner({ onScan, onClose }: VinScannerProps) {
         videoRef.current, 
         (result: Result | null | undefined, _err: any) => {
           if (result) {
-            const cleanedVin = result.getText().trim().toUpperCase();
+            let cleanedVin = result.getText().trim().toUpperCase();
+            
+            // Many automotive barcodes prefix the VIN with an 'I' identifier
+            if (cleanedVin.length === 18 && cleanedVin.startsWith('I')) {
+              cleanedVin = cleanedVin.substring(1);
+            }
+
             if (cleanedVin.length >= 3) {
               onScan(cleanedVin);
               stopScanner();
@@ -111,7 +126,12 @@ export function VinScanner({ onScan, onClose }: VinScannerProps) {
     try {
       const imageUrl = URL.createObjectURL(file);
       const result = await codeReaderRef.current.decodeFromImageUrl(imageUrl);
-      const cleanedVin = result.getText().trim().toUpperCase();
+      let cleanedVin = result.getText().trim().toUpperCase();
+      
+      // Many automotive barcodes prefix the VIN with an 'I' identifier
+      if (cleanedVin.length === 18 && cleanedVin.startsWith('I')) {
+        cleanedVin = cleanedVin.substring(1);
+      }
       
       if (cleanedVin.length >= 3) {
         toast.success("Barcode found in photo!");
