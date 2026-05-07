@@ -38,6 +38,8 @@ interface StaffStats {
   timeLogged: number; // in minutes
   overtimeMinutes: number;
   lateCount: number;
+  earnedJobMinutes: number;
+  actualJobMinutes: number;
   lastActivity?: any;
 }
 
@@ -135,7 +137,22 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         timeLogged: 0,
         overtimeMinutes: 0,
         lateCount: 0,
+        earnedJobMinutes: 0,
+        actualJobMinutes: 0,
         lastActivity: null
+      });
+    });
+
+    // Calculate total time per job to prorate earned hours correctly
+    const totalTimePerJob: Record<string, number> = {};
+    rawData.time_sessions?.forEach(s => {
+      s.jobs?.forEach((j: any) => {
+        const start = parseDate(j.start);
+        const end = j.end ? parseDate(j.end) : Date.now();
+        const mins = Math.max(0, (end - start) / 60000);
+        if (j.id && mins > 0) {
+          totalTimePerJob[j.id] = (totalTimePerJob[j.id] || 0) + mins;
+        }
       });
     });
 
@@ -256,6 +273,32 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         }
 
         staff.totalPoints += Math.floor(mins / 30) * 2; // 2 points per 30 mins worked
+
+        // Job Efficiency Calculation
+        s.jobs?.forEach((j: any) => {
+          const start = parseDate(j.start);
+          const end = j.end ? parseDate(j.end) : Date.now();
+          const segMins = Math.max(0, (end - start) / 60000);
+          
+          if (j.id && segMins > 0) {
+            staff.actualJobMinutes += segMins;
+            const jobDoc = rawData.jobs?.find(job => job.id === j.id);
+            if (jobDoc?.estimatedHours && totalTimePerJob[j.id] > 0) {
+              const estMins = jobDoc.estimatedHours * 60;
+              const proratedEarned = (segMins / totalTimePerJob[j.id]) * estMins;
+              staff.earnedJobMinutes += proratedEarned;
+            } else {
+              // If no estimate, count as 100% efficient so it doesn't penalize them
+              staff.earnedJobMinutes += segMins;
+            }
+          }
+        });
+
+        // Add bonus points for high efficiency (Earned > Actual)
+        if (staff.earnedJobMinutes > staff.actualJobMinutes && staff.actualJobMinutes > 60) {
+            const extraHours = (staff.earnedJobMinutes - staff.actualJobMinutes) / 60;
+            staff.totalPoints += Math.floor(extraHours * 5); // 5 bonus points per efficient hour
+        }
       }
     });
 
@@ -403,7 +446,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                   </div>
 
                   <div className="flex items-center gap-8">
-                    <div className="hidden md:grid grid-cols-4 gap-6 text-center">
+                    <div className="hidden md:grid grid-cols-5 gap-6 text-center">
                       <div>
                         <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Moves</p>
                         <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.moves}</p>
@@ -419,6 +462,18 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                       <div>
                         <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Hours</p>
                         <p className="text-sm font-bold text-zinc-900 dark:text-white">{(staff.timeLogged / 60).toFixed(1)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Efficiency</p>
+                        <p className={cn("text-sm font-bold", 
+                          staff.actualJobMinutes > 0 ? (
+                            (staff.earnedJobMinutes / staff.actualJobMinutes) > 1.1 ? "text-emerald-500" :
+                            (staff.earnedJobMinutes / staff.actualJobMinutes) < 0.9 ? "text-rose-500" :
+                            "text-amber-500"
+                          ) : "text-zinc-500"
+                        )}>
+                          {staff.actualJobMinutes > 0 ? Math.round((staff.earnedJobMinutes / staff.actualJobMinutes) * 100) + '%' : '--'}
+                        </p>
                       </div>
                     </div>
 
@@ -470,10 +525,11 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                 <div className="space-y-4">
                   <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Contribution Breakdown</h4>
                   <div className="space-y-4">
+                    <MetricProgress label="Job Efficiency %" value={selectedStaff.actualJobMinutes > 0 ? Math.round((selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100) : 0} max={200} color={selectedStaff.actualJobMinutes > 0 && (selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) > 1.0 ? "bg-emerald-500" : "bg-amber-500"} />
                     <MetricProgress label="Facility Moves" value={selectedStaff.moves} max={Math.max(...stats.map(s => s.moves))} color="bg-indigo-500" />
                     <MetricProgress label="Job Management" value={selectedStaff.jobs} max={Math.max(...stats.map(s => s.jobs))} color="bg-emerald-500" />
                     <MetricProgress label="Parts Handling" value={selectedStaff.parts} max={Math.max(...stats.map(s => s.parts))} color="bg-amber-500" />
-                    <MetricProgress label="Overtime Logged (Mins)" value={Math.round(selectedStaff.overtimeMinutes)} max={Math.max(...stats.map(s => s.overtimeMinutes))} color="bg-emerald-600" />
+                    <MetricProgress label="Overtime Logged (Mins)" value={Math.round(selectedStaff.overtimeMinutes)} max={Math.max(...stats.map(s => s.overtimeMinutes))} color="bg-rose-500" />
                   </div>
                 </div>
 

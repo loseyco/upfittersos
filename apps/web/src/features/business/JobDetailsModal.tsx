@@ -2,13 +2,17 @@ import { useState, useEffect } from 'react';
 import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, limit } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart
+  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart, Timer, Clock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
+import { StaffSelector } from './StaffSelectionComponents';
 import { StaffLink } from './StaffPerformance';
+import { useAuthStore } from '../../lib/auth/store';
+import { useTimeclockStore } from '../../lib/store/timeclockStore';
+import { useJobClock } from '../timeclock/useJobClock';
 
 interface JobDetailsModalProps {
   tenantId: string;
@@ -19,7 +23,20 @@ interface JobDetailsModalProps {
 
 export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsModalProps) {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const { activeSessionId } = useTimeclockStore();
+  const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const formatDatetimeLocal = (dateString?: any) => {
     if (!dateString) return '';
     const date = typeof dateString.toDate === 'function' ? dateString.toDate() : new Date(dateString);
@@ -36,7 +53,8 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     customerId: job.customerId || null,
     customerName: job.customerName || '',
     notes: job.notes || '',
-    expectedFinishTime: formatDatetimeLocal(job.expectedFinishTime)
+    expectedFinishTime: formatDatetimeLocal(job.expectedFinishTime),
+    assignedStaff: job.assignedStaff || (job.assignedStaffId ? [{ id: job.assignedStaffId, name: job.assignedStaffName || 'Staff' }] : [])
   });
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
@@ -53,7 +71,51 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     });
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!tenantId || !activeSessionId) {
+      setActiveJobId(null);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const jobs = data.jobs || [];
+        const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+        if (lastJob && !lastJob.end) {
+          setActiveJobId(lastJob.id);
+        } else {
+          setActiveJobId(null);
+        }
+      } else {
+        setActiveJobId(null);
+      }
+    });
+    return () => unsub();
+  }, [tenantId, activeSessionId]);
+
   const [history, setHistory] = useState<any[]>([]);
+  const [timeLogs, setTimeLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!job.id || !tenantId) return;
+    const qLogs = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('jobIds', 'array-contains', job.id)
+    );
+    const unsubLogs = onSnapshot(qLogs, snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a: any, b: any) => {
+        const getTs = (item: any) => {
+          const val = item.clockIn?.timestamp;
+          if (val?.seconds) return val.seconds * 1000;
+          return new Date(val || 0).getTime();
+        };
+        return getTs(b) - getTs(a);
+      });
+      setTimeLogs(data);
+    });
+    return () => unsubLogs();
+  }, [job.id, tenantId]);
 
   useEffect(() => {
     if (!job.id || !tenantId) return;
@@ -105,10 +167,15 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const { expectedFinishTime, ...rest } = formData;
+      const { expectedFinishTime, assignedStaff, ...rest } = formData;
       await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
         ...rest,
+        assignedStaff,
+        assignedStaffIds: assignedStaff.map((s: any) => s.id),
+        assignedStaffId: assignedStaff.length > 0 ? assignedStaff[0].id : null,
+        assignedStaffName: assignedStaff.length > 0 ? assignedStaff[0].name : null,
         expectedFinishTime: expectedFinishTime ? new Date(expectedFinishTime).toISOString() : null,
+        estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : null,
         updatedAt: new Date()
       });
       toast.success('Job updated successfully');
@@ -247,13 +314,35 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-zinc-500 mb-1.5">Expected Finish Time</label>
-                      <input 
-                        type="datetime-local" 
-                        value={formData.expectedFinishTime} 
-                        onChange={e => setFormData(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
-                        className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                      <label className="block text-xs font-bold text-zinc-500 mb-1.5">Assigned Staff</label>
+                      <StaffSelector 
+                        selectedStaff={formData.assignedStaff} 
+                        onAssign={staff => setFormData(prev => ({ ...prev, assignedStaff: staff }))} 
+                        tenantId={tenantId} 
                       />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 mb-1.5">Expected Finish Time</label>
+                        <input 
+                          type="datetime-local" 
+                          value={formData.expectedFinishTime} 
+                          onChange={e => setFormData(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
+                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-zinc-500 mb-1.5">Est. Time (Hours)</label>
+                        <input 
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          value={formData.estimatedHours || ''} 
+                          onChange={e => setFormData(prev => ({ ...prev, estimatedHours: e.target.value }))}
+                          placeholder="e.g. 2.5"
+                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                        />
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -356,7 +445,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                         </div>
                         <div className="flex justify-between items-center mt-2">
                           <p className="text-xs text-zinc-500">Qty: {part.quantity || 1}</p>
-                          <p className="text-[10px] text-zinc-400 font-medium">Req by <StaffLink name={part.requestedByName || 'Staff'} tenantId={tenantId} /></p>
+                          <p className="text-[10px] text-zinc-400 font-medium">Req by <StaffLink name={part.requestedBy || 'Staff'} tenantId={tenantId} /></p>
                         </div>
                       </div>
                     ))
@@ -398,7 +487,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                 </div>
               </section>
 
-              <section className="col-span-1 md:col-span-2 lg:col-span-1">
+              <section>
                 <div className="flex items-center gap-2 mb-4">
                   <History className="w-4 h-4 text-indigo-500" />
                   <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest">Movement History</label>
@@ -450,6 +539,120 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                   )}
                 </div>
               </section>
+
+              <section>
+                {(() => {
+                  const totalLoggedMs = timeLogs.reduce((acc, session) => {
+                    const jobSegments = (session.jobs || []).filter((j: any) => j.id === job.id);
+                    const segMs = jobSegments.reduce((segAcc: number, seg: any) => {
+                      const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+                      const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
+                      return segAcc + Math.max(0, end - start);
+                    }, 0);
+                    return acc + segMs;
+                  }, 0);
+
+                  const totalLoggedHours = totalLoggedMs / 3600000;
+                  const loggedDisplay = `${Math.floor(totalLoggedMs / 3600000)}h ${Math.floor((totalLoggedMs % 3600000) / 60000)}m`;
+                  const estimatedHours = job.estimatedHours ? parseFloat(job.estimatedHours) : 0;
+                  const progressPercent = estimatedHours > 0 ? Math.min(100, Math.round((totalLoggedHours / estimatedHours) * 100)) : 0;
+
+                  return (
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-blue-500" />
+                        <label className="block text-[10px] font-black text-blue-500 uppercase tracking-widest">Time Clock Logs</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                          {loggedDisplay} {estimatedHours > 0 && `/ ${estimatedHours}h`}
+                        </div>
+                        {estimatedHours > 0 && (
+                          <div className="w-16 h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                            <div 
+                              className={cn("h-full rounded-full", progressPercent >= 100 ? "bg-rose-500" : progressPercent > 75 ? "bg-amber-500" : "bg-blue-500")} 
+                              style={{ width: `${progressPercent}%` }} 
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="space-y-3">
+                  {timeLogs.length === 0 ? (
+                    <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No time logged against this job.</p>
+                  ) : (
+                    (() => {
+                      const timeEvents: any[] = [];
+                      timeLogs.forEach(session => {
+                        const jobSegments = (session.jobs || []).filter((j: any) => j.id === job.id);
+                        jobSegments.forEach((seg: any) => {
+                          if (seg.end) {
+                            timeEvents.push({
+                              id: `${session.id}-out-${seg.start?.seconds || seg.start}`,
+                              type: 'out',
+                              userName: session.userName,
+                              timestamp: seg.end
+                            });
+                          }
+                          timeEvents.push({
+                            id: `${session.id}-in-${seg.start?.seconds || seg.start}`,
+                            type: 'in',
+                            userName: session.userName,
+                            timestamp: seg.start
+                          });
+                        });
+                      });
+
+                      timeEvents.sort((a, b) => {
+                        const getTs = (ts: any) => ts?.toDate ? ts.toDate().getTime() : new Date(ts || 0).getTime();
+                        return getTs(b.timestamp) - getTs(a.timestamp);
+                      });
+
+                      if (timeEvents.length === 0) {
+                        return <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No time logged against this job.</p>;
+                      }
+
+                      return timeEvents.map(event => {
+                        const isLiveIn = event.type === 'in' && !timeEvents.some(e => e.type === 'out' && e.id.startsWith(event.id.replace('-in-', '-out-'))); // Approximation for live style
+                        
+                        return (
+                          <div key={event.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-between text-sm group">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                                  event.type === 'in' 
+                                    ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-500' 
+                                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-500'
+                                }`}>
+                                  {event.type === 'in' ? 'Clocked In' : 'Clocked Out'}
+                                </span>
+                                <span className="font-bold text-xs text-zinc-900 dark:text-white truncate">{event.userName || 'Staff Member'}</span>
+                              </div>
+                              <p className="text-[10px] text-zinc-400 font-medium tracking-wide italic ml-1">
+                                recorded time entry
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0 ml-4">
+                              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter leading-none block mb-1">
+                                {event.timestamp ? (
+                                  event.timestamp.toDate ? event.timestamp.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : new Date(event.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                                ) : '...'}
+                              </span>
+                              <span className="text-[8px] text-zinc-500 font-black uppercase tracking-widest opacity-60">
+                                {event.timestamp ? (
+                                  event.timestamp.toDate ? event.timestamp.toDate().toLocaleDateString([], { month: 'short', day: 'numeric' }) : new Date(event.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                                ) : '--'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()
+                  )}
+                </div>
+              </section>
             </div>
           </div>
 
@@ -464,6 +667,27 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
               )}
             </div>
             <div className="flex items-center gap-3">
+              {job.assignedStaffIds?.includes(user?.uid) && (
+                activeJobId === job.id ? (
+                  <button 
+                    onClick={() => clockOutOfJob()}
+                    disabled={isClockingIn}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                  >
+                    <Timer className="w-4 h-4" />
+                    Clock Out
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => clockIntoJob(job.id, job.title)}
+                    disabled={isClockingIn}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                  >
+                    <Timer className="w-4 h-4" />
+                    Clock In
+                  </button>
+                )
+              )}
               <button 
                 onClick={onClose}
                 className="px-6 py-2.5 text-sm font-bold text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors"

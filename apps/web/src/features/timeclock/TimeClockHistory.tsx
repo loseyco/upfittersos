@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
@@ -34,6 +34,14 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const [requestingEdit, setRequestingEdit] = useState<string | null>(null);
   const [editNote, setEditNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['time-sessions', tenantId, user?.uid],
@@ -82,9 +90,9 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   };
 
   const calculateDuration = (start: any, end: any) => {
-    if (!start || !end) return 0;
+    if (!start) return 0;
     const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
-    const e = end.toDate ? end.toDate().getTime() : new Date(end).getTime();
+    const e = end ? (end.toDate ? end.toDate().getTime() : new Date(end).getTime()) : now;
     return Math.max(0, e - s);
   };
 
@@ -109,8 +117,8 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
 
       <div className="grid gap-4">
         {sessions?.map((session) => {
-          const totalMs = session.clockOut ? calculateDuration(session.clockIn.timestamp, session.clockOut.timestamp) : 0;
-          const breakMs = session.breaks.reduce((acc, b) => acc + (b.end ? calculateDuration(b.start, b.end) : 0), 0);
+          const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+          const breakMs = session.breaks.reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
           const workMs = totalMs - breakMs;
           const request = getRequestForSession(session.id);
 

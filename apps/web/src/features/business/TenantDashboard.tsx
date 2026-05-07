@@ -14,6 +14,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { BusinessSidebar } from './BusinessSidebar';
 
 import { MissionControl } from './MissionControl';
+import { UserMissionControl } from './UserMissionControl';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { PartsMissionControl } from './PartsMissionControl';
 
@@ -27,6 +28,7 @@ import { JobsManager } from './JobsManager';
 import { CustomersManager } from './CustomersManager';
 import { TimeClockBar } from '../timeclock/TimeClockBar';
 import { TimeclockAdmin } from '../timeclock/TimeclockAdmin';
+import { LiveTimeclockBoard } from '../timeclock/LiveTimeclockBoard';
 import { StaffRoster } from './StaffRoster';
 import { PullToRefresh } from '../../components/layout/PullToRefresh';
 
@@ -173,12 +175,12 @@ export function TenantDashboard() {
                 </div>
                 <div>
                   <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {activeTab === 'overview' ? business?.name : activeTab === 'foreman' ? 'Shop' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    {activeTab === 'overview' ? 'My Dashboard' : activeTab === 'mission_control' ? business?.name : activeTab === 'foreman' ? 'Shop' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </h1>
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {activeTab === 'overview' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
+                    {activeTab === 'overview' ? 'Personal Workflow' : activeTab === 'mission_control' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
                   </p>
-                  {activeTab === 'overview' && lastSync && (
+                  {activeTab === 'mission_control' && lastSync && (
                     <div className="flex items-center gap-1.5 mt-2 text-zinc-400">
                       <RefreshCw className="w-3 h-3 text-emerald-500" />
                       <span className="text-[10px] font-bold uppercase tracking-wider">
@@ -199,6 +201,10 @@ export function TenantDashboard() {
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
+              <UserMissionControl tenantId={tenantId!} />
+            )}
+
+            {activeTab === 'mission_control' && (
               <PermissionGate permission="mission_control.view">
                 <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} />
               </PermissionGate>
@@ -242,6 +248,10 @@ export function TenantDashboard() {
               <PermissionGate permission="timeclock.manage">
                 <TimeclockAdmin tenantId={tenantId!} />
               </PermissionGate>
+            )}
+
+            {activeTab === 'live_timeclock' && (
+              <LiveTimeclockBoard tenantId={tenantId!} />
             )}
 
             {activeTab === 'parts' && (

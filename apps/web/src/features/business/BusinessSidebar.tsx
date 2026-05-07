@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   Home, Users, Briefcase, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2
+  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';
@@ -16,7 +16,8 @@ export type NavItem = {
 };
 
 const ITEMS: NavItem[] = [
-  { id: 'overview', label: 'Overview', icon: Home, group: 'ops', permission: 'mission_control.view' },
+  { id: 'overview', label: 'My Dashboard', icon: Home, group: 'ops' },
+  { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'ops', permission: 'mission_control.view' },
   { id: 'foreman', label: 'Shop', icon: ClipboardList, group: 'ops' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops', permission: 'parts.view' },
   { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'ops' },
@@ -24,6 +25,7 @@ const ITEMS: NavItem[] = [
   { id: 'office', label: 'Office', icon: Building2, group: 'ops' },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops', permission: 'jobs.view' },
   { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'ops' },
   { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'ops', permission: 'timeclock.manage' },
   { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'ops', permission: 'reports.view' },
   { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'ops', permission: 'reports.view' },

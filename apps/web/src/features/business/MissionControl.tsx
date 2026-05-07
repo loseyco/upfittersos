@@ -463,6 +463,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       const jobId = bay.currentJobId || vehicle?.jobId;
                       const job = allJobs?.find((j: any) => j.id === jobId) as any;
                       const customerName = bay.customerName || vehicle?.customerName || job?.customerName;
+                      const assignedStaff = job?.assignedStaff || bay.assignedStaff;
+                      const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
                       
                       const vehicleDisplay = vehicle 
                         ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`) 
@@ -500,6 +502,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
                                       Missing Customer
                                     </span>
+                                  </>
+                                )}
+                                {assignedStaffDisplay && (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="truncate text-indigo-500 font-bold">{assignedStaffDisplay}</span>
                                   </>
                                 )}
                               </div>
@@ -598,6 +606,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       const jobId = zone.currentJobId || vehicle?.jobId;
                       const job = allJobs?.find((j: any) => j.id === jobId) as any;
                       const customerName = zone.customerName || vehicle?.customerName || job?.customerName;
+                      const assignedStaff = job?.assignedStaff || zone.assignedStaff;
+                      const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
                       
                       const vehicleDisplay = vehicle 
                         ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin}`) 
@@ -635,6 +645,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
                                       Missing Customer
                                     </span>
+                                  </>
+                                )}
+                                {assignedStaffDisplay && (
+                                  <>
+                                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                    <span className="truncate text-indigo-500 font-bold">{assignedStaffDisplay}</span>
                                   </>
                                 )}
                               </div>

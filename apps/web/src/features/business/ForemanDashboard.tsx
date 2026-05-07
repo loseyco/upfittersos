@@ -255,11 +255,14 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
     const jobId = bay.currentJobId || vehicle?.jobId;
     const job = allJobs?.find((j: any) => j.id === jobId) as any;
     const customerName = bay.customerName || vehicle?.customerName || job?.customerName;
+    const assignedStaff = job?.assignedStaff || bay.assignedStaff;
+    const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
     
     const vehicleDisplay = vehicle 
       ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`) 
       : (bay.currentVehicleVin ? `VIN: ${bay.currentVehicleVin}` : 'Unlinked');
     const timestamp = bay.lastAssignedAt || bay.updatedAt;
+    const hasVehicle = !!(bay.currentVehicleVin || (bay.currentVehicleVins && bay.currentVehicleVins.length > 0));
 
     return (
       <div key={bay.id} className="relative group/item pointer-events-auto">
@@ -271,30 +274,38 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                 {vehicleDisplay}
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 pl-[88px] sm:pl-[104px] text-[10px] sm:text-xs text-zinc-400 truncate">
-              {job ? (
-                <span className="text-emerald-500 font-bold uppercase tracking-tight">
-                  {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
-                </span>
-              ) : (
-                <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
-                  Missing Job
-                </span>
-              )}
-              {customerName ? (
-                <>
-                  <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                  <span className="truncate">{customerName}</span>
-                </>
-              ) : !job && (
-                <>
-                  <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
-                    Missing Customer
+            {hasVehicle && (
+              <div className="flex flex-wrap items-center gap-1.5 pl-[88px] sm:pl-[104px] text-[10px] sm:text-xs text-zinc-400 truncate">
+                {job ? (
+                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                   </span>
-                </>
-              )}
-            </div>
+                ) : (
+                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                    Missing Job
+                  </span>
+                )}
+                {customerName ? (
+                  <>
+                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                    <span className="truncate">{customerName}</span>
+                  </>
+                ) : !job && (
+                  <>
+                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                      Missing Customer
+                    </span>
+                  </>
+                )}
+                {assignedStaffDisplay && (
+                  <>
+                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                    <span className="truncate text-indigo-500 font-bold">{assignedStaffDisplay}</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           {(() => {
             if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
@@ -304,8 +315,6 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             
             // Last activity time for the label (always use updatedAt if available)
             const activityTs = bay.updatedAt || timestamp;
-            const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
-            
             const hours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
             const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
             
@@ -339,7 +348,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                   );
                 })()}
                 <span className={`text-[9px] sm:text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
-                  UPD: {new Date(activityTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  UPD: {calculateDuration(activityTs)} ago
                 </span>
               </div>
             );

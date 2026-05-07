@@ -11,6 +11,7 @@ import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { StaffLink } from './StaffPerformance';
 import { JobSelector } from './JobSelectionComponents';
 import { QuickAddCustomerModal } from './CustomerSelectionComponents';
+import { StaffSelector } from './StaffSelectionComponents';
 import { VinSelector } from './VehicleSelector';
 import { useAuthStore } from '../../lib/auth/store';
 
@@ -58,6 +59,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
   const [history, setHistory] = useState<any[]>([]);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+
   const [now, setNow] = useState(Date.now());
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(zone.name || '');
@@ -462,6 +464,35 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                 );
               })()}
 
+              {/* Staff Assignment */}
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black text-amber-500 uppercase tracking-widest px-1">Staff Assignment</label>
+                <StaffSelector 
+                  selectedStaff={targetEntity.assignedStaff || (targetEntity.assignedStaffId ? [{ id: targetEntity.assignedStaffId, name: targetEntity.assignedStaffName || 'Staff' }] : [])}
+                  tenantId={tenantId}
+                  onAssign={async (staff) => {
+                    const updatePayload = {
+                      assignedStaff: staff,
+                      assignedStaffIds: staff.map((s: any) => s.id),
+                      assignedStaffId: staff.length > 0 ? staff[0].id : null,
+                      assignedStaffName: staff.length > 0 ? staff[0].name : null,
+                      updatedAt: serverTimestamp()
+                    };
+                    try {
+                      if (job?.id) {
+                        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), updatePayload);
+                      } else {
+                        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), updatePayload);
+                      }
+                      toast.success("Assigned staff updated");
+                    } catch (err) {
+                      console.error(err);
+                      toast.error("Failed to update assigned staff");
+                    }
+                  }}
+                />
+              </div>
+
               {/* Job Section - Primary Assignment */}
               {!zone.allowMultiple && (
                 <div className="space-y-3">
@@ -680,13 +711,15 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
 
   const [activeTab, setActiveTab] = useState(initialTab);
   const [isSaving, setIsSaving] = useState(false);
+
   const [floorWalk, setFloorWalk] = useState({
     newBlocker: '',
     newNote: '',
     notes: targetEntity.notes || '',
     expectedFinishTime: formatDatetimeLocal(targetEntity.expectedFinishTime || targetEntity.eta),
     partsNeeded: '',
-    urgency: 'normal' as 'normal' | 'urgent'
+    urgency: 'normal' as 'normal' | 'urgent',
+    assignedStaff: targetEntity.assignedStaff || (targetEntity.assignedStaffId ? [{ id: targetEntity.assignedStaffId, name: targetEntity.assignedStaffName || 'Staff' }] : [])
   });
 
   const legacyBlocker = targetEntity.blocker ? [{
@@ -872,6 +905,10 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
     try {
       const updatePayload: any = {
         notes: floorWalk.notes,
+        assignedStaff: floorWalk.assignedStaff,
+        assignedStaffIds: floorWalk.assignedStaff.map((s: any) => s.id),
+        assignedStaffId: floorWalk.assignedStaff.length > 0 ? floorWalk.assignedStaff[0].id : null,
+        assignedStaffName: floorWalk.assignedStaff.length > 0 ? floorWalk.assignedStaff[0].name : null,
         updatedAt: serverTimestamp()
       };
       
@@ -946,6 +983,17 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
         </div>
 
         <div className="p-6 space-y-6">
+          <div className="flex items-center gap-4 p-3 bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest shrink-0">Assigned Staff</label>
+            <div className="flex-1 min-w-0">
+              <StaffSelector 
+                selectedStaff={floorWalk.assignedStaff} 
+                onAssign={staff => setFloorWalk(prev => ({ ...prev, assignedStaff: staff }))} 
+                tenantId={tenantId} 
+              />
+            </div>
+          </div>
+
           {activeTab === 'blocker' && (
             <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
               <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest px-1">Active Blockers</label>
@@ -958,7 +1006,16 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
                         <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                         <div>
                           <p className="text-sm font-bold text-red-600 dark:text-red-400">{blocker.message}</p>
-                          <p className="text-[10px] text-red-500/70 font-medium uppercase tracking-tighter">Added by {blocker.createdBy}</p>
+                          <p className="text-[10px] text-red-500/70 font-medium uppercase tracking-tighter">
+                            Added by {blocker.createdBy} {blocker.createdAt && `• ${(() => {
+                              const d = new Date(blocker.createdAt);
+                              const diff = Math.floor((Date.now() - d.getTime()) / 60000);
+                              if (diff < 1) return 'Just now';
+                              if (diff < 60) return `${diff}m ago`;
+                              if (diff < 1440) return `${Math.floor(diff/60)}h ago`;
+                              return `${Math.floor(diff/1440)}d ago`;
+                            })()}`}
+                          </p>
                         </div>
                       </div>
                       <button 

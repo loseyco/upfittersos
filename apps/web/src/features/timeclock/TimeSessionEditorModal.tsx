@@ -25,6 +25,12 @@ interface TimeSession {
     end?: any;
     isPaid: boolean;
   }>;
+  jobs?: Array<{
+    id: string;
+    name: string;
+    start: any;
+    end?: any;
+  }>;
   status: string;
 }
 
@@ -42,6 +48,18 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const [clockOut, setClockOut] = useState('');
   const [isRemote, setIsRemote] = useState(session.isRemote || false);
   const [breaks, setBreaks] = useState(session.breaks || []);
+  const [jobs, setJobs] = useState(session.jobs || []);
+
+  const formatDatetimeLocal = (dateVal: any) => {
+    if (!dateVal) return '';
+    try {
+      const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+      if (isNaN(d.getTime())) return '';
+      return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    } catch {
+      return '';
+    }
+  };
 
   useEffect(() => {
     // Format timestamps for datetime-local input (YYYY-MM-DDTHH:mm)
@@ -126,8 +144,9 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         updates.status = 'active';
       }
 
-      // Sync updated breaks if needed (for now keeping as is, but could add break editor here)
       updates.breaks = breaks;
+      updates.jobs = jobs;
+      updates.jobIds = Array.from(new Set(jobs.map((j: any) => j.id)));
 
       await updateDoc(sessionRef, updates);
 
@@ -163,11 +182,29 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const updateBreak = (index: number, field: string, value: any) => {
     const newBreaks = [...breaks];
     if (field === 'start' || field === 'end') {
-      newBreaks[index] = { ...newBreaks[index], [field]: new Date(value) };
+      newBreaks[index] = { ...newBreaks[index], [field]: value ? new Date(value) : null };
     } else {
       newBreaks[index] = { ...newBreaks[index], [field]: value };
     }
     setBreaks(newBreaks);
+  };
+
+  const addJob = () => {
+    setJobs([...jobs, { id: 'manual', name: 'Manual Entry', start: new Date(), end: new Date() }]);
+  };
+
+  const removeJob = (index: number) => {
+    setJobs(jobs.filter((_, i) => i !== index));
+  };
+
+  const updateJob = (index: number, field: string, value: any) => {
+    const newJobs = [...jobs];
+    if (field === 'start' || field === 'end') {
+      newJobs[index] = { ...newJobs[index], [field]: value ? new Date(value) : null };
+    } else {
+      newJobs[index] = { ...newJobs[index], [field]: value };
+    }
+    setJobs(newJobs);
   };
 
   return (
@@ -221,6 +258,61 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">Jobs Worked</label>
+              <button 
+                onClick={addJob}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700"
+              >
+                + Add Job
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {jobs.map((j, i) => (
+                <div key={`job-${i}`} className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Start</label>
+                    <input 
+                      type="datetime-local"
+                      value={formatDatetimeLocal(j.start)}
+                      onChange={(e) => updateJob(i, 'start', e.target.value)}
+                      className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1 border-l border-zinc-200 dark:border-zinc-800 pl-3">
+                    <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">End</label>
+                    <input 
+                      type="datetime-local"
+                      value={formatDatetimeLocal(j.end)}
+                      onChange={(e) => updateJob(i, 'end', e.target.value)}
+                      className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <input
+                      type="text"
+                      value={j.name}
+                      onChange={(e) => updateJob(i, 'name', e.target.value)}
+                      placeholder="Job Name"
+                      className="w-32 bg-zinc-100 dark:bg-zinc-800 border-none rounded-lg text-xs font-bold px-3 py-1.5 focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white"
+                    />
+                    <button 
+                      onClick={() => removeJob(i)}
+                      className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {jobs.length === 0 && (
+                <p className="text-xs text-zinc-500 italic text-center py-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">No jobs recorded for this session.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
               <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">Breaks</label>
               <button 
                 onClick={addBreak}
@@ -232,12 +324,12 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             
             <div className="space-y-3">
               {breaks.map((b, i) => (
-                <div key={i} className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
+                <div key={`break-${i}`} className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
                   <div className="flex-1 space-y-1">
                     <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Start</label>
                     <input 
                       type="datetime-local"
-                      value={new Date((b.start.toDate ? b.start.toDate() : new Date(b.start)).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,16)}
+                      value={formatDatetimeLocal(b.start)}
                       onChange={(e) => updateBreak(i, 'start', e.target.value)}
                       className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
                     />
@@ -246,7 +338,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                     <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">End</label>
                     <input 
                       type="datetime-local"
-                      value={b.end ? new Date((b.end.toDate ? b.end.toDate() : new Date(b.end)).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0,16) : ''}
+                      value={formatDatetimeLocal(b.end)}
                       onChange={(e) => updateBreak(i, 'end', e.target.value)}
                       className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
                     />
