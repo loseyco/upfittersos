@@ -253,7 +253,7 @@ export function TenantDashboard() {
 
             {activeTab === 'jobs' && (
               <PermissionGate permission="jobs.view">
-                <JobsManager tenantId={tenantId!} />
+                <JobsManager tenantId={tenantId!} jobId={pathParts[1]} />
               </PermissionGate>
             )}
 

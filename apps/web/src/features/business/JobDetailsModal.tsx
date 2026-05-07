@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { doc, updateDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car
+  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
@@ -17,7 +18,15 @@ interface JobDetailsModalProps {
 }
 
 export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsModalProps) {
+  const navigate = useNavigate();
   const [isSaving, setIsSaving] = useState(false);
+  const formatDatetimeLocal = (dateString?: any) => {
+    if (!dateString) return '';
+    const date = typeof dateString.toDate === 'function' ? dateString.toDate() : new Date(dateString);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 16);
+  };
+
   const [formData, setFormData] = useState({
     title: job.title || '',
     jobNumber: job.jobNumber || '',
@@ -26,7 +35,8 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     vehicleId: job.vehicleId || '',
     customerId: job.customerId || null,
     customerName: job.customerName || '',
-    notes: job.notes || ''
+    notes: job.notes || '',
+    expectedFinishTime: formatDatetimeLocal(job.expectedFinishTime)
   });
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
@@ -43,11 +53,64 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     });
   }, [tenantId]);
 
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!job.id || !tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/zone_assignments`),
+      where('jobId', '==', job.id),
+      limit(100)
+    );
+    const unsub = onSnapshot(q, snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort in memory to avoid requiring a composite index
+      data.sort((a: any, b: any) => {
+        const getTs = (item: any) => {
+          const val = item.assignedAt;
+          if (val?.seconds) return val.seconds * 1000;
+          return new Date(val || 0).getTime();
+        };
+        return getTs(b) - getTs(a);
+      });
+      setHistory(data.slice(0, 20));
+    });
+    return () => unsub();
+  }, [job.id, tenantId]);
+
+  const [parts, setParts] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!job.id || !tenantId) return;
+    const qParts = query(
+      collection(db, `businesses/${tenantId}/parts_requests`),
+      where('jobId', '==', job.id)
+    );
+    const unsubParts = onSnapshot(qParts, snap => {
+      setParts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubParts();
+  }, [job.id, tenantId]);
+
+  const legacyBlocker = job.blocker ? [{
+    id: 'legacy',
+    message: job.blocker,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    createdBy: 'Legacy'
+  }] : [];
+  
+  const allBlockers = (job.blockers || legacyBlocker);
+  const activeBlockers = allBlockers.filter((b: any) => b.status === 'active');
+  const pastBlockers = allBlockers.filter((b: any) => b.status === 'cleared');
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const { expectedFinishTime, ...rest } = formData;
       await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
-        ...formData,
+        ...rest,
+        expectedFinishTime: expectedFinishTime ? new Date(expectedFinishTime).toISOString() : null,
         updatedAt: new Date()
       });
       toast.success('Job updated successfully');
@@ -89,10 +152,13 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
               const currentZone = zones.find(z => z.currentVehicleVin === job.vehicleId || z.currentJobId === job.id || z.currentVehicleVins?.includes(job.vehicleId));
               if (!currentZone) return null;
               return (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl animate-in slide-in-from-right-4">
+                <button 
+                  onClick={() => navigate(`/business/${tenantId}/zones?zone=${currentZone.id}`)}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl animate-in slide-in-from-right-4 hover:bg-emerald-500/20 hover:scale-105 transition-all"
+                >
                   <MapPin className="w-3.5 h-3.5 text-emerald-600" />
                   <span className="text-xs font-black text-emerald-600 uppercase tracking-wider">{currentZone.name}</span>
-                </div>
+                </button>
               );
             })()}
             <button onClick={onClose} className="p-2 text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800">
@@ -162,6 +228,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                         >
                           <option value="Open">Open</option>
                           <option value="Active">Active</option>
+                          <option value="Blocked">Blocked</option>
                           <option value="On Hold">On Hold</option>
                           <option value="Completed">Completed</option>
                           <option value="Closed">Closed</option>
@@ -180,6 +247,15 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                           <option value="Urgent">Urgent</option>
                         </select>
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 mb-1.5">Expected Finish Time</label>
+                      <input 
+                        type="datetime-local" 
+                        value={formData.expectedFinishTime} 
+                        onChange={e => setFormData(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
+                        className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                      />
                     </div>
                   </div>
                 </section>
@@ -255,6 +331,127 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                   />
                 </section>
               </div>
+            </div>
+
+            {/* History & Status Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-zinc-100 dark:border-zinc-800">
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <ShoppingCart className="w-4 h-4 text-emerald-500" />
+                  <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest">Parts & Requests</label>
+                </div>
+                <div className="space-y-3">
+                  {parts.length === 0 ? (
+                    <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No parts requested.</p>
+                  ) : (
+                    parts.map(part => (
+                      <div key={part.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white truncate">{part.partName}</p>
+                          <span className={cn("text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full shrink-0",
+                            part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
+                            part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
+                            "bg-amber-500/10 text-amber-600"
+                          )}>
+                            {part.status || 'Pending'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                          <p className="text-xs text-zinc-500">Qty: {part.quantity || 1}</p>
+                          <p className="text-[10px] text-zinc-400 font-medium">Req by <StaffLink name={part.requestedByName || 'Staff'} tenantId={tenantId} /></p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section>
+                <div className="flex items-center gap-2 mb-4">
+                  <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  <label className="block text-[10px] font-black text-amber-500 uppercase tracking-widest">Blocker History</label>
+                </div>
+                <div className="space-y-3">
+                  {allBlockers.length === 0 ? (
+                    <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No blockers recorded for this job.</p>
+                  ) : (
+                    [...allBlockers].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((blocker: any) => (
+                      <div key={blocker.id} className={`p-3 border rounded-xl ${blocker.status === 'active' ? 'bg-red-500/10 border-red-500/20' : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 opacity-75'}`}>
+                        <div className="flex items-center gap-3">
+                          <AlertTriangle className={`w-4 h-4 shrink-0 ${blocker.status === 'active' ? 'text-red-500' : 'text-zinc-400'}`} />
+                          <div className="flex-1">
+                            <p className={`text-sm font-bold ${blocker.status === 'active' ? 'text-red-600 dark:text-red-400' : 'text-zinc-600 dark:text-zinc-400 line-through'}`}>{blocker.message}</p>
+                            <p className="text-[10px] text-zinc-500 font-medium mt-1">
+                              Added by <StaffLink name={blocker.createdBy} tenantId={tenantId} /> on {new Date(blocker.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            </p>
+                            {blocker.status === 'cleared' && blocker.clearedAt && (
+                              <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1">
+                                Cleared by <StaffLink name={blocker.clearedBy} tenantId={tenantId} /> on {new Date(blocker.clearedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${blocker.status === 'active' ? 'bg-red-500 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'}`}>
+                            {blocker.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="col-span-1 md:col-span-2 lg:col-span-1">
+                <div className="flex items-center gap-2 mb-4">
+                  <History className="w-4 h-4 text-indigo-500" />
+                  <label className="block text-[10px] font-black text-indigo-500 uppercase tracking-widest">Movement History</label>
+                </div>
+                <div className="space-y-3">
+                  {history.length === 0 ? (
+                    <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No movement history available.</p>
+                  ) : (
+                    history.map(item => {
+                      const author = item.assignedByName || item.assignedByEmail || (item.assignedBy !== 'system' ? 'Staff Member' : 'System');
+                      return (
+                        <div key={item.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-between text-sm group">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${
+                                item.action === 'assigned' 
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-500' 
+                                  : item.action === 'verified'
+                                  ? 'bg-blue-500/10 text-blue-600 dark:text-blue-500'
+                                  : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'
+                              }`}>
+                                {item.action === 'assigned' ? 'Assigned' : item.action === 'verified' ? 'Verified' : 'Cleared'}
+                              </span>
+                              <span className="font-bold text-xs text-zinc-900 dark:text-white truncate">{item.zoneName || 'Unknown Bay'}</span>
+                            </div>
+                            
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-4 h-4 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[8px] font-black uppercase text-zinc-500">
+                                {(author)[0]}
+                              </div>
+                              <p className="text-[10px] text-zinc-400 font-medium tracking-wide italic">by <StaffLink name={author} tenantId={tenantId} /></p>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-4">
+                            <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter leading-none block mb-1">
+                              {item.assignedAt?.seconds ? (
+                                new Date(item.assignedAt.seconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                              ) : '...'}
+                            </span>
+                            <span className="text-[8px] text-zinc-500 font-black uppercase tracking-widest opacity-60">
+                              {item.assignedAt?.seconds ? (
+                                new Date(item.assignedAt.seconds * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                              ) : '--'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
             </div>
           </div>
 

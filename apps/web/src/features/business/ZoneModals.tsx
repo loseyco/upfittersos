@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, doc, updateDoc, serverTimestamp, onSnapshot, query, orderBy, limit, where, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Warehouse, MapPin, Briefcase, LayoutDashboard, 
-  X, Edit2, CarFront, History, CheckCircle2 
+  X, Edit2, CarFront, History, CheckCircle2,
+  AlertTriangle, Clock, MessageSquare, Save, Package, ShoppingCart
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -25,6 +26,9 @@ export interface Zone {
   createdAt?: any;
   updatedAt?: any;
   isArchived?: boolean;
+  blocker?: string;
+  notes?: string;
+  eta?: any;
 }
 
 export const zoneTypeIcons = {
@@ -34,12 +38,23 @@ export const zoneTypeIcons = {
   other: LayoutDashboard,
 };
 
-export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAssign, onClear, onRemoveVehicle, onQuickAddRequest, onQuickAddJobRequest, onOpenVehicle, onDelete }: any) {
+export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAssign, onClear, onRemoveVehicle, onQuickAddRequest, onQuickAddJobRequest, onOpenVehicle, onDelete, partsRequests = [] }: any) {
 
   useBodyScrollLock(true);
-  const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const job = jobs.find((j: any) => j.id === zone.currentJobId);
+  const targetEntity = job || zone;
+  
+  const legacyBlocker = targetEntity.blocker ? [{
+    id: 'legacy',
+    message: targetEntity.blocker,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    createdBy: 'Legacy'
+  }] : [];
+  const activeBlockers = (targetEntity.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+
+  const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
   const [history, setHistory] = useState<any[]>([]);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
@@ -51,6 +66,16 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
   const { user } = useAuthStore();
   const [isVerifying, setIsVerifying] = useState(false);
+
+
+
+  const [floorWalkTab, setFloorWalkTab] = useState<'blocker' | 'notes' | 'eta' | 'parts'>('notes');
+  const [isFloorWalkOpen, setIsFloorWalkOpen] = useState(false);
+ 
+  const openFloorWalk = (tab: 'blocker' | 'notes' | 'eta' | 'parts') => {
+    setFloorWalkTab(tab);
+    setIsFloorWalkOpen(true);
+  };
 
   useEffect(() => {
     if (!vehicle && zoneVehicles.length === 0) return;
@@ -99,7 +124,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
 
       await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), updateData);
 
-      // Log the verification activity
+      // Log the verification activity (for history)
       await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
         zoneId: zone.id,
         zoneName: zone.name || 'Unknown Zone',
@@ -112,6 +137,16 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
         assignedBy: user?.uid || 'system',
         assignedByName: user?.displayName || user?.email || 'Staff',
         notes: 'Occupancy verified by staff'
+      });
+
+      // Log to activity feed for Mission Control
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'zone_move',
+        title: 'Occupancy Verified',
+        message: `Verified: ${zone.name}${job ? ` (#${job.jobNumber})` : ''}`,
+        timestamp,
+        severity: 'success',
+        author: user?.displayName || user?.email || 'Staff'
       });
 
       toast.success("Occupancy verified");
@@ -149,14 +184,24 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   };
 
   useEffect(() => {
+    if (!zone.id || !tenantId) return;
     const q = query(
       collection(db, `businesses/${tenantId}/zone_assignments`),
       where('zoneId', '==', zone.id),
-      orderBy('assignedAt', 'desc'),
-      limit(10)
+      limit(100)
     );
     const unsub = onSnapshot(q, snap => {
-      setHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort in memory to avoid requiring a composite index
+      data.sort((a: any, b: any) => {
+        const getTs = (item: any) => {
+          const val = item.assignedAt;
+          if (val?.seconds) return val.seconds * 1000;
+          return new Date(val || 0).getTime();
+        };
+        return getTs(b) - getTs(a);
+      });
+      setHistory(data.slice(0, 10));
     });
     return () => unsub();
   }, [zone.id, tenantId]);
@@ -229,34 +274,194 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
           <section>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                <CarFront className="w-4 h-4 text-indigo-500" /> Current Work Order & Vehicle
+                <CarFront className="w-4 h-4 text-indigo-500" /> Active Assignment
               </h3>
               {!zone.allowMultiple && (vehicle || job) && (
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => onClear()}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full text-[10px] font-black uppercase tracking-wider transition-colors"
-                  >
-                    <X className="w-3 h-3" />
-                    Empty Bay
-                  </button>
-                  <button 
-                    onClick={handleVerify}
-                    disabled={isVerifying}
-                    className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-full text-[10px] font-black uppercase tracking-wider transition-colors disabled:opacity-50"
-                  >
-                    <CheckCircle2 className={`w-3 h-3 ${isVerifying ? 'animate-pulse' : ''}`} />
-                    Verify Still Here
-                  </button>
-                  <p className="hidden sm:block text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
+                <div className="flex items-center gap-1.5">
+                  {(job?.expectedFinishTime || job?.eta || zone.eta) && (
+                    <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-full uppercase tracking-wider flex items-center gap-1">
+                      <Clock className="w-2.5 h-2.5" />
+                      {(() => {
+                        const eta = job?.expectedFinishTime || job?.eta || zone.eta;
+                        const date = typeof eta?.toDate === 'function' ? eta.toDate() : new Date(eta);
+                        return `ETA: ${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+                      })()}
+                    </p>
+                  )}
+                  <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
                     {timeInArea() || '--'}
                   </p>
                 </div>
               )}
             </div>
-            
+
+            {!zone.allowMultiple && (vehicle || job) && (
+              <div className="space-y-2 mb-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => onClear()}
+                    className="flex items-center justify-center gap-2 p-2.5 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 rounded-xl transition-all group"
+                  >
+                    <X className="w-4 h-4" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Empty</span>
+                  </button>
+                  <button 
+                    onClick={handleVerify}
+                    disabled={isVerifying}
+                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl transition-all group disabled:opacity-50"
+                  >
+                    <CheckCircle2 className={`w-4 h-4 ${isVerifying ? 'animate-pulse' : ''}`} />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-center">Verify: No Change</span>
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-4 gap-2">
+                  <button 
+                    onClick={() => openFloorWalk('blocker')}
+                    className="flex flex-col items-center justify-center gap-1 p-2 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 rounded-xl transition-all group relative"
+                  >
+                    <AlertTriangle className="w-4 h-4" />
+                    <span className="text-[8px] font-black uppercase tracking-tighter">Blocker</span>
+                    {activeBlockers.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center animate-pulse border-2 border-white dark:border-zinc-900 shadow-sm">
+                        {activeBlockers.length}
+                      </span>
+                    )}
+                  </button>
+                  <button 
+                    onClick={() => openFloorWalk('parts')}
+                    className="flex flex-col items-center justify-center gap-1 p-2 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-xl transition-all group relative"
+                  >
+                    <ShoppingCart className="w-4 h-4" />
+                    <span className="text-[8px] font-black uppercase tracking-tighter">Parts</span>
+                    {(() => {
+                      const activeParts = (partsRequests || []).filter((pr: any) => {
+                        const status = (pr.status || '').toLowerCase();
+                        const isActive = ['pending', 'received', 'ordered'].includes(status);
+                        if (!isActive) return false;
+                        
+                        if (job?.id && pr.jobId === job.id) return true;
+                        if (zone?.id && pr.zoneId === zone.id) return true;
+                        const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
+                        if (currentVin && pr.vin === currentVin) return true;
+                        
+                        return false;
+                      });
+                      const count = activeParts.length;
+                      if (count === 0) return null;
+                      const hasArrived = activeParts.some((pr: any) => pr.status === 'received');
+                      return (
+                        <span className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white border-2 border-white dark:border-zinc-900 shadow-sm ${hasArrived ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}>
+                          {count}
+                        </span>
+                      );
+                    })()}
+                  </button>
+                  <button 
+                    onClick={() => openFloorWalk('notes')}
+                    className="flex flex-col items-center justify-center gap-1 p-2 bg-indigo-500/5 hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl transition-all group relative"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span className="text-[8px] font-black uppercase tracking-tighter">Note</span>
+                    {(() => {
+                      const noteCount = (targetEntity.work_notes?.length || 0) + (targetEntity.notes ? 1 : 0);
+                      if (noteCount === 0) return null;
+                      return (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-900 shadow-sm">
+                          {noteCount}
+                        </span>
+                      );
+                    })()}
+                  </button>
+                  <button 
+                    onClick={() => openFloorWalk('eta')}
+                    className="flex flex-col items-center justify-center gap-1 p-2 bg-blue-500/5 hover:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 rounded-xl transition-all group"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span className="text-[8px] font-black uppercase tracking-tighter">ETA</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl space-y-6 shadow-inner">
               
+              {/* High-Level Status Summary (Blockers/Parts/Notes) */}
+              {(() => {
+                const activeBlocker = (targetEntity.blockers || []).find((b: any) => b.status === 'active')?.message || targetEntity.blocker;
+                const latestNote = (targetEntity.work_notes?.[targetEntity.work_notes.length - 1]?.message) || targetEntity.notes;
+                
+                const activeParts = (partsRequests || []).filter((pr: any) => {
+                  const status = (pr.status || '').toLowerCase();
+                  const isActive = ['pending', 'received', 'ordered'].includes(status);
+                  if (!isActive) return false;
+                  
+                  if (job?.id && pr.jobId === job.id) return true;
+                  if (zone?.id && pr.zoneId === zone.id) return true;
+                  const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
+                  if (currentVin && pr.vin === currentVin) return true;
+                  
+                  return false;
+                });
+                
+                if (!activeBlocker && !latestNote && activeParts.length === 0) return null;
+
+                return (
+                  <div className="space-y-3 pb-2 border-b border-zinc-200/50 dark:border-zinc-800/50">
+                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest px-1">Current Status & Alerts</label>
+                    
+                    {/* Active Blocker */}
+                    {activeBlocker && (
+                      <div className="flex items-start gap-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                        <div className="p-2 bg-red-500/20 rounded-lg shrink-0">
+                          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-red-600 dark:text-red-400 uppercase tracking-wider mb-1">Active Blocker</p>
+                          <p className="text-xs font-bold text-zinc-900 dark:text-white leading-snug">{activeBlocker}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Latest Note */}
+                    {latestNote && (
+                      <div className="flex items-start gap-3 p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl">
+                        <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
+                          <MessageSquare className="w-4 h-4 text-indigo-500" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-wider mb-1">Latest Note</p>
+                          <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 leading-snug">{latestNote}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Active Parts */}
+                    {activeParts.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 px-1">
+                          <Package className="w-3.5 h-3.5 text-emerald-500" />
+                          <p className="text-[10px] font-black text-emerald-500 uppercase tracking-wider">Parts Pending Fulfillment</p>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          {activeParts.map((pr: any) => (
+                            <div key={pr.id} className={`flex items-center justify-between p-2.5 rounded-xl border ${pr.status === 'received' ? 'bg-emerald-500/5 border-emerald-500/20 animate-pulse' : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'}`}>
+                              <div className="flex items-center gap-2">
+                                <div className={`w-1.5 h-1.5 rounded-full ${pr.status === 'received' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                                <p className="text-[11px] font-bold text-zinc-900 dark:text-white truncate max-w-[200px]">{pr.partName}</p>
+                              </div>
+                              <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${pr.status === 'received' ? 'bg-emerald-500 text-white' : 'bg-amber-500/10 text-amber-600'}`}>
+                                {pr.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Job Section - Primary Assignment */}
               {!zone.allowMultiple && (
                 <div className="space-y-3">
@@ -278,9 +483,6 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           </div>
                         </div>
                       </div>
-                      <button onClick={() => onClear()} className="p-2 text-zinc-400 hover:text-red-500 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
                     </div>
                   ) : (
                     <JobSelector 
@@ -338,15 +540,24 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                       </div>
                       <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full">Active</span>
                     </button>
-                    <button onClick={() => onClear()} className="absolute -top-2 -right-2 p-2 bg-red-500 text-white rounded-full shadow-lg transition-opacity border-2 border-white dark:border-zinc-900 z-10" title="Clear Job">
-                      <X className="w-3 h-3" />
-                    </button>
                   </div>
                 ) : null}
-                <VinSelector vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} onAssign={(vin) => onAssign(vin, zone.currentJobId)} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} />
+                <VinSelector vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} onAssign={(vin) => onAssign(vin, zone.currentJobId)} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} hideClearButton={true} />
               </div>
             </div>
           </section>
+
+          {isFloorWalkOpen && (
+            <FloorWalkModal 
+              zone={zone}
+              job={job}
+              tenantId={tenantId}
+              user={user}
+              partsRequests={partsRequests}
+              initialTab={floorWalkTab}
+              onClose={() => setIsFloorWalkOpen(false)}
+            />
+          )}
 
           {/* History */}
           <section>
@@ -430,6 +641,568 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+function formatDatetimeLocal(dateString?: any) {
+  if (!dateString) {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+  }
+  const date = typeof dateString.toDate === 'function' ? dateString.toDate() : new Date(dateString);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
+export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], onClose, initialTab = 'notes' }: any) {
+  useBodyScrollLock(true);
+  const targetEntity = job || zone;
+  const etaInputRef = useRef<HTMLInputElement>(null);
+  
+  useEffect(() => {
+    if (initialTab === 'eta' && etaInputRef.current) {
+      setTimeout(() => {
+        try { (etaInputRef.current as any).showPicker(); } catch (e) {}
+      }, 100);
+    }
+  }, [initialTab]);
+
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [isSaving, setIsSaving] = useState(false);
+  const [floorWalk, setFloorWalk] = useState({
+    newBlocker: '',
+    newNote: '',
+    notes: targetEntity.notes || '',
+    expectedFinishTime: formatDatetimeLocal(targetEntity.expectedFinishTime || targetEntity.eta),
+    partsNeeded: '',
+    urgency: 'normal' as 'normal' | 'urgent'
+  });
+
+  const legacyBlocker = targetEntity.blocker ? [{
+    id: 'legacy',
+    message: targetEntity.blocker,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    createdBy: 'Legacy'
+  }] : [];
+  
+  const activeBlockers = (targetEntity.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+
+  const addHours = (hours: number) => {
+    const d = new Date(floorWalk.expectedFinishTime || new Date());
+    d.setHours(d.getHours() + hours);
+    setFloorWalk(p => ({ ...p, expectedFinishTime: formatDatetimeLocal(d) }));
+  };
+
+  const setTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(17, 0, 0, 0); // 5 PM tomorrow
+    setFloorWalk(p => ({ ...p, expectedFinishTime: formatDatetimeLocal(d) }));
+  };
+
+  const handleAddBlocker = async () => {
+    if (!floorWalk.newBlocker.trim()) return;
+    try {
+      const newBlockerObj = {
+        id: crypto.randomUUID(),
+        message: floorWalk.newBlocker,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        createdBy: user?.displayName || user?.email || 'System'
+      };
+      const updatedBlockers = [...(targetEntity.blockers || legacyBlocker), newBlockerObj];
+      
+      const payload: any = { blockers: updatedBlockers };
+      if (job) payload.status = 'Blocked';
+      if (targetEntity.blocker) payload.blocker = null;
+
+      if (job) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), payload);
+      }
+      
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'job',
+        title: 'Blocker Added',
+        message: `Job ${job?.jobNumber ? `#${job.jobNumber} ` : ''}blocked: ${newBlockerObj.message}`,
+        timestamp: serverTimestamp(),
+        severity: 'error',
+        author: user?.displayName || user?.email || 'System'
+      });
+
+      setFloorWalk(p => ({ ...p, newBlocker: '' }));
+      toast.success('Blocker added');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to add blocker');
+    }
+  };
+  
+  const handleAddNote = async () => {
+    if (!floorWalk.newNote.trim()) return;
+    try {
+      const newNoteObj = {
+        id: crypto.randomUUID(),
+        message: floorWalk.newNote,
+        createdAt: new Date().toISOString(),
+        createdBy: user?.displayName || user?.email || 'System'
+      };
+      const updatedNotes = [...(targetEntity.work_notes || []), newNoteObj];
+      
+      const payload: any = { work_notes: updatedNotes };
+      
+      // Also update the primary 'notes' field for legacy display
+      payload.notes = floorWalk.newNote;
+
+      if (job) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), payload);
+      }
+      
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'job',
+        title: 'Note Added',
+        message: `Note added for ${job?.jobNumber ? '#' + job.jobNumber : zone.name}: ${newNoteObj.message.slice(0, 60)}`,
+        timestamp: serverTimestamp(),
+        severity: 'info',
+        author: user?.displayName || user?.email || 'System'
+      });
+
+      setFloorWalk(p => ({ ...p, newNote: '' }));
+      toast.success('Note added');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to add note');
+    }
+  };
+
+  const handleClearBlocker = async (blockerId: string) => {
+    try {
+      const updatedBlockers = (targetEntity.blockers || legacyBlocker).map((b: any) => {
+        if (b.id === blockerId) {
+          return {
+            ...b,
+            status: 'cleared',
+            clearedAt: new Date().toISOString(),
+            clearedBy: user?.displayName || user?.email || 'System'
+          };
+        }
+        return b;
+      });
+
+      const hasActive = updatedBlockers.some((b: any) => b.status === 'active');
+      const payload: any = { blockers: updatedBlockers };
+      if (job && !hasActive && job.status === 'Blocked') {
+        payload.status = 'Active';
+      }
+      if (blockerId === 'legacy') payload.blocker = null;
+
+      if (job) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), payload);
+      }
+
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'job',
+        title: 'Blocker Cleared',
+        message: `Blocker cleared for Job ${job?.jobNumber ? `#${job.jobNumber}` : ''}`,
+        timestamp: serverTimestamp(),
+        severity: 'success',
+        author: user?.displayName || user?.email || 'System'
+      });
+
+      toast.success('Blocker cleared');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to clear blocker');
+    }
+  };
+
+  const handleAddPartRequest = async () => {
+    if (!floorWalk.partsNeeded.trim() || !tenantId) return;
+    try {
+      const promise = addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+        partName: floorWalk.partsNeeded.trim(),
+        jobId: job?.id || null,
+        zoneId: zone?.id || null,
+        vin: job?.vehicleVin || zone?.currentVehicleVin || null,
+        requestedBy: user?.displayName || user?.email || 'Staff',
+        urgency: floorWalk.urgency,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        createdBy: user?.uid || 'system',
+        createdByName: user?.displayName || user?.email?.split('@')[0] || null,
+        createdByEmail: user?.email || null,
+      });
+
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'parts',
+        title: 'Parts Requested',
+        message: `${user?.displayName || 'Tech'} requested parts for ${job?.title || zone.name}`,
+        timestamp: serverTimestamp(),
+        severity: floorWalk.urgency === 'urgent' ? 'warning' : 'info',
+        author: user?.displayName || user?.email || 'Staff'
+      });
+
+      setFloorWalk(p => ({ ...p, partsNeeded: '' }));
+      toast.success('Parts request submitted');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to submit parts request');
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const updatePayload: any = {
+        notes: floorWalk.notes,
+        updatedAt: serverTimestamp()
+      };
+      
+      if (floorWalk.expectedFinishTime) {
+        const isoString = new Date(floorWalk.expectedFinishTime).toISOString();
+        if (job) updatePayload.expectedFinishTime = isoString;
+        else updatePayload.eta = isoString;
+      }
+      
+      if (job) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), updatePayload);
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), updatePayload);
+      }
+
+
+
+      // Log to activity feed for notes/ETA
+      const author = user?.displayName || user?.email || 'Staff';
+      if (initialTab === 'notes' && floorWalk.notes) {
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'job',
+          title: 'Walkthrough Note',
+          message: `Note added for ${job?.jobNumber ? '#' + job.jobNumber : zone.name}: ${floorWalk.notes.slice(0, 60)}${floorWalk.notes.length > 60 ? '...' : ''}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author
+        });
+      } else if (initialTab === 'eta' && floorWalk.expectedFinishTime) {
+        const timeStr = new Date(floorWalk.expectedFinishTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'job',
+          title: 'ETA Updated',
+          message: `${job?.jobNumber ? 'Job #' + job.jobNumber : zone.name} expected finish: ${timeStr}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author
+        });
+      }
+
+      toast.success("Status updated");
+      onClose();
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update status");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in fade-in zoom-in duration-200">
+        <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-500/10 rounded-xl">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Floor Walk Status</h2>
+              <p className="text-xs text-zinc-500 font-medium">
+                {zone.name} {job ? `• ${job.jobNumber ? '#' + job.jobNumber : job.title}` : ''}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
+            <X className="w-5 h-5 text-zinc-400" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {activeTab === 'blocker' && (
+            <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+              <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest px-1">Active Blockers</label>
+              
+              {activeBlockers.length > 0 ? (
+                <div className="space-y-2">
+                  {activeBlockers.map((blocker: any) => (
+                    <div key={blocker.id} className="flex items-center justify-between p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                        <div>
+                          <p className="text-sm font-bold text-red-600 dark:text-red-400">{blocker.message}</p>
+                          <p className="text-[10px] text-red-500/70 font-medium uppercase tracking-tighter">Added by {blocker.createdBy}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => handleClearBlocker(blocker.id)}
+                        className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-[10px] font-black uppercase tracking-wider rounded-lg transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-zinc-400 italic px-1">No active blockers.</p>
+              )}
+
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                    <AlertTriangle className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="Describe the blocker..."
+                    autoFocus={initialTab === 'blocker'}
+                    value={floorWalk.newBlocker}
+                    onChange={e => setFloorWalk(prev => ({ ...prev, newBlocker: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && handleAddBlocker()}
+                    className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none text-sm transition-all"
+                  />
+                </div>
+                <button 
+                  onClick={handleAddBlocker}
+                  disabled={!floorWalk.newBlocker.trim()}
+                  className="px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 text-xs font-bold uppercase tracking-wider rounded-xl transition-all"
+                >
+                  Add
+                </button>
+              </div>
+              <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <button 
+                  onClick={() => setActiveTab('parts')}
+                  className="w-full flex items-center justify-center gap-2 p-3 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-xl transition-all font-bold text-xs uppercase tracking-widest"
+                >
+                  <Package className="w-4 h-4" />
+                  Blocked on Parts?
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'parts' && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="px-1">
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest">Currently Tracking</label>
+              </div>
+              
+              {(() => {
+                const activeParts = (partsRequests || []).filter((pr: any) => {
+                  const status = (pr.status || '').toLowerCase();
+                  const isActive = ['pending', 'received', 'ordered'].includes(status);
+                  if (!isActive) return false;
+                  
+                  // Match by Job ID
+                  if (job?.id && pr.jobId === job.id) return true;
+                  // Match by Zone ID
+                  if (zone?.id && pr.zoneId === zone.id) return true;
+                  // Match by VIN
+                  const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
+                  if (currentVin && pr.vin === currentVin) return true;
+                  
+                  return false;
+                });
+                if (activeParts.length === 0) return (
+                  <p className="text-xs text-zinc-400 italic px-1">No active parts requests.</p>
+                );
+                return (
+                  <div className="space-y-2">
+                    {activeParts.map((pr: any) => (
+                      <div key={pr.id} className={`flex items-center justify-between p-3 rounded-xl border ${pr.status === 'received' ? 'bg-emerald-500/5 border-emerald-500/20 animate-pulse' : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800'}`}>
+                        <div className="flex items-center gap-3">
+                          <Package className={`w-4 h-4 ${pr.status === 'received' ? 'text-emerald-500' : 'text-amber-500'}`} />
+                          <div>
+                            <p className="text-xs font-bold text-zinc-900 dark:text-white">{pr.partName}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className={`text-[8px] font-black uppercase tracking-widest px-1 rounded ${pr.status === 'received' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                                {pr.status}
+                              </span>
+                              <span className="text-[9px] text-zinc-400 flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5" />
+                                {(() => {
+                                  const ts = pr.statusChangedAt || pr.createdAt;
+                                  if (!ts) return '...';
+                                  const date = ts.toDate ? ts.toDate() : new Date(ts);
+                                  const diff = Math.floor((Date.now() - date.getTime()) / 60000);
+                                  if (diff < 1) return 'Just now';
+                                  if (diff < 60) return `${diff}m ago`;
+                                  if (diff < 1440) return `${Math.floor(diff/60)}h ago`;
+                                  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                                })()}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`w-2 h-2 rounded-full ${pr.status === 'received' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between px-1">
+                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest">Request a Part</label>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => setFloorWalk(p => ({ ...p, urgency: 'normal' }))}
+                      className={`text-[9px] font-black px-2 py-0.5 rounded transition-all ${floorWalk.urgency === 'normal' ? 'bg-amber-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700'}`}
+                    >
+                      NORMAL
+                    </button>
+                    <button 
+                      onClick={() => setFloorWalk(p => ({ ...p, urgency: 'urgent' }))}
+                      className={`text-[9px] font-black px-2 py-0.5 rounded transition-all ${floorWalk.urgency === 'urgent' ? 'bg-red-500 text-white animate-pulse shadow-sm shadow-red-500/20' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-700'}`}
+                    >
+                      URGENT
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                      <ShoppingCart className="w-4 h-4 text-zinc-400" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Enter part name or description..."
+                      value={floorWalk.partsNeeded}
+                      onChange={e => setFloorWalk(prev => ({ ...prev, partsNeeded: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && handleAddPartRequest()}
+                      className={`w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border rounded-xl outline-none text-sm transition-all ${floorWalk.urgency === 'urgent' ? 'border-red-500/30 focus:ring-2 focus:ring-red-500/20' : 'border-zinc-200 dark:border-zinc-800 focus:ring-2 focus:ring-amber-500/20'}`}
+                    />
+                  </div>
+                  <button 
+                    onClick={handleAddPartRequest}
+                    disabled={!floorWalk.partsNeeded.trim()}
+                    className={`px-4 py-2 text-white disabled:opacity-50 text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-sm ${floorWalk.urgency === 'urgent' ? 'bg-red-600 hover:bg-red-700 shadow-red-500/10' : 'bg-zinc-900 dark:bg-zinc-700 hover:bg-black dark:hover:bg-zinc-600'}`}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'eta' && (
+            <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between px-1">
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest">Expected Finish Time</label>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => addHours(1)} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">+1h</button>
+                  <button onClick={() => addHours(4)} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">+4h</button>
+                  <button onClick={setTomorrow} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">TMRW</button>
+                  <button onClick={() => { try { (etaInputRef.current as any).showPicker(); } catch(e) { etaInputRef.current?.focus(); } }} className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-md hover:bg-indigo-600 transition-colors">PICK</button>
+                </div>
+              </div>
+              <div className="relative">
+                <div 
+                  className="absolute inset-y-0 left-3 flex items-center cursor-pointer"
+                  onClick={() => { try { (etaInputRef.current as any).showPicker(); } catch(e) { etaInputRef.current?.focus(); } }}
+                >
+                  <Clock className={`w-4 h-4 ${floorWalk.expectedFinishTime ? 'text-indigo-500' : 'text-zinc-400'}`} />
+                </div>
+                <input 
+                  type="datetime-local" 
+                  ref={etaInputRef}
+                  autoFocus={initialTab === 'eta'}
+                  value={floorWalk.expectedFinishTime}
+                  onChange={e => setFloorWalk(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
+                  className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm transition-all font-medium"
+                />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'notes' && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="px-1">
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest">Active Notes</label>
+              </div>
+
+              <div className="space-y-2">
+                {targetEntity.work_notes && targetEntity.work_notes.length > 0 ? (
+                  targetEntity.work_notes.map((note: any) => (
+                    <div key={note.id} className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl relative group">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-indigo-500/10 rounded-lg shrink-0">
+                          <MessageSquare className="w-4 h-4 text-indigo-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-zinc-900 dark:text-white leading-relaxed">{note.message}</p>
+                          <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider mt-1.5 opacity-60">
+                            Added by {note.createdBy} • {new Date(note.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-zinc-400 italic px-1">No notes recorded yet.</p>
+                )}
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between px-1">
+                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest">Add New Note</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                      <MessageSquare className="w-4 h-4 text-zinc-400" />
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Add a status update or instruction..."
+                      value={floorWalk.newNote}
+                      onChange={e => setFloorWalk(prev => ({ ...prev, newNote: e.target.value }))}
+                      onKeyDown={e => e.key === 'Enter' && handleAddNote()}
+                      className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm transition-all"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleAddNote}
+                    disabled={!floorWalk.newNote.trim()}
+                    className="px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-100 disabled:opacity-50 text-xs font-bold uppercase tracking-wider rounded-xl transition-all h-full"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-100 dark:border-zinc-800 flex justify-end">
+          <button 
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-6 py-2.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-zinc-200 text-white dark:text-zinc-900 text-sm font-black uppercase tracking-wider rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/10"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            {isSaving ? 'Saving...' : 'Save & Update'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

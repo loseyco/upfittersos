@@ -25,7 +25,6 @@ const ITEMS: NavItem[] = [
   { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'ops', permission: 'reports.view' },
   { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops', permission: 'vehicles.view' },
   { id: 'customers', label: 'Customers', icon: Users, group: 'ops', permission: 'customers.view' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, group: 'ops', permission: 'reports.view' },
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'zones.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
   { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },

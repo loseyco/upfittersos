@@ -9,7 +9,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
   Clock, Box, Wrench, User, Search, Package, Calendar, AlertCircle,
-  Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin
+  Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin, Briefcase, CarFront
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmModal } from '../../components/ConfirmModal';
@@ -17,7 +17,7 @@ import { PackageIntakeModal } from './PackageIntakeModal';
 import { StaffLink } from './StaffPerformance';
 
 
-type RequestStatus = 'pending' | 'ordered' | 'received' | 'cancelled';
+type RequestStatus = 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled';
 type ShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception' | 'received';
 
 interface QuickBooksPO {
@@ -60,6 +60,15 @@ interface Shipment {
 interface Job {
   id: string;
   title: string;
+  jobNumber?: string;
+  vehicleId?: string;
+}
+
+interface Vehicle {
+  vin: string;
+  year?: string;
+  make?: string;
+  model?: string;
 }
 
 export function PartsMissionControl() {
@@ -96,8 +105,10 @@ export function PartsMissionControl() {
   // Data State
   const [requests, setRequests] = useState<PartsRequest[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   // Real-time listener for Zones
   React.useEffect(() => {
@@ -126,24 +137,27 @@ export function PartsMissionControl() {
       setRequests(data);
     });
 
-    const fetchJobs = async () => {
-      try {
-        const jobsSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs`));
-        const jobsData: Job[] = [];
-        jobsSnap.forEach(doc => {
-          const data = doc.data();
-          if (data.status !== 'Closed' && data.status !== 'Completed') {
-            jobsData.push({ id: doc.id, title: data.title || 'Untitled Job' });
-          }
-        });
-        setJobs(jobsData.sort((a, b) => a.title.localeCompare(b.title)));
-      } catch (e) {
-        console.error('Failed to fetch jobs', e);
-      }
-    };
-    fetchJobs();
+    const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), (snap) => {
+      setJobs(snap.docs.map(doc => {
+        const data = doc.data();
+        return { 
+          id: doc.id, 
+          title: data.title || 'Untitled Job',
+          jobNumber: data.jobNumber,
+          vehicleId: data.vehicleId
+        } as Job;
+      }));
+    });
 
-    return () => unsubscribe();
+    const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
+      setVehicles(snap.docs.map(doc => ({ vin: doc.id, ...doc.data() } as Vehicle)));
+    });
+
+    return () => {
+      unsubscribe();
+      unsubJobs();
+      unsubVehicles();
+    };
   }, [tenantId]);
 
   // Fetch Stats
@@ -357,7 +371,8 @@ export function PartsMissionControl() {
     try {
       const { updateDoc, doc } = await import('firebase/firestore');
       await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId), {
-        status: newStatus
+        status: newStatus,
+        statusChangedAt: serverTimestamp()
       });
       toast.success(`Request marked as ${newStatus}`);
     } catch (err) {
@@ -389,6 +404,7 @@ export function PartsMissionControl() {
 
   const getStatusColor = (status: RequestStatus | ShipmentStatus) => {
     switch (status) {
+      case 'fulfilled':
       case 'received':
       case 'delivered': return 'bg-emerald-500/10 text-emerald-600 ring-emerald-500/20';
       case 'ordered':
@@ -663,25 +679,63 @@ export function PartsMissionControl() {
         <div className="space-y-8">
           {/* Parts Request List */}
           <div className="space-y-4">
-            <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              Parts Requests
-            </h3>
-            {requests.length === 0 ? (
-              <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
-                No parts requests found.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {requests.map(request => (
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                {showHistory ? 'Request History' : 'Active Requests'}
+              </h3>
+              <button 
+                onClick={() => setShowHistory(!showHistory)}
+                className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-all ${
+                  showHistory 
+                    ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white border-zinc-200 dark:border-zinc-700' 
+                    : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20'
+                }`}
+              >
+                {showHistory ? 'View Active' : 'View History'}
+              </button>
+            </div>
+            {(() => {
+              const filteredRequests = requests.filter(r => 
+                showHistory 
+                  ? (r.status === 'fulfilled' || r.status === 'cancelled')
+                  : (r.status !== 'fulfilled' && r.status !== 'cancelled')
+              );
+
+              if (filteredRequests.length === 0) {
+                return (
+                  <div className="p-8 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                    {showHistory ? 'No request history found.' : 'No active parts requests.'}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {filteredRequests.map(request => (
                   <div key={request.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/50 transition-colors">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${request.urgency === 'urgent' ? 'bg-red-500 animate-pulse' : 'bg-zinc-300'}`} />
-                        <span className="font-bold text-zinc-900 dark:text-white">{request.partName}</span>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${request.urgency === 'urgent' ? 'bg-red-500 text-white animate-pulse' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500'}`}>
+                            {request.urgency}
+                          </span>
+                          <h4 className="font-bold text-zinc-900 dark:text-white truncate">{request.partName}</h4>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                          <div className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            <StaffLink name={request.requestedBy} tenantId={tenantId!} />
+                          </div>
+                          <span>•</span>
+                          <div className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider ring-1 ${getStatusColor(request.status)}`}>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-tight ring-1 ${getStatusColor(request.status)}`}>
                           {request.status.toUpperCase()}
                         </span>
                         {canManage && (
@@ -695,21 +749,45 @@ export function PartsMissionControl() {
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mb-3">
-                      <div className="flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5" />
-                        <StaffLink name={request.requestedBy} tenantId={tenantId!} />
-                      </div>
-                      <div className="flex items-center gap-1.5 justify-end">
-                        <Clock className="w-3.5 h-3.5" />
-                        {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString() : 'Just now'}
-                      </div>
+                    <div className="bg-zinc-50 dark:bg-zinc-950/50 rounded-xl p-3 border border-zinc-100 dark:border-zinc-800 space-y-2 mb-3">
+                      {(() => {
+                        const job = jobs.find(j => j.id === request.jobId);
+                        const vehicle = vehicles.find(v => v.vin === job?.vehicleId);
+                        const zone = zones.find(z => z.currentJobId === request.jobId || z.currentVehicleVin === job?.vehicleId);
+                        
+                        return (
+                          <>
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
+                                <span className="font-bold text-zinc-900 dark:text-white">{job?.title || 'Unknown Job'}</span>
+                                {job?.jobNumber && <span className="text-zinc-400 font-mono">#{job.jobNumber}</span>}
+                              </div>
+                              {zone && (
+                                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase">
+                                  <MapPin className="w-2.5 h-2.5" />
+                                  {zone.name}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {vehicle && (
+                              <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-medium">
+                                <CarFront className="w-3.5 h-3.5 text-zinc-400" />
+                                <span>{vehicle.year} {vehicle.make} {vehicle.model}</span>
+                                <span className="text-zinc-300 dark:text-zinc-700 font-mono text-[10px]">{vehicle.vin}</span>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
 
-                    {request.jobId && (
-                      <p className="text-xs font-semibold text-indigo-500 mb-3">
-                        Job: {jobs.find(j => j.id === request.jobId)?.title || request.jobId}
-                      </p>
+                    {request.notes && (
+                      <div className="mb-3 px-3 py-2 bg-amber-500/5 border border-amber-500/10 rounded-lg text-xs text-zinc-600 dark:text-zinc-400 italic">
+                        <span className="font-bold not-italic mr-1 text-amber-600">Note:</span>
+                        {request.notes}
+                      </div>
                     )}
 
                     {/* Status Management Actions */}
@@ -733,6 +811,20 @@ export function PartsMissionControl() {
                             MARK RECEIVED
                           </button>
                         )}
+                        {request.status === 'received' && (
+                          <button 
+                            onClick={() => handleUpdateStatus(request.id, 'fulfilled')}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20 transition-all"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                            MARK FULFILLED
+                          </button>
+                        )}
+                        {request.status === 'fulfilled' && (
+                          <div className="flex-1 text-center text-[10px] font-bold text-emerald-600/50 py-1.5">
+                            ✓ COMPLETED
+                          </div>
+                        )}
                         {(request.status === 'pending' || request.status === 'ordered') && (
                           <button 
                             onClick={() => handleUpdateStatus(request.id, 'cancelled')}
@@ -741,17 +833,13 @@ export function PartsMissionControl() {
                             CANCEL
                           </button>
                         )}
-                        {request.status === 'received' && (
-                          <div className="flex-1 text-center text-[10px] font-bold text-emerald-600/50 py-1.5">
-                            ✓ COMPLETED
-                          </div>
-                        )}
                       </div>
                     )}
-                  </div>
-                ))}
-              </div>
-            )}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Recently Arrived Packages */}

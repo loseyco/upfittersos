@@ -1,26 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, X, Users, CarFront, Briefcase, Package, Loader2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, X, Users, CarFront, Briefcase, Package, Loader2, MapPin, UserCircle2, Box } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, getDocs, limit, query, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
+import { useSearchStore } from '../../lib/store/searchStore';
 import { toast } from 'sonner';
 import { VehicleDetailsModal, EditVehicleModal } from '../../features/business/VehiclesManager';
+import { JobDetailsModal } from '../../features/business/JobDetailsModal';
+import { CustomerDetailsModal } from '../../features/business/CustomersManager';
+import { ZoneDetailsModal } from '../../features/business/ZoneModals';
 import { ConfirmModal } from '../ConfirmModal';
 
 type SearchResult = {
   id: string;
-  type: 'Customer' | 'Vehicle' | 'Job' | 'Inventory';
+  type: 'Customer' | 'Vehicle' | 'Job' | 'Inventory' | 'Bay' | 'Staff' | 'Package';
   title: string;
   subtitle: string;
+  searchString: string;
   rawData: any;
 };
 
 export function GlobalSearchModal() {
+  const navigate = useNavigate();
   const { tenantId } = useAuthStore();
+  const { isOpen, open, close, searchQuery, setSearchQuery } = useSearchStore();
   const queryClient = useQueryClient();
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -35,6 +41,27 @@ export function GlobalSearchModal() {
     onConfirm: () => {}
   });
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Context data for specialized modals
+  const { data: allVehicles = [] } = useQuery({
+    queryKey: ['global-search-vehicles', tenantId],
+    queryFn: async () => {
+      const q = query(collection(db, `businesses/${tenantId}/vehicles`));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
+  });
+
+  const { data: allJobs = [] } = useQuery({
+    queryKey: ['global-search-jobs', tenantId],
+    queryFn: async () => {
+      const q = query(collection(db, `businesses/${tenantId}/jobs`));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    },
+    enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
+  });
 
   const getSource = (row: any) => {
     const isQB = row.tags?.includes('QuickBooks') || 
@@ -55,12 +82,12 @@ export function GlobalSearchModal() {
       // Allow Ctrl+F or Cmd+F
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
         e.preventDefault();
-        setIsOpen(true);
+        open();
       }
       if (e.key === 'Escape') {
         if (editingVehicle) setEditingVehicle(null);
         else if (selectedResult) setSelectedResult(null);
-        else setIsOpen(false);
+        else close();
       }
     };
 
@@ -72,7 +99,6 @@ export function GlobalSearchModal() {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 100);
     } else {
-      setSearchQuery('');
       setSelectedResult(null);
       setEditingVehicle(null);
     }
@@ -84,15 +110,16 @@ export function GlobalSearchModal() {
       if (!tenantId || tenantId === 'GLOBAL') return [];
       
       const results: SearchResult[] = [];
-      const fetchCollection = async (colName: string, type: SearchResult['type'], mapper: (doc: any) => { title: string, subtitle: string }) => {
+      const fetchCollection = async (colName: string, type: SearchResult['type'], mapper: (doc: any) => { title: string, subtitle: string, searchTerms?: string[] }) => {
         try {
           const q = query(collection(db, `businesses/${tenantId}/${colName}`), limit(200));
           const snap = await getDocs(q);
           snap.forEach(docSnap => {
             const data = docSnap.data();
             if (data.isArchived) return;
-            const { title, subtitle } = mapper(data);
-            results.push({ id: docSnap.id, type, title, subtitle, rawData: data });
+            const { title, subtitle, searchTerms = [] } = mapper(data);
+            const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
+            results.push({ id: docSnap.id, type, title, subtitle, searchString, rawData: data });
           });
         } catch (e) {
           console.warn(`Failed to fetch ${colName} for search`, e);
@@ -102,19 +129,38 @@ export function GlobalSearchModal() {
       await Promise.all([
         fetchCollection('customers', 'Customer', data => ({
           title: data.name || data.displayName || data.CompanyName || data.FullName || 'Unnamed Customer',
-          subtitle: [data.email, data.mobilePhone, data.primaryPhone].filter(Boolean).join(' • ') || 'No contact info'
+          subtitle: [data.email, data.mobilePhone, data.primaryPhone].filter(Boolean).join(' • ') || 'No contact info',
+          searchTerms: [data.company, data.address, data.notes, data.firstName, data.lastName]
         })),
         fetchCollection('vehicles', 'Vehicle', data => ({
           title: `${data.year || ''} ${data.make || ''} ${data.model || ''}`.trim() || 'Unknown Vehicle',
-          subtitle: `VIN: ${data.vin || 'N/A'} • ${data.customerName || 'No Customer'}`
+          subtitle: `VIN: ${data.vin || 'N/A'} • ${data.customerName || 'No Customer'}`,
+          searchTerms: [data.vin, data.licensePlate, data.color, data.customerName, data.notes]
         })),
         fetchCollection('jobs', 'Job', data => ({
           title: data.title || data.Name || data.FullName || 'Unnamed Job',
-          subtitle: `Status: ${data.status || data.JobStatus || 'Pending'} • ${data.description || data.notes || ''}`.substring(0, 100)
+          subtitle: `Status: ${data.status || data.JobStatus || 'Pending'} • ${data.description || data.notes || ''}`.substring(0, 100),
+          searchTerms: [data.jobNumber, data.description, data.notes, data.customerName, data.vin]
         })),
         fetchCollection('inventory_items', 'Inventory', data => ({
           title: data.name || data.FullName || data.Name || 'Unnamed Item',
-          subtitle: `SKU: ${data.sku || data.SalesDesc || 'N/A'} • Stock: ${data.quantityOnHand || data.QuantityOnHand || 0}`
+          subtitle: `SKU: ${data.sku || data.SalesDesc || 'N/A'} • Stock: ${data.quantityOnHand || data.QuantityOnHand || 0}`,
+          searchTerms: [data.sku, data.description, data.notes, data.category]
+        })),
+        fetchCollection('zones', 'Bay', data => ({
+          title: data.name || 'Unnamed Bay',
+          subtitle: `Type: ${data.type || 'Other'} • ${data.allowMultiple ? 'Multi-Vehicle Lot' : (data.currentVehicleVin ? `Occupied by ${data.currentVehicleVin}` : 'Empty')}`,
+          searchTerms: [data.type, data.currentVehicleVin, data.notes]
+        })),
+        fetchCollection('staff', 'Staff', data => ({
+          title: `${data.firstName || ''} ${data.lastName || ''}`.trim() || data.name || data.displayName || 'Unnamed Staff',
+          subtitle: [data.role, data.email, data.phone].filter(Boolean).join(' • ') || 'No contact info',
+          searchTerms: [data.role, data.email, data.phone, data.notes, data.firstName, data.lastName]
+        })),
+        fetchCollection('shipments', 'Package', data => ({
+          title: data.description || data.trackingNumber || 'Unnamed Package',
+          subtitle: `Tracking: ${data.trackingNumber || 'N/A'} • Location: ${data.location || 'Unknown'} • Status: ${data.status || 'Received'}`,
+          searchTerms: [data.trackingNumber, data.carrier, data.location, data.notes]
         }))
       ]);
 
@@ -128,10 +174,9 @@ export function GlobalSearchModal() {
     if (!searchIndex || !searchQuery.trim()) return [];
     
     const queryStr = searchQuery.toLowerCase();
-    const results = searchIndex.filter(item => {
-      const searchStr = `${item.title} ${item.subtitle} ${JSON.stringify(item.rawData)}`.toLowerCase();
-      return searchStr.includes(queryStr);
-    });
+    const results = searchIndex.filter(item => item.searchString.includes(queryStr));
+
+    // Group by type
 
     // Group by type
     const grouped = results.reduce((acc, curr) => {
@@ -143,6 +188,15 @@ export function GlobalSearchModal() {
     return grouped;
   };
 
+  function handleResultClick(item: SearchResult) {
+    if (item.type === 'Staff') {
+      navigate(`/business/${tenantId}/performance?staffName=${encodeURIComponent(item.title)}`);
+      close();
+      return;
+    }
+    setSelectedResult(item);
+  }
+
   const filteredGroups = getFilteredResults();
   const hasResults = Object.keys(filteredGroups).length > 0;
 
@@ -152,6 +206,9 @@ export function GlobalSearchModal() {
       case 'Vehicle': return <CarFront className="w-4 h-4" />;
       case 'Job': return <Briefcase className="w-4 h-4" />;
       case 'Inventory': return <Package className="w-4 h-4" />;
+      case 'Bay': return <MapPin className="w-4 h-4" />;
+      case 'Staff': return <UserCircle2 className="w-4 h-4" />;
+      case 'Package': return <Box className="w-4 h-4" />;
       default: return <Search className="w-4 h-4" />;
     }
   };
@@ -159,7 +216,7 @@ export function GlobalSearchModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-zinc-950/60 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4" onClick={() => setIsOpen(false)}>
+    <div className="fixed inset-0 z-[100] bg-zinc-950/60 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4" onClick={close}>
       <div 
         className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200" 
         onClick={e => e.stopPropagation()}
@@ -177,7 +234,7 @@ export function GlobalSearchModal() {
           {isLoading && <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />}
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline-block px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded text-[10px] font-bold text-zinc-500 uppercase tracking-wider">ESC to close</span>
-            <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors">
+            <button onClick={close} className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -194,13 +251,13 @@ export function GlobalSearchModal() {
                 <div key={type} className="mb-4 last:mb-0">
                   <div className="px-3 py-2 text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
                     {getIcon(type)}
-                    {type}s
+                    {type === 'Staff' ? 'Staff' : `${type}s`}
                   </div>
                   <div className="space-y-1">
                     {items.map(item => (
                       <button
                         key={item.id}
-                        onClick={() => setSelectedResult(item)}
+                        onClick={() => handleResultClick(item)}
                         className="w-full text-left px-4 py-3 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 rounded-xl transition-colors flex flex-col gap-1 group"
                       >
                         <span className="font-semibold text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
@@ -223,7 +280,7 @@ export function GlobalSearchModal() {
             <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800 rounded-full flex items-center justify-center">
               <Search className="w-6 h-6 text-zinc-400" />
             </div>
-            <p className="text-zinc-500 text-sm">Start typing to search your entire business database.<br/>Includes customers, vehicles, jobs, and inventory.</p>
+            <p className="text-zinc-500 text-sm">Start typing to search your entire business database.<br/>Includes customers, vehicles, jobs, bays, staff, and packages.</p>
           </div>
         )}
       </div>
@@ -245,7 +302,7 @@ export function GlobalSearchModal() {
                 queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
                 queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
                 setSelectedResult(null);
-                setIsOpen(false); // Close search to refresh state
+                close(); // Close search to refresh state
               } catch (e) {
                 toast.error("Failed to archive vehicle");
               }
@@ -253,6 +310,61 @@ export function GlobalSearchModal() {
           }}
           getSource={getSource}
           onConfirmAction={setConfirmConfig}
+        />
+      )}
+
+      {selectedResult && selectedResult.type === 'Job' && (
+        <JobDetailsModal 
+          tenantId={tenantId as string}
+          job={{ id: selectedResult.id, ...selectedResult.rawData }}
+          onClose={() => setSelectedResult(null)}
+          onUpdate={() => {
+            queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
+          }}
+        />
+      )}
+
+      {selectedResult && selectedResult.type === 'Customer' && (
+        <CustomerDetailsModal 
+          customer={{ id: selectedResult.id, ...selectedResult.rawData }}
+          onClose={() => setSelectedResult(null)}
+          onEdit={() => {
+            // Future: Navigate to customer manager with this ID
+            navigate(`/business/${tenantId}/customers?id=${selectedResult.id}`);
+            close();
+          }}
+          onDelete={() => {
+            if (window.confirm("Are you sure you want to delete this customer?")) {
+              // Implementation...
+            }
+          }}
+        />
+      )}
+
+      {selectedResult && selectedResult.type === 'Bay' && (
+        <ZoneDetailsModal 
+          zone={{ id: selectedResult.id, ...selectedResult.rawData }}
+          tenantId={tenantId}
+          vehicles={allVehicles}
+          jobs={allJobs}
+          onClose={() => setSelectedResult(null)}
+          onAssign={async (vin: string, jobId: string) => {
+            // Use existing logic from ZonesManager if needed, or implement here
+          }}
+          onClear={() => {}}
+          onOpenVehicle={(vin: string) => {
+            const v = allVehicles.find(veh => veh.vin === vin);
+            if (v) {
+              setSelectedResult({
+                id: v.id,
+                type: 'Vehicle',
+                title: `${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim(),
+                subtitle: `VIN: ${v.vin || 'N/A'}`,
+                searchString: '',
+                rawData: v
+              });
+            }
+          }}
         />
       )}
 
@@ -286,7 +398,7 @@ export function GlobalSearchModal() {
         />
       )}
 
-      {selectedResult && selectedResult.type !== 'Vehicle' && (
+      {selectedResult && !['Vehicle', 'Job', 'Customer', 'Bay'].includes(selectedResult.type) && (
         <div className="fixed inset-0 z-[110] bg-zinc-950/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedResult(null)}>
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">

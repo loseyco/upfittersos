@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Users, Briefcase, Box, CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck
+  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -11,6 +11,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
+import { useSearchStore } from '../../lib/store/searchStore';
+import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 import { ShopFloorActivity } from './ShopFloorActivity';
 import { ZoneDetailsModal } from './ZoneModals';
@@ -25,6 +27,7 @@ interface MissionControlProps {
 }
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
+  const { open: openSearch } = useSearchStore();
   // Stats fetching
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['mission-control-stats', tenantId],
@@ -58,6 +61,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
+  const [partsRequests, setPartsRequests] = useState<any[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
@@ -154,10 +158,14 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+    const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
+      setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
     return () => {
       unsubZones();
       unsubVehicles();
       unsubJobs();
+      unsubParts();
     };
   }, [tenantId]);
 
@@ -246,22 +254,58 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     if (job.status !== 'Closed' && job.status !== 'Completed' && job.updatedAt) {
       const updatedTime = new Date(job.updatedAt.seconds ? job.updatedAt.seconds * 1000 : job.updatedAt).getTime();
       const days = (Date.now() - updatedTime) / (1000 * 60 * 60 * 24);
-      if (days > 7) {
+      if (days > 7 && job.status !== 'Blocked') {
         alerts.push({
           id: `job-${job.id}`,
           title: `Inactive Job: ${job.title || 'Untitled'}`,
           description: `No updates in ${Math.floor(days)} days. Status: ${job.status || 'Unknown'}`,
           type: 'warning',
           icon: Clock,
-          onClick: () => onTabChange('jobs')
+          onClick: () => onTabChange(`jobs/${job.id}`)
         });
       }
     }
   });
 
+  // 4. Blocked Jobs
+  allJobs?.forEach((job: any) => {
+    if (job.status === 'Blocked') {
+      const legacyBlocker = job.blocker ? [{ message: job.blocker, status: 'active' }] : [];
+      const activeBlockers = (job.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+      alerts.push({
+        id: `blocked-job-${job.id}`,
+        title: `Job Blocked: ${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title || 'Untitled'}`,
+        description: activeBlockers.length > 0 
+          ? activeBlockers.map((b: any) => b.message).join(' | ') 
+          : 'Job marked as blocked',
+        type: 'danger',
+        icon: AlertCircle,
+        onClick: () => onTabChange(`jobs/${job.id}`)
+      });
+    }
+  });
+
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
-
+      {/* Compact Ultimate Search Bar */}
+      <div className="relative group">
+        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          <Search className="w-5 h-5 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
+        </div>
+        <input
+          type="text"
+          placeholder="Quick search customers, vehicles, bays, or staff..."
+          onFocus={() => openSearch()}
+          onChange={(e) => openSearch(e.target.value)}
+          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl py-4 pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 font-medium"
+        />
+        <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <Command className="w-3 h-3 text-zinc-400" />
+            <span className="text-[10px] font-black text-zinc-500">F</span>
+          </div>
+        </div>
+      </div>
 
       {/* KPI Grid */}
       <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-4">
@@ -430,8 +474,32 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
                                     {calculateDuration(timestamp)}
                                   </span>
-                                  <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
-                                    Updated: {new Date(activityTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {(() => {
+                                    const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
+                                    if (!etaRaw) return (
+                                      <span className="text-[8px] font-medium uppercase tracking-tighter text-zinc-400">
+                                        No ETA
+                                      </span>
+                                    );
+                                    const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+                                    const diffMs = etaDate.getTime() - Date.now();
+                                    const isOverdue = diffMs < 0;
+                                    const absDiff = Math.abs(diffMs);
+                                    const h = Math.floor(absDiff / 3600000);
+                                    const m = Math.floor((absDiff % 3600000) / 60000);
+                                    const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                                    
+                                    return (
+                                      <span className={cn(
+                                        "text-[9px] font-bold uppercase tracking-tighter px-1.5 py-0.5 rounded-sm mt-0.5",
+                                        isOverdue ? "bg-red-500 text-white animate-pulse" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                      )}>
+                                        {isOverdue ? `Overdue ${label}` : `Due in ${label}`}
+                                      </span>
+                                    );
+                                  })()}
+                                  <span className={`text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                                    UPD: {new Date(activityTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>
                               );
@@ -567,6 +635,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           tenantId={tenantId}
           vehicles={vehicles}
           jobs={allJobs}
+          partsRequests={partsRequests}
           onClose={() => setSelectedZoneId(null)}
           onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
           onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}

@@ -282,6 +282,9 @@ service cloud.firestore {
         allow read: if isTenant(tenantId) || isSuperAdmin();
         allow write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /package_intake/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
     }
   }
 }

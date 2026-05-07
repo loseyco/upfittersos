@@ -347,7 +347,7 @@ function CustomerModal({ tenantId, customer, onClose, onSuccess }: { tenantId: s
   );
 }
 
-function CustomerDetailsModal({ customer, onClose, onEdit, onDelete }: any) {
+export function CustomerDetailsModal({ customer, onClose, onEdit, onDelete }: any) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white dark:bg-zinc-900 rounded-3xl w-full max-w-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>

@@ -26,6 +26,7 @@ interface VinSelectorProps {
   vehicles: Vehicle[];
   placeholder?: string;
   clearLabel?: string;
+  hideClearButton?: boolean;
 }
 
 export function VinSelector({ 
@@ -35,7 +36,8 @@ export function VinSelector({
   onQuickAddRequest, 
   vehicles,
   placeholder = "Type VIN...",
-  clearLabel = "Remove Vehicle"
+  clearLabel = "Remove Vehicle",
+  hideClearButton = false
 }: VinSelectorProps) {
   const [inputValue, setInputValue] = useState(vin || '');
   const [isOpen, setIsOpen] = useState(false);
@@ -93,8 +95,17 @@ export function VinSelector({
             value={inputValue}
             onChange={(e) => { setInputValue(e.target.value.toUpperCase()); setIsOpen(true); }}
             onFocus={() => setIsOpen(true)}
-            className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+            className="w-full pl-9 pr-10 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
           />
+          {inputValue && (
+            <button
+              type="button"
+              onClick={() => { setInputValue(''); onClear(); setIsOpen(true); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
           {isOpen && (inputValue.length > 0 || filtered.length > 0) && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden">
               <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
@@ -136,7 +147,7 @@ export function VinSelector({
           )}
         </div>
 
-        {vin && (
+        {vin && !hideClearButton && (
           <button 
             type="button"
             onClick={onClear} 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Search, Plus, 
@@ -17,9 +18,11 @@ import { useAuthStore } from '../../lib/auth/store';
 
 interface JobsManagerProps {
   tenantId: string;
+  jobId?: string | null;
 }
 
-export function JobsManager({ tenantId }: JobsManagerProps) {
+export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -58,7 +61,7 @@ export function JobsManager({ tenantId }: JobsManagerProps) {
   }, [tenantId]);
 
   // Fetch Jobs
-  const { refetch } = useQuery({
+  const { data, refetch } = useQuery({
     queryKey: ['jobs-list', tenantId],
     queryFn: async () => {
       const q = query(
@@ -69,6 +72,33 @@ export function JobsManager({ tenantId }: JobsManagerProps) {
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     }
   });
+
+  // Handle jobId from URL
+  React.useEffect(() => {
+    if (jobId) {
+      if (selectedJob?.id === jobId) return;
+
+      const jobInList = data?.find((j: any) => j.id === jobId);
+      if (jobInList) {
+        setSelectedJob(jobInList);
+      } else {
+        // Fetch specific job if not in list
+        const fetchJob = async () => {
+          try {
+            const snap = await getDoc(doc(db, `businesses/${tenantId}/jobs`, jobId));
+            if (snap.exists()) {
+              setSelectedJob({ id: snap.id, ...snap.data() });
+            }
+          } catch (err) {
+            console.error('Error fetching job:', err);
+          }
+        };
+        fetchJob();
+      }
+    } else {
+      setSelectedJob(null);
+    }
+  }, [jobId, data, tenantId]);
 
   const jobColumns = [
     { 
@@ -214,7 +244,7 @@ export function JobsManager({ tenantId }: JobsManagerProps) {
           const matchesStatus = statusFilter === 'all' || job.status === statusFilter;
           return matchesSearch && matchesStatus;
         }}
-        onRowClick={(row) => setSelectedJob(row)}
+        onRowClick={(row) => navigate(`/business/${tenantId}/jobs/${row.id}`)}
       />
 
       {isAddModalOpen && (
@@ -233,7 +263,7 @@ export function JobsManager({ tenantId }: JobsManagerProps) {
         <JobDetailsModal 
           tenantId={tenantId}
           job={selectedJob}
-          onClose={() => setSelectedJob(null)}
+          onClose={() => navigate(`/business/${tenantId}/jobs`)}
           onUpdate={() => refetch()}
         />
       )}

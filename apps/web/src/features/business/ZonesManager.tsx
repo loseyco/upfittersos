@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, onSnapshot, query, addDoc, limit, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard } from 'lucide-react';
+import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard, AlertTriangle, Clock, MessageSquare, ShoppingCart } from 'lucide-react';
 
 import { toast } from 'sonner';
 import { VehicleDetailsModal } from './VehiclesManager';
@@ -33,16 +33,18 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const [newZoneType, setNewZoneType] = useState<'bay' | 'parking' | 'office' | 'other'>('bay');
   const [newZoneAllowMultiple, setNewZoneAllowMultiple] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [partsRequests, setPartsRequests] = useState<any[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
-  const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) || null : null;
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [searchParams] = useSearchParams();
   const initialType = searchParams.get('type') || 'bay';
   const initialOccupancy = searchParams.get('occupancy') || 'occupied';
+  const initialZoneId = searchParams.get('zone') || null;
 
   const [filterType, setFilterType] = useState<string>(initialType);
   const [filterOccupancy, setFilterOccupancy] = useState<string>(initialOccupancy);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(initialZoneId);
+  const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) || null : null;
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
   const [quickAddJob, setQuickAddJob] = useState<{zoneId: string, title: string, vin: string | null} | null>(null);
   const { user } = useAuthStore();
@@ -80,6 +82,15 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     const q = query(collection(db, `businesses/${tenantId}/jobs`));
     const unsub = onSnapshot(q, (snap) => {
       setJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/parts_requests`));
+    const unsub = onSnapshot(q, (snap) => {
+      setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsub();
   }, [tenantId]);
@@ -528,6 +539,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
             zone={zone}
             vehicles={vehicles}
             jobs={jobs}
+            partsRequests={partsRequests}
             onSelect={() => setSelectedZoneId(zone.id)}
           />
         ))}
@@ -552,6 +564,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           tenantId={tenantId}
           vehicles={vehicles}
           jobs={jobs}
+          partsRequests={partsRequests}
           onClose={() => setSelectedZoneId(null)}
           onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
           onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
@@ -622,7 +635,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
 
 // JobSelector moved to JobSelectionComponents.tsx
 
-function ZoneCard({ zone, vehicles, jobs, onSelect }: { zone: Zone, vehicles: any[], jobs: any[], onSelect: () => void }) {
+function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zone, vehicles: any[], jobs: any[], partsRequests: any[], onSelect: () => void }) {
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const job = jobs.find((j: any) => j.id === zone.currentJobId);
@@ -671,10 +684,103 @@ function ZoneCard({ zone, vehicles, jobs, onSelect }: { zone: Zone, vehicles: an
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.2em] mb-0.5">{zone.type}</p>
-          <h3 className="font-bold text-lg text-zinc-900 dark:text-white leading-tight truncate">
-            {zone.name || 'Unnamed Bay'}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-lg text-zinc-900 dark:text-white leading-tight truncate">
+              {zone.name || 'Unnamed Bay'}
+            </h3>
+            {(() => {
+              const target = job || zone;
+              const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
+              const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+
+              return (
+                <div className="flex items-center gap-1">
+                  {activeBlockers.length > 0 && (
+                    <span title={activeBlockers.map((b: any) => b.message).join('\n')} className="flex items-center gap-1 text-[10px] font-black uppercase text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0 animate-pulse">
+                      <AlertTriangle className="w-3 h-3" /> {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
+                    </span>
+                  )}
+                  {(() => {
+                    const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
+                    const relevantParts = partsRequests.filter((pr: any) => {
+                      const status = (pr.status || '').toLowerCase();
+                      const isActive = ['pending', 'received', 'ordered'].includes(status);
+                      if (!isActive) return false;
+                      
+                      if (job?.id && pr.jobId === job.id) return true;
+                      if (zone?.id && pr.zoneId === zone.id) return true;
+                      if (currentVin && pr.vin === currentVin) return true;
+                      
+                      return false;
+                    });
+                    const receivedCount = relevantParts.filter((pr: any) => (pr.status || '').toLowerCase() === 'received').length;
+
+                    if (relevantParts.length === 0) return null;
+                    return (
+                      <span title={relevantParts.map((p: any) => p.partName).join('\n')} className={`flex items-center gap-1 text-[10px] font-black uppercase px-1.5 py-0.5 rounded shrink-0 ${receivedCount > 0 ? 'bg-emerald-500 text-white animate-pulse' : 'bg-amber-500/10 text-amber-500'}`}>
+                        <ShoppingCart className="w-3 h-3" /> {receivedCount > 0 ? 'Parts Arrived' : `${relevantParts.length} Parts`}
+                      </span>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+          </div>
         </div>
+      </div>
+      
+      <div className="mb-4 flex flex-col gap-1.5 px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl">
+        {(() => {
+          const etaRaw = job?.expectedFinishTime || job?.eta || zone.eta;
+          if (!etaRaw) {
+            return (
+              <div className="flex items-center gap-2 text-xs opacity-60">
+                <Clock className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                <span className="font-medium text-zinc-500 uppercase tracking-tighter">No ETA Set</span>
+              </div>
+            );
+          }
+
+          const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+          const now = new Date();
+          const diffMs = etaDate.getTime() - now.getTime();
+          const isOverdue = diffMs < 0;
+          const absDiff = Math.abs(diffMs);
+          
+          const hours = Math.floor(absDiff / 3600000);
+          const minutes = Math.floor((absDiff % 3600000) / 60000);
+          const timeLabel = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+          return (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs">
+                <Clock className={`w-3.5 h-3.5 ${isOverdue ? 'text-red-500 animate-pulse' : 'text-indigo-500'} shrink-0`} />
+                <span className="font-medium text-zinc-600 dark:text-zinc-400 truncate">
+                  ETA: <span className="text-zinc-900 dark:text-white font-bold">
+                    {etaDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                </span>
+              </div>
+              <span className={cn(
+                "text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full",
+                isOverdue 
+                  ? "bg-red-500 text-white animate-pulse" 
+                  : diffMs < 3600000 // Less than 1 hour
+                    ? "bg-amber-500 text-white"
+                    : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+              )}>
+                {isOverdue ? `Overdue ${timeLabel}` : `Due in ${timeLabel}`}
+              </span>
+            </div>
+          );
+        })()}
+
+        {job?.notes && (
+           <div className="flex items-start gap-2 text-xs">
+             <MessageSquare className="w-3.5 h-3.5 text-zinc-400 shrink-0 mt-0.5" />
+             <span className="font-medium text-zinc-500 dark:text-zinc-500 line-clamp-2 italic">{job.notes}</span>
+           </div>
+        )}
       </div>
 
       <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
