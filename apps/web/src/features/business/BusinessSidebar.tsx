@@ -18,7 +18,7 @@ export type NavItem = {
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'My Dashboard', icon: Home, group: 'ops' },
   { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'ops', permission: 'mission_control.view' },
-  { id: 'foreman', label: 'Shop', icon: ClipboardList, group: 'ops' },
+  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'ops' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops', permission: 'parts.view' },
   { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'ops' },
   { id: 'fabrication', label: 'F.A.S.T Fabrication', icon: Wrench, group: 'ops' },

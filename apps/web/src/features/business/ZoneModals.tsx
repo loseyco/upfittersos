@@ -56,7 +56,10 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   const activeBlockers = (targetEntity.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
 
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
-  const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
+  const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => {
+    const v = vehicles.find((v: any) => v.vin === vin);
+    return v ? v : { vin };
+  }) : [];
   const [history, setHistory] = useState<any[]>([]);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
 
@@ -552,7 +555,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                         <button onClick={() => onOpenVehicle(v.vin)} className="flex-1 text-left p-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 shadow-sm rounded-xl transition-all group flex items-center justify-between">
                           <div>
                             <h4 className="font-bold text-zinc-900 dark:text-white group-hover:text-indigo-600 transition-colors">
-                              {v.year} {v.make} {v.model || 'Unknown'}
+                              {v.year ? `${v.year} ${v.make} ${v.model || 'Unknown'}` : 'Unlinked Vehicle'}
                             </h4>
                             <p className="text-xs font-mono text-zinc-500 mt-0.5">{v.vin}</p>
                           </div>

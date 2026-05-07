@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { 
   AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
 } from 'lucide-react';
-import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 import { ZoneDetailsModal } from './ZoneModals';
+import { useAuthStore } from '../../lib/auth/store';
 
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string) => void }) {
-  // user removed
+  const { user } = useAuthStore();
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
@@ -234,39 +235,95 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
   const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
-      const zone = zones.find(z => z.id === zoneId);
       const trimmedVin = vin?.trim().toUpperCase();
+      const zone = zones.find(z => z.id === zoneId);
       const previousVin = zone?.currentVehicleVin || null;
       const previousJobId = zone?.currentJobId || null;
 
-      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
-        currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
-        currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
-        lastAssignedAt: serverTimestamp()
+      // AUTO-MOVE: If this VIN or Job is already in another zone, clear it from there first
+      if (actionType === 'assign' && (trimmedVin || jobId)) {
+        const otherZones = zones.filter(z => z.id !== zoneId);
+        for (const oz of otherZones) {
+          let needsClear = false;
+          if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
+          else if (jobId && oz.currentJobId === jobId) needsClear = true;
+          else if (trimmedVin && oz.currentVehicleVins?.includes(trimmedVin)) needsClear = true;
+          
+          if (needsClear) {
+            await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
+              currentVehicleVin: null, 
+              currentJobId: null,
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+            });
+          }
+        }
+      }
+
+      if (zone?.allowMultiple) {
+        let newVins = [...(zone.currentVehicleVins || [])];
+        if (actionType === 'assign' && trimmedVin) {
+          if (!newVins.includes(trimmedVin)) newVins.push(trimmedVin);
+        } else if (actionType === 'remove' && trimmedVin) {
+          newVins = newVins.filter(v => v !== trimmedVin);
+        } else if (actionType === 'clear') {
+          newVins = [];
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { 
+          currentVehicleVins: newVins,
+          lastAssignedAt: serverTimestamp() 
+        });
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+          currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
+          currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
+          lastAssignedAt: serverTimestamp()
+        });
+      }
+
+      await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+        zoneId,
+        zoneName: zone?.name || 'Unknown',
+        vin: trimmedVin || null,
+        jobId: jobId || null,
+        action: actionType === 'clear' ? 'cleared' : 'assigned',
+        assignedAt: serverTimestamp(),
+        assignedBy: user?.uid || 'system',
+        assignedByName: user?.displayName || user?.email || 'Staff'
       });
+
       toast.success(actionType === 'clear' ? 'Zone cleared' : 'Update successful');
     } catch (e) {
+      console.error(e);
       toast.error('Failed to update zone');
     }
   };
 
   const renderZoneCard = (bay: any) => {
-    const vehicle = vehicles?.find((v: any) => v.vin === bay.currentVehicleVin) as any;
-    const jobId = bay.currentJobId || vehicle?.jobId;
-    const job = allJobs?.find((j: any) => j.id === jobId) as any;
-    const customerName = bay.customerName || vehicle?.customerName || job?.customerName;
-    const assignedStaff = job?.assignedStaff || bay.assignedStaff;
-    const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
-    
-    const vehicleDisplay = vehicle 
-      ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`) 
-      : (bay.currentVehicleVin ? `VIN: ${bay.currentVehicleVin}` : 'Unlinked');
-    const timestamp = bay.lastAssignedAt || bay.updatedAt;
-    const hasVehicle = !!(bay.currentVehicleVin || (bay.currentVehicleVins && bay.currentVehicleVins.length > 0));
+    const vinsToRender = (bay.allowMultiple && bay.currentVehicleVins && bay.currentVehicleVins.length > 0)
+      ? bay.currentVehicleVins
+      : [bay.currentVehicleVin].filter(Boolean);
 
-    return (
-      <div key={bay.id} className="relative group/item pointer-events-auto">
-        <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0">
+    if (vinsToRender.length === 0) return null;
+
+    return vinsToRender.map((vin: string, index: number) => {
+      const vehicle = vehicles?.find((v: any) => v.vin === vin) as any;
+      const jobId = (bay.currentJobId && index === 0 && !vehicle?.jobId) ? bay.currentJobId : vehicle?.jobId;
+      const job = allJobs?.find((j: any) => j.id === jobId) as any;
+      const customerName = (index === 0 && bay.customerName && !vehicle?.customerName && !job?.customerName) ? bay.customerName : (vehicle?.customerName || job?.customerName);
+      const assignedStaff = job?.assignedStaff || (index === 0 ? bay.assignedStaff : null);
+      const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
+      
+      const vehicleDisplay = vehicle 
+        ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${vin}`) 
+        : (vin ? `VIN: ${vin}` : 'Unlinked');
+      const timestamp = bay.lastAssignedAt || bay.updatedAt;
+      const hasVehicle = true; // since vin exists
+
+      const itemKey = `${bay.id}-${vin}-${index}`;
+
+      return (
+        <div key={itemKey} className="relative group/item pointer-events-auto">
+          <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0">
           <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
             <div className="flex items-center gap-2">
               <span className="font-bold text-zinc-400 dark:text-zinc-500 w-20 sm:w-24 truncate shrink-0 text-xs sm:text-sm">{bay.name}</span>
@@ -359,7 +416,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10 cursor-pointer"
         />
       </div>
-    );
+      );
+    });
   };
 
   return (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { db } from '../../lib/firebase/config';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { Clock, Briefcase, Warehouse, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer } from 'lucide-react';
 import { TimeClockHistory } from '../timeclock/TimeClockHistory';
 import { JobDetailsModal } from './JobDetailsModal';
@@ -23,6 +23,59 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const [selectedZone, setSelectedZone] = useState<any>(null);
 
   const { clockIntoJob, clockOutOfJob, isProcessing } = useJobClock(tenantId);
+
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
+    try {
+      const trimmedVin = vin?.trim().toUpperCase();
+      const zone = zones.find(z => z.id === zoneId);
+      const previousVin = zone?.currentVehicleVin || null;
+      const previousJobId = zone?.currentJobId || null;
+
+      // AUTO-MOVE: If this VIN or Job is already in another zone, clear it from there first
+      if (actionType === 'assign' && (trimmedVin || jobId)) {
+        const otherZones = zones.filter(z => z.id !== zoneId);
+        for (const oz of otherZones) {
+          let needsClear = false;
+          if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
+          else if (jobId && oz.currentJobId === jobId) needsClear = true;
+          else if (trimmedVin && oz.currentVehicleVins?.includes(trimmedVin)) needsClear = true;
+          
+          if (needsClear) {
+            await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
+              currentVehicleVin: null, 
+              currentJobId: null,
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+            });
+          }
+        }
+      }
+
+      if (zone?.allowMultiple) {
+        let newVins = [...(zone.currentVehicleVins || [])];
+        if (actionType === 'assign' && trimmedVin) {
+          if (!newVins.includes(trimmedVin)) newVins.push(trimmedVin);
+        } else if (actionType === 'remove' && trimmedVin) {
+          newVins = newVins.filter(v => v !== trimmedVin);
+        } else if (actionType === 'clear') {
+          newVins = [];
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { 
+          currentVehicleVins: newVins,
+          lastAssignedAt: new Date() 
+        });
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+          currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
+          currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
+          lastAssignedAt: new Date()
+        });
+      }
+      toast.success(actionType === 'clear' ? 'Zone cleared' : 'Update successful');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to update zone');
+    }
+  };
 
   useEffect(() => {
     if (!tenantId || !user?.uid) return;
@@ -296,10 +349,10 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
           vehicles={vehicles}
           jobs={allActiveJobs}
           onClose={() => setSelectedZone(null)}
-          onAssign={() => {}}
-          onClear={() => {}}
-          onRemoveVehicle={() => {}}
-          onRemoveJob={() => {}}
+          onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
+          onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
+          onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
+          onRemoveJob={() => handleAssignVehicle(selectedZone.id, '', 'remove_job')}
           onQuickAddRequest={() => {}}
           onQuickAddJobRequest={() => {}}
           onOpenVehicle={() => {}}

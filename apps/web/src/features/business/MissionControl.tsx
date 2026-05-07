@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText
+  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -80,6 +80,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     message: '',
     onConfirm: () => {}
   });
+
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportContent, setReportContent] = useState('');
 
   const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
@@ -355,9 +358,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     report += `- Full Bays: ${sortedBays.length}\n`;
     report += `- Full Parking Spots: ${sortedParking.length}\n`;
 
-    const subject = encodeURIComponent(`Daily Shop Report - ${today}`);
-    const body = encodeURIComponent(report);
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    setReportContent(report);
+    setShowReportModal(true);
   };
 
   return (
@@ -640,20 +642,29 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                 {sortedParking.length > 0 && (
                   <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-zinc-100 dark:border-zinc-800 space-y-1.5 sm:space-y-2 w-full">
                     {sortedParking.map((zone: any) => {
-                      const vehicle = vehicles?.find((v: any) => v.vin === zone.currentVehicleVin) as any;
-                      const jobId = zone.currentJobId || vehicle?.jobId;
-                      const job = allJobs?.find((j: any) => j.id === jobId) as any;
-                      const customerName = zone.customerName || vehicle?.customerName || job?.customerName;
-                      const assignedStaff = job?.assignedStaff || zone.assignedStaff;
-                      const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
-                      
-                      const vehicleDisplay = vehicle 
-                        ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin}`) 
-                        : (zone.currentVehicleVin ? `VIN: ${zone.currentVehicleVin}` : 'Unlinked');
-                      const timestamp = zone.lastAssignedAt || zone.updatedAt;
+                      const vinsToRender = (zone.allowMultiple && zone.currentVehicleVins && zone.currentVehicleVins.length > 0)
+                        ? zone.currentVehicleVins
+                        : [zone.currentVehicleVin].filter(Boolean);
 
-                      return (
-                        <div key={zone.id} className="relative group/item pointer-events-auto">
+                      if (vinsToRender.length === 0) return null;
+
+                      return vinsToRender.map((vin: string, index: number) => {
+                        const vehicle = vehicles?.find((v: any) => v.vin === vin) as any;
+                        const jobId = (zone.currentJobId && index === 0 && !vehicle?.jobId) ? zone.currentJobId : vehicle?.jobId;
+                        const job = allJobs?.find((j: any) => j.id === jobId) as any;
+                        const customerName = (index === 0 && zone.customerName && !vehicle?.customerName && !job?.customerName) ? zone.customerName : (vehicle?.customerName || job?.customerName);
+                        const assignedStaff = job?.assignedStaff || (index === 0 ? zone.assignedStaff : null);
+                        const assignedStaffDisplay = assignedStaff?.length > 0 ? assignedStaff.map((s: any) => s.name).join(', ') : null;
+                        
+                        const vehicleDisplay = vehicle 
+                          ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${vin}`) 
+                          : (vin ? `VIN: ${vin}` : 'Unlinked');
+                        
+                        const timestamp = zone.lastAssignedAt || zone.updatedAt;
+                        const itemKey = `${zone.id}-${vin}-${index}`;
+
+                        return (
+                          <div key={itemKey} className="relative group/item pointer-events-auto">
                           <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
                               <div className="flex items-center gap-2">
@@ -716,7 +727,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                             className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
                           />
                         </div>
-                      );
+                        );
+                      });
                     })}
                   </div>
                 )}
@@ -796,6 +808,49 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         onConfirm={confirmConfig.onConfirm}
         onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center bg-zinc-50 dark:bg-zinc-950">
+              <h2 className="text-xl font-black text-zinc-900 dark:text-white flex items-center gap-2">
+                <FileText className="w-6 h-6 text-indigo-500" />
+                Daily Shop Report
+              </h2>
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-zinc-500" />
+              </button>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-mono text-sm text-zinc-800 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                {reportContent}
+              </pre>
+            </div>
+            <div className="p-6 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3 bg-zinc-50 dark:bg-zinc-950">
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="px-6 py-2.5 rounded-xl font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(reportContent);
+                  toast.success('Report copied to clipboard!');
+                }}
+                className="px-6 py-2.5 rounded-xl font-bold bg-indigo-500 hover:bg-indigo-600 text-white transition-colors flex items-center gap-2"
+              >
+                <Copy className="w-4 h-4" />
+                Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
