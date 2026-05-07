@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
-  Briefcase, CheckSquare, TrendingUp, 
+  CheckSquare, TrendingUp, 
   Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package
 } from 'lucide-react';
 import { 
@@ -215,9 +215,14 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     return acc;
   }, 0) || 0;
 
+  const jobsMissingPartsCount = new Set(
+    partsRequests?.filter((pr: any) => pr.jobId && ['pending', 'ordered', 'requested'].includes((pr.status || 'pending').toLowerCase()))
+      .map((pr: any) => pr.jobId)
+  ).size;
+
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
-    { label: 'Open Jobs', value: stats?.jobs ?? 0, icon: Briefcase, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs', loading: statsLoading },
+    { label: 'Missing Parts', value: jobsMissingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
     { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs', loading: statsLoading },
     { label: 'Pending Tasks', value: stats?.tasks ?? 0, icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-500/10', tab: 'tasks', loading: statsLoading },
     { label: 'Active Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: shipmentsLoading },

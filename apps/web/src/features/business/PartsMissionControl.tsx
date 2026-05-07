@@ -8,7 +8,7 @@ import {
 import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
-  Clock, Box, Wrench, User, Search, Package, Calendar, AlertCircle,
+  Clock, Box, User, Search, Package, Calendar, AlertCircle,
   Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin, Briefcase, CarFront
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -89,12 +89,7 @@ export function PartsMissionControl() {
   });
 
   
-  // Parts Request Form State
-  const [partName, setPartName] = useState('');
-  const [partNumber, setPartNumber] = useState('');
-  const [reqJobId, setReqJobId] = useState('');
-  const [urgency, setUrgency] = useState<'normal' | 'urgent'>('normal');
-  const [notes, setNotes] = useState('');
+
 
   // Shipment Form State
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -282,40 +277,7 @@ export function PartsMissionControl() {
     }
   };
 
-  const handleSubmitRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tenantId || !partName.trim()) return;
 
-    setIsSubmitting(true);
-    const promise = addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
-      partName: partName.trim(),
-      partNumber: partNumber.trim() || null,
-      jobId: reqJobId || null,
-      requestedBy: user?.displayName || user?.email || 'Unknown',
-      urgency,
-      status: 'pending',
-      notes: notes.trim() || null,
-      createdAt: serverTimestamp(),
-      createdBy: user?.uid || 'system',
-      createdByName: user?.displayName || user?.email?.split('@')[0] || null,
-      createdByEmail: user?.email || null,
-    });
-
-    toast.promise(promise, {
-      loading: 'Submitting parts request...',
-      success: () => {
-        setPartName('');
-        setPartNumber('');
-        setReqJobId('');
-        setUrgency('normal');
-        setNotes('');
-        queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
-        return 'Parts request submitted successfully';
-      },
-      error: 'Failed to submit request'
-    });
-
-  };
 
   const handleSubmitShipment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -501,100 +463,7 @@ export function PartsMissionControl() {
         {/* Left Column: Requests and Shipments Forms */}
         {canManage ? (
           <div className="space-y-8">
-            {/* Parts Request Form */}
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-              <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-zinc-900 dark:text-white">
-                <Wrench className="w-5 h-5 text-indigo-500" />
-                New Parts Request
-              </h2>
-              <form onSubmit={handleSubmitRequest} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Name / Description</label>
-                    <input 
-                      type="text" 
-                      required
-                      value={partName}
-                      onChange={(e) => setPartName(e.target.value)}
-                      placeholder="e.g. Brake Pads"
-                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Part Number (Optional)</label>
-                    <input 
-                      type="text" 
-                      value={partNumber}
-                      onChange={(e) => setPartNumber(e.target.value)}
-                      placeholder="e.g. PN-12345"
-                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Link to Job</label>
-                    <select 
-                      value={reqJobId}
-                      onChange={(e) => setReqJobId(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      <option value="">No Job Linked</option>
-                      {jobs.map(job => (
-                        <option key={job.id} value={job.id}>{job.title}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Urgency</label>
-                    <div className="flex gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setUrgency('normal')}
-                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                          urgency === 'normal' 
-                            ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-white' 
-                            : 'border-transparent text-zinc-500'
-                        }`}
-                      >
-                        Normal
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setUrgency('urgent')}
-                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                          urgency === 'urgent' 
-                            ? 'bg-red-500/10 border-red-500/20 text-red-600' 
-                            : 'border-transparent text-zinc-500'
-                        }`}
-                      >
-                        Urgent
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Notes</label>
-                  <textarea 
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Additional details..."
-                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none resize-none h-20"
-                  />
-                </div>
-
-                <button 
-                  type="submit" 
-                  disabled={isSubmitting || !partName.trim()}
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
-                >
-                  <Plus className="w-5 h-5" />
-                  Submit Request
-                </button>
-              </form>
-            </div>
 
             {/* Incoming Shipment Form */}
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">

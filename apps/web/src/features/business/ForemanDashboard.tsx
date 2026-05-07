@@ -80,17 +80,20 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
     return timeA - timeB; // Oldest first
   };
 
-  const occupiedBays = zones.filter(z => z.type === 'bay' && !!z.currentVehicleVin)
-    .filter(z => matchesSearch(z, allJobs.find(j => j.id === z.currentJobId)))
-    .sort(sortByOldest);
-
+  const occupiedBays = zones.filter(z => z.type === 'bay' && !!z.currentVehicleVin);
   const totalBays = zones.filter(z => z.type === 'bay').length;
 
-  const occupiedParking = zones.filter(z => (z.type === 'lot' || z.type === 'parking') && (!!z.currentVehicleVin || (z.currentVehicleVins && z.currentVehicleVins.length > 0)))
+  const occupiedParking = zones.filter(z => (z.type === 'lot' || z.type === 'parking') && (!!z.currentVehicleVin || (z.currentVehicleVins && z.currentVehicleVins.length > 0)));
+  const totalParking = zones.filter(z => z.type === 'lot' || z.type === 'parking').length;
+
+  // List arrays
+  const displayedBays = zones.filter(z => z.type === 'bay')
     .filter(z => matchesSearch(z, allJobs.find(j => j.id === z.currentJobId)))
     .sort(sortByOldest);
 
-  const totalParking = zones.filter(z => z.type === 'lot' || z.type === 'parking').length;
+  const displayedParking = zones.filter(z => (z.type === 'lot' || z.type === 'parking'))
+    .filter(z => matchesSearch(z, allJobs.find(j => j.id === z.currentJobId)))
+    .sort(sortByOldest);
 
   // 2. Active Blockers
   const activeBlockers = allJobs.filter(j => 
@@ -496,12 +499,12 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             </h2>
           </div>
           <div className="flex-1 space-y-3">
-            {occupiedBays.length === 0 ? (
+            {displayedBays.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
-                <p>No occupied bays match.</p>
+                <p>No bays match.</p>
               </div>
             ) : (
-              occupiedBays.map(renderZoneCard)
+              displayedBays.map(renderZoneCard)
             )}
           </div>
         </section>
@@ -515,12 +518,12 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             </h2>
           </div>
           <div className="flex-1 space-y-3">
-            {occupiedParking.length === 0 ? (
+            {displayedParking.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
-                <p>No occupied parking matches.</p>
+                <p>No parking matches.</p>
               </div>
             ) : (
-              occupiedParking.map(renderZoneCard)
+              displayedParking.map(renderZoneCard)
             )}
           </div>
         </section>

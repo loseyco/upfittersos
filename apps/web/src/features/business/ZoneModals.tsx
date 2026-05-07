@@ -658,12 +658,9 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
 
 
 function formatDatetimeLocal(dateString?: any) {
-  if (!dateString) {
-    const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    return now.toISOString().slice(0, 16);
-  }
+  if (!dateString) return '';
   const date = typeof dateString.toDate === 'function' ? dateString.toDate() : new Date(dateString);
+  if (isNaN(date.getTime())) return '';
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
   return date.toISOString().slice(0, 16);
 }
@@ -882,6 +879,9 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
         const isoString = new Date(floorWalk.expectedFinishTime).toISOString();
         if (job) updatePayload.expectedFinishTime = isoString;
         else updatePayload.eta = isoString;
+      } else {
+        if (job) updatePayload.expectedFinishTime = null;
+        else updatePayload.eta = null;
       }
       
       if (job) {
@@ -1123,6 +1123,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
                   <button onClick={() => addHours(4)} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">+4h</button>
                   <button onClick={setTomorrow} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">TMRW</button>
                   <button onClick={() => { try { (etaInputRef.current as any).showPicker(); } catch(e) { etaInputRef.current?.focus(); } }} className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-md hover:bg-indigo-600 transition-colors">PICK</button>
+                  <button onClick={() => setFloorWalk(prev => ({ ...prev, expectedFinishTime: '' }))} className="text-[10px] font-bold bg-red-500/10 text-red-600 px-2 py-0.5 rounded-md hover:bg-red-500 hover:text-white transition-colors">CLEAR</button>
                 </div>
               </div>
               <div className="relative">
