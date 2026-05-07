@@ -4,7 +4,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Warehouse, MapPin, Briefcase, LayoutDashboard, 
   X, Edit2, CarFront, History, CheckCircle2,
-  AlertTriangle, Clock, MessageSquare, Package, ShoppingCart
+  AlertTriangle, Clock, MessageSquare, Package, ShoppingCart, Unlink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -38,7 +38,7 @@ export const zoneTypeIcons = {
   other: LayoutDashboard,
 };
 
-export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAssign, onClear, onRemoveVehicle, onQuickAddRequest, onQuickAddJobRequest, onOpenVehicle, onDelete, partsRequests = [] }: any) {
+export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAssign, onClear, onRemoveVehicle, onRemoveJob, onQuickAddRequest, onQuickAddJobRequest, onOpenVehicle, onDelete, partsRequests = [] }: any) {
 
   useBodyScrollLock(true);
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
@@ -483,6 +483,17 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           </div>
                         </div>
                       </div>
+                      <button 
+                        onClick={() => {
+                          if (confirm('Are you sure you want to unlink this job from this bay? The vehicle will remain assigned.')) {
+                            if (onRemoveJob) onRemoveJob();
+                          }
+                        }}
+                        className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                        title="Unlink Job"
+                      >
+                        <Unlink className="w-4 h-4" />
+                      </button>
                     </div>
                   ) : (
                     <JobSelector 

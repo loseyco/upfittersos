@@ -8,6 +8,7 @@ import { Building2, Menu, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import type { PermissionKey } from '../../lib/auth/permissions';
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
+import { ForemanDashboard } from './ForemanDashboard';
 import { BusinessEvents } from './BusinessEvents';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BusinessSidebar } from './BusinessSidebar';
@@ -172,7 +173,7 @@ export function TenantDashboard() {
                 </div>
                 <div>
                   <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {activeTab === 'overview' ? business?.name : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    {activeTab === 'overview' ? business?.name : activeTab === 'foreman' ? 'Shop' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </h1>
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
                     {activeTab === 'overview' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
@@ -201,6 +202,10 @@ export function TenantDashboard() {
               <PermissionGate permission="mission_control.view">
                 <MissionControl tenantId={tenantId!} onTabChange={handleTabClick} />
               </PermissionGate>
+            )}
+
+            {activeTab === 'foreman' && (
+              <ForemanDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
             )}
 
             {activeTab === 'settings' && (
@@ -243,6 +248,27 @@ export function TenantDashboard() {
               <PermissionGate permission="parts.view">
                 <PartsMissionControl />
               </PermissionGate>
+            )}
+
+            {activeTab === 'graphics' && (
+              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">Graphics Department</h2>
+                <p>Mission Control Board coming soon...</p>
+              </div>
+            )}
+
+            {activeTab === 'fabrication' && (
+              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">F.A.S.T Fabrication</h2>
+                <p>Mission Control Board coming soon...</p>
+              </div>
+            )}
+
+            {activeTab === 'office' && (
+              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">Office</h2>
+                <p>Mission Control Board coming soon...</p>
+              </div>
             )}
 
             {activeTab === 'customers' && (

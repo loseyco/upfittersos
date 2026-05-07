@@ -1,0 +1,590 @@
+import { useState, useEffect } from 'react';
+import { 
+  AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
+} from 'lucide-react';
+import { collection, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../lib/firebase/config';
+import { cn } from '../../lib/utils';
+import { toast } from 'sonner';
+import { ZoneDetailsModal } from './ZoneModals';
+
+export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string) => void }) {
+  // user removed
+  const [zones, setZones] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [allJobs, setAllJobs] = useState<any[]>([]);
+  const [partsRequests, setPartsRequests] = useState<any[]>([]);
+  
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+  const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
+
+  useEffect(() => {
+    if (!tenantId) return;
+    
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
+      setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
+      setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
+      setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => {
+      unsubZones();
+      unsubVehicles();
+      unsubJobs();
+      unsubParts();
+    };
+  }, [tenantId]);
+
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const calculateDuration = (timestamp: any) => {
+    if (!timestamp) return '---';
+    const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 0) return 'Just now';
+    
+    const months = Math.floor(diff / (86400 * 30));
+    const days = Math.floor(diff / 86400);
+    const hours = Math.floor((diff % 86400) / 3600);
+    const mins = Math.floor((diff % 3600) / 60);
+    
+    if (months > 0) return `${months} month${months > 1 ? 's' : ''}`;
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
+    if (hours > 0) return `${hours} hr${hours > 1 ? 's' : ''}`;
+    if (mins > 0) return `${mins} min${mins > 1 ? 's' : ''}`;
+    return 'Just now';
+  };
+
+  const matchesSearch = (zone: any, job: any) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    if (zone.name?.toLowerCase().includes(q)) return true;
+    if (zone.currentVehicleVin?.toLowerCase().includes(q)) return true;
+    if (job?.title?.toLowerCase().includes(q)) return true;
+    if (job?.jobNumber?.toLowerCase().includes(q)) return true;
+    if (zone.currentVehicleVins?.some((v: string) => v.toLowerCase().includes(q))) return true;
+    return false;
+  };
+
+  // 1. Bays & Parking Spots (Sorted by oldest update)
+  const sortByOldest = (a: any, b: any) => {
+    const timeA = (a.lastAssignedAt?.seconds || a.updatedAt?.seconds || 0);
+    const timeB = (b.lastAssignedAt?.seconds || b.updatedAt?.seconds || 0);
+    return timeA - timeB; // Oldest first
+  };
+
+  const occupiedBays = zones.filter(z => z.type === 'bay' && !!z.currentVehicleVin)
+    .filter(z => matchesSearch(z, allJobs.find(j => j.id === z.currentJobId)))
+    .sort(sortByOldest);
+
+  const totalBays = zones.filter(z => z.type === 'bay').length;
+
+  const occupiedParking = zones.filter(z => (z.type === 'lot' || z.type === 'parking') && (!!z.currentVehicleVin || (z.currentVehicleVins && z.currentVehicleVins.length > 0)))
+    .filter(z => matchesSearch(z, allJobs.find(j => j.id === z.currentJobId)))
+    .sort(sortByOldest);
+
+  const totalParking = zones.filter(z => z.type === 'lot' || z.type === 'parking').length;
+
+  // 2. Active Blockers
+  const activeBlockers = allJobs.filter(j => 
+    j.status === 'Blocked' || 
+    (j.blockers || []).some((b: any) => b.status === 'active') ||
+    j.blocker
+  );
+
+  // 3. Due Soon / Overdue
+  let dueSoonCount = 0;
+  let overdueCount = 0;
+  const now = Date.now();
+  const twentyFourHours = 24 * 60 * 60 * 1000;
+
+  allJobs.forEach(j => {
+    if (j.status === 'Closed' || j.status === 'Completed') return;
+    
+    // Check zones for this job's ETA first, fallback to job's ETA
+    const zone = zones.find(z => z.currentJobId === j.id);
+    const etaRaw = zone?.eta || j.expectedFinishTime || j.eta;
+    
+    if (!etaRaw) return;
+    const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+    const diffMs = etaDate.getTime() - now;
+    
+    if (diffMs < 0) {
+      overdueCount++;
+    } else if (diffMs < twentyFourHours) {
+      dueSoonCount++;
+    }
+  });
+
+  // 4. Pending Parts
+  const pendingParts = partsRequests.filter(pr => 
+    pr.status === 'pending' || pr.status === 'ordered'
+  );
+
+  // Pending Tasks section removed as it's no longer used in the UI
+
+  // Automated To-Do List Generator
+  const automatedTodos: {
+    id: string;
+    type: 'blocker' | 'part_needed' | 'stale_bay' | 'overdue_job' | 'missing_info';
+    priority: 'high' | 'medium' | 'low';
+    title: string;
+    description: string;
+    zoneId?: string;
+    timestamp?: any;
+    jobId?: string;
+  }[] = [];
+
+  // 1. Blockers (High)
+  activeBlockers.forEach(job => {
+    const zone = zones.find(z => z.currentJobId === job.id);
+    const blockerMsg = (job.blockers?.find((b: any) => b.status === 'active')?.message) || job.blocker || 'Blocked';
+    automatedTodos.push({
+      id: `blocker-${job.id}`,
+      type: 'blocker',
+      priority: 'high',
+      title: `Blocked: ${job.title}`,
+      description: blockerMsg,
+      zoneId: zone?.id,
+      timestamp: job.updatedAt,
+      jobId: job.id
+    });
+  });
+
+  // 2. Overdue Jobs (High)
+  allJobs.forEach(job => {
+    if (job.status === 'Closed' || job.status === 'Completed') return;
+    const zone = zones.find(z => z.currentJobId === job.id);
+    const etaRaw = zone?.eta || job.expectedFinishTime || job.eta;
+    if (!etaRaw) return;
+    const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+    if (etaDate.getTime() < now) {
+      automatedTodos.push({
+        id: `overdue-${job.id}`,
+        type: 'overdue_job',
+        priority: 'high',
+        title: `Overdue: ${job.title}`,
+        description: `Passed ETA. Needs status check.`,
+        zoneId: zone?.id,
+        timestamp: etaRaw,
+        jobId: job.id
+      });
+    }
+  });
+
+  // 3. Stale Bays & Missing Info
+  occupiedBays.forEach(bay => {
+    const ts = bay.updatedAt || bay.lastAssignedAt;
+    if (ts) {
+      const time = ts.seconds ? ts.seconds * 1000 : new Date(ts).getTime();
+      if (now - time > 14400000) { // 4 hours
+        automatedTodos.push({
+          id: `stale-${bay.id}`,
+          type: 'stale_bay',
+          priority: 'medium',
+          title: `Check Bay: ${bay.name}`,
+          description: `No updates in over 4 hours.`,
+          zoneId: bay.id,
+          timestamp: ts
+        });
+      }
+    }
+    
+    // Missing Job/Customer
+    if (!bay.currentJobId) {
+      automatedTodos.push({
+        id: `missing-job-${bay.id}`,
+        type: 'missing_info',
+        priority: 'low',
+        title: `Missing Info: ${bay.name}`,
+        description: `Vehicle is in bay without an assigned job.`,
+        zoneId: bay.id,
+        timestamp: ts
+      });
+    }
+  });
+
+  // 4. Pending Parts (Medium/High)
+  pendingParts.forEach(part => {
+    const job = allJobs.find(j => j.id === part.jobId);
+    automatedTodos.push({
+      id: `part-${part.id}`,
+      type: 'part_needed',
+      priority: part.status === 'pending' ? 'high' : 'medium',
+      title: part.status === 'pending' ? `Order Part: ${part.partName}` : `Awaiting Part: ${part.partName}`,
+      description: job ? `For Job: ${job.title}` : `Requested by ${part.requestedByName}`,
+      zoneId: part.zoneId,
+      timestamp: part.createdAt
+    });
+  });
+
+  // Sort: High -> Medium -> Low
+  const priorityWeight = { high: 3, medium: 2, low: 1 };
+  automatedTodos.sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
+
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
+    try {
+      const zone = zones.find(z => z.id === zoneId);
+      const trimmedVin = vin?.trim().toUpperCase();
+      const previousVin = zone?.currentVehicleVin || null;
+      const previousJobId = zone?.currentJobId || null;
+
+      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+        currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
+        currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
+        lastAssignedAt: serverTimestamp()
+      });
+      toast.success(actionType === 'clear' ? 'Zone cleared' : 'Update successful');
+    } catch (e) {
+      toast.error('Failed to update zone');
+    }
+  };
+
+  const renderZoneCard = (bay: any) => {
+    const vehicle = vehicles?.find((v: any) => v.vin === bay.currentVehicleVin) as any;
+    const jobId = bay.currentJobId || vehicle?.jobId;
+    const job = allJobs?.find((j: any) => j.id === jobId) as any;
+    const customerName = bay.customerName || vehicle?.customerName || job?.customerName;
+    
+    const vehicleDisplay = vehicle 
+      ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${bay.currentVehicleVin}`) 
+      : (bay.currentVehicleVin ? `VIN: ${bay.currentVehicleVin}` : 'Unlinked');
+    const timestamp = bay.lastAssignedAt || bay.updatedAt;
+
+    return (
+      <div key={bay.id} className="relative group/item pointer-events-auto">
+        <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0">
+          <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-zinc-400 dark:text-zinc-500 w-20 sm:w-24 truncate shrink-0 text-xs sm:text-sm">{bay.name}</span>
+              <span className="text-zinc-900 dark:text-white truncate font-bold text-sm sm:text-base">
+                {vehicleDisplay}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pl-[88px] sm:pl-[104px] text-[10px] sm:text-xs text-zinc-400 truncate">
+              {job ? (
+                <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                  {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                </span>
+              ) : (
+                <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                  Missing Job
+                </span>
+              )}
+              {customerName ? (
+                <>
+                  <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                  <span className="truncate">{customerName}</span>
+                </>
+              ) : !job && (
+                <>
+                  <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                    Missing Customer
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+          {(() => {
+            if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+            
+            // Arrival time for duration calculation
+            const arrivalTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+            
+            // Last activity time for the label (always use updatedAt if available)
+            const activityTs = bay.updatedAt || timestamp;
+            const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
+            
+            const hours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
+            const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
+            
+            return (
+              <div className="flex flex-col items-end shrink-0">
+                <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-xs sm:text-sm`}>
+                  {calculateDuration(timestamp)}
+                </span>
+                {(() => {
+                  const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
+                  if (!etaRaw) return (
+                    <span className="text-[8px] font-medium uppercase tracking-tighter text-zinc-400">
+                      No ETA
+                    </span>
+                  );
+                  const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+                  const diffMs = etaDate.getTime() - Date.now();
+                  const isOverdue = diffMs < 0;
+                  const absDiff = Math.abs(diffMs);
+                  const h = Math.floor(absDiff / 3600000);
+                  const m = Math.floor((absDiff % 3600000) / 60000);
+                  const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  
+                  return (
+                    <span className={cn(
+                      "text-[9px] font-bold uppercase tracking-tighter px-1.5 py-0.5 rounded-sm mt-0.5",
+                      isOverdue ? "bg-red-500 text-white animate-pulse" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    )}>
+                      {isOverdue ? `Overdue ${label}` : `Due in ${label}`}
+                    </span>
+                  );
+                })()}
+                <span className={`text-[9px] sm:text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                  UPD: {new Date(activityTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+        <button 
+          onClick={(e) => { e.stopPropagation(); setSelectedZoneId(bay.id); }}
+          className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10 cursor-pointer"
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* Search Bar */}
+      <div className="relative">
+        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          <Filter className="w-5 h-5 text-zinc-400" />
+        </div>
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter bays by VIN, Job #, or Bay Name..."
+          className="w-full pl-12 pr-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
+        />
+      </div>
+
+      {/* KPIs Header */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-red-500/10 rounded-lg"><AlertTriangle className="w-4 h-4 text-red-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Blockers</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">{activeBlockers.length}</p>
+        </div>
+        
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-indigo-500/10 rounded-lg"><Warehouse className="w-4 h-4 text-indigo-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Bays</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">
+            {occupiedBays.length} <span className="text-sm font-bold text-zinc-400">/ {totalBays}</span>
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-emerald-500/10 rounded-lg"><Car className="w-4 h-4 text-emerald-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Parking</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">
+            {occupiedParking.length} <span className="text-sm font-bold text-zinc-400">/ {totalParking}</span>
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-amber-500/10 rounded-lg"><Clock className="w-4 h-4 text-amber-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Due {'<'} 24h</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">{dueSoonCount}</p>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-red-500/10 rounded-lg"><AlertCircle className="w-4 h-4 text-red-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Overdue</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">{overdueCount}</p>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-amber-500/10 rounded-lg"><Package className="w-4 h-4 text-amber-500" /></div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Parts</p>
+          </div>
+          <p className="text-2xl font-black text-zinc-900 dark:text-white">{pendingParts.length}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Priority 1: Automated To-Do List */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <ListChecks className="w-5 h-5 text-indigo-500" /> 
+              Automated To-Do List
+            </h2>
+            <span className="px-2 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-full">{automatedTodos.length} Items</span>
+          </div>
+          <div className="flex-1 space-y-3">
+            {automatedTodos.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
+                <ListChecks className="w-8 h-8 mb-2 opacity-20" />
+                <p>All clear! No automated items.</p>
+              </div>
+            ) : (
+              automatedTodos.map(todo => {
+                let icon;
+                let bgClass = "bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300";
+                let textClass = "text-zinc-600 dark:text-zinc-400";
+                
+                if (todo.priority === 'high') {
+                  bgClass = "bg-red-500/5 border-red-500/20 hover:bg-red-500/10";
+                  textClass = "text-red-600 dark:text-red-400";
+                } else if (todo.priority === 'medium') {
+                  bgClass = "bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10";
+                  textClass = "text-amber-600 dark:text-amber-400";
+                }
+
+                switch (todo.type) {
+                  case 'blocker': icon = <AlertTriangle className="w-3.5 h-3.5 shrink-0" />; break;
+                  case 'part_needed': icon = <Package className="w-3.5 h-3.5 shrink-0" />; break;
+                  case 'overdue_job': icon = <AlertCircle className="w-3.5 h-3.5 shrink-0" />; break;
+                  case 'stale_bay': icon = <Clock className="w-3.5 h-3.5 shrink-0" />; break;
+                  case 'missing_info': icon = <MapPin className="w-3.5 h-3.5 shrink-0" />; break;
+                }
+
+                return (
+                  <div 
+                    key={todo.id} 
+                    onClick={() => todo.zoneId && setSelectedZoneId(todo.zoneId)} 
+                    className={cn("p-4 border rounded-xl transition-all", todo.zoneId && "cursor-pointer", bgClass)}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-1.5">
+                        <span className={textClass}>{icon}</span>
+                        {todo.title}
+                      </h4>
+                      {todo.priority === 'high' && <span className="text-[9px] font-black uppercase bg-red-500/10 text-red-600 px-1.5 py-0.5 rounded">High</span>}
+                    </div>
+                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{todo.description}</p>
+                    {todo.timestamp && (
+                      <div className="mt-3 text-[10px] text-zinc-500 font-mono">
+                        {calculateDuration(todo.timestamp)} ago
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* Priority 2: Bays Needing Updates */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-indigo-500" /> 
+              Bays (Oldest First)
+            </h2>
+          </div>
+          <div className="flex-1 space-y-3">
+            {occupiedBays.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
+                <p>No occupied bays match.</p>
+              </div>
+            ) : (
+              occupiedBays.map(renderZoneCard)
+            )}
+          </div>
+        </section>
+
+        {/* Priority 3: Parking Spots */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-slate-500" /> 
+              Parking Spots
+            </h2>
+          </div>
+          <div className="flex-1 space-y-3">
+            {occupiedParking.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
+                <p>No occupied parking matches.</p>
+              </div>
+            ) : (
+              occupiedParking.map(renderZoneCard)
+            )}
+          </div>
+        </section>
+
+        {/* Priority 3: Pending Parts */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col lg:col-span-2">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <Package className="w-5 h-5 text-amber-500" /> 
+              Pending Parts Requests
+            </h2>
+            <button onClick={() => onTabChange('parts')} className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
+              Go to Parts Dept <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {pendingParts.length === 0 ? (
+              <p className="text-zinc-500 italic p-4 md:col-span-2 xl:col-span-3 text-center bg-zinc-50 dark:bg-zinc-950 rounded-xl">All parts requests fulfilled.</p>
+            ) : (
+              pendingParts.map(part => {
+                const job = allJobs.find(j => j.id === part.jobId);
+                const zone = zones.find(z => z.id === part.zoneId);
+                return (
+                  <div key={part.id} className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                    <div className="flex justify-between items-start mb-2">
+                      <p className="font-bold text-sm text-zinc-900 dark:text-white line-clamp-2">{part.partName}</p>
+                      <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ml-2 shrink-0", 
+                        part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" : "bg-amber-500/10 text-amber-600"
+                      )}>{part.status || 'Pending'}</span>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800/50 flex justify-between items-end">
+                      <div>
+                        {job && <p className="text-[10px] font-bold text-zinc-500 uppercase truncate max-w-[150px]">Job: {job.title}</p>}
+                        {zone && <p className="text-[10px] font-bold text-indigo-500 uppercase">{zone.name}</p>}
+                      </div>
+                      <p className="text-[10px] text-zinc-400">By {part.requestedByName?.split(' ')[0]}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+      </div>
+
+      {selectedZone && (
+        <ZoneDetailsModal
+          zone={selectedZone}
+          tenantId={tenantId}
+          vehicles={vehicles}
+          jobs={allJobs}
+          partsRequests={partsRequests}
+          onClose={() => setSelectedZoneId(null)}
+          onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
+          onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
+          onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
+          onRemoveJob={() => handleAssignVehicle(selectedZone.id, selectedZone.currentVehicleVin || '', 'remove_job')}
+          onDelete={() => {}}
+          onQuickAddRequest={() => {}}
+          onQuickAddJobRequest={() => {}}
+          onOpenVehicle={() => {}}
+        />
+      )}
+    </div>
+  );
+}

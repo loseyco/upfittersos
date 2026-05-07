@@ -81,7 +81,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     onConfirm: () => {}
   });
 
-  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' = 'assign', jobId?: string) => {
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
       const trimmedVin = vin?.trim().toUpperCase();
       const zone = zones.find(z => z.id === zoneId);
@@ -123,7 +123,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       } else {
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
           currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
-          currentJobId: actionType === 'clear' ? null : jobId || previousJobId,
+          currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
           lastAssignedAt: serverTimestamp()
         });
       }
@@ -275,7 +275,25 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
-  // 4. Blocked Jobs
+  // 4. Overdue Jobs
+  allJobs?.forEach((job: any) => {
+    if (job.status !== 'Closed' && job.status !== 'Completed' && (job.expectedFinishTime || job.eta)) {
+      const eta = job.expectedFinishTime || job.eta;
+      const etaTime = typeof eta?.toDate === 'function' ? eta.toDate().getTime() : new Date(eta).getTime();
+      if (etaTime && etaTime < Date.now()) {
+        alerts.push({
+          id: `overdue-job-${job.id}`,
+          title: `Overdue Job: ${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title || 'Untitled'}`,
+          description: `ETA was ${new Date(etaTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${new Date(etaTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
+          type: 'danger',
+          icon: Clock,
+          onClick: () => onTabChange(`jobs/${job.id}`)
+        });
+      }
+    }
+  });
+
+  // 5. Blocked Jobs
   allJobs?.forEach((job: any) => {
     if (job.status === 'Blocked') {
       const legacyBlocker = job.blocker ? [{ message: job.blocker, status: 'active' }] : [];
@@ -648,6 +666,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
           onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
           onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
+          onRemoveJob={() => handleAssignVehicle(selectedZone.id, selectedZone.currentVehicleVin || '', 'remove_job')}
           onDelete={() => {}} // Archiving disabled from dashboard for safety
           onQuickAddRequest={(vin: string) => setQuickAddVin({ zoneId: selectedZone.id, vin })}
           onQuickAddJobRequest={(title: string) => setQuickAddJob({ zoneId: selectedZone.id, title, vin: selectedZone.currentVehicleVin })}

@@ -181,7 +181,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
 
 
 
-  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'remove' | 'clear' = 'assign', jobId: string | null = null) => {
+  const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'remove' | 'clear' | 'remove_job' = 'assign', jobId: string | null = null) => {
     try {
       const trimmedVin = vin.trim().toUpperCase();
       let finalJobId = jobId;
@@ -328,6 +328,12 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           const newVins = previousVins.filter(v => v !== trimmedVin);
           await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { currentVehicleVins: newVins, lastAssignedAt: serverTimestamp() }, { merge: true });
         }
+      } else if (actionType === 'remove_job') {
+        const updateData: any = {
+          currentJobId: null,
+          lastAssignedAt: serverTimestamp()
+        };
+        await setDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), updateData, { merge: true });
       } else {
         const vinChanged = trimmedVin !== previousVin;
         const updateData: any = {
@@ -356,7 +362,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         assignedBy: user?.uid || 'system',
         assignedByEmail: user?.email || null,
         assignedByName: user?.displayName || null,
-        action: actionType === 'assign' && (trimmedVin || finalJobId) ? 'assigned' : 'cleared'
+        action: actionType === 'assign' && (trimmedVin || finalJobId) ? 'assigned' : (actionType === 'remove_job' ? 'job_cleared' : 'cleared')
       });
 
       if (actionType === 'assign' && trimmedVin) {
@@ -570,6 +576,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           onAssign={(vin: string, jobId?: string) => handleAssignVehicle(selectedZone.id, vin, 'assign', jobId)}
           onClear={() => handleAssignVehicle(selectedZone.id, '', 'clear')}
           onRemoveVehicle={(vin: string) => handleAssignVehicle(selectedZone.id, vin, 'remove')}
+          onRemoveJob={() => handleAssignVehicle(selectedZone.id, selectedZone.currentVehicleVin || '', 'remove_job')}
           onDelete={() => {
             handleArchiveZone(selectedZone.id);
             setSelectedZoneId(null);
