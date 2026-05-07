@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
-  Users, Briefcase, Box, CheckSquare, TrendingUp, 
+  Briefcase, CheckSquare, TrendingUp, 
   Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command
 } from 'lucide-react';
 import { 
