@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   Briefcase, CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command
+  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -256,6 +256,23 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
+  // 2. Parts Requested (Not yet ordered)
+  partsRequests?.forEach((pr: any) => {
+    const status = (pr.status || 'pending').toLowerCase();
+    if (status === 'pending' || status === 'requested') {
+      alerts.push({
+        id: `part-${pr.id}`,
+        title: `Part Requested: ${pr.partName || 'Unknown Part'}`,
+        description: `Requested by ${pr.createdByName || pr.requestedBy || 'Staff'}${pr.jobId ? ' for a job' : ''}`,
+        type: pr.urgency === 'urgent' ? 'danger' : 'warning',
+        icon: Package,
+        onClick: () => {
+          if (pr.jobId) onTabChange(`jobs/${pr.jobId}`);
+          else onTabChange('parts');
+        }
+      });
+    }
+  });
 
   // 3. Inactive Jobs
   recentJobs?.forEach((job: any) => {
