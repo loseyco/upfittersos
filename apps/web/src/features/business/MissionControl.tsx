@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package
+  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -333,8 +333,46 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
+  const handleGenerateReport = () => {
+    const today = new Date().toLocaleDateString();
+    
+    let report = `Daily Shop Report - ${today}\n\n`;
+    report += `📊 KEY METRICS:\n`;
+    kpis.forEach(kpi => {
+      report += `- ${kpi.label}: ${kpi.value}\n`;
+    });
+    
+    report += `\n🚨 ACTION REQUIRED:\n`;
+    if (alerts.length === 0) {
+      report += `- All clear!\n`;
+    } else {
+      alerts.forEach(alert => {
+        report += `- ${alert.title} | ${alert.description}\n`;
+      });
+    }
+
+    report += `\n🔧 SHOP FLOOR:\n`;
+    report += `- Full Bays: ${sortedBays.length}\n`;
+    report += `- Full Parking Spots: ${sortedParking.length}\n`;
+
+    const subject = encodeURIComponent(`Daily Shop Report - ${today}`);
+    const body = encodeURIComponent(report);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white hidden md:block">Mission Control</h1>
+        <button 
+          onClick={handleGenerateReport}
+          className="w-full md:w-auto px-4 py-2 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          <FileText className="w-4 h-4" />
+          Email Daily Report
+        </button>
+      </div>
+
       {/* Compact Ultimate Search Bar */}
       <div className="relative group">
         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
