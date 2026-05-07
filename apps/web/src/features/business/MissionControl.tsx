@@ -336,7 +336,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     }
   });
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
     const today = new Date().toLocaleDateString();
     
     let report = `Daily Shop Report - ${today}\n\n`;
@@ -357,6 +357,52 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     report += `\n🔧 SHOP FLOOR:\n`;
     report += `- Full Bays: ${sortedBays.length}\n`;
     report += `- Full Parking Spots: ${sortedParking.length}\n`;
+
+    // Fetch Today's Activity
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const [actSnap, zoneSnap] = await Promise.all([
+        getDocs(query(collection(db, `businesses/${tenantId}/activity_feed`), orderBy('timestamp', 'desc'), limit(100))),
+        getDocs(query(collection(db, `businesses/${tenantId}/zone_assignments`), orderBy('assignedAt', 'desc'), limit(100)))
+      ]);
+
+      const logs: { time: Date, msg: string }[] = [];
+
+      actSnap.forEach(d => {
+        const data = d.data();
+        if (!data.timestamp) return;
+        const time = data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
+        if (time >= todayStart) {
+          logs.push({ time, msg: `[Activity] ${data.title || 'Update'}: ${data.message} (by ${data.author || 'System'})` });
+        }
+      });
+
+      zoneSnap.forEach(d => {
+        const data = d.data();
+        if (!data.assignedAt) return;
+        const time = data.assignedAt.toDate ? data.assignedAt.toDate() : new Date(data.assignedAt);
+        if (time >= todayStart) {
+          const action = data.action === 'cleared' ? 'Cleared' : 'Assigned';
+          logs.push({ time, msg: `[Zone Move] ${action} ${data.vin || 'Bay'} in ${data.zoneName} (by ${data.assignedByName || 'System'})` });
+        }
+      });
+
+      logs.sort((a, b) => b.time.getTime() - a.time.getTime()); // Newest first
+
+      report += `\n📋 TODAY'S ACTIVITY LOG:\n`;
+      if (logs.length === 0) {
+        report += `- No activity logged today.\n`;
+      } else {
+        logs.forEach(log => {
+          report += `- [${log.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}] ${log.msg}\n`;
+        });
+      }
+    } catch (e) {
+      console.error("Failed to fetch activity logs for report:", e);
+      report += `\n📋 TODAY'S ACTIVITY LOG:\n- Failed to load activity logs.\n`;
+    }
 
     setReportContent(report);
     setShowReportModal(true);

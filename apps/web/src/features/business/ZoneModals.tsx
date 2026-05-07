@@ -587,7 +587,15 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                     </button>
                   </div>
                 ) : null}
-                <VinSelector vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} onAssign={(vin) => onAssign(vin, zone.currentJobId)} onClear={onClear} onQuickAddRequest={onQuickAddRequest} vehicles={vehicles} hideClearButton={true} />
+                <VinSelector 
+                  key={`vin-selector-${zone.id}-${zone.allowMultiple ? zone.currentVehicleVins?.length || 0 : zone.currentVehicleVin}`}
+                  vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} 
+                  onAssign={(vin) => onAssign(vin, zone.currentJobId)} 
+                  onClear={onClear} 
+                  onQuickAddRequest={onQuickAddRequest} 
+                  vehicles={vehicles} 
+                  hideClearButton={true} 
+                />
               </div>
             </div>
           </section>
