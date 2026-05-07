@@ -3,13 +3,13 @@ import { collection, doc, updateDoc, serverTimestamp, onSnapshot, query, orderBy
 import { db } from '../../lib/firebase/config';
 import { 
   Warehouse, MapPin, Briefcase, LayoutDashboard, 
-  X, Edit2, Users, RefreshCw, CarFront, History, CheckCircle2 
+  X, Edit2, CarFront, History, CheckCircle2 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
 import { StaffLink } from './StaffPerformance';
 import { JobSelector } from './JobSelectionComponents';
-import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
+import { QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { VinSelector } from './VehicleSelector';
 import { useAuthStore } from '../../lib/auth/store';
 
@@ -43,7 +43,6 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => vehicles.find((v: any) => v.vin === vin)).filter(Boolean) : [];
   const [history, setHistory] = useState<any[]>([]);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
-  const [isChangingCustomer, setIsChangingCustomer] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(zone.name || '');
@@ -77,15 +76,30 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
 
   const handleVerify = async () => {
     if (isVerifying) return;
+    if (!tenantId || !zone.id) {
+      toast.error("Missing context for verification");
+      return;
+    }
+
     setIsVerifying(true);
     try {
-      // Update zone verification metadata WITHOUT resetting arrival time (lastAssignedAt)
-      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), {
-        lastVerifiedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+      const timestamp = serverTimestamp();
+      
+      // Update zone verification metadata
+      const updateData: any = {
+        lastVerifiedAt: timestamp,
+        updatedAt: timestamp
+      };
 
-      // Log the verification activity with enriched job/customer data
+      // CRITICAL: If lastAssignedAt is missing (legacy records), 
+      // freeze the arrival time so the clock doesn't reset.
+      if (!zone.lastAssignedAt) {
+        updateData.lastAssignedAt = zone.updatedAt || zone.createdAt || timestamp;
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), updateData);
+
+      // Log the verification activity
       await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
         zoneId: zone.id,
         zoneName: zone.name || 'Unknown Zone',
@@ -94,16 +108,18 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
         jobTitle: job?.title || null,
         customerName: job?.customerName || null,
         action: 'verified',
-        assignedAt: serverTimestamp(),
+        assignedAt: timestamp,
         assignedBy: user?.uid || 'system',
         assignedByName: user?.displayName || user?.email || 'Staff',
         notes: 'Occupancy verified by staff'
       });
 
       toast.success("Occupancy verified");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Verification Error:", err);
-      toast.error("Failed to verify occupancy");
+      // Provide more detail in the toast if it's a permission issue or other known Firestore error
+      const msg = err.code === 'permission-denied' ? 'Permission denied (check login)' : err.message || 'Check connection';
+      toast.error(`Failed to verify: ${msg}`);
     } finally {
       setIsVerifying(false);
     }
@@ -218,6 +234,13 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
               {!zone.allowMultiple && (vehicle || job) && (
                 <div className="flex items-center gap-2">
                   <button 
+                    onClick={() => onClear()}
+                    className="flex items-center gap-1.5 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full text-[10px] font-black uppercase tracking-wider transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                    Empty Bay
+                  </button>
+                  <button 
                     onClick={handleVerify}
                     disabled={isVerifying}
                     className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-full text-[10px] font-black uppercase tracking-wider transition-colors disabled:opacity-50"
@@ -225,8 +248,8 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                     <CheckCircle2 className={`w-3 h-3 ${isVerifying ? 'animate-pulse' : ''}`} />
                     Verify Still Here
                   </button>
-                  <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
-                    Active for {timeInArea() || '--'}
+                  <p className="hidden sm:block text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
+                    {timeInArea() || '--'}
                   </p>
                 </div>
               )}
@@ -234,68 +257,9 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
             
             <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl space-y-6 shadow-inner">
               
-              {/* Customer Section - Added for unified management */}
-              <div className="space-y-3">
-                <label className="block text-[10px] font-black text-blue-500 uppercase tracking-widest px-1">Customer Selection</label>
-                {job?.customerName && !isChangingCustomer ? (
-                  <div className="p-3 bg-white dark:bg-zinc-900 border border-blue-100 dark:border-blue-500/20 rounded-xl flex items-center justify-between group">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-500/10 rounded-lg">
-                        <Users className="w-4 h-4 text-blue-500" />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-sm text-zinc-900 dark:text-white truncate max-w-[200px]">{job.customerName}</h4>
-                        <p className="text-[10px] text-zinc-500 uppercase font-medium">Linked Record</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                       {job.customerId && (
-                         <button 
-                           onClick={() => setEditingCustomerId(job.customerId)}
-                           className="p-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-blue-500 rounded-xl transition-colors border border-zinc-200 dark:border-zinc-700 shadow-sm"
-                           title="Edit Customer Details"
-                         >
-                           <Edit2 className="w-4 h-4" />
-                         </button>
-                       )}
-                       <button 
-                         onClick={() => setIsChangingCustomer(true)}
-                         className="p-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 hover:text-blue-500 rounded-xl transition-colors border border-zinc-200 dark:border-zinc-700 shadow-sm"
-                         title="Change Customer"
-                       >
-                         <RefreshCw className="w-4 h-4" />
-                       </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <CustomerSelector 
-                      tenantId={tenantId}
-                      customerId={null}
-                      onAssign={(_id, name) => {
-                        // When assigning a customer to a zone with a vehicle, suggest creating a job
-                        setIsChangingCustomer(false);
-                        onQuickAddJobRequest(name);
-                      }}
-                      onClear={() => setIsChangingCustomer(false)}
-                      onCreateNewRequest={(name) => setQuickAddCustomer(name || '')}
-                      placeholder="Search or Create Customer..."
-                    />
-                    {isChangingCustomer && (
-                      <button 
-                        onClick={() => setIsChangingCustomer(false)}
-                        className="absolute -right-2 -top-2 p-1 bg-zinc-900 text-white rounded-full shadow-lg"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Job Section */}
+              {/* Job Section - Primary Assignment */}
               {!zone.allowMultiple && (
-                <div className="space-y-3 pt-2 border-t border-zinc-200/50 dark:border-zinc-800/50">
+                <div className="space-y-3">
                   <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest px-1">Job Assignment</label>
                   {job ? (
                     <div className="p-3 bg-white dark:bg-zinc-900 border border-emerald-100 dark:border-emerald-500/20 rounded-xl flex items-center justify-between group">
@@ -304,8 +268,14 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           <Briefcase className="w-4 h-4 text-emerald-500" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white">{job.title}</h4>
-                          <p className="text-[10px] text-zinc-500 uppercase font-medium">#{job.jobNumber || 'No Job #'}</p>
+                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-snug">{job.title}</h4>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {job.customerName && (
+                              <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-tight">{job.customerName}</p>
+                            )}
+                            {job.customerName && <span className="text-zinc-300 dark:text-zinc-700 text-[10px]">•</span>}
+                            <p className="text-[10px] text-zinc-500 uppercase font-medium tracking-tight">#{job.jobNumber || 'No Job #'}</p>
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => onClear()} className="p-2 text-zinc-400 hover:text-red-500 transition-colors">
@@ -454,7 +424,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
           tenantId={tenantId}
           initialName={quickAddCustomer}
           onClose={() => setQuickAddCustomer(null)}
-          onSuccess={(_id, name) => {
+          onSuccess={(_id: string, name: string) => {
             setQuickAddCustomer(null);
             onQuickAddJobRequest(name);
           }}

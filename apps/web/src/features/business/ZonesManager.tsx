@@ -715,7 +715,20 @@ function ZoneCard({ zone, vehicles, jobs, onSelect }: { zone: Zone, vehicles: an
                   ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${vehicle.vin}`) 
                   : 'No Vehicle Linked'}
               </h4>
-              <p className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded">{timeInArea() || '--'}</p>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <p className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                  {timeInArea() || '--'}
+                </p>
+                {zone.updatedAt && (
+                  <p className="text-[9px] font-medium text-zinc-400 uppercase tracking-tighter">
+                    Upd: {(() => {
+                      const ts = zone.updatedAt;
+                      const date = ts.toDate ? ts.toDate() : (ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts));
+                      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    })()}
+                  </p>
+                )}
+              </div>
             </div>
             {vehicle && <p className="text-xs text-zinc-500 font-mono mb-1">{vehicle.vin}</p>}
             {(vehicle?.customerName || job?.customerName) ? (

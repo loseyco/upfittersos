@@ -402,7 +402,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                     <span className="truncate">{customerName}</span>
                                   </>
-                                ) : (
+                                ) : !job && (
                                   <>
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                     <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
@@ -414,16 +414,24 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                             </div>
                             {(() => {
                               if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
-                              const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
-                              const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
+                              
+                              // Arrival time for duration calculation
+                              const arrivalTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+                              
+                              // Last activity time for the label (always use updatedAt if available)
+                              const activityTs = bay.updatedAt || timestamp;
+                              const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
+                              
+                              const hours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
                               const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
+                              
                               return (
                                 <div className="flex flex-col items-end shrink-0">
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
                                     {calculateDuration(timestamp)}
                                   </span>
                                   <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
-                                    Updated: {new Date(assignedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    Updated: {new Date(activityTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>
                               );
@@ -505,7 +513,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                     <span className="truncate">{customerName}</span>
                                   </>
-                                ) : (
+                                ) : !job && (
                                   <>
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                     <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">

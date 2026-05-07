@@ -27,7 +27,7 @@
 
   html, body {
     touch-action: manipulation;
-    overscroll-behavior-y: auto;
+    overscroll-behavior-y: none;
   }
 
   /* Prevent pull-to-refresh when a modal/dialog is open */

@@ -4,7 +4,12 @@ import { db } from '../../lib/firebase/config';
 import { 
   Activity, RefreshCw, Clock, 
   TrendingUp,
-  Warehouse
+  Warehouse,
+  UserPlus,
+  Car,
+  Package,
+  MessageSquare,
+  Truck
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { StaffLink } from './StaffPerformance';
@@ -153,6 +158,69 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
             author: staffName
           };
         }
+      },
+      {
+        path: `businesses/${tenantId}/time_edit_requests`,
+        transform: (doc: any) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            type: 'time_session' as const,
+            title: 'Clock Correction',
+            message: `Requested: ${data.note?.slice(0, 50)}${data.note?.length > 50 ? '...' : ''}`,
+            timestamp: data.createdAt,
+            severity: 'warning' as const,
+            author: data.userName
+          };
+        }
+      },
+      {
+        path: `businesses/${tenantId}/customers`,
+        transform: (doc: any) => {
+          const data = doc.data();
+          const staffName = data.createdByName || data.createdByEmail?.split('@')[0] || null;
+          return {
+            id: doc.id,
+            type: 'system' as const,
+            title: 'New Customer',
+            message: `${data.firstName} ${data.lastName}${data.company ? ` (${data.company})` : ''}`,
+            timestamp: data.createdAt,
+            severity: 'success' as const,
+            author: staffName
+          };
+        }
+      },
+      {
+        path: `businesses/${tenantId}/vehicles`,
+        transform: (doc: any) => {
+          const data = doc.data();
+          const staffName = data.createdByName || data.createdByEmail?.split('@')[0] || null;
+          return {
+            id: doc.id,
+            type: 'system' as const,
+            title: 'Vehicle Intake',
+            message: `${data.year || ''} ${data.make || ''} ${data.model || ''} (${data.vin?.slice(-6)})`,
+            timestamp: data.createdAt,
+            severity: 'info' as const,
+            author: staffName
+          };
+        }
+      },
+      {
+        path: `businesses/${tenantId}/package_intake`,
+        transform: (doc: any) => {
+          const data = doc.data();
+          const staffName = data.receivedByName || data.receivedBy || null;
+          return {
+            id: doc.id,
+            type: 'parts' as const,
+            title: 'Package Inbound',
+            message: `${data.carrier} delivery for ${data.recipient || 'Shop'}`,
+            timestamp: data.createdAt,
+            severity: 'success' as const,
+            author: staffName
+          };
+        }
       }
     ];
 
@@ -184,11 +252,18 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
     return () => unsubscribers.forEach(unsub => unsub());
   }, [tenantId]);
 
-  const getIcon = (type: string) => {
+  const getIcon = (type: string, title?: string) => {
+    if (title === 'New Customer') return <UserPlus className="w-4 h-4" />;
+    if (title === 'Vehicle Intake') return <Car className="w-4 h-4" />;
+    if (title === 'Package Inbound') return <Package className="w-4 h-4" />;
+    if (title === 'Clock Correction') return <MessageSquare className="w-4 h-4" />;
+    
     switch (type) {
       case 'qbwc_sync': return <RefreshCw className="w-4 h-4" />;
       case 'zone_move': return <Warehouse className="w-4 h-4" />;
       case 'time_session': return <Clock className="w-4 h-4" />;
+      case 'parts': return <Package className="w-4 h-4" />;
+      case 'shipment': return <Truck className="w-4 h-4" />;
       default: return <Activity className="w-4 h-4" />;
     }
   };
@@ -250,7 +325,7 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
                   "relative z-10 flex items-center justify-center w-10 h-10 rounded-full border-4 border-white dark:border-zinc-900 shrink-0 transition-transform group-hover:scale-110 shadow-sm",
                   getSeverityStyles(activity.severity)
                 )}>
-                  {getIcon(activity.type)}
+                  {getIcon(activity.type, activity.title)}
                 </div>
                 
                 <div className="flex-1 pt-0.5">

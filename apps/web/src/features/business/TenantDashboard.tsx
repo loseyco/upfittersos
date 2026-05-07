@@ -27,6 +27,7 @@ import { CustomersManager } from './CustomersManager';
 import { TimeClockBar } from '../timeclock/TimeClockBar';
 import { TimeclockAdmin } from '../timeclock/TimeclockAdmin';
 import { StaffRoster } from './StaffRoster';
+import { PullToRefresh } from '../../components/layout/PullToRefresh';
 
 export function TenantDashboard() {
   usePageTitle('Dashboard');
@@ -115,6 +116,7 @@ export function TenantDashboard() {
 
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
+      <PullToRefresh onRefresh={() => window.location.reload()} />
       <BusinessSidebar 
         activeTab={activeTab} 
         setActiveTab={handleTabClick} 
