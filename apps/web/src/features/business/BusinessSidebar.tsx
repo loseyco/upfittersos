@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   Home, Users, Briefcase, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  BarChart3, Clock, Trophy
+  Clock, Trophy
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';

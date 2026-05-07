@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, orderBy, limit } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, limit } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart
@@ -101,8 +101,6 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   }] : [];
   
   const allBlockers = (job.blockers || legacyBlocker);
-  const activeBlockers = allBlockers.filter((b: any) => b.status === 'active');
-  const pastBlockers = allBlockers.filter((b: any) => b.status === 'cleared');
 
   const handleSave = async () => {
     setIsSaving(true);

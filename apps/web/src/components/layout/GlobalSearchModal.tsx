@@ -48,7 +48,7 @@ export function GlobalSearchModal() {
     queryFn: async () => {
       const q = query(collection(db, `businesses/${tenantId}/vehicles`));
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
     },
     enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
   });
@@ -348,7 +348,7 @@ export function GlobalSearchModal() {
           vehicles={allVehicles}
           jobs={allJobs}
           onClose={() => setSelectedResult(null)}
-          onAssign={async (vin: string, jobId: string) => {
+          onAssign={async (_vin: string, _jobId: string) => {
             // Use existing logic from ZonesManager if needed, or implement here
           }}
           onClear={() => {}}

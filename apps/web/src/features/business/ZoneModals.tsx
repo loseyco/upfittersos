@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { collection, doc, updateDoc, serverTimestamp, onSnapshot, query, orderBy, limit, where, addDoc } from 'firebase/firestore';
+import { collection, doc, updateDoc, serverTimestamp, onSnapshot, query, limit, where, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Warehouse, MapPin, Briefcase, LayoutDashboard, 
   X, Edit2, CarFront, History, CheckCircle2,
-  AlertTriangle, Clock, MessageSquare, Save, Package, ShoppingCart
+  AlertTriangle, Clock, MessageSquare, Package, ShoppingCart
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -828,7 +828,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
   const handleAddPartRequest = async () => {
     if (!floorWalk.partsNeeded.trim() || !tenantId) return;
     try {
-      const promise = addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+      await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
         partName: floorWalk.partsNeeded.trim(),
         jobId: job?.id || null,
         zoneId: zone?.id || null,

@@ -6,6 +6,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard, AlertTriangle, Clock, MessageSquare, ShoppingCart } from 'lucide-react';
 
 import { toast } from 'sonner';
+import { cn } from '../../lib/utils';
 import { VehicleDetailsModal } from './VehiclesManager';
 // VinScanner import removed as it is unused
 import { ConfirmModal } from '../../components/ConfirmModal';

@@ -207,13 +207,21 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const sortedBays = [...occupiedBaysList].sort(sortByRecent);
   const sortedParking = [...occupiedParkingList].sort(sortByRecent);
 
+  const blockedJobsCount = allJobs?.filter((j: any) => j.status === 'Blocked').length || 0;
+  const activeJobsCount = allJobs?.filter((j: any) => j.status !== 'Closed' && j.status !== 'Completed' && j.status !== 'Blocked').length || 0;
+  const vehiclesOnSiteCount = zones?.reduce((acc: number, z: any) => {
+    if (z.allowMultiple && z.currentVehicleVins) return acc + z.currentVehicleVins.length;
+    if (z.currentVehicleVin) return acc + 1;
+    return acc;
+  }, 0) || 0;
+
   const kpis = [
-    { label: 'Active Customers', value: stats?.customers ?? 0, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'customers', loading: statsLoading },
+    { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
     { label: 'Open Jobs', value: stats?.jobs ?? 0, icon: Briefcase, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs', loading: statsLoading },
-    { label: 'Inventory Items', value: stats?.inventory_items ?? 0, icon: Box, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'items', loading: statsLoading },
+    { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs', loading: statsLoading },
     { label: 'Pending Tasks', value: stats?.tasks ?? 0, icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-500/10', tab: 'tasks', loading: statsLoading },
     { label: 'Active Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: shipmentsLoading },
-    { label: 'Vehicles', value: stats?.vehicles ?? 0, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
+    { label: 'Vehicles On Site', value: vehiclesOnSiteCount, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
   ];
 
 
