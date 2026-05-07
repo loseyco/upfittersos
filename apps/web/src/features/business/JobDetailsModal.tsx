@@ -54,6 +54,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     customerName: job.customerName || '',
     notes: job.notes || '',
     expectedFinishTime: formatDatetimeLocal(job.expectedFinishTime),
+    estimatedHours: job.estimatedHours || '',
     assignedStaff: job.assignedStaff || (job.assignedStaffId ? [{ id: job.assignedStaffId, name: job.assignedStaffName || 'Staff' }] : [])
   });
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -615,7 +616,6 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                       }
 
                       return timeEvents.map(event => {
-                        const isLiveIn = event.type === 'in' && !timeEvents.some(e => e.type === 'out' && e.id.startsWith(event.id.replace('-in-', '-out-'))); // Approximation for live style
                         
                         return (
                           <div key={event.id} className="p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl flex items-center justify-between text-sm group">
