@@ -369,11 +369,24 @@ export function PartsMissionControl() {
   const handleUpdateStatus = async (requestId: string, newStatus: RequestStatus) => {
     if (!tenantId) return;
     try {
-      const { updateDoc, doc } = await import('firebase/firestore');
+      const { updateDoc, doc, addDoc, collection } = await import('firebase/firestore');
       await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId), {
         status: newStatus,
         statusChangedAt: serverTimestamp()
       });
+      
+      const partReq = requests.find(r => r.id === requestId);
+      if (partReq) {
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'parts',
+          title: `Part Status: ${newStatus.toUpperCase()}`,
+          message: `${partReq.partName} was marked as ${newStatus}`,
+          timestamp: serverTimestamp(),
+          severity: newStatus === 'received' || newStatus === 'fulfilled' ? 'success' : 'info',
+          author: user?.displayName || user?.email?.split('@')[0] || 'System'
+        });
+      }
+      
       toast.success(`Request marked as ${newStatus}`);
     } catch (err) {
       console.error('Error updating status:', err);
