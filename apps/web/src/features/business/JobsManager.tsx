@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Search, Plus, 
@@ -23,10 +23,21 @@ interface JobsManagerProps {
 
 export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [statusFilter] = useState('all');
+  
+  const queryParams = new URLSearchParams(location.search);
+  const initialStatus = queryParams.get('status') || 'all';
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
+
+  React.useEffect(() => {
+    const status = new URLSearchParams(location.search).get('status');
+    if (status) {
+      setStatusFilter(status);
+    }
+  }, [location.search]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [zones, setZones] = useState<any[]>([]);
 
@@ -217,6 +228,25 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
               className="pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all w-full md:w-64"
             />
           </div>
+
+          <select 
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              navigate(e.target.value === 'all' ? `/business/${tenantId}/jobs` : `/business/${tenantId}/jobs?status=${encodeURIComponent(e.target.value)}`, { replace: true });
+            }}
+            className="px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer"
+          >
+            <option value="all">All Statuses</option>
+            <option value="Open">Open</option>
+            <option value="Active">Active</option>
+            <option value="Blocked">Blocked</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Ready for QA">Ready for QA</option>
+            <option value="Ready for Customer">Ready for Customer</option>
+            <option value="Completed">Completed</option>
+            <option value="Closed">Closed</option>
+          </select>
           
           <button 
             onClick={() => setIsAddModalOpen(true)}

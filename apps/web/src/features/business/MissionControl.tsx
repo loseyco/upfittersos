@@ -447,22 +447,22 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-4 gap-2 sm:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 sm:gap-3">
         {kpis.map((kpi) => (
           <button
             key={kpi.label}
             onClick={() => onTabChange(kpi.tab)}
-            className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 sm:p-6 shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]"
+            className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5 sm:p-3.5 shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]"
           >
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className={`p-2 sm:p-3 rounded-xl ${kpi.bg}`}>
-                <kpi.icon className={`w-4 h-4 sm:w-6 sm:h-6 ${kpi.color}`} />
+            <div className="flex items-center justify-between mb-2">
+              <div className={`p-1.5 sm:p-2 rounded-xl ${kpi.bg}`}>
+                <kpi.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${kpi.color}`} />
               </div>
-              <TrendingUp className="hidden sm:block w-4 h-4 text-zinc-300 dark:text-zinc-700" />
+              <TrendingUp className="hidden sm:block w-3.5 h-3.5 text-zinc-300 dark:text-zinc-700" />
             </div>
-            <div className="space-y-0.5 sm:space-y-1">
-              <h3 className="text-[10px] sm:text-sm font-medium text-zinc-500 dark:text-zinc-400 truncate">{kpi.label}</h3>
-              <p className="text-xl sm:text-3xl font-bold text-zinc-900 dark:text-white">
+            <div className="space-y-0.5">
+              <h3 className="text-[9px] sm:text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate">{kpi.label}</h3>
+              <p className="text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white">
                 {kpi.loading ? '...' : kpi.value}
               </p>
             </div>
