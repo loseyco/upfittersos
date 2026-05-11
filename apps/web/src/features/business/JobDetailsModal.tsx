@@ -61,6 +61,17 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   });
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (zones.length > 0) {
+      const cz = zones.find(z => z.currentVehicleVin === formData.vehicleId || z.currentJobId === job.id || z.currentVehicleVins?.includes(formData.vehicleId));
+      if (selectedZoneId === null) {
+        setSelectedZoneId(cz?.id || '');
+      }
+    }
+  }, [zones, formData.vehicleId, job.id]);
+
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
   const [quickAddVehicle, setQuickAddVehicle] = useState<string | null>(null);
 
@@ -302,6 +313,75 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
         estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : null,
         updatedAt: new Date()
       });
+
+      // Zone Transfer Logic
+      const currentZone = zones.find(z => z.currentVehicleVin === formData.vehicleId || z.currentJobId === job.id || z.currentVehicleVins?.includes(formData.vehicleId));
+      const currentZoneId = currentZone?.id || '';
+      
+      if (selectedZoneId !== null && selectedZoneId !== currentZoneId) {
+        const trimmedVin = formData.vehicleId?.trim().toUpperCase();
+        
+        // 1. Clear from all old zones
+        for (const oz of zones) {
+           let needsClear = false;
+           if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
+           else if (job.id && oz.currentJobId === job.id) needsClear = true;
+           else if (trimmedVin && oz.currentVehicleVins?.includes(trimmedVin)) needsClear = true;
+
+           if (needsClear) {
+              await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
+                currentVehicleVin: null, 
+                currentJobId: null,
+                currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+              });
+           }
+        }
+        
+        // 2. Assign to new zone
+        if (selectedZoneId) {
+           const targetZone = zones.find(z => z.id === selectedZoneId);
+           if (targetZone) {
+             if (targetZone.allowMultiple) {
+                const newVins = [...(targetZone.currentVehicleVins || [])];
+                if (trimmedVin && !newVins.includes(trimmedVin)) newVins.push(trimmedVin);
+                await updateDoc(doc(db, `businesses/${tenantId}/zones`, selectedZoneId), {
+                  currentVehicleVins: newVins,
+                  lastAssignedAt: new Date()
+                });
+             } else {
+                await updateDoc(doc(db, `businesses/${tenantId}/zones`, selectedZoneId), {
+                  currentVehicleVin: trimmedVin || null,
+                  currentJobId: job.id,
+                  lastAssignedAt: new Date()
+                });
+             }
+             
+             await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+                zoneId: selectedZoneId,
+                zoneName: targetZone.name || 'Unknown',
+                vin: trimmedVin || null,
+                jobId: job.id,
+                action: 'assigned',
+                assignedAt: new Date(),
+                assignedBy: user?.uid || 'system',
+                assignedByName: user?.displayName || user?.email || 'Staff'
+             });
+           }
+        } else if (currentZoneId) {
+           // Log clear event
+           await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+              zoneId: currentZoneId,
+              zoneName: currentZone?.name || 'Unknown',
+              vin: trimmedVin || null,
+              jobId: job.id,
+              action: 'cleared',
+              assignedAt: new Date(),
+              assignedBy: user?.uid || 'system',
+              assignedByName: user?.displayName || user?.email || 'Staff'
+           });
+        }
+      }
+
       toast.success('Job updated successfully');
       onUpdate();
       onClose();
@@ -586,6 +666,23 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                         <p className="text-xs font-medium text-indigo-400">No vehicle association</p>
                       </div>
                     )}
+                  </div>
+                </section>
+
+                <section>
+                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-3">Location</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                    <select 
+                      value={selectedZoneId || ''} 
+                      onChange={e => setSelectedZoneId(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm font-bold text-zinc-900 dark:text-white appearance-none cursor-pointer"
+                    >
+                      <option value="">Unassigned (Off-site)</option>
+                      {zones.map(z => (
+                        <option key={z.id} value={z.id}>{z.name} ({z.type === 'bay' ? 'Bay' : 'Parking'})</option>
+                      ))}
+                    </select>
                   </div>
                 </section>
 

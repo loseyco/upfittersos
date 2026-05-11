@@ -289,7 +289,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 3. Inactive Jobs
   recentJobs?.forEach((job: any) => {
-    if (!['Closed', 'Completed', 'Ready for Customer'].includes(job.status) && job.updatedAt) {
+    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && job.updatedAt) {
       const updatedTime = new Date(job.updatedAt.seconds ? job.updatedAt.seconds * 1000 : job.updatedAt).getTime();
       const days = (Date.now() - updatedTime) / (1000 * 60 * 60 * 24);
       if (days > 7 && job.status !== 'Blocked') {
@@ -307,7 +307,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 4. Overdue Jobs
   allJobs?.forEach((job: any) => {
-    if (!['Closed', 'Completed', 'Ready for Customer'].includes(job.status) && (job.expectedFinishTime || job.eta)) {
+    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && (job.expectedFinishTime || job.eta)) {
       const eta = job.expectedFinishTime || job.eta;
       const etaTime = typeof eta?.toDate === 'function' ? eta.toDate().getTime() : new Date(eta).getTime();
       if (etaTime && etaTime < Date.now()) {

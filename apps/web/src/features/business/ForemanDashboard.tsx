@@ -110,7 +110,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   const twentyFourHours = 24 * 60 * 60 * 1000;
 
   allJobs.forEach(j => {
-    if (j.status === 'Closed' || j.status === 'Completed') return;
+    if (['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(j.status)) return;
     
     // Check zones for this job's ETA first, fallback to job's ETA
     const zone = zones.find(z => z.currentJobId === j.id);
@@ -164,7 +164,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
   // 2. Overdue Jobs (High)
   allJobs.forEach(job => {
-    if (job.status === 'Closed' || job.status === 'Completed') return;
+    if (['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status)) return;
     const zone = zones.find(z => z.currentJobId === job.id);
     const etaRaw = zone?.eta || job.expectedFinishTime || job.eta;
     if (!etaRaw) return;
