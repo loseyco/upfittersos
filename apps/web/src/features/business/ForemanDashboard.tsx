@@ -534,8 +534,14 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                 return (
                   <div 
                     key={todo.id} 
-                    onClick={() => todo.zoneId && setSelectedZoneId(todo.zoneId)} 
-                    className={cn("p-4 border rounded-xl transition-all", todo.zoneId && "cursor-pointer", bgClass)}
+                    onClick={() => {
+                      if (todo.jobId && (todo.type === 'overdue_job' || todo.type === 'blocker')) {
+                        onTabChange(`jobs/${todo.jobId}`);
+                      } else if (todo.zoneId) {
+                        setSelectedZoneId(todo.zoneId);
+                      }
+                    }} 
+                    className={cn("p-4 border rounded-xl transition-all", (todo.zoneId || todo.jobId) && "cursor-pointer hover:shadow-md", bgClass)}
                   >
                     <div className="flex justify-between items-start mb-2">
                       <h4 className="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-1.5">
