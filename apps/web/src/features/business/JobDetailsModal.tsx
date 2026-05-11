@@ -449,6 +449,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                           <option value="Active">Active</option>
                           <option value="Blocked">Blocked</option>
                           <option value="On Hold">On Hold</option>
+                          <option value="Ready for QA">Ready for QA</option>
                           <option value="Ready for Customer">Ready for Customer</option>
                           <option value="Completed">Completed</option>
                           <option value="Closed">Closed</option>

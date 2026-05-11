@@ -223,13 +223,18 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       .map((pr: any) => pr.jobId)
   ).size;
 
+  const readyForQACount = allJobs?.filter((j: any) => j.status === 'Ready for QA').length || 0;
+  const readyForCustomerCount = allJobs?.filter((j: any) => j.status === 'Ready for Customer').length || 0;
+
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
     { label: 'Missing Parts', value: jobsMissingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
     { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs', loading: statsLoading },
+    { label: 'Ready for QA', value: readyForQACount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QA', loading: statsLoading },
+    { label: 'Ready Customer', value: readyForCustomerCount, icon: CheckSquare, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs?status=Ready+for+Customer', loading: statsLoading },
     { label: 'Pending Tasks', value: stats?.tasks ?? 0, icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-500/10', tab: 'tasks', loading: statsLoading },
-    { label: 'Active Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: shipmentsLoading },
-    { label: 'Vehicles On Site', value: vehiclesOnSiteCount, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
+    { label: 'Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: shipmentsLoading },
+    { label: 'On Site', value: vehiclesOnSiteCount, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
   ];
 
 
@@ -442,7 +447,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-6 gap-2 sm:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-4 gap-2 sm:gap-4">
         {kpis.map((kpi) => (
           <button
             key={kpi.label}
