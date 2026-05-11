@@ -211,7 +211,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const sortedParking = [...occupiedParkingList].sort(sortByRecent);
 
   const blockedJobsCount = allJobs?.filter((j: any) => j.status === 'Blocked').length || 0;
-  const activeJobsCount = allJobs?.filter((j: any) => j.status !== 'Closed' && j.status !== 'Completed' && j.status !== 'Blocked').length || 0;
+  const activeJobsCount = allJobs?.filter((j: any) => !['Closed', 'Completed', 'Blocked', 'Ready for Customer', 'Ready for QA'].includes(j.status)).length || 0;
   const vehiclesOnSiteCount = zones?.reduce((acc: number, z: any) => {
     if (z.allowMultiple && z.currentVehicleVins) return acc + z.currentVehicleVins.length;
     if (z.currentVehicleVin) return acc + 1;
@@ -289,7 +289,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 3. Inactive Jobs
   recentJobs?.forEach((job: any) => {
-    if (job.status !== 'Closed' && job.status !== 'Completed' && job.updatedAt) {
+    if (!['Closed', 'Completed', 'Ready for Customer'].includes(job.status) && job.updatedAt) {
       const updatedTime = new Date(job.updatedAt.seconds ? job.updatedAt.seconds * 1000 : job.updatedAt).getTime();
       const days = (Date.now() - updatedTime) / (1000 * 60 * 60 * 24);
       if (days > 7 && job.status !== 'Blocked') {
@@ -307,7 +307,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 4. Overdue Jobs
   allJobs?.forEach((job: any) => {
-    if (job.status !== 'Closed' && job.status !== 'Completed' && (job.expectedFinishTime || job.eta)) {
+    if (!['Closed', 'Completed', 'Ready for Customer'].includes(job.status) && (job.expectedFinishTime || job.eta)) {
       const eta = job.expectedFinishTime || job.eta;
       const etaTime = typeof eta?.toDate === 'function' ? eta.toDate().getTime() : new Date(eta).getTime();
       if (etaTime && etaTime < Date.now()) {
