@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { StaffSelector } from './StaffSelectionComponents';
+import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
 import { StaffLink } from './StaffPerformance';
 import { useAuthStore } from '../../lib/auth/store';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
@@ -61,6 +62,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
+  const [quickAddVehicle, setQuickAddVehicle] = useState<string | null>(null);
 
   const [liveJob, setLiveJob] = useState<any>(job);
   useEffect(() => {
@@ -316,6 +318,36 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
       <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
         <div className="bg-white dark:bg-zinc-900 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
           
+          {quickAddCustomer && (
+            <QuickAddCustomerModal
+              tenantId={tenantId}
+              initialName={quickAddCustomer}
+              onClose={() => setQuickAddCustomer(null)}
+              onAssign={(id, name) => {
+                setFormData(prev => ({ ...prev, customerId: id, customerName: name }));
+                setQuickAddCustomer(null);
+              }}
+            />
+          )}
+
+          {quickAddVehicle && (
+            <QuickAddVehicleModal
+              tenantId={tenantId}
+              initialVin={quickAddVehicle}
+              onClose={() => setQuickAddVehicle(null)}
+              onAssign={(vin) => {
+                setFormData(prev => ({ ...prev, vehicleId: vin }));
+                setQuickAddVehicle(null);
+                // Also trigger a refresh of vehicles to ensure it's immediately available in the dropdown
+                import('firebase/firestore').then(({ getDocs, collection }) => {
+                  getDocs(collection(db, `businesses/${tenantId}/vehicles`)).then(snap => {
+                    setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                  });
+                });
+              }}
+            />
+          )}
+
           {/* Header */}
           <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-800/50">
             <div className="flex items-center gap-4">
@@ -524,18 +556,13 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                   <div className="space-y-4">
                     <div>
                       <label className="block text-xs font-bold text-zinc-500 mb-1.5 italic">Select Vehicle to Link (by VIN)</label>
-                      <select 
-                        value={formData.vehicleId} 
-                        onChange={e => setFormData(prev => ({ ...prev, vehicleId: e.target.value }))}
-                        className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-500/30 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-mono text-sm"
-                      >
-                        <option value="">-- No Vehicle Linked --</option>
-                        {vehicles.map(v => (
-                          <option key={v.id} value={v.vin}>
-                            {v.vin} ({v.year} {v.make} {v.model})
-                          </option>
-                        ))}
-                      </select>
+                      <VinSelector
+                        vin={formData.vehicleId}
+                        vehicles={vehicles}
+                        onAssign={(vin) => setFormData(prev => ({ ...prev, vehicleId: vin }))}
+                        onClear={() => setFormData(prev => ({ ...prev, vehicleId: '' }))}
+                        onQuickAddRequest={(vin) => setQuickAddVehicle(vin)}
+                      />
                     </div>
 
                     {formData.vehicleId ? (
