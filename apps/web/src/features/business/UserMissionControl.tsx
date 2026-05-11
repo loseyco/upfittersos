@@ -244,6 +244,17 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                       {job.customerName && (
                         <p className="text-xs font-medium text-zinc-500 mt-1">{job.customerName}</p>
                       )}
+                      {job.scheduledArrivalTime && (
+                        <p className="text-[10px] font-bold text-indigo-500 mt-1.5 flex items-center gap-1 uppercase tracking-widest">
+                          <Clock className="w-3 h-3" />
+                          ETA: {(() => {
+                            const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
+                              ? job.scheduledArrivalTime.toDate() 
+                              : new Date(job.scheduledArrivalTime);
+                            return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                          })()}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       {activeJobId === job.id ? (

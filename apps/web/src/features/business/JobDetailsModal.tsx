@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, limit } from 'firebase/firestore';
+import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, limit, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart, Timer, Clock
+  Save, Unlink, AlertCircle, Sparkles, MapPin, Briefcase, X, Car, History, AlertTriangle, ShoppingCart, Timer, Clock, Plus, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -53,6 +53,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     customerId: job.customerId || null,
     customerName: job.customerName || '',
     notes: job.notes || '',
+    scheduledArrivalTime: formatDatetimeLocal(job.scheduledArrivalTime),
     expectedFinishTime: formatDatetimeLocal(job.expectedFinishTime),
     estimatedHours: job.estimatedHours || '',
     assignedStaff: job.assignedStaff || (job.assignedStaffId ? [{ id: job.assignedStaffId, name: job.assignedStaffName || 'Staff' }] : [])
@@ -60,6 +61,17 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
+
+  const [liveJob, setLiveJob] = useState<any>(job);
+  useEffect(() => {
+    if (!job?.id || !tenantId) return;
+    const unsub = onSnapshot(doc(db, `businesses/${tenantId}/jobs`, job.id), (docSnap) => {
+      if (docSnap.exists()) {
+        setLiveJob({ id: docSnap.id, ...docSnap.data() });
+      }
+    });
+    return () => unsub();
+  }, [job?.id, tenantId]);
 
   useEffect(() => {
     // Fetch vehicles for linking
@@ -142,6 +154,34 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
   }, [job.id, tenantId]);
 
   const [parts, setParts] = useState<any[]>([]);
+  const [newPartName, setNewPartName] = useState('');
+  const [newPartQty, setNewPartQty] = useState('1');
+  const [isAddingPart, setIsAddingPart] = useState(false);
+
+  const handleAddPart = async () => {
+    if (!newPartName.trim()) return;
+    setIsAddingPart(true);
+    try {
+      await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+        jobId: job.id,
+        partName: newPartName.trim(),
+        quantity: parseInt(newPartQty) || 1,
+        status: 'pending',
+        requestedBy: user?.displayName || user?.email || 'Staff',
+        requestedById: user?.uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      setNewPartName('');
+      setNewPartQty('1');
+      toast.success('Part requested');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to request part');
+    } finally {
+      setIsAddingPart(false);
+    }
+  };
 
   useEffect(() => {
     if (!job.id || !tenantId) return;
@@ -155,20 +195,85 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     return () => unsubParts();
   }, [job.id, tenantId]);
 
-  const legacyBlocker = job.blocker ? [{
+  const legacyBlocker = liveJob.blocker ? [{
     id: 'legacy',
-    message: job.blocker,
+    message: liveJob.blocker,
     status: 'active',
     createdAt: new Date().toISOString(),
     createdBy: 'Legacy'
   }] : [];
   
-  const allBlockers = (job.blockers || legacyBlocker);
+  const allBlockers = (liveJob.blockers || legacyBlocker);
+  const [newBlockerMsg, setNewBlockerMsg] = useState('');
+  const [isAddingBlocker, setIsAddingBlocker] = useState(false);
+
+  const handleAddBlocker = async () => {
+    if (!newBlockerMsg.trim()) return;
+    setIsAddingBlocker(true);
+    try {
+      const newBlocker = {
+        id: crypto.randomUUID(),
+        message: newBlockerMsg.trim(),
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        createdBy: user?.displayName || user?.email || 'Staff',
+        createdById: user?.uid
+      };
+      
+      const updatedBlockers = [...(liveJob.blockers || []), newBlocker];
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
+        blockers: updatedBlockers,
+        status: 'Blocked',
+        updatedAt: new Date()
+      });
+      setFormData(prev => ({ ...prev, status: 'Blocked' }));
+      setNewBlockerMsg('');
+      toast.success('Blocker added');
+      // Trigger a re-fetch of the job data to get the updated blockers
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to add blocker');
+    } finally {
+      setIsAddingBlocker(false);
+    }
+  };
+
+  const handleClearBlocker = async (blockerId: string) => {
+    try {
+      const updatedBlockers = (liveJob.blockers || []).map((b: any) => 
+        b.id === blockerId ? {
+          ...b,
+          status: 'cleared',
+          clearedAt: new Date().toISOString(),
+          clearedBy: user?.displayName || user?.email || 'Staff',
+          clearedById: user?.uid
+        } : b
+      );
+      
+      const hasActive = updatedBlockers.some((b: any) => b.status === 'active');
+      const newStatus = !hasActive && formData.status === 'Blocked' ? 'Open' : formData.status;
+
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
+        blockers: updatedBlockers,
+        status: newStatus,
+        updatedAt: new Date()
+      });
+      if (newStatus !== formData.status) {
+        setFormData(prev => ({ ...prev, status: newStatus }));
+      }
+      toast.success('Blocker cleared');
+      if (onUpdate) onUpdate();
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to clear blocker');
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const { expectedFinishTime, assignedStaff, ...rest } = formData;
+      const { expectedFinishTime, scheduledArrivalTime, assignedStaff, ...rest } = formData;
       await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
         ...rest,
         assignedStaff,
@@ -176,6 +281,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
         assignedStaffId: assignedStaff.length > 0 ? assignedStaff[0].id : null,
         assignedStaffName: assignedStaff.length > 0 ? assignedStaff[0].name : null,
         expectedFinishTime: expectedFinishTime ? new Date(expectedFinishTime).toISOString() : null,
+        scheduledArrivalTime: scheduledArrivalTime ? new Date(scheduledArrivalTime).toISOString() : null,
         estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : null,
         updatedAt: new Date()
       });
@@ -324,26 +430,41 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
+                        <label className="block text-xs font-bold text-zinc-500 mb-1.5">Scheduled Arrival</label>
+                        <input 
+                          type="datetime-local" 
+                          value={formData.scheduledArrivalTime} 
+                          onClick={(e) => {
+                            try { e.currentTarget.showPicker(); } catch (err) {}
+                          }}
+                          onChange={e => setFormData(prev => ({ ...prev, scheduledArrivalTime: e.target.value }))}
+                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm cursor-pointer"
+                        />
+                      </div>
+                      <div>
                         <label className="block text-xs font-bold text-zinc-500 mb-1.5">Expected Finish Time</label>
                         <input 
                           type="datetime-local" 
                           value={formData.expectedFinishTime} 
+                          onClick={(e) => {
+                            try { e.currentTarget.showPicker(); } catch (err) {}
+                          }}
                           onChange={e => setFormData(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
-                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm cursor-pointer"
                         />
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-zinc-500 mb-1.5">Est. Time (Hours)</label>
-                        <input 
-                          type="number"
-                          step="0.5"
-                          min="0"
-                          value={formData.estimatedHours || ''} 
-                          onChange={e => setFormData(prev => ({ ...prev, estimatedHours: e.target.value }))}
-                          placeholder="e.g. 2.5"
-                          className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
-                        />
-                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-500 mb-1.5">Est. Time (Hours)</label>
+                      <input 
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        value={formData.estimatedHours || ''} 
+                        onChange={e => setFormData(prev => ({ ...prev, estimatedHours: e.target.value }))}
+                        placeholder="e.g. 2.5"
+                        className="w-full md:w-1/2 px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                      />
                     </div>
                   </div>
                 </section>
@@ -428,6 +549,31 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                   <ShoppingCart className="w-4 h-4 text-emerald-500" />
                   <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest">Parts & Requests</label>
                 </div>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newPartName}
+                    onChange={e => setNewPartName(e.target.value)}
+                    placeholder="Part name..."
+                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+                    onKeyDown={e => e.key === 'Enter' && handleAddPart()}
+                  />
+                  <input
+                    type="number"
+                    min="1"
+                    value={newPartQty}
+                    onChange={e => setNewPartQty(e.target.value)}
+                    className="w-16 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-center"
+                    onKeyDown={e => e.key === 'Enter' && handleAddPart()}
+                  />
+                  <button
+                    onClick={handleAddPart}
+                    disabled={isAddingPart || !newPartName.trim()}
+                    className="p-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
                 <div className="space-y-3">
                   {parts.length === 0 ? (
                     <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No parts requested.</p>
@@ -459,6 +605,23 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
                   <label className="block text-[10px] font-black text-amber-500 uppercase tracking-widest">Blocker History</label>
                 </div>
+                <div className="flex gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newBlockerMsg}
+                    onChange={e => setNewBlockerMsg(e.target.value)}
+                    placeholder="What is blocking this job?"
+                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                    onKeyDown={e => e.key === 'Enter' && handleAddBlocker()}
+                  />
+                  <button
+                    onClick={handleAddBlocker}
+                    disabled={isAddingBlocker || !newBlockerMsg.trim()}
+                    className="px-3 py-1.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-xs font-bold rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    Add Blocker
+                  </button>
+                </div>
                 <div className="space-y-3">
                   {allBlockers.length === 0 ? (
                     <p className="text-sm text-zinc-500 italic p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center">No blockers recorded for this job.</p>
@@ -478,9 +641,18 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                               </p>
                             )}
                           </div>
-                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${blocker.status === 'active' ? 'bg-red-500 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500'}`}>
-                            {blocker.status}
-                          </span>
+                          {blocker.status === 'active' ? (
+                            <button
+                              onClick={() => handleClearBlocker(blocker.id)}
+                              className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 transition-colors flex items-center gap-1"
+                            >
+                              <CheckCircle2 className="w-3 h-3" /> Clear
+                            </button>
+                          ) : (
+                            <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-500">
+                              {blocker.status}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))
