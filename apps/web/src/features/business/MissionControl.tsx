@@ -229,7 +229,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
     { label: 'Missing Parts', value: jobsMissingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
-    { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs', loading: statsLoading },
+    { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs?status=Blocked', loading: statsLoading },
     { label: 'Ready for QA', value: readyForQACount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QA', loading: statsLoading },
     { label: 'Ready Customer', value: readyForCustomerCount, icon: CheckSquare, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs?status=Ready+for+Customer', loading: statsLoading },
     { label: 'Pending Tasks', value: stats?.tasks ?? 0, icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-500/10', tab: 'tasks', loading: statsLoading },
