@@ -28,7 +28,6 @@ interface MissionControlProps {
 }
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { open: openSearch } = useSearchStore();
   // Stats fetching

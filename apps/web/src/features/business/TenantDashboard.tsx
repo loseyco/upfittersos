@@ -303,7 +303,7 @@ export function TenantDashboard() {
 
             {activeTab === 'office' && (
               <PermissionGate permission="jobs.view">
-                <OfficeDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
+                <OfficeDashboard tenantId={tenantId!} />
               </PermissionGate>
             )}
 

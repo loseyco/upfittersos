@@ -12,7 +12,6 @@ import { useAuthStore } from '../../lib/auth/store';
 
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const { user } = useAuthStore();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
