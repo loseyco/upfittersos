@@ -85,7 +85,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     const unsubJobs = onSnapshot(jobsQ, (snap) => {
       const active = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((j: any) => !['Completed', 'Closed'].includes(j.status));
+        .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status));
       setAllActiveJobs(active);
     });
 

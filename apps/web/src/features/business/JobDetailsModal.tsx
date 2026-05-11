@@ -130,6 +130,21 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
     return () => unsubLogs();
   }, [job.id, tenantId]);
 
+  const totalLoggedMs = timeLogs.reduce((acc, session) => {
+    const jobSegments = (session.jobs || []).filter((j: any) => j.id === job.id);
+    const segMs = jobSegments.reduce((segAcc: number, seg: any) => {
+      const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+      const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
+      return segAcc + Math.max(0, end - start);
+    }, 0);
+    return acc + segMs;
+  }, 0);
+
+  const totalLoggedHours = totalLoggedMs / 3600000;
+  const loggedDisplay = `${Math.floor(totalLoggedMs / 3600000)}h ${Math.floor((totalLoggedMs % 3600000) / 60000)}m`;
+  const estimatedHoursVal = job.estimatedHours ? parseFloat(job.estimatedHours) : 0;
+  const progressPercent = estimatedHoursVal > 0 ? Math.min(100, Math.round((totalLoggedHours / estimatedHoursVal) * 100)) : 0;
+
   useEffect(() => {
     if (!job.id || !tenantId) return;
     const q = query(
@@ -402,6 +417,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                           <option value="Active">Active</option>
                           <option value="Blocked">Blocked</option>
                           <option value="On Hold">On Hold</option>
+                          <option value="Ready for Customer">Ready for Customer</option>
                           <option value="Completed">Completed</option>
                           <option value="Closed">Closed</option>
                         </select>
@@ -455,7 +471,15 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-zinc-500 mb-1.5">Est. Time (Hours)</label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-xs font-bold text-zinc-500">Est. Time (Hours)</label>
+                        <div className="flex items-center gap-2">
+                          <Timer className="w-3 h-3 text-indigo-500" />
+                          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
+                            Logged: {loggedDisplay} {estimatedHoursVal > 0 && `/ ${estimatedHoursVal}h`}
+                          </span>
+                        </div>
+                      </div>
                       <input 
                         type="number"
                         step="0.5"
@@ -463,8 +487,16 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                         value={formData.estimatedHours || ''} 
                         onChange={e => setFormData(prev => ({ ...prev, estimatedHours: e.target.value }))}
                         placeholder="e.g. 2.5"
-                        className="w-full md:w-1/2 px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
+                        className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-sm"
                       />
+                      {estimatedHoursVal > 0 && (
+                        <div className="mt-2 w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+                          <div 
+                            className={cn("h-full rounded-full transition-all duration-500", progressPercent >= 100 ? "bg-rose-500" : progressPercent > 75 ? "bg-amber-500" : "bg-indigo-500")} 
+                            style={{ width: `${progressPercent}%` }} 
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -715,21 +747,6 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
 
               <section>
                 {(() => {
-                  const totalLoggedMs = timeLogs.reduce((acc, session) => {
-                    const jobSegments = (session.jobs || []).filter((j: any) => j.id === job.id);
-                    const segMs = jobSegments.reduce((segAcc: number, seg: any) => {
-                      const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
-                      const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
-                      return segAcc + Math.max(0, end - start);
-                    }, 0);
-                    return acc + segMs;
-                  }, 0);
-
-                  const totalLoggedHours = totalLoggedMs / 3600000;
-                  const loggedDisplay = `${Math.floor(totalLoggedMs / 3600000)}h ${Math.floor((totalLoggedMs % 3600000) / 60000)}m`;
-                  const estimatedHours = job.estimatedHours ? parseFloat(job.estimatedHours) : 0;
-                  const progressPercent = estimatedHours > 0 ? Math.min(100, Math.round((totalLoggedHours / estimatedHours) * 100)) : 0;
-
                   return (
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-2">
@@ -738,9 +755,9 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                          {loggedDisplay} {estimatedHours > 0 && `/ ${estimatedHours}h`}
+                          {loggedDisplay} {estimatedHoursVal > 0 && `/ ${estimatedHoursVal}h`}
                         </div>
-                        {estimatedHours > 0 && (
+                        {estimatedHoursVal > 0 && (
                           <div className="w-16 h-2 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
                             <div 
                               className={cn("h-full rounded-full", progressPercent >= 100 ? "bg-rose-500" : progressPercent > 75 ? "bg-amber-500" : "bg-blue-500")} 
