@@ -1193,8 +1193,8 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
                   type="datetime-local" 
                   ref={etaInputRef}
                   autoFocus={initialTab === 'eta'}
-                  value={floorWalk.expectedFinishTime}
-                  onChange={e => setFloorWalk(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
+                  value={floorWalk.eta}
+                  onChange={e => setFloorWalk(prev => ({ ...prev, eta: e.target.value }))}
                   className="w-full pl-10 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm transition-all font-medium"
                 />
               </div>

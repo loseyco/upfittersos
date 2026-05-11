@@ -30,7 +30,6 @@ interface MissionControlProps {
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentPath = location.pathname;
   const { open: openSearch } = useSearchStore();
   // Stats fetching
   const { data: stats, isLoading: statsLoading } = useQuery({

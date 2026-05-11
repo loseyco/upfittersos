@@ -5,15 +5,13 @@ import {
   Search, Car, Clock, Calendar, AlertCircle, ArrowRight, User
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAuthStore } from '../../lib/auth/store';
 import { useSearchParams } from 'react-router-dom';
 
 interface OfficeDashboardProps {
   tenantId: string;
-  onTabChange: (tabId: string, state?: any) => void;
 }
 
-export function OfficeDashboard({ tenantId, onTabChange }: OfficeDashboardProps) {
+export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const [jobs, setJobs] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);

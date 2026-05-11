@@ -14,7 +14,6 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   const { user } = useAuthStore();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentPath = location.pathname;
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
