@@ -723,7 +723,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
     newBlocker: '',
     newNote: '',
     notes: targetEntity.notes || '',
-    expectedFinishTime: formatDatetimeLocal(targetEntity.expectedFinishTime || targetEntity.eta),
+    eta: formatDatetimeLocal(targetEntity.eta || targetEntity.expectedFinishTime),
     partsNeeded: '',
     urgency: 'normal' as 'normal' | 'urgent',
     assignedStaff: targetEntity.assignedStaff || (targetEntity.assignedStaffId ? [{ id: targetEntity.assignedStaffId, name: targetEntity.assignedStaffName || 'Staff' }] : [])
@@ -740,16 +740,16 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
   const activeBlockers = (targetEntity.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
 
   const addHours = (hours: number) => {
-    const d = new Date(floorWalk.expectedFinishTime || new Date());
+    const d = new Date(floorWalk.eta || new Date());
     d.setHours(d.getHours() + hours);
-    setFloorWalk(p => ({ ...p, expectedFinishTime: formatDatetimeLocal(d) }));
+    setFloorWalk(p => ({ ...p, eta: formatDatetimeLocal(d) }));
   };
 
   const setTomorrow = () => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     d.setHours(17, 0, 0, 0); // 5 PM tomorrow
-    setFloorWalk(p => ({ ...p, expectedFinishTime: formatDatetimeLocal(d) }));
+    setFloorWalk(p => ({ ...p, eta: formatDatetimeLocal(d) }));
   };
 
   const handleAddBlocker = async () => {
@@ -919,13 +919,11 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
         updatedAt: serverTimestamp()
       };
       
-      if (floorWalk.expectedFinishTime) {
-        const isoString = new Date(floorWalk.expectedFinishTime).toISOString();
-        if (job) updatePayload.expectedFinishTime = isoString;
-        else updatePayload.eta = isoString;
+      if (floorWalk.eta) {
+        const isoString = new Date(floorWalk.eta).toISOString();
+        updatePayload.eta = isoString;
       } else {
-        if (job) updatePayload.expectedFinishTime = null;
-        else updatePayload.eta = null;
+        updatePayload.eta = null;
       }
       
       if (job) {
@@ -947,12 +945,11 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
           severity: 'info',
           author
         });
-      } else if (initialTab === 'eta' && floorWalk.expectedFinishTime) {
-        const timeStr = new Date(floorWalk.expectedFinishTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      } else if (initialTab === 'eta' && floorWalk.eta && job) {
         await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
           type: 'job',
           title: 'ETA Updated',
-          message: `${job?.jobNumber ? 'Job #' + job.jobNumber : zone.name} expected finish: ${timeStr}`,
+          message: `ETA updated to ${new Date(floorWalk.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} for ${job?.jobNumber ? '#' + job.jobNumber : zone.name}`,
           timestamp: serverTimestamp(),
           severity: 'info',
           author
@@ -1179,24 +1176,19 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
           )}
 
           {activeTab === 'eta' && (
-            <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="flex items-center justify-between px-1">
-                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest">Expected Finish Time</label>
-                <div className="flex items-center gap-1.5">
-                  <button onClick={() => addHours(1)} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">+1h</button>
-                  <button onClick={() => addHours(4)} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">+4h</button>
-                  <button onClick={setTomorrow} className="text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md hover:bg-indigo-500 hover:text-white transition-colors">TMRW</button>
-                  <button onClick={() => { try { (etaInputRef.current as any).showPicker(); } catch(e) { etaInputRef.current?.focus(); } }} className="text-[10px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-md hover:bg-indigo-600 transition-colors">PICK</button>
-                  <button onClick={() => setFloorWalk(prev => ({ ...prev, expectedFinishTime: '' }))} className="text-[10px] font-bold bg-red-500/10 text-red-600 px-2 py-0.5 rounded-md hover:bg-red-500 hover:text-white transition-colors">CLEAR</button>
-                </div>
+            <div className="space-y-4 animate-in slide-in-from-right-2 duration-200">
+              <label className="block text-xs font-black text-zinc-500 uppercase tracking-widest px-1">ETA On Finish</label>
+              <div className="flex items-center gap-2 mb-3">
+                <button onClick={() => addHours(1)} className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-xs font-bold transition-colors">+1h</button>
+                <button onClick={() => addHours(4)} className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-xs font-bold transition-colors">+4h</button>
+                <button onClick={setTomorrow} className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-xs font-black uppercase transition-colors">Tmrw</button>
+                <button onClick={() => {
+                  try { (etaInputRef.current as any).showPicker(); } catch (e) {}
+                }} className="px-3 py-1.5 bg-indigo-500 text-white hover:bg-indigo-600 rounded-lg text-xs font-black uppercase transition-colors ml-auto">Pick</button>
+                <button onClick={() => setFloorWalk(p => ({ ...p, eta: '' }))} className="px-3 py-1.5 bg-red-500/10 text-red-600 hover:bg-red-500/20 rounded-lg text-xs font-black uppercase transition-colors">Clear</button>
               </div>
               <div className="relative">
-                <div 
-                  className="absolute inset-y-0 left-3 flex items-center cursor-pointer"
-                  onClick={() => { try { (etaInputRef.current as any).showPicker(); } catch(e) { etaInputRef.current?.focus(); } }}
-                >
-                  <Clock className={`w-4 h-4 ${floorWalk.expectedFinishTime ? 'text-indigo-500' : 'text-zinc-400'}`} />
-                </div>
+                <Clock className={`w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none ${floorWalk.eta ? 'text-indigo-500' : 'text-zinc-500'}`} />
                 <input 
                   type="datetime-local" 
                   ref={etaInputRef}

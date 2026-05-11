@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { 
   AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
 } from 'lucide-react';
@@ -13,6 +13,7 @@ import { useAuthStore } from '../../lib/auth/store';
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const { user } = useAuthStore();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const currentPath = location.pathname;
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -341,7 +342,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                   </span>
                 ) : (
-                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                  <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                     Missing Job
                   </span>
                 )}
@@ -353,7 +354,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                 ) : !job && (
                   <>
                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                    <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                       Missing Customer
                     </span>
                   </>
@@ -404,7 +405,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                   return (
                     <span className={cn(
                       "text-[9px] font-bold uppercase tracking-tighter px-1.5 py-0.5 rounded-sm mt-0.5",
-                      isOverdue ? "bg-red-500 text-white animate-pulse" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      isOverdue ? "bg-red-500 text-white animate-blink" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     )}>
                       {isOverdue ? `Overdue ${label}` : `Due in ${label}`}
                     </span>
@@ -542,7 +543,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                     key={todo.id} 
                     onClick={() => {
                       if (todo.jobId && (todo.type === 'overdue_job' || todo.type === 'blocker')) {
-                        onTabChange(`jobs/${todo.jobId}`, { returnTo: currentPath });
+                        searchParams.set('jobId', todo.jobId);
+                        setSearchParams(searchParams);
                       } else if (todo.zoneId) {
                         setSelectedZoneId(todo.zoneId);
                       }

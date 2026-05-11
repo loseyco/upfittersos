@@ -762,7 +762,7 @@ function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zon
           return (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs">
-                <Clock className={`w-3.5 h-3.5 ${isOverdue ? 'text-red-500 animate-pulse' : 'text-indigo-500'} shrink-0`} />
+                <Clock className={`w-3.5 h-3.5 ${isOverdue ? 'text-red-500 animate-blink' : 'text-indigo-500'} shrink-0`} />
                 <span className="font-medium text-zinc-600 dark:text-zinc-400 truncate">
                   ETA: <span className="text-zinc-900 dark:text-white font-bold">
                     {etaDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
@@ -772,7 +772,7 @@ function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zon
               <span className={cn(
                 "text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full",
                 isOverdue 
-                  ? "bg-red-500 text-white animate-pulse" 
+                  ? "bg-red-500 text-white animate-blink" 
                   : diffMs < 3600000 // Less than 1 hour
                     ? "bg-amber-500 text-white"
                     : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
@@ -848,7 +848,7 @@ function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zon
             {(vehicle?.customerName || job?.customerName) ? (
               <p className="text-[10px] text-zinc-400 truncate italic">{vehicle?.customerName || job?.customerName}</p>
             ) : (
-              <p className="text-[10px] text-red-500/60 font-bold uppercase tracking-widest animate-pulse mt-1">Missing Job/Customer</p>
+              <p className="text-[10px] text-red-500/60 font-bold uppercase tracking-widest mt-1">Missing Job/Customer</p>
             )}
           </div>
         ) : (

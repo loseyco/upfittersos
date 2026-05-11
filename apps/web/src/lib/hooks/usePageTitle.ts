@@ -19,7 +19,7 @@ export function usePageTitle(pageTitle?: string) {
   });
 
   useEffect(() => {
-    let newTitle = 'UpFittersOS';
+    let newTitle = 'UpfittersOS';
     
     if (business?.name) {
       newTitle = `${business.name} | ${newTitle}`;

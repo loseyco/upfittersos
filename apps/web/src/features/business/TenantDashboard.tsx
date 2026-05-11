@@ -12,6 +12,8 @@ import { ForemanDashboard } from './ForemanDashboard';
 import { BusinessEvents } from './BusinessEvents';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BusinessSidebar } from './BusinessSidebar';
+import { OfficeDashboard } from './OfficeDashboard';
+import { GlobalJobModal } from './GlobalJobModal';
 
 import { MissionControl } from './MissionControl';
 import { UserMissionControl } from './UserMissionControl';
@@ -33,9 +35,6 @@ import { StaffRoster } from './StaffRoster';
 import { PullToRefresh } from '../../components/layout/PullToRefresh';
 
 export function TenantDashboard() {
-  usePageTitle('Dashboard');
-  const { tenantId, impersonatedStaff, stopImpersonating } = useAuthStore();
-  const navigate = useNavigate();
   const params = useParams();
   
   const splat = params['*'] || '';
@@ -43,6 +42,32 @@ export function TenantDashboard() {
   
   const activeTab = pathParts[0] || 'overview';
   const eventId = pathParts[1] || null;
+
+  const titleMap: Record<string, string> = {
+    overview: 'My Dashboard',
+    mission_control: 'Mission Control',
+    foreman: 'Shop Floor',
+    settings: 'Settings',
+    staff: 'Staff',
+    reports: 'Reports',
+    performance: 'Performance',
+    schedule: 'Schedule',
+    timeclock: 'Timeclock',
+    live_timeclock: 'Live Timeclock',
+    parts: 'Parts Dept',
+    office: 'Office',
+    customers: 'Customers',
+    jobs: 'Jobs',
+    vehicles: 'Vehicles',
+    zones: 'Zones'
+  };
+
+  const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  
+  usePageTitle(pageTitle);
+
+  const { tenantId, impersonatedStaff, stopImpersonating } = useAuthStore();
+  const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleTabClick = (tabId: string, state?: any) => {
@@ -126,6 +151,8 @@ export function TenantDashboard() {
         isOpen={isSidebarOpen} 
         setIsOpen={setIsSidebarOpen} 
       />
+
+      <GlobalJobModal tenantId={tenantId!} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <TimeClockBar />
@@ -275,10 +302,9 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'office' && (
-              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">Office</h2>
-                <p>Mission Control Board coming soon...</p>
-              </div>
+              <PermissionGate permission="jobs.view">
+                <OfficeDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
+              </PermissionGate>
             )}
 
             {activeTab === 'customers' && (

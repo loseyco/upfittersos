@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
@@ -29,6 +29,7 @@ interface MissionControlProps {
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const currentPath = location.pathname;
   const { open: openSearch } = useSearchStore();
   // Stats fetching
@@ -283,8 +284,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         type: pr.urgency === 'urgent' ? 'danger' : 'warning',
         icon: Package,
         onClick: () => {
-          if (pr.jobId) onTabChange(`jobs/${pr.jobId}`, { returnTo: currentPath });
-          else onTabChange('parts');
+          if (pr.jobId) {
+            searchParams.set('jobId', pr.jobId);
+            setSearchParams(searchParams);
+          } else {
+            onTabChange('parts');
+          }
         }
       });
     }
@@ -302,7 +307,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           description: `No updates in ${Math.floor(days)} days. Status: ${job.status || 'Unknown'}`,
           type: 'warning',
           icon: Clock,
-          onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
+          onClick: () => {
+            searchParams.set('jobId', job.id);
+            setSearchParams(searchParams);
+          }
         });
       }
     }
@@ -310,17 +318,29 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 4. Overdue Jobs
   allJobs?.forEach((job: any) => {
-    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && (job.expectedFinishTime || job.eta)) {
-      const eta = job.expectedFinishTime || job.eta;
-      const etaTime = typeof eta?.toDate === 'function' ? eta.toDate().getTime() : new Date(eta).getTime();
-      if (etaTime && etaTime < Date.now()) {
+    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && (job.eta || job.expectedFinishTime)) {
+      const targetTimeRaw = job.eta || job.expectedFinishTime;
+      const targetTime = typeof targetTimeRaw?.toDate === 'function' ? targetTimeRaw.toDate().getTime() : new Date(targetTimeRaw).getTime();
+      
+      if (targetTime && targetTime < Date.now()) {
+        const isEta = !!job.eta;
+        let desc = `${isEta ? 'ETA' : 'Due'} was ${new Date(targetTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${new Date(targetTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+        
+        if (job.eta && job.expectedFinishTime) {
+          const dueDate = typeof job.expectedFinishTime?.toDate === 'function' ? job.expectedFinishTime.toDate() : new Date(job.expectedFinishTime);
+          desc += ` (Due: ${dueDate.toLocaleDateString([], { month: 'short', day: 'numeric' })})`;
+        }
+
         alerts.push({
           id: `overdue-job-${job.id}`,
           title: `Overdue Job: ${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title || 'Untitled'}`,
-          description: `ETA was ${new Date(etaTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${new Date(etaTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
+          description: desc,
           type: 'danger',
           icon: Clock,
-          onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
+          onClick: () => {
+            searchParams.set('jobId', job.id);
+            setSearchParams(searchParams);
+          }
         });
       }
     }
@@ -339,7 +359,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           : 'Job marked as blocked',
         type: 'danger',
         icon: AlertCircle,
-        onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
+        onClick: () => {
+          searchParams.set('jobId', job.id);
+          setSearchParams(searchParams);
+        }
       });
     }
   });
@@ -581,7 +604,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
-                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                     Missing Job
                                   </span>
                                 )}
@@ -593,7 +616,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                 ) : !job && (
                                   <>
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                       Missing Customer
                                     </span>
                                   </>
@@ -642,7 +665,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     return (
                                       <span className={cn(
                                         "text-[9px] font-bold uppercase tracking-tighter px-1.5 py-0.5 rounded-sm mt-0.5",
-                                        isOverdue ? "bg-red-500 text-white animate-pulse" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                        isOverdue ? "bg-red-500 text-white animate-blink" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                                       )}>
                                         {isOverdue ? `Overdue ${label}` : `Due in ${label}`}
                                       </span>
@@ -733,7 +756,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
-                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                  <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                     Missing Job
                                   </span>
                                 )}
@@ -745,7 +768,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                 ) : !job && (
                                   <>
                                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] animate-blink text-[10px]">
+                                    <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                       Missing Customer
                                     </span>
                                   </>
