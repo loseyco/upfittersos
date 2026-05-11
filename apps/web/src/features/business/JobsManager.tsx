@@ -293,7 +293,13 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         <JobDetailsModal 
           tenantId={tenantId}
           job={selectedJob}
-          onClose={() => navigate(`/business/${tenantId}/jobs`)}
+          onClose={() => {
+            if (location.state?.returnTo) {
+              navigate(location.state.returnTo);
+            } else {
+              navigate(`/business/${tenantId}/jobs`);
+            }
+          }}
           onUpdate={() => refetch()}
         />
       )}

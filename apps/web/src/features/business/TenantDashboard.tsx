@@ -45,8 +45,8 @@ export function TenantDashboard() {
   const eventId = pathParts[1] || null;
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  const handleTabClick = (tabId: string) => {
-    navigate(`/business/${tenantId}/${tabId}`);
+  const handleTabClick = (tabId: string, state?: any) => {
+    navigate(`/business/${tenantId}/${tabId}`, { state });
     setIsSidebarOpen(false);
   };
 

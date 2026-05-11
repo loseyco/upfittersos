@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
@@ -23,10 +24,12 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 
 interface MissionControlProps {
   tenantId: string;
-  onTabChange: (tabId: string) => void;
+  onTabChange: (tabId: string, state?: any) => void;
 }
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
+  const location = useLocation();
+  const currentPath = location.pathname;
   const { open: openSearch } = useSearchStore();
   // Stats fetching
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -280,7 +283,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         type: pr.urgency === 'urgent' ? 'danger' : 'warning',
         icon: Package,
         onClick: () => {
-          if (pr.jobId) onTabChange(`jobs/${pr.jobId}`);
+          if (pr.jobId) onTabChange(`jobs/${pr.jobId}`, { returnTo: currentPath });
           else onTabChange('parts');
         }
       });
@@ -299,7 +302,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           description: `No updates in ${Math.floor(days)} days. Status: ${job.status || 'Unknown'}`,
           type: 'warning',
           icon: Clock,
-          onClick: () => onTabChange(`jobs/${job.id}`)
+          onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
         });
       }
     }
@@ -317,7 +320,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           description: `ETA was ${new Date(etaTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${new Date(etaTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`,
           type: 'danger',
           icon: Clock,
-          onClick: () => onTabChange(`jobs/${job.id}`)
+          onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
         });
       }
     }
@@ -336,7 +339,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           : 'Job marked as blocked',
         type: 'danger',
         icon: AlertCircle,
-        onClick: () => onTabChange(`jobs/${job.id}`)
+        onClick: () => onTabChange(`jobs/${job.id}`, { returnTo: currentPath })
       });
     }
   });

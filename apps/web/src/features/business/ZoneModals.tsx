@@ -345,12 +345,10 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                         const isActive = ['pending', 'received', 'ordered'].includes(status);
                         if (!isActive) return false;
                         
-                        if (job?.id && pr.jobId === job.id) return true;
-                        if (zone?.id && pr.zoneId === zone.id) return true;
+                        if (pr.jobId) return job?.id === pr.jobId;
                         const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
-                        if (currentVin && pr.vin === currentVin) return true;
-                        
-                        return false;
+                        if (pr.vin) return currentVin === pr.vin;
+                        return zone?.id === pr.zoneId;
                       });
                       const count = activeParts.length;
                       if (count === 0) return null;
@@ -401,12 +399,10 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                   const isActive = ['pending', 'received', 'ordered'].includes(status);
                   if (!isActive) return false;
                   
-                  if (job?.id && pr.jobId === job.id) return true;
-                  if (zone?.id && pr.zoneId === zone.id) return true;
+                  if (pr.jobId) return job?.id === pr.jobId;
                   const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
-                  if (currentVin && pr.vin === currentVin) return true;
-                  
-                  return false;
+                  if (pr.vin) return currentVin === pr.vin;
+                  return zone?.id === pr.zoneId;
                 });
                 
                 if (!activeBlocker && !latestNote && activeParts.length === 0) return null;

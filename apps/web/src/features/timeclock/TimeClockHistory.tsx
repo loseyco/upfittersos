@@ -51,7 +51,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
         collection(db, `businesses/${tenantId}/time_sessions`),
         where('userId', '==', user.uid),
         orderBy('clockIn.timestamp', 'desc'),
-        limit(20)
+        limit(50)
       );
       const snap = await getDocs(q);
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeSession));
@@ -108,17 +108,59 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     </div>
   );
 
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const weekStart = new Date(todayStart);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+
+  let todayMs = 0;
+  let weekMs = 0;
+
+  sessions?.forEach(session => {
+    const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
+    if (!sessionDate) return;
+
+    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+    const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
+    const workMs = totalMs - breakMs;
+
+    if (sessionDate.getTime() >= weekStart.getTime()) {
+      weekMs += workMs;
+    }
+    if (sessionDate.getTime() >= todayStart.getTime()) {
+      todayMs += workMs;
+    }
+  });
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-500/20 flex flex-col justify-center">
+          <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">Today</p>
+          <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-2">
+            <Timer className="w-5 h-5" />
+            {formatDuration(todayMs)}
+          </p>
+        </div>
+        <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-500/20 flex flex-col justify-center">
+          <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">This Week</p>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-2">
+            <Timer className="w-5 h-5" />
+            {formatDuration(weekMs)}
+          </p>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Recent Activity</h3>
-        <span className="text-xs font-medium text-zinc-500 uppercase tracking-widest">Last 20 Sessions</span>
+        <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Activity Log</h3>
+        <span className="text-xs font-medium text-zinc-500 uppercase tracking-widest">Recent Sessions</span>
       </div>
 
       <div className="grid gap-4">
         {sessions?.map((session) => {
           const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
-          const breakMs = session.breaks.reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
+          const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
           const workMs = totalMs - breakMs;
           const request = getRequestForSession(session.id);
 
@@ -178,7 +220,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-black text-zinc-900 dark:text-white font-mono">{formatDuration(breakMs)}</span>
                           <div className="flex -space-x-1">
-                            {session.breaks.map((b, i) => (
+                            {(session.breaks || []).map((b, i) => (
                               <div key={i} className="p-1 bg-zinc-100 dark:bg-zinc-800 rounded-full border border-white dark:border-zinc-900" title={`${b.type} break`}>
                                 {b.type === 'lunch' ? <Pizza className="w-2.5 h-2.5 text-zinc-500" /> : <Coffee className="w-2.5 h-2.5 text-zinc-500" />}
                               </div>

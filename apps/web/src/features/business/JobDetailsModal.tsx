@@ -403,7 +403,7 @@ export function JobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetails
               tenantId={tenantId}
               initialName={quickAddCustomer}
               onClose={() => setQuickAddCustomer(null)}
-              onAssign={(id, name) => {
+              onSuccess={(id: string, name: string) => {
                 setFormData(prev => ({ ...prev, customerId: id, customerName: name }));
                 setQuickAddCustomer(null);
               }}

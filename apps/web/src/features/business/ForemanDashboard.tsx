@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { 
   AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
 } from 'lucide-react';
@@ -9,8 +10,10 @@ import { toast } from 'sonner';
 import { ZoneDetailsModal } from './ZoneModals';
 import { useAuthStore } from '../../lib/auth/store';
 
-export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string) => void }) {
+export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const { user } = useAuthStore();
+  const location = useLocation();
+  const currentPath = location.pathname;
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
@@ -369,11 +372,14 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             
             // Arrival time for duration calculation
             const arrivalTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+            const arrivalHours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
+            const colorClass = arrivalHours >= 48 ? 'text-red-500' : arrivalHours >= 24 ? 'text-amber-500' : 'text-emerald-500';
             
             // Last activity time for the label (always use updatedAt if available)
             const activityTs = bay.updatedAt || timestamp;
-            const hours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
-            const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
+            const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
+            const updateHours = (Date.now() - activityTime) / (1000 * 60 * 60);
+            const updColorClass = updateHours >= 4 ? 'text-red-500' : updateHours >= 2 ? 'text-amber-500' : 'text-emerald-500';
             
             return (
               <div className="flex flex-col items-end shrink-0">
@@ -404,8 +410,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                     </span>
                   );
                 })()}
-                <span className={`text-[9px] sm:text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 24 ? 'text-amber-500' : 'text-zinc-400'}`}>
-                  UPD: {calculateDuration(activityTs)} ago
+                <span className={`text-[9px] sm:text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${updColorClass}`}>
+                  UPD: {calculateDuration(activityTs)}{calculateDuration(activityTs) === 'Just now' ? '' : ' ago'}
                 </span>
               </div>
             );
@@ -536,7 +542,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                     key={todo.id} 
                     onClick={() => {
                       if (todo.jobId && (todo.type === 'overdue_job' || todo.type === 'blocker')) {
-                        onTabChange(`jobs/${todo.jobId}`);
+                        onTabChange(`jobs/${todo.jobId}`, { returnTo: currentPath });
                       } else if (todo.zoneId) {
                         setSelectedZoneId(todo.zoneId);
                       }
