@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { 
   AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
 } from 'lucide-react';
