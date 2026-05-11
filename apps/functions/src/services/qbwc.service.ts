@@ -102,6 +102,15 @@ export class QbwcService {
         }
         operationCount++;
     };
+
+    const safeBatchDelete = (ref: admin.firestore.DocumentReference) => {
+        if (operationCount >= 490) {
+            batches.push(db.batch());
+            operationCount = 0;
+        }
+        batches[batches.length - 1].delete(ref);
+        operationCount++;
+    };
     
     try {
         const msgsRs = parsedXml?.QBXML?.QBXMLMsgsRs;
@@ -161,6 +170,17 @@ export class QbwcService {
             // We should just look at all keys that end with 'Ret' inside ItemQueryRs.
             const queryRs = msgsRs[queryKey];
             if (queryRs) {
+                // Fetch manual native items once per batch for merging
+                let manualItems: any[] = [];
+                try {
+                    const snap = await db.collection('businesses').doc(this.tenantId).collection('inventory_items')
+                        .where('source', '==', 'Native')
+                        .get();
+                    manualItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                } catch (e) {
+                    console.warn("Failed to fetch native items for merging", e);
+                }
+
                 const itemKeys = Object.keys(queryRs).filter(k => k.endsWith('Ret'));
                 let allItems: any[] = [];
                 itemKeys.forEach(k => {
@@ -175,6 +195,17 @@ export class QbwcService {
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_items').doc(item.ListID);
                     const prodRef = db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(item.ListID);
                     
+                    const qbCustomFields: any = {};
+                    if (item.DataExtRet) {
+                        let exts = item.DataExtRet;
+                        if (!Array.isArray(exts)) exts = [exts];
+                        exts.forEach((e: any) => {
+                            if (e.DataExtName && e.DataExtValue) {
+                                qbCustomFields[e.DataExtName] = e.DataExtValue;
+                            }
+                        });
+                    }
+
                     const itemData = {
                         ...item,
                         sku: item.Name || '',
@@ -183,13 +214,45 @@ export class QbwcService {
                         quantityOnHand: Number(item.QuantityOnHand) || 0,
                         quantityAllocated: 0,
                         quantityOnOrder: Number(item.QuantityOnOrder) || 0,
+                        quantityOnSalesOrder: Number(item.QuantityOnSalesOrder) || 0,
+                        minCount: Number(item.ReorderPoint) || 0,
+                        maxCount: Number(item.Max) || 0,
+                        mpn: item.ManufacturerPartNumber || '',
+                        barcode: item.BarCodeValue || '',
                         cost: Number(item.PurchaseCost) || Number(item.AverageCost) || 0,
                         price: Number(item.SalesPrice) || Number(item.Price) || 0,
                         location: '',
                         status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive',
+                        preferredVendor: item.PrefVendorRef?.FullName || '',
+                        unitOfMeasure: item.UnitOfMeasureSetRef?.FullName || '',
+                        className: item.ClassRef?.FullName || '',
+                        qbCustomFields,
                         notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`,
                         tenantId: this.tenantId
                     };
+                    
+                    // MERGING LOGIC: Check if this QB item matches any Native (manually created) item
+                    const matchedManual = manualItems.find(m => 
+                        (m.name && m.name.toLowerCase() === itemData.name.toLowerCase()) || 
+                        (m.sku && itemData.sku && m.sku.toLowerCase() === itemData.sku.toLowerCase())
+                    );
+
+                    if (matchedManual) {
+                        // Transfer specific fields from the manual item to the new QB item
+                        (itemData as any).images = matchedManual.images || [];
+                        (itemData as any).activities = matchedManual.activities || [];
+                        (itemData as any).activities.push({
+                            type: 'system_update',
+                            message: `Merged manually created part "${matchedManual.name}" with QuickBooks sync.`,
+                            date: new Date().toISOString()
+                        });
+                        
+                        // Delete the old manual document
+                        safeBatchDelete(db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(matchedManual.id));
+                        
+                        // Remove from array so we don't match it again
+                        manualItems = manualItems.filter(m => m.id !== matchedManual.id);
+                    }
                     
                     safeBatchSet(ref, itemData, { merge: true });
                     safeBatchSet(prodRef, itemData, { merge: true });

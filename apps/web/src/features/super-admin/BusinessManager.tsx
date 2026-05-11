@@ -67,6 +67,12 @@ export function BusinessManager() {
             <h1 className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">Businesses</h1>
             <p className="text-zinc-500 dark:text-zinc-400 mt-1">Manage global tenant instances.</p>
           </div>
+          <button
+            onClick={() => navigate('/super-admin/feedback')}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-lg font-medium transition-colors border border-indigo-600/20"
+          >
+            View Feedback Reports
+          </button>
         </div>
 
         <div className="grid lg:grid-cols-4 gap-8">

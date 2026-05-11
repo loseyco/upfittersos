@@ -19,6 +19,8 @@ import { MissionControl } from './MissionControl';
 import { UserMissionControl } from './UserMissionControl';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { PartsMissionControl } from './PartsMissionControl';
+import { PrintedPartsMissionControl } from './PrintedPartsMissionControl';
+import { PartsManager } from './PartsManager';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
@@ -55,6 +57,8 @@ export function TenantDashboard() {
     timeclock: 'Timeclock',
     live_timeclock: 'Live Timeclock',
     parts: 'Parts Dept',
+    printed_parts: 'Print Farm',
+    items: 'Parts Library',
     office: 'Office',
     customers: 'Customers',
     jobs: 'Jobs',
@@ -76,39 +80,6 @@ export function TenantDashboard() {
   };
 
 
-
-  const getSource = (row: any) => {
-    const isQB = row.tags?.includes('QuickBooks') || 
-                 row.notes?.includes('Imported via QBWC') || 
-                 !!row.ListID || !!row.qb_ListID || 
-                 !!row.quickbooksId;
-    return (
-      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
-        isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
-      }`}>
-        {isQB ? 'QuickBooks' : 'Native'}
-      </span>
-    );
-  };
-
-  const itemColumns = [
-    { key: 'name', label: 'Item Name' },
-    { key: 'sku', label: 'SKU' },
-    { 
-      key: 'price', 
-      label: 'Price',
-      format: (val: any) => {
-        const num = Number(val || 0);
-        return <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">${num.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>;
-      }
-    },
-    { 
-      key: 'quantityOnHand', 
-      label: 'Stock',
-      format: (val: any) => <span className={`font-bold ${Number(val) <= 0 ? 'text-red-500' : 'text-zinc-600 dark:text-zinc-400'}`}>{val ?? 0}</span>
-    },
-    { key: 'source', label: 'Source', format: (_: any, row: any) => getSource(row) }
-  ];
 
   const { data: business, isLoading } = useQuery({
     queryKey: ['tenant-dashboard-business', tenantId],
@@ -287,6 +258,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'printed_parts' && (
+              <PermissionGate permission="parts.view">
+                <PrintedPartsMissionControl />
+              </PermissionGate>
+            )}
+
             {activeTab === 'graphics' && (
               <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
                 <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">Graphics Department</h2>
@@ -321,11 +298,7 @@ export function TenantDashboard() {
 
             {activeTab === 'items' && (
               <PermissionGate permission="parts.view">
-                <GenericDataGrid 
-                  collectionPath={`businesses/${tenantId}/inventory_items`} 
-                  title="Upfitters Inventory" 
-                  columns={itemColumns}
-                />
+                <PartsManager tenantId={tenantId!} />
               </PermissionGate>
             )}
 

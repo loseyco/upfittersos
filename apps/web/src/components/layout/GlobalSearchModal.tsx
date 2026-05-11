@@ -9,7 +9,7 @@ import { useSearchStore } from '../../lib/store/searchStore';
 import { toast } from 'sonner';
 import { VehicleDetailsModal, EditVehicleModal } from '../../features/business/VehiclesManager';
 import { JobDetailsModal } from '../../features/business/JobDetailsModal';
-import { CustomerDetailsModal } from '../../features/business/CustomersManager';
+import { CustomerDetailsModal } from '../../features/business/CustomerDetailsModal';
 import { ZoneDetailsModal } from '../../features/business/ZoneModals';
 import { ConfirmModal } from '../ConfirmModal';
 

@@ -133,7 +133,7 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this vehicle.' });
         }
-        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes, qbWorkOrder } = req.body;
+        const { make, model, year, vin, licensePlate, color, status, customerId, currentLocationId, notes, qbWorkOrder, arrivedAt, departedAt } = req.body;
         const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
         if (make !== undefined)
             updates.make = make;
@@ -161,6 +161,11 @@ exports.vehiclesRoutes.put('/:id', auth_middleware_1.authenticate, async (req, r
             updates.qbWorkOrder = qbWorkOrder;
         if (notes !== undefined)
             updates.notes = notes;
+        // Handle explicit timestamps coming from the client (usually serverTimestamp object)
+        if (arrivedAt !== undefined)
+            updates.arrivedAt = arrivedAt;
+        if (departedAt !== undefined)
+            updates.departedAt = departedAt;
         await vehicleRef.update(updates);
         return res.json(Object.assign(Object.assign({ id: vehicleId }, vehicleData), updates));
     }

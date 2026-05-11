@@ -253,12 +253,28 @@ export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArch
     setIsUpdatingStatus(true);
     try {
       await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, vehicle.id), {
-        arrivedAt: serverTimestamp()
+        arrivedAt: serverTimestamp(),
+        isWithCustomer: false
       });
       toast.success("Vehicle marked as arrived");
       queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
     } catch (err) {
       toast.error("Failed to mark as arrived");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleWithCustomer = async (status: boolean) => {
+    setIsUpdatingStatus(true);
+    try {
+      await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, vehicle.id), {
+        isWithCustomer: status
+      });
+      toast.success(status ? "Marked as with customer" : "Removed with customer status");
+      queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
+    } catch (err) {
+      toast.error("Failed to update status");
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -449,14 +465,25 @@ export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArch
             
             {!vehicle.arrivedAt && !vehicle.departedAt ? (
               <div className="flex items-center justify-between bg-zinc-50 dark:bg-zinc-950 p-4 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800">
-                <p className="text-sm text-zinc-500">Vehicle has not arrived yet.</p>
-                <button 
-                  onClick={handleIntake} 
-                  disabled={isUpdatingStatus}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <LogIn className="w-4 h-4" /> Intake Vehicle
-                </button>
+                <p className="text-sm text-zinc-500">
+                  {vehicle.isWithCustomer ? "Vehicle is with the customer." : "Vehicle has not arrived yet."}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => handleWithCustomer(!vehicle.isWithCustomer)} 
+                    disabled={isUpdatingStatus}
+                    className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {vehicle.isWithCustomer ? "Not with Customer" : "With Customer"}
+                  </button>
+                  <button 
+                    onClick={handleIntake} 
+                    disabled={isUpdatingStatus}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <LogIn className="w-4 h-4" /> Intake Vehicle
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="flex flex-col gap-3">
@@ -467,16 +494,26 @@ export function VehicleDetailsModal({ tenantId, vehicle, onClose, onEdit, onArch
                       <LiveDuration startSeconds={vehicle.arrivedAt?._seconds} endSeconds={vehicle.departedAt?._seconds} />
                       {vehicle.departedAt && <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-2 py-0.5 rounded-full">DEPARTED</span>}
                       {!vehicle.departedAt && <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full animate-pulse">ACTIVE</span>}
+                      {vehicle.isWithCustomer && <span className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full">WITH CUSTOMER</span>}
                     </p>
                   </div>
                   {!vehicle.departedAt && (
-                    <button 
-                      onClick={handleRelease} 
-                      disabled={isUpdatingStatus}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 dark:text-rose-400 text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      <LogOut className="w-3 h-3" /> Release
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleWithCustomer(!vehicle.isWithCustomer)} 
+                        disabled={isUpdatingStatus}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {vehicle.isWithCustomer ? "Return to Shop" : "To Customer"}
+                      </button>
+                      <button 
+                        onClick={handleRelease} 
+                        disabled={isUpdatingStatus}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 dark:text-rose-400 text-xs font-bold rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        <LogOut className="w-3 h-3" /> Release
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

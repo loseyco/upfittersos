@@ -677,7 +677,15 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                             })()}
                           </div>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedZoneId(bay.id); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (jobId) {
+                                searchParams.set('jobId', jobId);
+                                setSearchParams(searchParams);
+                              } else {
+                                setSelectedZoneId(bay.id); 
+                              }
+                            }}
                             className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
                           />
                         </div>
@@ -798,7 +806,15 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                             })()}
                           </div>
                           <button 
-                            onClick={(e) => { e.stopPropagation(); setSelectedZoneId(zone.id); }}
+                            onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (jobId) {
+                                searchParams.set('jobId', jobId);
+                                setSearchParams(searchParams);
+                              } else {
+                                setSelectedZoneId(zone.id); 
+                              }
+                            }}
                             className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
                           />
                         </div>

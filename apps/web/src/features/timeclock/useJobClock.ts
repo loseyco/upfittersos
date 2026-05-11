@@ -8,7 +8,7 @@ export function useJobClock(tenantId: string) {
   const { activeSessionId } = useTimeclockStore();
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const clockIntoJob = async (jobId: string, jobName: string) => {
+  const clockIntoJob = async (jobId: string, jobName: string, taskId?: string, taskName?: string) => {
     if (!activeSessionId) {
       toast.error('Please clock in for the day first.');
       return;
@@ -27,8 +27,8 @@ export function useJobClock(tenantId: string) {
       const jobs = [...(sessionData.jobs || [])];
 
       const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-      if (lastJob && !lastJob.end && lastJob.id === jobId) {
-        toast.info('Already clocked into this job.');
+      if (lastJob && !lastJob.end && lastJob.id === jobId && lastJob.taskId === taskId) {
+        toast.info('Already clocked into this task.');
         setIsProcessing(false);
         return;
       }
@@ -42,6 +42,8 @@ export function useJobClock(tenantId: string) {
       jobs.push({
         id: jobId,
         name: jobName,
+        taskId: taskId || null,
+        taskName: taskName || null,
         start: new Date()
       });
 
@@ -51,7 +53,7 @@ export function useJobClock(tenantId: string) {
         updatedAt: serverTimestamp()
       });
 
-      toast.success(`Clocked into ${jobName}`);
+      toast.success(`Clocked into ${taskName || jobName}`);
     } catch (e) {
       console.error(e);
       toast.error('Failed to clock into job.');

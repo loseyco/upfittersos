@@ -10,6 +10,8 @@ import { UserProfilePage } from './features/users/UserProfilePage';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ReloadPrompt } from './components/ReloadPrompt';
+import { FeedbackWidget } from './components/FeedbackWidget';
+import { FeedbackReports } from './features/super-admin/FeedbackReports';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +30,7 @@ function App() {
 
             {/* Super Admin Tier */}
             <Route element={<SuperAdminGuard />}>
+              <Route path="/super-admin/feedback" element={<FeedbackReports />} />
               <Route path="/super-admin/*" element={<BusinessManager />} />
             </Route>
 
@@ -37,6 +40,7 @@ function App() {
                <Route path="/business/:tenantId/profile" element={<UserProfilePage />} />
             </Route>
             </Routes>
+            <FeedbackWidget />
           </AnalyticsProvider>
         </Router>
       </AuthProvider>

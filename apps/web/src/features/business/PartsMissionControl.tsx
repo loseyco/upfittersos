@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { PackageIntakeModal } from './PackageIntakeModal';
+import { PartDetailsModal } from './PartDetailsModal';
 import { StaffLink } from './StaffPerformance';
 
 
@@ -104,6 +105,7 @@ export function PartsMissionControl() {
   const [zones, setZones] = useState<any[]>([]);
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
 
   // Real-time listener for Zones
   React.useEffect(() => {
@@ -404,6 +406,11 @@ export function PartsMissionControl() {
           queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
         }}
         zones={zones}
+      />
+      <PartDetailsModal 
+        isOpen={!!selectedPartId}
+        onClose={() => setSelectedPartId(null)}
+        partId={selectedPartId}
       />
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -928,9 +935,13 @@ export function PartsMissionControl() {
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
               <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {inventory?.map((item: any) => (
-                  <div key={item.id} className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                  <div 
+                    key={item.id} 
+                    onClick={() => setSelectedPartId(item.id)}
+                    className="p-4 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors cursor-pointer group"
+                  >
                     <div className="min-w-0 flex-1 pr-4">
-                      <p className="text-sm font-semibold text-zinc-900 dark:text-white truncate">{item.name}</p>
+                      <p className="text-sm font-semibold text-zinc-900 dark:text-white truncate group-hover:text-indigo-600 transition-colors">{item.name}</p>
                       <p className="text-[10px] text-zinc-400 uppercase tracking-tighter">SKU: {item.sku || 'N/A'}</p>
                     </div>
                     <div className="text-right">

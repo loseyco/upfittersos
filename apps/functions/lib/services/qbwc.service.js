@@ -129,6 +129,14 @@ class QbwcService {
             }
             operationCount++;
         };
+        const safeBatchDelete = (ref) => {
+            if (operationCount >= 490) {
+                batches.push(db.batch());
+                operationCount = 0;
+            }
+            batches[batches.length - 1].delete(ref);
+            operationCount++;
+        };
         try {
             const msgsRs = (_a = parsedXml === null || parsedXml === void 0 ? void 0 : parsedXml.QBXML) === null || _a === void 0 ? void 0 : _a.QBXMLMsgsRs;
             if (!msgsRs)
@@ -182,6 +190,17 @@ class QbwcService {
                 // We should just look at all keys that end with 'Ret' inside ItemQueryRs.
                 const queryRs = msgsRs[queryKey];
                 if (queryRs) {
+                    // Fetch manual native items once per batch for merging
+                    let manualItems = [];
+                    try {
+                        const snap = await db.collection('businesses').doc(this.tenantId).collection('inventory_items')
+                            .where('source', '==', 'Native')
+                            .get();
+                        manualItems = snap.docs.map(d => (Object.assign({ id: d.id }, d.data())));
+                    }
+                    catch (e) {
+                        console.warn("Failed to fetch native items for merging", e);
+                    }
                     const itemKeys = Object.keys(queryRs).filter(k => k.endsWith('Ret'));
                     let allItems = [];
                     itemKeys.forEach(k => {
@@ -193,9 +212,38 @@ class QbwcService {
                         allItems = allItems.concat(itemsOfThisType);
                     });
                     allItems.forEach((item) => {
+                        var _a, _b, _c;
                         const ref = db.collection('businesses').doc(this.tenantId).collection('qb_items').doc(item.ListID);
                         const prodRef = db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(item.ListID);
-                        const itemData = Object.assign(Object.assign({}, item), { sku: item.Name || '', name: item.FullName || item.Name || '', description: item.SalesDesc || item.PurchaseDesc || '', quantityOnHand: Number(item.QuantityOnHand) || 0, quantityAllocated: 0, quantityOnOrder: Number(item.QuantityOnOrder) || 0, cost: Number(item.PurchaseCost) || Number(item.AverageCost) || 0, price: Number(item.SalesPrice) || Number(item.Price) || 0, location: '', status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive', notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`, tenantId: this.tenantId });
+                        const qbCustomFields = {};
+                        if (item.DataExtRet) {
+                            let exts = item.DataExtRet;
+                            if (!Array.isArray(exts))
+                                exts = [exts];
+                            exts.forEach((e) => {
+                                if (e.DataExtName && e.DataExtValue) {
+                                    qbCustomFields[e.DataExtName] = e.DataExtValue;
+                                }
+                            });
+                        }
+                        const itemData = Object.assign(Object.assign({}, item), { sku: item.Name || '', name: item.FullName || item.Name || '', description: item.SalesDesc || item.PurchaseDesc || '', quantityOnHand: Number(item.QuantityOnHand) || 0, quantityAllocated: 0, quantityOnOrder: Number(item.QuantityOnOrder) || 0, quantityOnSalesOrder: Number(item.QuantityOnSalesOrder) || 0, minCount: Number(item.ReorderPoint) || 0, maxCount: Number(item.Max) || 0, mpn: item.ManufacturerPartNumber || '', barcode: item.BarCodeValue || '', cost: Number(item.PurchaseCost) || Number(item.AverageCost) || 0, price: Number(item.SalesPrice) || Number(item.Price) || 0, location: '', status: (item.IsActive === 'true' || item.IsActive === true) ? 'In Stock' : 'Inactive', preferredVendor: ((_a = item.PrefVendorRef) === null || _a === void 0 ? void 0 : _a.FullName) || '', unitOfMeasure: ((_b = item.UnitOfMeasureSetRef) === null || _b === void 0 ? void 0 : _b.FullName) || '', className: ((_c = item.ClassRef) === null || _c === void 0 ? void 0 : _c.FullName) || '', qbCustomFields, notes: `Imported via QBWC. Type: ${item._qbType || action.replace('Item', '').replace('Query', '')}`, tenantId: this.tenantId });
+                        // MERGING LOGIC: Check if this QB item matches any Native (manually created) item
+                        const matchedManual = manualItems.find(m => (m.name && m.name.toLowerCase() === itemData.name.toLowerCase()) ||
+                            (m.sku && itemData.sku && m.sku.toLowerCase() === itemData.sku.toLowerCase()));
+                        if (matchedManual) {
+                            // Transfer specific fields from the manual item to the new QB item
+                            itemData.images = matchedManual.images || [];
+                            itemData.activities = matchedManual.activities || [];
+                            itemData.activities.push({
+                                type: 'system_update',
+                                message: `Merged manually created part "${matchedManual.name}" with QuickBooks sync.`,
+                                date: new Date().toISOString()
+                            });
+                            // Delete the old manual document
+                            safeBatchDelete(db.collection('businesses').doc(this.tenantId).collection('inventory_items').doc(matchedManual.id));
+                            // Remove from array so we don't match it again
+                            manualItems = manualItems.filter(m => m.id !== matchedManual.id);
+                        }
                         safeBatchSet(ref, itemData, { merge: true });
                         safeBatchSet(prodRef, itemData, { merge: true });
                     });

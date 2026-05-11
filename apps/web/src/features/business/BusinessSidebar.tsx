@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   Home, Users, Briefcase, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity
+  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';
@@ -11,26 +11,30 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  group: 'ops' | 'facility' | 'comm' | 'sync' | 'config';
+  group: 'boards' | 'data' | 'facility' | 'comm' | 'sync' | 'config';
   permission?: PermissionKey;
 };
 
 const ITEMS: NavItem[] = [
-  { id: 'overview', label: 'My Dashboard', icon: Home, group: 'ops' },
-  { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'ops', permission: 'mission_control.view' },
-  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'ops' },
-  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'ops', permission: 'parts.view' },
-  { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'ops' },
-  { id: 'fabrication', label: 'F.A.S.T Fabrication', icon: Wrench, group: 'ops' },
-  { id: 'office', label: 'Office', icon: Building2, group: 'ops' },
-  { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'ops', permission: 'jobs.view' },
-  { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'ops' },
-  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'ops' },
-  { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'ops', permission: 'timeclock.manage' },
-  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'ops', permission: 'reports.view' },
-  { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'ops', permission: 'reports.view' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'ops', permission: 'vehicles.view' },
-  { id: 'customers', label: 'Customers', icon: Users, group: 'ops', permission: 'customers.view' },
+  { id: 'overview', label: 'My Dashboard', icon: Home, group: 'boards' },
+  { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'boards', permission: 'mission_control.view' },
+  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'boards' },
+  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'boards', permission: 'parts.view' },
+  { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'parts.view' },
+  { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards' },
+  { id: 'fabrication', label: 'F.A.S.T Fabrication', icon: Wrench, group: 'boards' },
+  { id: 'office', label: 'Office', icon: Building2, group: 'boards' },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'boards' },
+  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'boards', permission: 'reports.view' },
+  
+  { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'data', permission: 'jobs.view' },
+  { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'data' },
+  { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'data', permission: 'timeclock.manage' },
+  { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'data', permission: 'reports.view' },
+  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'data', permission: 'vehicles.view' },
+  { id: 'customers', label: 'Customers', icon: Users, group: 'data', permission: 'customers.view' },
+  { id: 'items', label: 'Parts Library', icon: PackageOpen, group: 'data', permission: 'parts.view' },
+  
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'zones.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
   { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },
@@ -58,7 +62,8 @@ export function BusinessSidebar({
   setIsOpen: (open: boolean) => void;
 }) {
   const groups = {
-    ops: 'Operations',
+    boards: 'Control Boards',
+    data: 'Data Management',
     facility: 'Facility',
     comm: 'Communication',
     config: 'Configuration',
