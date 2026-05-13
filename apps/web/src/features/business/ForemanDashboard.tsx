@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { 
-  AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks
+  AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks,
+  Maximize, Minimize
 } from 'lucide-react';
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { cn } from '../../lib/utils';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
 import { ZoneDetailsModal } from './ZoneModals';
 import { useAuthStore } from '../../lib/auth/store';
 import { VehicleDetailsModal } from './VehiclesManager';
@@ -15,6 +17,37 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
@@ -40,15 +73,19 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
     
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
 
     return () => {
@@ -465,8 +502,34 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in slide-in-from-bottom-4 duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Foreman Dashboard</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
+      </div>
+
       {/* Search Bar */}
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -477,13 +540,22 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Filter bays by VIN, Job #, or Bay Name..."
-          className="w-full pl-12 pr-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white"
+          className={cn(
+            "w-full pl-12 pr-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all dark:text-white",
+            isFullscreen ? "py-1.5" : "py-3"
+          )}
         />
       </div>
 
       {/* KPIs Header */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+      <div className={cn(
+        "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6",
+        isFullscreen ? "gap-2" : "gap-4"
+      )}>
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm flex flex-col justify-between",
+          isFullscreen ? "p-2" : "p-4"
+        )}>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-red-500/10 rounded-lg"><AlertTriangle className="w-4 h-4 text-red-500" /></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Blockers</p>
@@ -491,7 +563,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           <p className="text-2xl font-black text-zinc-900 dark:text-white">{activeBlockers.length}</p>
         </div>
         
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm flex flex-col justify-between",
+          isFullscreen ? "p-2" : "p-4"
+        )}>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-indigo-500/10 rounded-lg"><Warehouse className="w-4 h-4 text-indigo-500" /></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Bays</p>
@@ -501,7 +576,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           </p>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm flex flex-col justify-between",
+          isFullscreen ? "p-2" : "p-4"
+        )}>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-emerald-500/10 rounded-lg"><Car className="w-4 h-4 text-emerald-500" /></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Parking</p>
@@ -511,7 +589,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           </p>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm flex flex-col justify-between",
+          isFullscreen ? "p-2" : "p-4"
+        )}>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-amber-500/10 rounded-lg"><Clock className="w-4 h-4 text-amber-500" /></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Due {'<'} 24h</p>
@@ -519,7 +600,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           <p className="text-2xl font-black text-zinc-900 dark:text-white">{dueSoonCount}</p>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm flex flex-col justify-between",
+          isFullscreen ? "p-2" : "p-4"
+        )}>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-red-500/10 rounded-lg"><AlertCircle className="w-4 h-4 text-red-500" /></div>
             <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 line-clamp-1">Overdue</p>

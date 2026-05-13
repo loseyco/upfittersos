@@ -1,18 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   query, where, updateDoc, doc, serverTimestamp, addDoc, collection, onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Search, Car, Clock, Calendar, AlertCircle, ArrowRight, User,
-  Package, CheckCircle, MapPin, FileText, ShoppingCart
+  Package, CheckCircle, MapPin, FileText, ShoppingCart,
+  Maximize, Minimize
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSearchParams } from 'react-router-dom';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { useAuthStore } from '../../lib/auth/store';
 import { ItemDetailsModal } from './ItemDetailsModal';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
 
 interface OfficeDashboardProps {
   tenantId: string;
@@ -20,6 +22,37 @@ interface OfficeDashboardProps {
 
 export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const { user } = useAuthStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   const [jobs, setJobs] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
@@ -39,12 +72,15 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
 
     const qShipments = query(
@@ -54,6 +90,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     const unsubShipments = onSnapshot(qShipments, snap => {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShipments(data);
+      setLastUpdated(new Date());
     });
 
     const qReceivedParts = query(
@@ -62,6 +99,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     );
     const unsubReceivedParts = onSnapshot(qReceivedParts, snap => {
       setReceivedParts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
 
     return () => {
@@ -302,7 +340,14 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   };
 
   return (
-    <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in slide-in-from-bottom-4 duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "space-y-6 sm:space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
       <PackageIntakeModal 
         isOpen={isIntakeOpen}
         onClose={() => setIsIntakeOpen(false)}
@@ -323,17 +368,34 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
       />
       
       {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 w-full sm:-mt-20 relative z-10">
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Office Dashboard</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
         <button 
           onClick={handleCreateQuickPart}
-          className="w-full sm:w-auto px-6 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl transition-all flex items-center justify-center gap-2 border border-indigo-500/20"
+          className="w-full sm:w-auto px-6 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl transition-all flex items-center justify-center gap-2 border border-indigo-500/20 shadow-lg"
         >
           <ShoppingCart className="w-5 h-5" />
           REQUEST PART
         </button>
         <button 
           onClick={() => setIsIntakeOpen(true)}
-          className="w-full sm:w-auto px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+          className="w-full sm:w-auto px-8 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
         >
           <Package className="w-5 h-5 group-hover:rotate-12 transition-transform" />
           RECEIVE PACKAGE
@@ -350,7 +412,10 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Filter by VIN, Job #, Customer, or Title..."
-          className="w-full pl-12 pr-4 py-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm hover:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 font-medium"
+          className={cn(
+            "w-full pl-12 pr-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm hover:border-indigo-500/50 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 font-medium",
+            isFullscreen ? "py-2" : "py-4"
+          )}
         />
       </div>
 

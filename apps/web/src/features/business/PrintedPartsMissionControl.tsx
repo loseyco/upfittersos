@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useQuery } from '@tanstack/react-query';
 import { 
@@ -8,9 +8,12 @@ import {
 import { db } from '../../lib/firebase/config';
 import { 
   Printer, Plus, Search, Package, CheckCircle, 
-  Trash2, Clock, Play, ArrowRight, User
+  Trash2, Clock, Play, ArrowRight, User,
+  Maximize, Minimize
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { cn } from '../../lib/utils';
 
 type PrintStatus = 'in_queue' | 'printing' | 'ready_for_inventory' | 'completed';
 
@@ -30,6 +33,37 @@ interface PrintJob {
 
 export function PrintedPartsMissionControl() {
   const { tenantId, user, permissions, isSuperAdmin } = useAuthStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   const [isQueueModalOpen, setIsQueueModalOpen] = useState(false);
   const [jobs, setJobs] = useState<PrintJob[]>([]);
 
@@ -48,6 +82,7 @@ export function PrintedPartsMissionControl() {
         data.push({ id: docSnap.id, ...docSnap.data() } as PrintJob);
       });
       setJobs(data);
+      setLastUpdated(new Date());
     });
 
     return () => unsubscribe();
@@ -97,16 +132,54 @@ export function PrintedPartsMissionControl() {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Printed Parts Control</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
+      </div>
+      <div className={cn(
+        "flex flex-col md:flex-row md:items-center justify-between",
+        isFullscreen ? "gap-2" : "gap-4"
+      )}>
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/10 rounded-xl">
-              <Printer className="w-6 h-6 text-indigo-500" />
+          <h1 className={cn(
+            "font-bold text-zinc-900 dark:text-white flex items-center gap-3",
+            isFullscreen ? "text-lg" : "text-2xl"
+          )}>
+            <div className={cn(
+              "bg-indigo-500/10 rounded-xl",
+              isFullscreen ? "p-1" : "p-2"
+            )}>
+              <Printer className={cn(
+                "text-indigo-500",
+                isFullscreen ? "w-4 h-4" : "w-6 h-6"
+              )} />
             </div>
             Print Farm Mission Control
           </h1>
-          <p className="text-zinc-500 text-sm mt-1">Manage 3D printed parts production queue.</p>
+          {!isFullscreen && <p className="text-zinc-500 text-sm mt-1">Manage 3D printed parts production queue.</p>}
         </div>
         {canManage && (
           <button 

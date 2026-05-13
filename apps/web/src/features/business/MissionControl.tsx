@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X
+  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X,
+  Maximize, Minimize
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -14,7 +15,8 @@ import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { useSearchStore } from '../../lib/store/searchStore';
 import { cn } from '../../lib/utils';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
 import { ShopFloorActivity } from './ShopFloorActivity';
 import { ZoneDetailsModal } from './ZoneModals';
 import { QuickAddVehicleModal } from './VehicleSelector';
@@ -30,6 +32,37 @@ interface MissionControlProps {
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { open: openSearch } = useSearchStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   // Stats fetching
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['mission-control-stats', tenantId],
@@ -159,15 +192,19 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     if (!tenantId) return;
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     return () => {
       unsubZones();
@@ -468,8 +505,32 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 mb-4 sm:-mt-20 relative z-10 w-full">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "p-0 space-y-4 sm:space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Mission Control</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full md:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
         <button 
           onClick={handleGenerateReport}
           className="w-full md:w-auto px-4 py-2 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
@@ -489,7 +550,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           placeholder="Quick search customers, vehicles, bays, or staff..."
           onFocus={() => openSearch()}
           onChange={(e) => openSearch(e.target.value)}
-          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl py-4 pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 font-medium"
+          className={cn(
+            "w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 font-medium",
+            isFullscreen ? "py-2" : "py-4"
+          )}
         />
         <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700">
@@ -500,12 +564,18 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 sm:gap-3">
+      <div className={cn(
+        "grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8",
+        isFullscreen ? "gap-1.5" : "gap-2 sm:gap-3"
+      )}>
         {kpis.map((kpi) => (
           <button
             key={kpi.label}
             onClick={() => onTabChange(kpi.tab)}
-            className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2.5 sm:p-3.5 shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]"
+            className={cn(
+              "group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm hover:border-indigo-500/50 transition-all text-left active:scale-[0.98]",
+              isFullscreen ? "p-2" : "p-2.5 sm:p-3.5"
+            )}
           >
             <div className="flex items-center justify-between mb-2">
               <div className={`p-1.5 sm:p-2 rounded-xl ${kpi.bg}`}>

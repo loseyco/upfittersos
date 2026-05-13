@@ -206,35 +206,56 @@ exports.onQbEmployeeWrite = functions.firestore
     if (!data)
         return null;
     // 1. Promote to Staff Collection
-    const staffRef = admin.firestore().collection('businesses').doc(tenantId).collection('staff').doc(employeeId);
-    // Resolve email if missing
+    let staffRef = admin.firestore().collection('businesses').doc(tenantId).collection('staff').doc(employeeId);
+    // Resolve email if missing (already defined below, but we need it for searching)
     let resolvedEmail = data.email || data.Email || '';
-    if (!resolvedEmail) {
-        const firstName = data.firstName || data.FirstName || '';
-        const lastName = data.lastName || data.LastName || '';
-        const fullName = (data.name || data.Name || `${firstName} ${lastName}`).trim();
-        if (fullName) {
-            // Search root users collection for a matching name
-            const userQuery = admin.firestore().collection('users')
-                .where('displayName', '==', fullName)
+    const firstName = data.firstName || data.FirstName || '';
+    const lastName = data.lastName || data.LastName || '';
+    const fullName = (data.name || data.Name || `${firstName} ${lastName}`).trim();
+    if (!resolvedEmail && fullName) {
+        // Search root users collection for a matching name
+        const userQuery = admin.firestore().collection('users')
+            .where('displayName', '==', fullName)
+            .limit(1);
+        const userSnap = await userQuery.get();
+        if (!userSnap.empty) {
+            resolvedEmail = userSnap.docs[0].data().email || '';
+            console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via users collection`);
+        }
+        else if (firstName && lastName) {
+            // Try searching by first/last combo if displayName search failed
+            const userQueryAlt = admin.firestore().collection('users')
+                .where('firstName', '==', firstName)
+                .where('lastName', '==', lastName)
                 .limit(1);
-            const userSnap = await userQuery.get();
-            if (!userSnap.empty) {
-                resolvedEmail = userSnap.docs[0].data().email || '';
-                console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via users collection`);
+            const userSnapAlt = await userQueryAlt.get();
+            if (!userSnapAlt.empty) {
+                resolvedEmail = userSnapAlt.docs[0].data().email || '';
+                console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via firstName/lastName search`);
             }
-            else if (firstName && lastName) {
-                // Try searching by first/last combo if displayName search failed
-                const userQueryAlt = admin.firestore().collection('users')
-                    .where('firstName', '==', firstName)
-                    .where('lastName', '==', lastName)
-                    .limit(1);
-                const userSnapAlt = await userQueryAlt.get();
-                if (!userSnapAlt.empty) {
-                    resolvedEmail = userSnapAlt.docs[0].data().email || '';
-                    console.log(`Resolved email ${resolvedEmail} for employee ${fullName} via firstName/lastName search`);
-                }
-            }
+        }
+    }
+    // SEARCH FOR EXISTING STAFF TO PREVENT DUPLICATES
+    if (resolvedEmail) {
+        const existingQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('staff')
+            .where('email', '==', resolvedEmail.toLowerCase())
+            .limit(1)
+            .get();
+        if (!existingQuery.empty) {
+            staffRef = existingQuery.docs[0].ref;
+            console.log(`Found existing staff member by email: ${resolvedEmail}. Merging into doc ${staffRef.id}`);
+        }
+    }
+    if (staffRef.id === employeeId && firstName && lastName) {
+        // If still using QB ID, try one more search by name
+        const existingNameQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('staff')
+            .where('firstName', '==', firstName)
+            .where('lastName', '==', lastName)
+            .limit(1)
+            .get();
+        if (!existingNameQuery.empty) {
+            staffRef = existingNameQuery.docs[0].ref;
+            console.log(`Found existing staff member by name: ${firstName} ${lastName}. Merging into doc ${staffRef.id}`);
         }
     }
     const staffMappedData = {

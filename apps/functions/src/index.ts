@@ -185,6 +185,7 @@ export const migrateZones = functions.https.onRequest(async (req, res) => {
     });
 });
 
+
 // Initialize Express
 const app = express();
 app.use(cors({ origin: true }));

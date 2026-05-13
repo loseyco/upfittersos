@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
@@ -9,9 +9,12 @@ import { db } from '../../lib/firebase/config';
 import { 
   Truck, Plus, ExternalLink, 
   Clock, Box, User, Search, Package, Calendar, AlertCircle,
-  Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin, Briefcase, CarFront
+  Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin, Briefcase, CarFront,
+  Maximize, Minimize
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { cn } from '../../lib/utils';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { ItemDetailsModal } from './ItemDetailsModal';
@@ -75,6 +78,37 @@ interface Vehicle {
 export function PartsMissionControl() {
   const { tenantId, user, permissions, isSuperAdmin } = useAuthStore();
   const queryClient = useQueryClient();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const canManage = isSuperAdmin || permissions['parts.manage'];
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -114,6 +148,7 @@ export function PartsMissionControl() {
     const q = query(collection(db, `businesses/${tenantId}/zones`), orderBy('name'));
     const unsub = onSnapshot(q, (snap) => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
     return () => unsub();
   }, [tenantId]);
@@ -436,7 +471,41 @@ export function PartsMissionControl() {
   const recentReceived = shipments?.filter(s => s.status === 'delivered').slice(0, 10) || [];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Parts Mission Control</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
+        <button 
+          onClick={() => setIsIntakeOpen(true)}
+          className="w-full sm:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+        >
+          <Package className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+          RECEIVE PACKAGE
+        </button>
+      </div>
+
       <PackageIntakeModal 
         isOpen={isIntakeOpen}
         onClose={() => setIsIntakeOpen(false)}
@@ -462,20 +531,14 @@ export function PartsMissionControl() {
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Parts Mission Control</h1>
           <p className="text-zinc-500 text-sm mt-1">Manage requests, track shipments, and intake packages.</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setIsIntakeOpen(true)}
-            className="w-full md:w-auto px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2"
-          >
-            <Package className="w-5 h-5" />
-            RECEIVE PACKAGE
-          </button>
-        </div>
       </div>
 
       {/* KPI Header */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm",
+          isFullscreen ? "p-3" : "p-6"
+        )}>
           <div className="flex items-center gap-4">
             <div className="p-3 bg-amber-500/10 rounded-xl">
               <Clock className="w-6 h-6 text-amber-500" />
@@ -486,7 +549,10 @@ export function PartsMissionControl() {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm",
+          isFullscreen ? "p-3" : "p-6"
+        )}>
           <div className="flex items-center gap-4">
             <div className="p-3 bg-blue-500/10 rounded-xl">
               <Truck className="w-6 h-6 text-blue-500" />
@@ -497,7 +563,10 @@ export function PartsMissionControl() {
             </div>
           </div>
         </div>
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
+        <div className={cn(
+          "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm",
+          isFullscreen ? "p-3" : "p-6"
+        )}>
           <div className="flex items-center gap-4">
             <div className="p-3 bg-emerald-500/10 rounded-xl">
               <Box className="w-6 h-6 text-emerald-500" />

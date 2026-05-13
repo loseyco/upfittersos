@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { db } from '../../lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command } from 'lucide-react';
+import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize } from 'lucide-react';
 import { JobDetailsModal } from './JobDetailsModal';
 import { ZoneDetailsModal } from './ZoneModals';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { FeedbackModal } from '../../components/FeedbackModal';
 import { PartFormModal } from './PartFormModal';
 import { VehicleIntakeModal } from './VehicleIntakeModal';
-import { toast } from 'sonner';
+import { toast, Toaster } from 'sonner';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { cn } from '../../lib/utils';
 import { useJobClock } from '../timeclock/useJobClock';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useSearchStore } from '../../lib/store/searchStore';
@@ -19,6 +21,37 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const { user } = useAuthStore();
   const { activeSessionId } = useTimeclockStore();
   const { open: openSearch } = useSearchStore();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  useWakeLock(isFullscreen);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   
   const [allActiveJobs, setAllActiveJobs] = useState<any[]>([]);
@@ -99,6 +132,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         .map(d => ({ id: d.id, ...d.data() }))
         .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status));
       setAllActiveJobs(active);
+      setLastUpdated(new Date());
     });
 
     // Fetch My Zones (Bays)
@@ -107,12 +141,14 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
       where('assignedStaffIds', 'array-contains', user.uid)
     );
     const unsubZones = onSnapshot(zonesQ, (snap) => {
-      setZones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
 
     // Fetch vehicles for display context
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
-      setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
     });
 
     return () => {
@@ -161,7 +197,33 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-4 md:space-y-8 animate-in fade-in duration-500">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "max-w-7xl mx-auto animate-in fade-in duration-500",
+        isFullscreen ? "p-2 space-y-2 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar" : "space-y-4 md:space-y-8"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Mission Control</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
+      </div>
       {/* Compact Ultimate Search Bar */}
       <div className="relative group max-w-4xl">
         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -172,7 +234,10 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
           placeholder="Quick search customers, vehicles, bays, or staff..."
           onFocus={() => openSearch()}
           onChange={(e) => openSearch(e.target.value)}
-          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl md:rounded-2xl py-3 md:py-4 pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 text-sm md:text-base font-medium"
+          className={cn(
+            "w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl md:rounded-2xl pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 text-sm md:text-base font-medium",
+            isFullscreen ? "py-2" : "py-3 md:py-4"
+          )}
         />
         <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700">
@@ -183,7 +248,10 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
       </div>
  
       {/* Quick Actions Row */}
-      <div className="grid grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8 max-w-4xl">
+      <div className={cn(
+        "grid grid-cols-4 gap-2 md:gap-4 max-w-4xl",
+        isFullscreen ? "mb-2" : "mb-4 md:mb-8"
+      )}>
         <button 
           onClick={() => setIsIntakeOpen(true)}
           className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm"

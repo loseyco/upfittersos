@@ -15,6 +15,7 @@ import { Toaster } from 'sonner';
 import { ReloadPrompt } from './components/ReloadPrompt';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { FeedbackReports } from './features/super-admin/FeedbackReports';
+import { GlobalWakeLock } from './components/telemetry/GlobalWakeLock';
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <Toaster position="top-right" richColors theme="system" closeButton expand={true} />
       <AuthProvider>
+        <GlobalWakeLock />
         <ReloadPrompt />
         <Router>
           <AnalyticsProvider>

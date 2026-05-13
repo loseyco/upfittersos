@@ -4,6 +4,7 @@ import { db } from '../../lib/firebase/config';
 import { Maximize, Minimize, AlertTriangle, ShoppingCart } from 'lucide-react';
 import _QRCode from 'react-qr-code';
 import { cn } from '../../lib/utils';
+import { Toaster } from 'sonner';
 import type { Zone } from './ZoneModals';
 
 const QRCode = (_QRCode as any).default || _QRCode;
@@ -332,6 +333,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="h-screen bg-black text-white p-4 md:p-6 lg:p-8 3xl:p-8 relative overflow-hidden flex flex-col">
+      <Toaster position="top-right" richColors theme="system" closeButton />
       <div className="flex items-center justify-between mb-4 lg:mb-6 3xl:mb-3 shrink-0">
         <div className="flex items-center gap-4 lg:gap-6 3xl:gap-8">
           <div className="hidden md:flex items-center justify-center bg-white p-1.5 3xl:p-3 rounded-xl 3xl:rounded-3xl shrink-0">
@@ -348,7 +350,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-4 lg:gap-8 3xl:gap-8">
+        <div className="flex items-center gap-4 lg:gap-8 3xl:gap-8 relative z-10">
           <div className="flex flex-col items-end gap-1 3xl:gap-2">
             <div className="flex items-center gap-2 3xl:gap-4 bg-zinc-900/50 px-3 py-1.5 3xl:px-6 3xl:py-3 rounded-lg 3xl:rounded-2xl border border-zinc-800">
               <div className="w-2 h-2 3xl:w-4 3xl:h-4 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
@@ -368,7 +370,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
           </div>
           <button 
             onClick={toggleFullscreen}
-            className="p-3 3xl:p-6 bg-zinc-900 hover:bg-zinc-800 rounded-xl 3xl:rounded-2xl transition-colors text-zinc-400 hover:text-white shrink-0 ml-2 3xl:ml-4"
+            className="p-3 3xl:p-6 bg-zinc-900 hover:bg-zinc-800 rounded-xl 3xl:rounded-2xl transition-colors text-zinc-400 hover:text-white shrink-0 ml-2 3xl:ml-4 border border-zinc-800"
           >
             {isFullscreen ? <Minimize className="w-6 h-6 3xl:w-10 3xl:h-10" /> : <Maximize className="w-6 h-6 3xl:w-10 3xl:h-10" />}
           </button>
