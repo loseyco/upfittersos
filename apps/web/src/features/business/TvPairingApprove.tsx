@@ -29,7 +29,7 @@ async function encryptPayload(publicKey: CryptoKey, payloadString: string) {
 
 export function TvPairingApprove() {
   const [searchParams] = useSearchParams();
-  const { user, tenantId } = useAuthStore();
+  const { tenantId } = useAuthStore();
   const navigate = useNavigate();
   
   const [pin, setPin] = useState(searchParams.get('pin') || '');

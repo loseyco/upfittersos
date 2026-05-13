@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, limit, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Maximize, Minimize, AlertTriangle, ShoppingCart, Clock } from 'lucide-react';
+import { Maximize, Minimize, AlertTriangle, ShoppingCart } from 'lucide-react';
 import _QRCode from 'react-qr-code';
 import { cn } from '../../lib/utils';
 import type { Zone } from './ZoneModals';
@@ -151,8 +151,9 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     let timeLabel = '';
     let etaDate: Date | null = null;
     if (etaRaw) {
-      etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
-      const diffMs = etaDate.getTime() - now;
+      const parsedDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+      etaDate = parsedDate;
+      const diffMs = parsedDate.getTime() - now;
       isOverdue = diffMs < 0;
       const absDiff = Math.abs(diffMs);
       const days = Math.floor(absDiff / 86400000);
