@@ -302,7 +302,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                   {job.title}
                 </div>
               )}
-              <div className="text-[max(0.75rem,3cqw)] font-bold uppercase tracking-widest text-white/50 line-clamp-1 leading-none">
+              <div className="text-[max(0.65rem,2.5cqw)] font-bold uppercase tracking-widest text-white/50 line-clamp-1 leading-none">
                 {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 
                   ? (job?.customerName || vehicle?.customerName || 'No Customer Info')
                   : ''}
@@ -318,23 +318,23 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
         {hasVehicle && (
           <div className="pt-[max(0.5rem,2cqw)] border-t-2 border-white/10 shrink-0 grid grid-cols-2 gap-[max(0.5rem,2cqw)]">
             <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.6rem,2cqw)] leading-none mb-[max(0.25rem,1cqw)]">Time in Bay</span>
-              <span className="font-black text-white/90 text-[max(0.875rem,3.5cqw)] leading-none truncate">{timeInArea()}</span>
+              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Time in Bay</span>
+              <span className="font-black text-white/90 text-[max(0.8rem,3cqw)] leading-none truncate">{timeInArea()}</span>
             </div>
             <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.6rem,2cqw)] leading-none mb-[max(0.25rem,1cqw)]">Last Update</span>
-              <span className="font-black text-white/90 text-[max(0.875rem,3.5cqw)] leading-none truncate">{lastUpdated()}</span>
+              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Last Update</span>
+              <span className="font-black text-white/90 text-[max(0.8rem,3cqw)] leading-none truncate">{lastUpdated()}</span>
             </div>
             
             {etaDate && (
               <>
                 <div className="flex flex-col">
-                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.6rem,2cqw)] leading-none mb-[max(0.25rem,1cqw)]">ETA Date</span>
-                  <span className="font-black text-white/90 text-[max(0.875rem,3.5cqw)] leading-none truncate">{etaDate.toLocaleDateString()} {etaDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">ETA Date</span>
+                  <span className="font-black text-white/90 text-[max(0.75rem,2.8cqw)] leading-none truncate">{etaDate.toLocaleDateString()} {etaDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.6rem,2cqw)] leading-none mb-[max(0.25rem,1cqw)]">Countdown</span>
-                  <span className={cn("font-black tracking-widest text-[max(0.875rem,3.5cqw)] leading-none truncate", isOverdue ? "text-red-400 animate-pulse" : "text-emerald-400")}>
+                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Countdown</span>
+                  <span className={cn("font-black tracking-widest text-[max(0.8rem,3cqw)] leading-none truncate", isOverdue ? "text-red-400 animate-pulse" : "text-emerald-400")}>
                     {isOverdue ? `-${timeLabel}` : timeLabel}
                   </span>
                 </div>
