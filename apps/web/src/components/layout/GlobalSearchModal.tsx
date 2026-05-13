@@ -381,7 +381,7 @@ export function GlobalSearchModal() {
           tenantId={tenantId as string}
           vehicle={editingVehicle}
           onClose={() => setEditingVehicle(null)}
-          onSaved={(updatedData) => {
+          onSaved={(updatedData: any) => {
             // Update the selected result's raw data to reflect the changes immediately
             if (selectedResult) {
               setSelectedResult({

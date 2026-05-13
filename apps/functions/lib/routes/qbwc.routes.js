@@ -149,15 +149,15 @@ exports.qbwcRoutes.post('/', async (req, res) => {
             if (queueConfig.exists && !(configData === null || configData === void 0 ? void 0 : configData.qbwcInitialized)) {
                 const batch = admin.firestore().batch();
                 const queueRef = admin.firestore().collection('qbwc_queue');
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq><MaxReturned>100</MaxReturned></ItemQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq><MaxReturned>100</MaxReturned><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq><MaxReturned>100</MaxReturned></VendorQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><MaxReturned>100</MaxReturned></EmployeeQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><MaxReturned>100</MaxReturned></ClassQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'TimeTrackingQuery', qbxml: '<TimeTrackingQueryRq><MaxReturned>100</MaxReturned></TimeTrackingQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq iterator="Start"><MaxReturned>100</MaxReturned></ItemQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ActiveStatus>All</ActiveStatus><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ActiveStatus>All</ActiveStatus></VendorQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq></EmployeeQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq></ClassQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq iterator="Start"><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq iterator="Start"><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq iterator="Start"><MaxReturned>500</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'TimeTrackingQuery', qbxml: '<TimeTrackingQueryRq iterator="Start"><MaxReturned>500</MaxReturned></TimeTrackingQueryRq>', createdAt: new Date().toISOString() });
                 // Mark initialized
                 batch.update(admin.firestore().collection('businesses').doc(tenantId), { qbwcInitialized: true });
                 await batch.commit();
@@ -191,14 +191,14 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                     const queueRef = admin.firestore().collection('qbwc_queue');
                     // We safely omit Accounts & Classes from 5-min intervals as they rarely change and may lack FromModifiedDate support in older QBs.
                     const dynamicQueries = [
-                        { action: 'ItemQuery', xml: `<ItemQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
-                        { action: 'CustomerQuery', xml: `<CustomerQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
-                        { action: 'VendorQuery', xml: `<VendorQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
-                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></EmployeeQueryRq>` },
-                        { action: 'EstimateQuery', xml: `<EstimateQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
-                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
-                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
-                        { action: 'TimeTrackingQuery', xml: `<TimeTrackingQueryRq><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter></TimeTrackingQueryRq>` },
+                        { action: 'ItemQuery', xml: `<ItemQueryRq iterator="Start"><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ItemQueryRq>` },
+                        { action: 'CustomerQuery', xml: `<CustomerQueryRq iterator="Start"><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
+                        { action: 'VendorQuery', xml: `<VendorQueryRq iterator="Start"><MaxReturned>500</MaxReturned><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
+                        { action: 'EmployeeQuery', xml: `<EmployeeQueryRq></EmployeeQueryRq>` },
+                        { action: 'EstimateQuery', xml: `<EstimateQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
+                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
+                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
+                        { action: 'TimeTrackingQuery', xml: `<TimeTrackingQueryRq iterator="Start"><MaxReturned>500</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter></TimeTrackingQueryRq>` },
                         { action: 'HostQuery', xml: `<HostQueryRq></HostQueryRq>` }
                     ];
                     dynamicQueries.forEach(q => {
@@ -385,40 +385,7 @@ exports.qbwcRoutes.get('/reset', async (req, res) => {
         if (!tenantId)
             return res.status(400).send('tenantId required');
         const db = admin.firestore();
-        // Wipe all qb_ collections and their production equivalents for a clean slate during testing
-        const collectionsToWipe = ['qb_customers', 'customers', 'qb_jobs', 'jobs', 'qb_items', 'inventory_items'];
-        let wipeBatches = [db.batch()];
-        let opCount = 0;
-        let totalDeleted = 0;
-        const safeDelete = (ref) => {
-            if (opCount >= 490) {
-                wipeBatches.push(db.batch());
-                opCount = 0;
-            }
-            wipeBatches[wipeBatches.length - 1].delete(ref);
-            opCount++;
-            totalDeleted++;
-        };
-        for (const collName of collectionsToWipe) {
-            try {
-                const snap = await db.collection(`businesses/${tenantId}/${collName}`).get();
-                snap.forEach(doc => {
-                    safeDelete(doc.ref);
-                });
-            }
-            catch (e) {
-                console.error(`Failed to wipe ${collName}:`, e);
-            }
-        }
-        // Wipe the tenant's queue
-        try {
-            const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
-            queueSnap.forEach(doc => {
-                safeDelete(doc.ref);
-            });
-        }
-        catch (e) { }
-        // Reset the timer and init flag natively using set with merge to avoid update errors
+        // 1. Reset the timer and init flag natively using set with merge FIRST to guarantee immediate response
         try {
             await db.collection('businesses').doc(tenantId).set({
                 qbwcInitialized: false,
@@ -429,18 +396,104 @@ exports.qbwcRoutes.get('/reset', async (req, res) => {
             console.error("Failed to update timestamp:", updateErr);
             throw new Error('Failed to update tenant configuration: ' + updateErr.message);
         }
-        try {
-            for (const b of wipeBatches) {
-                await b.commit();
+        // 2. Return success immediately so the Cloud Function doesn't timeout the HTTP response
+        res.json({ success: true, message: `Successfully reset the initialization timer. Background deletion started.` });
+        return;
+        // 3. Process the heavy wipes asynchronously in the background
+        (async () => {
+            const collectionsToWipe = ['qb_customers', 'qb_jobs', 'qb_items', 'qb_estimates', 'qb_invoices', 'qb_purchase_orders', 'qb_time_tracking', 'qb_vendors', 'qb_employees', 'qb_classes'];
+            let wipeBatches = [db.batch()];
+            let opCount = 0;
+            const safeDelete = (ref) => {
+                if (opCount >= 490) {
+                    wipeBatches.push(db.batch());
+                    opCount = 0;
+                }
+                wipeBatches[wipeBatches.length - 1].delete(ref);
+                opCount++;
+            };
+            for (const collName of collectionsToWipe) {
+                try {
+                    const snap = await db.collection(`businesses/${tenantId}/${collName}`).get();
+                    snap.forEach(doc => {
+                        safeDelete(doc.ref);
+                    });
+                }
+                catch (e) {
+                    console.error(`Failed to wipe ${collName}:`, e);
+                }
             }
-        }
-        catch (commitErr) {
-            throw new Error('Failed to commit batch deletions: ' + commitErr.message);
-        }
-        return res.json({ success: true, message: `Successfully wiped ${totalDeleted} records and reset the initialization timer.` });
+            try {
+                const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
+                queueSnap.forEach(doc => {
+                    safeDelete(doc.ref);
+                });
+            }
+            catch (e) { }
+            try {
+                for (const b of wipeBatches) {
+                    await b.commit();
+                }
+            }
+            catch (commitErr) {
+                console.error('Failed to commit batch deletions: ' + commitErr.message);
+            }
+        })();
     }
     catch (e) {
         console.error('Reset Wipe Error:', e);
+        return res.status(500).json({ error: e.message || 'Unknown Server Error' });
+    }
+});
+// Force Sync Endpoint (Does not wipe data, just resets timestamps and queue)
+exports.qbwcRoutes.get('/force-sync', async (req, res) => {
+    try {
+        const tenantId = req.query.tenantId;
+        if (!tenantId)
+            return res.status(400).send('tenantId required');
+        const db = admin.firestore();
+        // 1. Reset the timer and init flag natively using set with merge FIRST to guarantee immediate response
+        try {
+            await db.collection('businesses').doc(tenantId).set({
+                qbwcInitialized: false,
+                lastQbSyncTime: admin.firestore.FieldValue.delete()
+            }, { merge: true });
+        }
+        catch (updateErr) {
+            console.error("Failed to update timestamp:", updateErr);
+            throw new Error('Failed to update tenant configuration: ' + updateErr.message);
+        }
+        // 2. Return success immediately to avoid Cloud Functions timeouts
+        res.json({ success: true, message: `Successfully reset the initialization timer. The sync queue will be cleared in the background. The next QWC run will perform a full sync.` });
+        return;
+        // 3. Wipe the tenant's queue asynchronously
+        (async () => {
+            let wipeBatches = [db.batch()];
+            let opCount = 0;
+            const safeDelete = (ref) => {
+                if (opCount >= 490) {
+                    wipeBatches.push(db.batch());
+                    opCount = 0;
+                }
+                wipeBatches[wipeBatches.length - 1].delete(ref);
+                opCount++;
+            };
+            try {
+                const queueSnap = await db.collection('qbwc_queue').where('tenantId', '==', tenantId).get();
+                queueSnap.forEach(doc => {
+                    safeDelete(doc.ref);
+                });
+                for (const b of wipeBatches) {
+                    await b.commit();
+                }
+            }
+            catch (e) {
+                console.error("Background force-sync queue delete failed:", e);
+            }
+        })();
+    }
+    catch (e) {
+        console.error('Force Sync Error:', e);
         return res.status(500).json({ error: e.message || 'Unknown Server Error' });
     }
 });

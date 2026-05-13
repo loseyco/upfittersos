@@ -21,11 +21,12 @@ import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { PartsMissionControl } from './PartsMissionControl';
 import { PrintedPartsMissionControl } from './PrintedPartsMissionControl';
 import { PartsManager } from './PartsManager';
+import { TasksManager } from './TasksManager';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
 import { VehiclesManager } from './VehiclesManager';
-import { StaffManager } from './StaffManager';
+import { StaffManager, DepartmentsPage } from './StaffManager';
 import { ReportsManager } from './ReportsManager';
 import { StaffPerformance } from './StaffPerformance';
 import { JobsManager } from './JobsManager';
@@ -35,6 +36,8 @@ import { TimeclockAdmin } from '../timeclock/TimeclockAdmin';
 import { LiveTimeclockBoard } from '../timeclock/LiveTimeclockBoard';
 import { StaffRoster } from './StaffRoster';
 import { PullToRefresh } from '../../components/layout/PullToRefresh';
+import { DepartmentDashboard } from './DepartmentDashboard';
+import { BayMonitor } from './BayMonitor';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -63,14 +66,18 @@ export function TenantDashboard() {
     customers: 'Customers',
     jobs: 'Jobs',
     vehicles: 'Vehicles',
-    zones: 'Zones'
+    zones: 'Zones',
+    bay_monitor: 'Bay Monitor'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   
   usePageTitle(pageTitle);
 
-  const { tenantId, impersonatedStaff, stopImpersonating } = useAuthStore();
+  const { tenantId: storeTenantId, impersonatedStaff, stopImpersonating, isSuperAdmin } = useAuthStore();
+  const urlTenantId = params.tenantId;
+  const tenantId = (isSuperAdmin && urlTenantId) ? urlTenantId : storeTenantId;
+
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -116,18 +123,21 @@ export function TenantDashboard() {
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
       <PullToRefresh onRefresh={() => window.location.reload()} />
-      <BusinessSidebar 
-        activeTab={activeTab} 
-        setActiveTab={handleTabClick} 
-        isOpen={isSidebarOpen} 
-        setIsOpen={setIsSidebarOpen} 
-      />
+      {activeTab !== 'bay_monitor' && (
+        <BusinessSidebar 
+          activeTab={activeTab} 
+          setActiveTab={handleTabClick} 
+          isOpen={isSidebarOpen} 
+          setIsOpen={setIsSidebarOpen} 
+          lastSync={lastSync}
+        />
+      )}
 
       <GlobalJobModal tenantId={tenantId!} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <TimeClockBar />
-        <TopNav />
+        {activeTab !== 'bay_monitor' && <TimeClockBar />}
+        {activeTab !== 'bay_monitor' && <TopNav />}
         
         {/* Mobile Header */}
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 sticky top-0 z-30">
@@ -144,7 +154,7 @@ export function TenantDashboard() {
           </div>
         </div>
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar">
+        <main className={`flex-1 overflow-y-auto ${activeTab === 'bay_monitor' ? 'p-0' : 'p-4 md:p-8'} no-scrollbar`}>
           {impersonatedStaff && (
             <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300">
               <div className="flex items-center gap-4">
@@ -165,8 +175,8 @@ export function TenantDashboard() {
               </button>
             </div>
           )}
-          {!isLoading && (
-            <div className="flex items-center justify-between mb-8">
+          {!isLoading && activeTab !== 'bay_monitor' && (
+            <div className="flex items-center justify-between mb-4 md:mb-8">
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex w-14 h-14 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl items-center justify-center shadow-sm">
                   <Building2 className="w-7 h-7 text-indigo-500" />
@@ -175,9 +185,11 @@ export function TenantDashboard() {
                   <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
                     {activeTab === 'overview' ? 'My Dashboard' : activeTab === 'mission_control' ? business?.name : activeTab === 'foreman' ? 'Shop' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </h1>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {activeTab === 'overview' ? 'Personal Workflow' : activeTab === 'mission_control' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
-                  </p>
+                  {activeTab !== 'overview' && (
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      {activeTab === 'mission_control' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
+                    </p>
+                  )}
                   {activeTab === 'mission_control' && lastSync && (
                     <div className="flex items-center gap-1.5 mt-2 text-zinc-400">
                       <RefreshCw className="w-3 h-3 text-emerald-500" />
@@ -209,7 +221,9 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'foreman' && (
-              <ForemanDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
+              <PermissionGate permission="foreman.view">
+                <ForemanDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
+              </PermissionGate>
             )}
 
             {activeTab === 'settings' && (
@@ -224,6 +238,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'departments' && (
+              <PermissionGate permission="staff.view">
+                <DepartmentsPage tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'reports' && (
               <PermissionGate permission="reports.view">
                 <ReportsManager tenantId={tenantId!} />
@@ -231,7 +251,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'performance' && (
-              <PermissionGate permission="reports.view">
+              <PermissionGate permission="performance.view">
                 <StaffPerformance tenantId={tenantId!} />
               </PermissionGate>
             )}
@@ -249,7 +269,9 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'live_timeclock' && (
-              <LiveTimeclockBoard tenantId={tenantId!} />
+              <PermissionGate permission="timeclock.view">
+                <LiveTimeclockBoard tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'parts' && (
@@ -265,21 +287,37 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'graphics' && (
-              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">Graphics Department</h2>
-                <p>Mission Control Board coming soon...</p>
-              </div>
+              <PermissionGate permission="graphics.view">
+                <DepartmentDashboard 
+                  tenantId={tenantId!} 
+                  departmentName="Graphics" 
+                  tagFilter="Graphics" 
+                />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'fast' && (
+              <PermissionGate permission="fast.view">
+                <DepartmentDashboard 
+                  tenantId={tenantId!} 
+                  departmentName="F.A.S.T" 
+                  tagFilter="F.A.S.T" 
+                />
+              </PermissionGate>
             )}
 
             {activeTab === 'fabrication' && (
-              <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-                <h2 className="text-2xl font-bold mb-2 text-zinc-900 dark:text-white">F.A.S.T Fabrication</h2>
-                <p>Mission Control Board coming soon...</p>
-              </div>
+              <PermissionGate permission="fabrication.view">
+                <DepartmentDashboard 
+                  tenantId={tenantId!} 
+                  departmentName="Fabrication" 
+                  tagFilter="Fabrication" 
+                />
+              </PermissionGate>
             )}
 
             {activeTab === 'office' && (
-              <PermissionGate permission="jobs.view">
+              <PermissionGate permission="office.view">
                 <OfficeDashboard tenantId={tenantId!} />
               </PermissionGate>
             )}
@@ -314,8 +352,14 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'bay_monitor' && (
+              <BayMonitor tenantId={tenantId!} />
+            )}
+
             {activeTab === 'tasks' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/tasks`} title="Tasks" />
+              <PermissionGate permission="tasks.view">
+                <TasksManager tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'facility_maps' && (

@@ -10,6 +10,7 @@ import {
   ArrowUpRight, User, Activity,
   Info
 } from 'lucide-react';
+import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
 
 type Timeframe = 'day' | 'week' | 'month' | 'all';
@@ -44,6 +45,9 @@ interface StaffStats {
 }
 
 export function StaffPerformance({ tenantId }: { tenantId: string }) {
+  const { permissions, isSuperAdmin } = useAuthStore();
+  const canViewReports = isSuperAdmin || permissions['reports.view'];
+
   const [searchParams] = useSearchParams();
   const staffNameParam = searchParams.get('staffName');
   
@@ -439,7 +443,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                         {staff.name}
                         {i === 0 && <span className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">MVP</span>}
                         {staff.overtimeMinutes > 0 && <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Overtime</span>}
-                        {staff.lateCount > 0 && <span className="text-[10px] bg-rose-500/10 text-rose-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Lates: {staff.lateCount}</span>}
+                        {staff.lateCount > 0 && canViewReports && <span className="text-[10px] bg-rose-500/10 text-rose-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Lates: {staff.lateCount}</span>}
                       </h3>
                       <p className="text-xs text-zinc-500">{staff.email}</p>
                     </div>
@@ -477,12 +481,14 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                       </div>
                     </div>
 
-                    <div className="text-right min-w-[100px]">
-                      <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Activity Score</p>
-                      <div className="flex items-center justify-end gap-2">
-                        <p className="text-xl font-black text-zinc-900 dark:text-white italic">{staff.totalPoints}</p>
-                        <ChevronRight className="w-5 h-5 text-zinc-300 group-hover:translate-x-1 transition-transform" />
-                      </div>
+                    <div className="text-right min-w-[100px] flex items-center justify-end gap-4">
+                      {canViewReports && (
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Score</p>
+                          <p className="text-xl font-black text-zinc-900 dark:text-white italic">{staff.totalPoints}</p>
+                        </div>
+                      )}
+                      <ChevronRight className="w-5 h-5 text-zinc-300 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
                 </div>
@@ -514,11 +520,13 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                       <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Overtime</p>
                       <p className="text-lg font-black text-zinc-900 dark:text-white italic">{(selectedStaff.overtimeMinutes / 60).toFixed(1)}h</p>
                     </div>
-                    <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                      <AlertCircle className="w-5 h-5 text-rose-500 mb-2" />
-                      <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Late Count</p>
-                      <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.lateCount}</p>
-                    </div>
+                    {canViewReports && (
+                      <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                        <AlertCircle className="w-5 h-5 text-rose-500 mb-2" />
+                        <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Late Count</p>
+                        <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.lateCount}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -529,7 +537,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                     <MetricProgress label="Facility Moves" value={selectedStaff.moves} max={Math.max(...stats.map(s => s.moves))} color="bg-indigo-500" />
                     <MetricProgress label="Job Management" value={selectedStaff.jobs} max={Math.max(...stats.map(s => s.jobs))} color="bg-emerald-500" />
                     <MetricProgress label="Parts Handling" value={selectedStaff.parts} max={Math.max(...stats.map(s => s.parts))} color="bg-amber-500" />
-                    <MetricProgress label="Overtime Logged (Mins)" value={Math.round(selectedStaff.overtimeMinutes)} max={Math.max(...stats.map(s => s.overtimeMinutes))} color="bg-rose-500" />
+                    {canViewReports && <MetricProgress label="Overtime Logged (Mins)" value={Math.round(selectedStaff.overtimeMinutes)} max={Math.max(...stats.map(s => s.overtimeMinutes))} color="bg-rose-500" />}
                   </div>
                 </div>
 
@@ -543,17 +551,19 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                   </div>
                 </div>
 
-                <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                   <div className="flex items-center gap-3 mb-4">
-                      <Info className="w-4 h-4 text-zinc-400" />
-                      <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Management Insight</h4>
-                   </div>
-                   <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed font-medium">
-                      {selectedStaff.totalPoints > 100 
-                        ? `${selectedStaff.name} is showing exceptional engagement across multiple departments. Strongly consider for pay progression or leadership responsibilities.` 
-                        : `${selectedStaff.name} is maintaining steady output in their primary role. Opportunity for growth in cross-departmental tasks.`}
-                   </p>
-                </div>
+                {canViewReports && (
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                     <div className="flex items-center gap-3 mb-4">
+                        <Info className="w-4 h-4 text-zinc-400" />
+                        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Management Insight</h4>
+                     </div>
+                     <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed font-medium">
+                        {selectedStaff.totalPoints > 100 
+                          ? `${selectedStaff.name} is showing exceptional engagement across multiple departments. Strongly consider for pay progression or leadership responsibilities.` 
+                          : `${selectedStaff.name} is maintaining steady output in their primary role. Opportunity for growth in cross-departmental tasks.`}
+                     </p>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -566,7 +576,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       </div>
 
       {/* Staff Activity Timeline (History) */}
-      {selectedStaffId && (
+      {selectedStaffId && canViewReports && (
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl overflow-hidden shadow-sm animate-in slide-in-from-bottom-8 duration-700">
           <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-950/50">
             <div className="flex items-center gap-3">

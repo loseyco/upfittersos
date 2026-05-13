@@ -4,7 +4,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Warehouse, MapPin, Briefcase, LayoutDashboard, 
   X, Edit2, CarFront, History, CheckCircle2,
-  AlertTriangle, Clock, MessageSquare, Package, ShoppingCart, Unlink
+  AlertTriangle, Clock, MessageSquare, Package, ShoppingCart, Unlink, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -14,6 +14,7 @@ import { QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { StaffSelector } from './StaffSelectionComponents';
 import { VinSelector } from './VehicleSelector';
 import { useAuthStore } from '../../lib/auth/store';
+import { useSearchParams } from 'react-router-dom';
 
 export interface Zone {
   id: string;
@@ -41,6 +42,7 @@ export const zoneTypeIcons = {
 
 export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAssign, onClear, onRemoveVehicle, onRemoveJob, onQuickAddRequest, onQuickAddJobRequest, onOpenVehicle, onDelete, partsRequests = [] }: any) {
 
+  const [searchParams, setSearchParams] = useSearchParams();
   useBodyScrollLock(true);
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const job = jobs.find((j: any) => j.id === zone.currentJobId);
@@ -367,7 +369,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                     <MessageSquare className="w-4 h-4" />
                     <span className="text-[8px] font-black uppercase tracking-tighter">Note</span>
                     {(() => {
-                      const noteCount = (targetEntity.work_notes?.length || 0) + (targetEntity.notes ? 1 : 0);
+                      const noteCount = targetEntity.work_notes?.length || 0;
                       if (noteCount === 0) return null;
                       return (
                         <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-900 shadow-sm">
@@ -392,7 +394,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
               {/* High-Level Status Summary (Blockers/Parts/Notes) */}
               {(() => {
                 const activeBlocker = (targetEntity.blockers || []).find((b: any) => b.status === 'active')?.message || targetEntity.blocker;
-                const latestNote = (targetEntity.work_notes?.[targetEntity.work_notes.length - 1]?.message) || targetEntity.notes;
+                const latestNote = targetEntity.work_notes?.[targetEntity.work_notes.length - 1]?.message;
                 
                 const activeParts = (partsRequests || []).filter((pr: any) => {
                   const status = (pr.status || '').toLowerCase();
@@ -497,13 +499,21 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                 <div className="space-y-3">
                   <label className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest px-1">Job Assignment</label>
                   {job ? (
-                    <div className="p-3 bg-white dark:bg-zinc-900 border border-emerald-100 dark:border-emerald-500/20 rounded-xl flex items-center justify-between group">
+                    <div 
+                      onClick={() => {
+                        const newParams = new URLSearchParams(searchParams);
+                        newParams.set('jobId', job.id);
+                        setSearchParams(newParams);
+                        if (onClose) onClose();
+                      }}
+                      className="p-3 bg-white dark:bg-zinc-900 border border-emerald-100 dark:border-emerald-500/20 rounded-xl flex items-center justify-between group cursor-pointer hover:border-emerald-400 transition-colors"
+                    >
                       <div className="flex items-center gap-3">
-                        <div className="p-2 bg-emerald-500/10 rounded-lg">
+                        <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
                           <Briefcase className="w-4 h-4 text-emerald-500" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-snug">{job.title}</h4>
+                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-snug group-hover:text-emerald-500 transition-colors">{job.title}</h4>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             {job.customerName && (
                               <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-tight">{job.customerName}</p>
@@ -514,7 +524,8 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                         </div>
                       </div>
                       <button 
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (confirm('Are you sure you want to unlink this job from this bay? The vehicle will remain assigned.')) {
                             if (onRemoveJob) onRemoveJob();
                           }
@@ -725,8 +736,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
     notes: targetEntity.notes || '',
     eta: formatDatetimeLocal(targetEntity.eta || targetEntity.expectedFinishTime),
     partsNeeded: '',
-    urgency: 'normal' as 'normal' | 'urgent',
-    assignedStaff: targetEntity.assignedStaff || (targetEntity.assignedStaffId ? [{ id: targetEntity.assignedStaffId, name: targetEntity.assignedStaffName || 'Staff' }] : [])
+    urgency: 'normal' as 'normal' | 'urgent'
   });
 
   const legacyBlocker = targetEntity.blocker ? [{
@@ -793,6 +803,10 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
   
   const handleAddNote = async () => {
     if (!floorWalk.newNote.trim()) return;
+    if (!job) {
+      toast.error('Notes must be added to a specific job, not just the bay.');
+      return;
+    }
     try {
       const newNoteObj = {
         id: crypto.randomUUID(),
@@ -807,11 +821,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
       // Also update the primary 'notes' field for legacy display
       payload.notes = floorWalk.newNote;
 
-      if (job) {
-        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
-      } else {
-        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), payload);
-      }
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
       
       await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
         type: 'job',
@@ -827,6 +837,23 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
     } catch (e) {
       console.error(e);
       toast.error('Failed to add note');
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    try {
+      const updatedNotes = (targetEntity.work_notes || []).filter((n: any) => n.id !== noteId);
+      const payload: any = { work_notes: updatedNotes };
+      
+      if (job) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), payload);
+      } else {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), payload);
+      }
+      toast.success('Note removed');
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to remove note');
     }
   };
 
@@ -911,11 +938,6 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
     setIsSaving(true);
     try {
       const updatePayload: any = {
-        notes: floorWalk.notes,
-        assignedStaff: floorWalk.assignedStaff,
-        assignedStaffIds: floorWalk.assignedStaff.map((s: any) => s.id),
-        assignedStaffId: floorWalk.assignedStaff.length > 0 ? floorWalk.assignedStaff[0].id : null,
-        assignedStaffName: floorWalk.assignedStaff.length > 0 ? floorWalk.assignedStaff[0].name : null,
         updatedAt: serverTimestamp()
       };
       
@@ -932,20 +954,9 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zone.id), updatePayload);
       }
 
-
-
-      // Log to activity feed for notes/ETA
+      // Log to activity feed for ETA
       const author = user?.displayName || user?.email || 'Staff';
-      if (initialTab === 'notes' && floorWalk.notes) {
-        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
-          type: 'job',
-          title: 'Walkthrough Note',
-          message: `Note added for ${job?.jobNumber ? '#' + job.jobNumber : zone.name}: ${floorWalk.notes.slice(0, 60)}${floorWalk.notes.length > 60 ? '...' : ''}`,
-          timestamp: serverTimestamp(),
-          severity: 'info',
-          author
-        });
-      } else if (initialTab === 'eta' && floorWalk.eta && job) {
+      if (initialTab === 'eta' && floorWalk.eta && job) {
         await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
           type: 'job',
           title: 'ETA Updated',
@@ -987,17 +998,6 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="flex items-center gap-4 p-3 bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest shrink-0">Assigned Staff</label>
-            <div className="flex-1 min-w-0">
-              <StaffSelector 
-                selectedStaff={floorWalk.assignedStaff} 
-                onAssign={staff => setFloorWalk(prev => ({ ...prev, assignedStaff: staff }))} 
-                tenantId={tenantId} 
-              />
-            </div>
-          </div>
-
           {activeTab === 'blocker' && (
             <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
               <label className="block text-xs font-bold text-zinc-500 uppercase tracking-widest px-1">Active Blockers</label>
@@ -1221,6 +1221,12 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
                             Added by {note.createdBy} • {new Date(note.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                           </p>
                         </div>
+                        <button 
+                          onClick={() => handleDeleteNote(note.id)}
+                          className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   ))

@@ -69,7 +69,6 @@ interface Department {
 export function StaffManager({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [view, setView] = useState<'staff' | 'departments'>('staff');
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
@@ -158,50 +157,32 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
         <div className="flex flex-col gap-3">
           <div>
             <h2 className="text-lg font-bold text-zinc-900 dark:text-white leading-tight">Staff & Permissions</h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">Manage business departments, staff, and access control.</p>
-          </div>
-          
-          <div className="flex p-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg w-fit">
-            <button 
-              onClick={() => setView('staff')}
-              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${view === 'staff' ? 'bg-white dark:bg-zinc-700 text-indigo-600 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-            >
-              Staff List
-            </button>
-            <button 
-              onClick={() => setView('departments')}
-              className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${view === 'departments' ? 'bg-white dark:bg-zinc-700 text-indigo-600 dark:text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-            >
-              Departments
-            </button>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Manage business staff and access control.</p>
           </div>
         </div>
 
-        {view === 'staff' && (
-          <div className="flex items-center gap-3">
-            <div className="relative w-full sm:w-64">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
-                <Search className="w-4 h-4" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search staff..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
-              />
+        <div className="flex items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
+              <Search className="w-4 h-4" />
             </div>
-            <button 
-              onClick={() => setIsAddingStaff(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md active:scale-95"
-            >
-              <UserPlus className="w-4 h-4" /> Add Staff
-            </button>
+            <input
+              type="text"
+              placeholder="Search staff..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+            />
           </div>
-        )}
+          <button 
+            onClick={() => setIsAddingStaff(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-md active:scale-95"
+          >
+            <UserPlus className="w-4 h-4" /> Add Staff
+          </button>
+        </div>
       </div>
 
-      {view === 'staff' ? (
         <GenericDataGrid 
           collectionPath={`businesses/${tenantId}/staff`} 
           title="Staff Members" 
@@ -209,9 +190,6 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
           localFilter={handleFilter}
           onRowClick={(row) => setSelectedStaff(row as StaffMember)}
         />
-      ) : (
-        <DepartmentManager tenantId={tenantId} departments={departments || []} onConfirmAction={setConfirmConfig} />
-      )}
 
 
       {selectedStaff && !editingStaff && (
@@ -248,7 +226,8 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
             useAuthStore.getState().impersonate({
               id: selectedStaff.id,
               name: `${selectedStaff.firstName} ${selectedStaff.lastName}`,
-              permissions: resolved
+              permissions: resolved,
+              type: 'staff'
             });
             setSelectedStaff(null);
             toast.success(`Viewing as ${selectedStaff.firstName}`);
@@ -288,6 +267,39 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
       />
     </div>
 
+  );
+}
+
+export function DepartmentsPage({ tenantId }: { tenantId: string }) {
+  const { data: departments } = useQuery<Department[]>({
+    queryKey: ['departments', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/departments`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department));
+    }
+  });
+
+  const [confirmConfig, setConfirmConfig] = useState<any>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+        <div>
+          <h2 className="text-lg font-bold text-zinc-900 dark:text-white leading-tight">Departments</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Manage business departments and default permissions.</p>
+        </div>
+      </div>
+      
+      <DepartmentManager tenantId={tenantId} departments={departments || []} onConfirmAction={setConfirmConfig} />
+      
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig((prev: any) => ({ ...prev, isOpen: false }))}
+      />
+    </div>
   );
 }
 
@@ -567,11 +579,13 @@ function PermissionGrid({
   onOverrideChange?: (key: PermissionKey, value: boolean | undefined) => void
 }) {
   const categories = {
-    'General': ['mission_control.view'],
+    'General': ['mission_control.view', 'foreman.view', 'graphics.view', 'fast.view', 'fabrication.view', 'office.view', 'performance.view'],
     'Inventory & Vehicles': ['vehicles.view', 'vehicles.manage', 'zones.view', 'zones.manage', 'parts.view', 'parts.manage'],
     'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'staff.view', 'staff.manage'],
-    'Timeclock': ['timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
-    'System': ['settings.view', 'settings.manage']
+    'Tasks & Timeclock': ['tasks.view', 'tasks.manage', 'timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
+    'Communication & Facility': ['communication.view', 'facility.view'],
+    'System & Data': ['settings.view', 'settings.manage', 'reports.view', 'sync.view'],
+    'Experimental': ['experimental.new_modals']
   };
 
   return (

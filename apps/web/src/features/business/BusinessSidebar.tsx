@@ -18,48 +18,53 @@ export type NavItem = {
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'My Dashboard', icon: Home, group: 'boards' },
   { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'boards', permission: 'mission_control.view' },
-  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'boards' },
+  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'boards', permission: 'foreman.view' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'boards', permission: 'parts.view' },
   { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'parts.view' },
-  { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards' },
-  { id: 'fabrication', label: 'F.A.S.T Fabrication', icon: Wrench, group: 'boards' },
-  { id: 'office', label: 'Office', icon: Building2, group: 'boards' },
-  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'boards' },
-  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'boards', permission: 'reports.view' },
+  { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards', permission: 'graphics.view' },
+  { id: 'fast', label: 'F.A.S.T', icon: Wrench, group: 'boards', permission: 'fast.view' },
+  { id: 'fabrication', label: 'Fabrication', icon: Wrench, group: 'boards', permission: 'fabrication.view' },
+  { id: 'office', label: 'Office', icon: Building2, group: 'boards', permission: 'office.view' },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'boards', permission: 'timeclock.view' },
+  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'boards', permission: 'performance.view' },
   
   { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'data', permission: 'jobs.view' },
-  { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'data' },
+  { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'data', permission: 'tasks.view' },
   { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'data', permission: 'timeclock.manage' },
   { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'data', permission: 'reports.view' },
   { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'data', permission: 'vehicles.view' },
   { id: 'customers', label: 'Customers', icon: Users, group: 'data', permission: 'customers.view' },
   { id: 'items', label: 'Parts Library', icon: PackageOpen, group: 'data', permission: 'parts.view' },
   
-  { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'zones.view' },
-  { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility' },
-  { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility' },
-  { id: 'messages', label: 'Messages', icon: MessageSquare, group: 'comm' },
-  { id: 'announcements', label: 'Announcements', icon: Megaphone, group: 'comm' },
-  { id: 'events', label: 'Events', icon: Calendar, group: 'comm' },
+  { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'facility.view' },
+  { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, group: 'facility', permission: 'facility.view' },
+  { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility', permission: 'facility.view' },
+  { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility', permission: 'facility.view' },
+  { id: 'messages', label: 'Messages', icon: MessageSquare, group: 'comm', permission: 'communication.view' },
+  { id: 'announcements', label: 'Announcements', icon: Megaphone, group: 'comm', permission: 'communication.view' },
+  { id: 'events', label: 'Events', icon: Calendar, group: 'comm', permission: 'communication.view' },
   { id: 'staff', label: 'Staff', icon: UserCog, group: 'config', permission: 'staff.view' },
+  { id: 'departments', label: 'Departments', icon: Building2, group: 'config', permission: 'staff.view' },
   { id: 'settings', label: 'Settings', icon: Settings, group: 'config', permission: 'settings.view' },
-  { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, group: 'sync' },
-  { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, group: 'sync' },
-  { id: 'qb_items', label: 'QB Items', icon: RefreshCw, group: 'sync' },
-  { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, group: 'sync' },
-  { id: 'qb_pos', label: 'QB POs', icon: RefreshCw, group: 'sync' },
+  { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
+  { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
+  { id: 'qb_items', label: 'QB Items', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
+  { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
+  { id: 'qb_pos', label: 'QB POs', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
 ];
 
 export function BusinessSidebar({ 
   activeTab, 
   setActiveTab,
   isOpen,
-  setIsOpen
+  setIsOpen,
+  lastSync
 }: { 
   activeTab: string; 
   setActiveTab: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  lastSync?: any;
 }) {
   const groups = {
     boards: 'Control Boards',
@@ -86,9 +91,25 @@ export function BusinessSidebar({
 
         return (
           <div key={groupId} className="space-y-2">
-            <h3 className="px-4 text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em] mb-4">
-              {groupLabel}
-            </h3>
+            <div className="px-4 flex items-center justify-between mb-4">
+              <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
+                {groupLabel}
+              </h3>
+              {groupId === 'sync' && (
+                <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-500/80 uppercase tracking-wider" title="Last successful sync">
+                  <RefreshCw className={`w-2.5 h-2.5 ${!lastSync ? 'animate-spin opacity-50' : ''}`} />
+                  {(() => {
+                    if (!lastSync) return 'Pending...';
+                    const ts = lastSync.timestamp;
+                    const date = ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
+                    // Just show time if today, else date
+                    return date.toLocaleDateString() === new Date().toLocaleDateString()
+                      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                  })()}
+                </div>
+              )}
+            </div>
             <div className="space-y-1">
               {visibleItems.map(item => (
                 <button

@@ -1,22 +1,38 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { 
+  query, where, updateDoc, doc, serverTimestamp, addDoc, collection, onSnapshot 
+} from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Search, Car, Clock, Calendar, AlertCircle, ArrowRight, User
+  Search, Car, Clock, Calendar, AlertCircle, ArrowRight, User,
+  Package, CheckCircle, MapPin, FileText, ShoppingCart
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSearchParams } from 'react-router-dom';
+import { PackageIntakeModal } from './PackageIntakeModal';
+import { useAuthStore } from '../../lib/auth/store';
+import { ItemDetailsModal } from './ItemDetailsModal';
+import { toast } from 'sonner';
 
 interface OfficeDashboardProps {
   tenantId: string;
 }
 
 export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
+  const { user } = useAuthStore();
   const [jobs, setJobs] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [receivedParts, setReceivedParts] = useState<any[]>([]);
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+  const [selectedItemId, setSelectedItemId] = useState<{id: string, type: 'shipment' | 'part'} | null>(null);
+  
+  // Filtering & Pagination
+  const [activeFilter, setActiveFilter] = useState<'all' | 'arriving' | 'received' | 'delivered'>('received');
+  const [displayLimit, setDisplayLimit] = useState(10);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -31,10 +47,29 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    const qShipments = query(
+      collection(db, `businesses/${tenantId}/shipments`),
+      where('status', 'in', ['ordered', 'received', 'delivered'])
+    );
+    const unsubShipments = onSnapshot(qShipments, snap => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setShipments(data);
+    });
+
+    const qReceivedParts = query(
+      collection(db, `businesses/${tenantId}/parts_requests`),
+      where('status', 'in', ['ordered', 'received', 'fulfilled', 'delivered'])
+    );
+    const unsubReceivedParts = onSnapshot(qReceivedParts, snap => {
+      setReceivedParts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubJobs();
       unsubVehicles();
       unsubZones();
+      unsubShipments();
+      unsubReceivedParts();
     };
   }, [tenantId]);
 
@@ -62,6 +97,16 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     !['Closed', 'Completed', 'Ready for Customer', 'Ready for QA', 'Blocked'].includes(job.status)
   ).filter(job => {
     const vehicle = vehicles.find(v => v.vin === job.vehicleId);
+    
+    // If vehicle has arrived or is assigned to a zone, it's not "incoming"
+    if (vehicle?.arrivedAt) return false;
+    const inZone = zones.some(z => 
+      z.currentJobId === job.id || 
+      z.currentVehicleVin === job.vehicleId || 
+      z.currentVehicleVins?.includes(job.vehicleId)
+    );
+    if (inZone) return false;
+
     return matchesSearch(job, vehicle);
   }).sort((a, b) => {
     const timeA = (a.createdAt?.seconds || 0);
@@ -84,6 +129,37 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     const timeB = typeof b.etaRaw.toDate === 'function' ? b.etaRaw.toDate().getTime() : new Date(b.etaRaw).getTime();
     return timeA - timeB; // Earliest first
   });
+
+  // Merged Recently Received (Shipments + Received Parts Requests)
+  const baseReceived = [
+    ...shipments.map(s => ({ ...s, type: 'shipment' })),
+    ...receivedParts.map(p => ({ ...p, type: 'part', description: p.partName }))
+  ].filter(item => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const fields = [item.trackingNumber, item.description, item.partName, item.location, item.notes].map(f => String(f || '').toLowerCase());
+    return fields.some(f => f.includes(q));
+  });
+
+  const counts = {
+    arriving: baseReceived.filter(i => i.status === 'ordered').length,
+    received: baseReceived.filter(i => i.status === 'received').length,
+    delivered: baseReceived.filter(i => i.status === 'delivered' || i.status === 'fulfilled').length,
+  };
+
+  const allReceived = baseReceived.filter(item => {
+    if (activeFilter === 'arriving') return item.status === 'ordered';
+    if (activeFilter === 'received') return item.status === 'received';
+    if (activeFilter === 'delivered') return item.status === 'delivered' || item.status === 'fulfilled';
+    return true;
+  }).sort((a, b) => {
+    const timeA = a.createdAt?.seconds || a.statusChangedAt?.seconds || 0;
+    const timeB = b.createdAt?.seconds || b.statusChangedAt?.seconds || 0;
+    return timeB - timeA;
+  });
+
+  const displayItems = allReceived.slice(0, displayLimit);
+  const hasMore = allReceived.length > displayLimit;
 
   const renderJobCard = (job: any, isNextUp = false) => {
     const vehicle = vehicles.find(v => v.vin === job.vehicleId);
@@ -181,8 +257,89 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     );
   };
 
+  const handleUpdateStatus = async (item: any, newStatus: string) => {
+    if (!tenantId) return;
+    try {
+      const collectionName = item.type === 'shipment' ? 'shipments' : 'parts_requests';
+      const updateData: any = {
+        status: newStatus,
+        statusChangedAt: serverTimestamp()
+      };
+      
+      // Special fields for specific statuses
+      if (newStatus === 'delivered' && item.type === 'shipment') {
+        updateData.putAwayAt = serverTimestamp();
+      }
+      if (newStatus === 'received' && item.type === 'shipment') {
+        updateData.deliveredAt = serverTimestamp();
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/${collectionName}`, item.id), updateData);
+      toast.success(`Item marked as ${newStatus}`);
+    } catch (err) {
+      console.error('Error updating status:', err);
+      toast.error('Failed to update status');
+    }
+  };
+
+
+  const handleCreateQuickPart = async () => {
+    if (!tenantId) return;
+    try {
+      const docRef = await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+        partName: "New Part Request",
+        status: "ordered",
+        requestedBy: user?.email || 'Office',
+        createdAt: serverTimestamp(),
+        statusChangedAt: serverTimestamp()
+      });
+      setSelectedItemId({ id: docRef.id, type: 'part' });
+      toast.success("Created new part record");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to create part record");
+    }
+  };
+
   return (
     <div className="space-y-6 sm:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <PackageIntakeModal 
+        isOpen={isIntakeOpen}
+        onClose={() => setIsIntakeOpen(false)}
+        onSuccess={() => {}}
+        zones={zones}
+      />
+
+      <ItemDetailsModal 
+        isOpen={!!selectedItemId}
+        onClose={() => setSelectedItemId(null)}
+        itemId={selectedItemId?.id || null}
+        type={selectedItemId?.type || 'shipment'}
+        zones={zones}
+        onOpenIntake={() => {
+          setSelectedItemId(null);
+          setIsIntakeOpen(true);
+        }}
+      />
+      
+      {/* Header Actions */}
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-3 w-full sm:-mt-20 relative z-10">
+        <button 
+          onClick={handleCreateQuickPart}
+          className="w-full sm:w-auto px-6 py-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl transition-all flex items-center justify-center gap-2 border border-indigo-500/20"
+        >
+          <ShoppingCart className="w-5 h-5" />
+          REQUEST PART
+        </button>
+        <button 
+          onClick={() => setIsIntakeOpen(true)}
+          className="w-full sm:w-auto px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
+        >
+          <Package className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+          RECEIVE PACKAGE
+        </button>
+      </div>
+
       {/* Search Bar */}
       <div className="relative">
         <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
@@ -197,7 +354,151 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
+        
+        {/* Packages to Put Away */}
+        <section className="flex flex-col lg:col-span-2 xl:col-span-1">
+          <div className="flex items-center justify-between mb-4 px-1">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+              <Package className="w-5 h-5 text-emerald-500" />
+              Recently Received
+            </h2>
+            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+              {allReceived.length} Items
+            </span>
+          </div>
+
+          {/* Filters */}
+          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl mb-4">
+            {(['arriving', 'received', 'delivered'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => {
+                  setActiveFilter(f);
+                  setDisplayLimit(10);
+                }}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-2 py-1.5 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  activeFilter === f 
+                    ? "bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                    : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {f === 'delivered' ? 'Put Away' : f}
+                {counts[f] > 0 && (
+                  <span className={cn(
+                    "px-1.5 py-0.5 rounded-full text-[8px] font-bold min-w-[1.25rem] text-center",
+                    activeFilter === f 
+                      ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400" 
+                      : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500"
+                  )}>
+                    {counts[f]}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          
+          <div className="flex-1 bg-emerald-50/30 dark:bg-emerald-500/5 border border-emerald-100 dark:border-emerald-500/10 rounded-3xl p-4 sm:p-6 shadow-inner min-h-[300px]">
+            {displayItems.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic text-center p-8">
+                <CheckCircle className="w-8 h-8 mb-3 opacity-20 text-emerald-500" />
+                <p>No {activeFilter} items found.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {displayItems.map(item => (
+                  <div key={item.id} className={cn(
+                    "bg-white dark:bg-zinc-900 border rounded-2xl p-4 shadow-sm hover:border-emerald-500 transition-all group relative",
+                    item.type === 'part' ? "border-indigo-500/20" : "border-emerald-500/20"
+                  )}>
+                    <div 
+                      className="absolute inset-0 z-0 cursor-pointer" 
+                      onClick={() => setSelectedItemId({ id: item.id, type: item.type })}
+                    />
+                    <div className="flex items-start justify-between mb-2 relative z-10 pointer-events-none">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {item.type === 'part' ? (
+                            <ShoppingCart className="w-3 h-3 text-indigo-500" />
+                          ) : (
+                            <Package className="w-3 h-3 text-emerald-500" />
+                          )}
+                          <h4 className="font-bold text-zinc-900 dark:text-white truncate">{item.description || 'Item'}</h4>
+                        </div>
+                        <p className="text-[10px] font-mono text-zinc-400 truncate">
+                          {item.trackingNumber || (item.type === 'part' ? 'INTERNAL REQUEST' : 'NO TRACKING')}
+                        </p>
+                      </div>
+                      
+                      {/* Contextual Action Button */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const nextStatus = item.status === 'ordered' ? 'received' : 
+                                           item.status === 'received' ? 'delivered' : 'received';
+                          handleUpdateStatus(item, nextStatus);
+                        }}
+                        className={cn(
+                          "shrink-0 p-2 text-white rounded-xl transition-all shadow-lg active:scale-95 pointer-events-auto",
+                          item.status === 'ordered' ? "bg-amber-500 shadow-amber-500/20 hover:bg-amber-600" :
+                          item.status === 'received' ? "bg-emerald-500 shadow-emerald-500/20 hover:bg-emerald-600" :
+                          "bg-zinc-500 shadow-zinc-500/20 hover:bg-zinc-600"
+                        )}
+                        title={item.status === 'ordered' ? 'Mark Received' : 
+                               item.status === 'received' ? 'Mark Processed' : 'Revert to Received'}
+                      >
+                        {item.status === 'ordered' ? <MapPin className="w-4 h-4" /> :
+                         item.status === 'received' ? <CheckCircle className="w-4 h-4" /> :
+                         <Clock className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    <div className="space-y-2 mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800 relative z-10 pointer-events-none">
+                      <div className="flex items-center gap-2 text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                        {item.location || (item.type === 'part' ? 'DELIVER TO SHOP' : 'OFFICE STAGING')}
+                      </div>
+                      {(item.notes || item.jobTitle) && (
+                        <div className="flex flex-col gap-1 p-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg">
+                          {item.jobTitle && (
+                            <div className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tight">
+                              FOR: {item.jobTitle}
+                            </div>
+                          )}
+                          {item.notes && (
+                            <div className="text-[10px] text-zinc-500 italic flex items-start gap-1">
+                              <FileText className="w-3 h-3 mt-0.5 shrink-0" />
+                              {item.notes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+                          <User className="w-3 h-3" />
+                          {item.receivedBy || item.requestedBy || 'Staff'}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 font-medium">
+                          {item.type === 'part' ? 'Part Arrived' : 'Package Arrived'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {hasMore && (
+                  <button 
+                    onClick={() => setDisplayLimit(prev => prev + 10)}
+                    className="w-full py-3 mt-4 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-indigo-500 transition-colors"
+                  >
+                    Load More Items ({allReceived.length - displayLimit} remaining)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
         
         {/* Expected Incoming Vehicles */}
         <section className="flex flex-col">

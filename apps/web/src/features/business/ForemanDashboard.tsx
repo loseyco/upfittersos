@@ -9,6 +9,8 @@ import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 import { ZoneDetailsModal } from './ZoneModals';
 import { useAuthStore } from '../../lib/auth/store';
+import { VehicleDetailsModal } from './VehiclesManager';
+import { ConfirmModal } from '../../components/ConfirmModal';
 
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const { user } = useAuthStore();
@@ -20,6 +22,18 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {}
+  });
 
   useEffect(() => {
     if (!tenantId) return;
@@ -78,9 +92,13 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
   // 1. Bays & Parking Spots (Sorted by oldest update)
   const sortByOldest = (a: any, b: any) => {
-    const timeA = (a.lastAssignedAt?.seconds || a.updatedAt?.seconds || 0);
-    const timeB = (b.lastAssignedAt?.seconds || b.updatedAt?.seconds || 0);
-    return timeA - timeB; // Oldest first
+    const timeA1 = a.lastAssignedAt?.seconds || 0;
+    const timeA2 = a.updatedAt?.seconds || 0;
+    const timeB1 = b.lastAssignedAt?.seconds || 0;
+    const timeB2 = b.updatedAt?.seconds || 0;
+    const timeA = Math.max(timeA1, timeA2);
+    const timeB = Math.max(timeB1, timeB2);
+    return timeA - timeB; // Oldest first (needs update the most)
   };
 
   const occupiedBays = zones.filter(z => z.type === 'bay' && !!z.currentVehicleVin);
@@ -255,7 +273,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
               currentVehicleVin: null, 
               currentJobId: null,
-              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin),
+              updatedAt: serverTimestamp()
             });
           }
         }
@@ -272,13 +291,15 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
         }
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { 
           currentVehicleVins: newVins,
-          lastAssignedAt: serverTimestamp() 
+          lastAssignedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
       } else {
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
           currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
           currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
-          lastAssignedAt: serverTimestamp()
+          lastAssignedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
       }
 
@@ -324,19 +345,40 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
       const itemKey = `${bay.id}-${vin}-${index}`;
 
       return (
-        <div key={itemKey} className="relative group/item pointer-events-auto">
-          <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0">
+        <div 
+          key={itemKey} 
+          onClick={() => setSelectedZoneId(bay.id)}
+          className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
+        >
+          <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
           <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
             <div className="flex items-center gap-2">
               <span className="font-bold text-zinc-400 dark:text-zinc-500 w-20 sm:w-24 truncate shrink-0 text-xs sm:text-sm">{bay.name}</span>
-              <span className="text-zinc-900 dark:text-white truncate font-bold text-sm sm:text-base">
+              <span 
+                className={cn("truncate font-bold text-sm sm:text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
+                onClick={(e) => {
+                  if (vehicle) {
+                    e.stopPropagation();
+                    setSelectedVehicle(vehicle);
+                  }
+                }}
+              >
                 {vehicleDisplay}
               </span>
             </div>
             {hasVehicle && (
               <div className="flex flex-wrap items-center gap-1.5 pl-[88px] sm:pl-[104px] text-[10px] sm:text-xs text-zinc-400 truncate">
                 {job ? (
-                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                  <span 
+                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (jobId) {
+                        searchParams.set('jobId', jobId);
+                        setSearchParams(searchParams);
+                      }
+                    }}
+                  >
                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                   </span>
                 ) : (
@@ -383,6 +425,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             return (
               <div className="flex flex-col items-end shrink-0">
                 <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-xs sm:text-sm`}>
+                  <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">{bay.type === 'bay' ? 'IN BAY:' : 'PARKED:'}</span>
                   {calculateDuration(timestamp)}
                 </span>
                 {(() => {
@@ -416,18 +459,6 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             );
           })()}
         </div>
-        <button 
-          onClick={(e) => { 
-            e.stopPropagation(); 
-            if (jobId) {
-              searchParams.set('jobId', jobId);
-              setSearchParams(searchParams);
-            } else {
-              setSelectedZoneId(bay.id); 
-            }
-          }}
-          className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10 cursor-pointer"
-        />
       </div>
       );
     });
@@ -582,7 +613,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold flex items-center gap-2">
               <MapPin className="w-5 h-5 text-indigo-500" /> 
-              Bays (Oldest First)
+              Bays (Needs Update First)
             </h2>
           </div>
           <div className="flex-1 space-y-3">
@@ -672,9 +703,34 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           onDelete={() => {}}
           onQuickAddRequest={() => {}}
           onQuickAddJobRequest={() => {}}
-          onOpenVehicle={() => {}}
+          onOpenVehicle={(vin: string) => {
+            const v = vehicles.find(veh => veh.vin === vin);
+            if (v) setSelectedVehicle(v);
+          }}
         />
       )}
+
+      {selectedVehicle && (
+        <VehicleDetailsModal
+          tenantId={tenantId}
+          vehicle={selectedVehicle}
+          onClose={() => setSelectedVehicle(null)}
+          onConfirmAction={setConfirmConfig}
+          onEdit={() => {}} 
+          getSource={(row: any) => {
+            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
+            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+          }}
+        />
+      )}
+
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

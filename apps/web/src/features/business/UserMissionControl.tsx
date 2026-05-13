@@ -2,17 +2,23 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { db } from '../../lib/firebase/config';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { Clock, Briefcase, Warehouse, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer } from 'lucide-react';
-import { TimeClockHistory } from '../timeclock/TimeClockHistory';
+import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command } from 'lucide-react';
 import { JobDetailsModal } from './JobDetailsModal';
 import { ZoneDetailsModal } from './ZoneModals';
+import { PackageIntakeModal } from './PackageIntakeModal';
+import { FeedbackModal } from '../../components/FeedbackModal';
+import { PartFormModal } from './PartFormModal';
+import { VehicleIntakeModal } from './VehicleIntakeModal';
 import { toast } from 'sonner';
 import { useJobClock } from '../timeclock/useJobClock';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
+import { useSearchStore } from '../../lib/store/searchStore';
+import { DeviceSettings } from '../../components/DeviceSettings';
 
 export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const { user } = useAuthStore();
   const { activeSessionId } = useTimeclockStore();
+  const { open: openSearch } = useSearchStore();
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   
   const [allActiveJobs, setAllActiveJobs] = useState<any[]>([]);
@@ -21,6 +27,12 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<any>(null);
+
+  // Modal States
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false);
+  const [isIssueOpen, setIsIssueOpen] = useState(false);
+  const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
+  const [isVehicleIntakeOpen, setIsVehicleIntakeOpen] = useState(false);
 
   const { clockIntoJob, clockOutOfJob, isProcessing } = useJobClock(tenantId);
 
@@ -89,7 +101,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
       setAllActiveJobs(active);
     });
 
-    // Fetch My Zones
+    // Fetch My Zones (Bays)
     const zonesQ = query(
       collection(db, `businesses/${tenantId}/zones`),
       where('assignedStaffIds', 'array-contains', user.uid)
@@ -148,201 +160,181 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleQuickAction = (action: string) => {
-    toast.info(`${action} workflow coming soon.`);
-  };
-
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight text-zinc-900 dark:text-white">My Dashboard</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 font-medium mt-1">Welcome back, {user?.displayName || 'Staff'}. Here's your active workflow.</p>
+    <div className="max-w-7xl mx-auto space-y-4 md:space-y-8 animate-in fade-in duration-500">
+      {/* Compact Ultimate Search Bar */}
+      <div className="relative group max-w-4xl">
+        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+          <Search className="w-5 h-5 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
+        </div>
+        <input
+          type="text"
+          placeholder="Quick search customers, vehicles, bays, or staff..."
+          onFocus={() => openSearch()}
+          onChange={(e) => openSearch(e.target.value)}
+          className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl md:rounded-2xl py-3 md:py-4 pl-12 pr-24 shadow-sm hover:border-indigo-500/50 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400 text-sm md:text-base font-medium"
+        />
+        <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-700">
+            <Command className="w-3 h-3 text-zinc-400" />
+            <span className="text-[10px] font-black text-zinc-500">F</span>
+          </div>
         </div>
       </div>
-
+ 
       {/* Quick Actions Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-8 max-w-4xl">
         <button 
-          onClick={() => handleQuickAction('Receive Package')}
-          className="flex flex-col items-center justify-center gap-3 p-4 bg-white dark:bg-zinc-900 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-3xl transition-all group shadow-sm"
+          onClick={() => setIsIntakeOpen(true)}
+          className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm"
         >
-          <div className="p-3 bg-indigo-500/10 rounded-2xl group-hover:scale-110 transition-transform">
-            <Package className="w-6 h-6 text-indigo-500" />
+          <div className="p-2 md:p-3 bg-indigo-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
+            <Package className="w-4 h-4 md:w-6 md:h-6 text-indigo-500" />
           </div>
-          <span className="font-bold text-sm text-zinc-900 dark:text-white">Receive Package</span>
+          <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Receive<br className="md:hidden" /> Package</span>
         </button>
 
         <button 
-          onClick={() => handleQuickAction('Log Issue')}
-          className="flex flex-col items-center justify-center gap-3 p-4 bg-white dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-rose-200 dark:hover:border-rose-500/30 rounded-3xl transition-all group shadow-sm"
+          onClick={() => setIsIssueOpen(true)}
+          className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-rose-200 dark:hover:border-rose-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm"
         >
-          <div className="p-3 bg-rose-500/10 rounded-2xl group-hover:scale-110 transition-transform">
-            <AlertTriangle className="w-6 h-6 text-rose-500" />
+          <div className="p-2 md:p-3 bg-rose-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
+            <AlertTriangle className="w-4 h-4 md:w-6 md:h-6 text-rose-500" />
           </div>
-          <span className="font-bold text-sm text-zinc-900 dark:text-white">Log Issue</span>
+          <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Log<br className="md:hidden" /> Issue</span>
         </button>
 
         <button 
-          onClick={() => handleQuickAction('Request Part')}
-          className="flex flex-col items-center justify-center gap-3 p-4 bg-white dark:bg-zinc-900 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-amber-200 dark:hover:border-amber-500/30 rounded-3xl transition-all group shadow-sm"
+          onClick={() => setIsPartRequestOpen(true)}
+          className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-amber-200 dark:hover:border-amber-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm"
         >
-          <div className="p-3 bg-amber-500/10 rounded-2xl group-hover:scale-110 transition-transform">
-            <Wrench className="w-6 h-6 text-amber-500" />
+          <div className="p-2 md:p-3 bg-amber-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
+            <Wrench className="w-4 h-4 md:w-6 md:h-6 text-amber-500" />
           </div>
-          <span className="font-bold text-sm text-zinc-900 dark:text-white">Request Part</span>
+          <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Request<br className="md:hidden" /> Part</span>
         </button>
 
         <button 
-          onClick={() => handleQuickAction('Vehicle Intake')}
-          className="flex flex-col items-center justify-center gap-3 p-4 bg-white dark:bg-zinc-900 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-200 dark:hover:border-emerald-500/30 rounded-3xl transition-all group shadow-sm"
+          onClick={() => setIsVehicleIntakeOpen(true)}
+          className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-200 dark:hover:border-emerald-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm"
         >
-          <div className="p-3 bg-emerald-500/10 rounded-2xl group-hover:scale-110 transition-transform">
-            <CarFront className="w-6 h-6 text-emerald-500" />
+          <div className="p-2 md:p-3 bg-emerald-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
+            <CarFront className="w-4 h-4 md:w-6 md:h-6 text-emerald-500" />
           </div>
-          <span className="font-bold text-sm text-zinc-900 dark:text-white">Vehicle Intake</span>
+          <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Vehicle<br className="md:hidden" /> Intake</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        
-        {/* Left Column: Active Assignments */}
-        <div className="space-y-8">
-          
-          {/* My Jobs */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 bg-indigo-500/10 rounded-xl">
-                <Briefcase className="w-6 h-6 text-indigo-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">My Active Jobs</h2>
-                <p className="text-xs text-zinc-500 font-medium">Jobs currently assigned to you</p>
-              </div>
+      <div className="max-w-4xl">
+        {/* My Jobs */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm">
+          <div className="flex items-center gap-3 mb-4 md:mb-6">
+            <div className="p-2 md:p-2.5 bg-indigo-500/10 rounded-xl">
+              <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-indigo-500" />
             </div>
+            <div>
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white">My Active Jobs</h2>
+              <p className="text-xs text-zinc-500 font-medium">Jobs currently assigned to you or your shop area</p>
+            </div>
+          </div>
 
-            <div className="space-y-3">
-              {myJobs.length === 0 ? (
-                <div className="p-8 text-center bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-zinc-100 dark:border-zinc-800/50">
-                  <p className="text-sm font-bold text-zinc-500">You have no active job assignments.</p>
-                </div>
-              ) : (
-                myJobs.map(job => (
-                  <div 
-                    key={job.id}
-                    onClick={() => setSelectedJob(job)}
-                    className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
-                  >
-                    <div className="flex-1 min-w-0 pr-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
-                          {job.status}
-                        </span>
-                      </div>
-                      <h3 className="font-bold text-zinc-900 dark:text-white text-base leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
-                      {job.customerName && (
-                        <p className="text-xs font-medium text-zinc-500 mt-1">{job.customerName}</p>
-                      )}
-                      {job.scheduledArrivalTime && (
-                        <p className="text-[10px] font-bold text-indigo-500 mt-1.5 flex items-center gap-1 uppercase tracking-widest">
-                          <Clock className="w-3 h-3" />
-                          ETA: {(() => {
-                            const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
-                              ? job.scheduledArrivalTime.toDate() 
-                              : new Date(job.scheduledArrivalTime);
-                            return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-                          })()}
-                        </p>
-                      )}
+          <div className="space-y-3">
+            {myJobs.length === 0 ? (
+              <div className="p-12 text-center bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800/50">
+                <Briefcase className="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+                <p className="text-sm font-bold text-zinc-500">You have no active job assignments.</p>
+              </div>
+            ) : (
+              myJobs.map(job => (
+                <div 
+                  key={job.id}
+                  onClick={() => setSelectedJob(job)}
+                  className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
+                >
+                  <div className="flex-1 min-w-0 pr-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
+                        {job.status}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      {activeJobId === job.id ? (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
-                          disabled={isProcessing}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                        >
-                          <Timer className="w-3.5 h-3.5" />
-                          Clock Out
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); clockIntoJob(job.id, job.title); }}
-                          disabled={isProcessing}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                        >
-                          <Timer className="w-3.5 h-3.5" />
-                          Clock In
-                        </button>
-                      )}
-                      <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
-                    </div>
+                    <h3 className="font-bold text-zinc-900 dark:text-white text-base leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
+                    {job.customerName && (
+                      <p className="text-xs font-medium text-zinc-500 mt-1">{job.customerName}</p>
+                    )}
+                    {job.scheduledArrivalTime && (
+                      <p className="text-[10px] font-bold text-indigo-500 mt-1.5 flex items-center gap-1 uppercase tracking-widest">
+                        <Clock className="w-3 h-3" />
+                        ETA: {(() => {
+                          const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
+                            ? job.scheduledArrivalTime.toDate() 
+                            : new Date(job.scheduledArrivalTime);
+                          return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                        })()}
+                      </p>
+                    )}
                   </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* My Bays */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 bg-emerald-500/10 rounded-xl">
-                <Warehouse className="w-6 h-6 text-emerald-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">My Shop Areas</h2>
-                <p className="text-xs text-zinc-500 font-medium">Bays or zones directly assigned to you</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {zones.length === 0 ? (
-                <div className="p-8 text-center bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-zinc-100 dark:border-zinc-800/50">
-                  <p className="text-sm font-bold text-zinc-500">You are not assigned to any specific shop areas.</p>
+                  <div className="flex items-center gap-3 shrink-0">
+                    {activeJobId === job.id ? (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
+                        disabled={isProcessing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                      >
+                        <Timer className="w-3.5 h-3.5" />
+                        Clock Out
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); clockIntoJob(job.id, job.title); }}
+                        disabled={isProcessing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                      >
+                        <Timer className="w-3.5 h-3.5" />
+                        Clock In
+                      </button>
+                    )}
+                    <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
+                  </div>
                 </div>
-              ) : (
-                zones.map(zone => (
-                  <button 
-                    key={zone.id}
-                    onClick={() => setSelectedZone(zone)}
-                    className="w-full text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-200 dark:hover:border-emerald-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
-                  >
-                    <div>
-                      <h3 className="font-bold text-zinc-900 dark:text-white text-base group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">{zone.name}</h3>
-                      <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mt-1">{zone.type}</p>
-                    </div>
-                    <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-emerald-500 transition-colors" />
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-        </div>
-
-        {/* Right Column: Timeclock */}
-        <div className="space-y-8">
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm flex flex-col h-full min-h-[500px]">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2.5 bg-blue-500/10 rounded-xl">
-                <Clock className="w-6 h-6 text-blue-500" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Timeclock</h2>
-                <p className="text-xs text-zinc-500 font-medium">Your live shift and recent activity</p>
-              </div>
-            </div>
-            
-            <div className="flex-1 overflow-hidden flex flex-col relative rounded-2xl border border-zinc-100 dark:border-zinc-800/50">
-              <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-1">
-                <TimeClockHistory tenantId={tenantId} />
-              </div>
-            </div>
+              ))
+            )}
           </div>
         </div>
 
+        {/* Device Settings */}
+        <div className="mt-8">
+          <DeviceSettings tenantId={tenantId} />
+        </div>
       </div>
+
+      {/* Modals */}
+      <PackageIntakeModal 
+        isOpen={isIntakeOpen}
+        onClose={() => setIsIntakeOpen(false)}
+        onSuccess={() => {}}
+        zones={zones}
+      />
+
+      <FeedbackModal 
+        isOpen={isIssueOpen}
+        onClose={() => setIsIssueOpen(false)}
+      />
+
+      {isPartRequestOpen && (
+        <PartFormModal 
+          tenantId={tenantId}
+          user={user}
+          onClose={() => setIsPartRequestOpen(false)}
+          onSuccess={() => {}}
+        />
+      )}
+
+      <VehicleIntakeModal 
+        isOpen={isVehicleIntakeOpen}
+        onClose={() => setIsVehicleIntakeOpen(false)}
+        tenantId={tenantId}
+      />
 
       {selectedJob && (
         <JobDetailsModal

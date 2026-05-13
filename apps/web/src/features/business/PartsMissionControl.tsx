@@ -14,7 +14,7 @@ import {
 import { toast } from 'sonner';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { PackageIntakeModal } from './PackageIntakeModal';
-import { PartDetailsModal } from './PartDetailsModal';
+import { ItemDetailsModal } from './ItemDetailsModal';
 import { StaffLink } from './StaffPerformance';
 
 
@@ -106,6 +106,7 @@ export function PartsMissionControl() {
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
 
   // Real-time listener for Zones
   React.useEffect(() => {
@@ -262,6 +263,23 @@ export function PartsMissionControl() {
     }
   };
 
+  const handleMarkPutAway = async (shipmentId: string) => {
+    if (!tenantId) return;
+    try {
+      const { doc, updateDoc } = await import('firebase/firestore');
+      await updateDoc(doc(db, `businesses/${tenantId}/shipments`, shipmentId), {
+        status: 'delivered',
+        putAwayAt: serverTimestamp()
+      });
+      toast.success('Package marked as put away');
+      queryClient.invalidateQueries({ queryKey: ['parts-shipments', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['parts-stats', tenantId] });
+    } catch (err) {
+      console.error('Error marking as put away:', err);
+      toast.error('Failed to update status');
+    }
+  };
+
   const detectCarrier = (tracking: string) => {
     const t = tracking.toUpperCase().replace(/\s/g, '');
     if (t.startsWith('1Z')) return 'UPS';
@@ -280,7 +298,44 @@ export function PartsMissionControl() {
   };
 
 
+  const handleAddTrackingToRequest = async (request: any) => {
+    const tracking = prompt(`Enter tracking number for ${request.partName}:`);
+    if (!tracking || !tenantId) return;
 
+    const carrier = detectCarrier(tracking);
+    
+    try {
+      // 1. Create a shipment record
+      await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
+        trackingNumber: tracking.trim(),
+        carrier,
+        description: `Part Order: ${request.partName}`,
+        status: 'pending',
+        eta: null,
+        requestId: request.id,
+        jobId: request.jobId || null,
+        createdAt: serverTimestamp(),
+        createdBy: user?.uid || 'system',
+        createdByName: user?.displayName || user?.email?.split('@')[0] || null,
+        createdByEmail: user?.email || null,
+      });
+
+      // 2. Update the request status to 'ordered'
+      const { updateDoc, doc } = await import('firebase/firestore');
+      await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, request.id), {
+        status: 'ordered',
+        trackingNumber: tracking.trim(),
+        statusChangedAt: serverTimestamp()
+      });
+
+      toast.success('Tracking linked and request marked as ordered');
+      queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
+    } catch (err) {
+      console.error('Error linking tracking to request:', err);
+      toast.error('Failed to link tracking');
+    }
+  };
   const handleSubmitShipment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!tenantId || !trackingNumber.trim()) return;
@@ -313,22 +368,6 @@ export function PartsMissionControl() {
     });
   };
 
-  const handleMarkPutAway = async (shipmentId: string) => {
-    if (!tenantId) return;
-    try {
-      const { updateDoc, doc } = await import('firebase/firestore');
-      await updateDoc(doc(db, `businesses/${tenantId}/shipments`, shipmentId), {
-        status: 'delivered',
-        putAwayAt: serverTimestamp()
-      });
-      toast.success('Package marked as put away');
-      queryClient.invalidateQueries({ queryKey: ['parts-shipments'] });
-      queryClient.invalidateQueries({ queryKey: ['parts-stats'] });
-    } catch (err) {
-      console.error('Error marking as put away:', err);
-      toast.error('Failed to update status');
-    }
-  };
 
   const handleUpdateStatus = async (requestId: string, newStatus: RequestStatus) => {
     if (!tenantId) return;
@@ -407,10 +446,15 @@ export function PartsMissionControl() {
         }}
         zones={zones}
       />
-      <PartDetailsModal 
-        isOpen={!!selectedPartId}
-        onClose={() => setSelectedPartId(null)}
-        partId={selectedPartId}
+      <ItemDetailsModal 
+        isOpen={!!selectedPartId || !!selectedShipmentId}
+        onClose={() => {
+          setSelectedPartId(null);
+          setSelectedShipmentId(null);
+        }}
+        itemId={selectedPartId || selectedShipmentId}
+        type={selectedPartId ? 'part' : 'shipment'}
+        zones={zones}
       />
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -627,6 +671,16 @@ export function PartsMissionControl() {
                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-tight ring-1 ${getStatusColor(request.status)}`}>
                           {request.status.toUpperCase()}
                         </span>
+                        {canManage && request.status === 'pending' && (
+                          <button 
+                            onClick={() => handleAddTrackingToRequest(request)}
+                            className="p-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg shadow-sm transition-all active:scale-95 flex items-center gap-1 group"
+                            title="Add Tracking & Mark Ordered"
+                          >
+                            <Truck className="w-3 h-3" />
+                            <span className="text-[8px] font-black uppercase tracking-widest hidden group-hover:block">Add Tracking</span>
+                          </button>
+                        )}
                         {canManage && (
                           <button 
                             onClick={() => handleDeleteRequest(request.id)}
@@ -744,8 +798,12 @@ export function PartsMissionControl() {
             ) : (
               <div className="space-y-3">
                 {recentReceived.map(shipment => (
-                  <div key={shipment.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-emerald-500/50 transition-colors">
-                    <div className="flex items-center justify-between">
+                  <div 
+                    key={shipment.id} 
+                    onClick={() => setSelectedShipmentId(shipment.id)}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-emerald-500/50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between pointer-events-none">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-zinc-900 dark:text-white truncate max-w-[150px]">{shipment.description || 'Arrived Package'}</span>
                         <span className="text-[10px] font-mono text-zinc-400 truncate">{shipment.trackingNumber}</span>
@@ -772,9 +830,20 @@ export function PartsMissionControl() {
                           Received by <StaffLink name={shipment.receivedBy || 'Staff'} tenantId={tenantId!} />
                         </div>
                       </div>
-                      <div className="text-[10px] text-zinc-400 flex flex-col items-end">
-                        <span className="font-bold">{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleDateString() : 'Today'}</span>
-                        <span>{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                      <div className="flex flex-col items-end gap-2">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleMarkPutAway(shipment.id);
+                          }}
+                          className="p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 pointer-events-auto flex items-center gap-2 group/btn"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          <span className="text-[10px] font-black uppercase tracking-wider hidden group-hover:block">Mark Processed</span>
+                        </button>
+                        <div className="text-[10px] text-zinc-400 flex flex-col items-end opacity-60">
+                          <span className="font-bold">{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleDateString() : 'Today'}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -798,8 +867,12 @@ export function PartsMissionControl() {
                 {activeShipments.map(shipment => {
                   const isLocalIntake = (shipment as any).isIntake;
                   return (
-                    <div key={shipment.id} className={`bg-white dark:bg-zinc-900 border ${isLocalIntake ? 'border-emerald-500/30' : 'border-zinc-200 dark:border-zinc-800'} rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-500/50 transition-colors`}>
-                      <div className="flex items-center justify-between">
+                    <div 
+                      key={shipment.id} 
+                      onClick={() => setSelectedShipmentId(shipment.id)}
+                      className={`bg-white dark:bg-zinc-900 border ${isLocalIntake ? 'border-emerald-500/30' : 'border-zinc-200 dark:border-zinc-800'} rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-indigo-500/50 transition-colors cursor-pointer group`}
+                    >
+                      <div className="flex items-center justify-between pointer-events-none">
                         <div className="flex items-center gap-2">
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${isLocalIntake ? 'bg-emerald-500 text-white' : 'bg-indigo-500 text-white'}`}>
                             {isLocalIntake ? 'LOCAL INTAKE' : 'SHIPMENT'}
@@ -847,7 +920,10 @@ export function PartsMissionControl() {
                         <div className="flex items-center gap-2">
                           {isLocalIntake && shipment.status === 'received' && (
                             <button 
-                              onClick={() => handleMarkPutAway(shipment.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkPutAway(shipment.id);
+                              }}
                               className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1"
                             >
                               <CheckCircle className="w-3 h-3" />
@@ -859,6 +935,7 @@ export function PartsMissionControl() {
                               href={`https://parcelsapp.com/en/tracking/${shipment.trackingNumber}`} 
                               target="_blank" 
                               rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="p-1.5 text-zinc-400 hover:text-indigo-500 transition-colors"
                             >
                               <ExternalLink className="w-4 h-4" />

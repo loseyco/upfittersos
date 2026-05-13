@@ -1,0 +1,1 @@
+const admin = require('firebase-admin'); admin.initializeApp(); admin.firestore().collection('businesses').doc('6Jv3VUr8lwHmE19gGSAR').collection('qb_employees').get().then(snap => { console.log('Employees found: ' + snap.size); snap.forEach(doc => console.log(doc.id, doc.data().Name)); process.exit(0); }).catch(e => { console.log(e); process.exit(1); });

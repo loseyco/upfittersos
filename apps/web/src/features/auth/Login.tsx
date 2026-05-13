@@ -39,7 +39,7 @@ export function Login() {
         submitAuditLog('GLOBAL', { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
         navigate('/super-admin');
       } else {
-        const token = await creds.user.getIdTokenResult();
+        const token = await creds.user.getIdTokenResult(true);
         if (token.claims?.tenantId) {
           submitAuditLog(token.claims.tenantId as string, { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
           navigate(`/business/${token.claims.tenantId}`);
@@ -68,7 +68,7 @@ export function Login() {
         submitAuditLog('GLOBAL', { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'google.com' } });
         navigate('/super-admin');
       } else {
-        const token = await creds.user.getIdTokenResult();
+        const token = await creds.user.getIdTokenResult(true);
         if (token.claims?.tenantId) {
           submitAuditLog(token.claims.tenantId as string, { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'google.com' } });
           navigate(`/business/${token.claims.tenantId}`);

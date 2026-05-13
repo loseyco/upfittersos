@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { Search, PackageOpen, Plus } from 'lucide-react';
-import { PartDetailsModal } from './PartDetailsModal';
+import { ItemDetailsModal } from './ItemDetailsModal';
 import { PartFormModal } from './PartFormModal';
 import { useAuthStore } from '../../lib/auth/store';
 import { useQueryClient } from '@tanstack/react-query';
@@ -102,10 +102,11 @@ export function PartsManager({ tenantId }: { tenantId: string }) {
         onRowClick={(row) => setSelectedPartId(row.id)}
       />
 
-      <PartDetailsModal 
+      <ItemDetailsModal 
         isOpen={!!selectedPartId}
         onClose={() => setSelectedPartId(null)}
-        partId={selectedPartId}
+        itemId={selectedPartId}
+        type="part"
       />
 
       {isAddModalOpen && (

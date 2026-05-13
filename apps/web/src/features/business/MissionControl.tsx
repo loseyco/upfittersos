@@ -106,7 +106,8 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
             await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
               currentVehicleVin: null, 
               currentJobId: null,
-              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin)
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== trimmedVin),
+              updatedAt: serverTimestamp()
             });
           }
         }
@@ -123,13 +124,15 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         }
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), { 
           currentVehicleVins: newVins,
-          lastAssignedAt: serverTimestamp() 
+          lastAssignedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
       } else {
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
           currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
           currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
-          lastAssignedAt: serverTimestamp()
+          lastAssignedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         });
       }
 
@@ -203,14 +206,18 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const occupiedParkingList = parkingZones.filter((z: any) => !!z.currentVehicleVin);
   const occupiedParking = occupiedParkingList.length;
 
-  const sortByRecent = (a: any, b: any) => {
-    const timeA = (a.lastAssignedAt?.seconds || a.updatedAt?.seconds || 0);
-    const timeB = (b.lastAssignedAt?.seconds || b.updatedAt?.seconds || 0);
-    return timeB - timeA;
+  const sortByOldest = (a: any, b: any) => {
+    const timeA1 = a.lastAssignedAt?.seconds || 0;
+    const timeA2 = a.updatedAt?.seconds || 0;
+    const timeB1 = b.lastAssignedAt?.seconds || 0;
+    const timeB2 = b.updatedAt?.seconds || 0;
+    const timeA = Math.max(timeA1, timeA2);
+    const timeB = Math.max(timeB1, timeB2);
+    return timeA - timeB; // Oldest first
   };
 
-  const sortedBays = [...occupiedBaysList].sort(sortByRecent);
-  const sortedParking = [...occupiedParkingList].sort(sortByRecent);
+  const sortedBays = [...occupiedBaysList].sort(sortByOldest);
+  const sortedParking = [...occupiedParkingList].sort(sortByOldest);
 
   const blockedJobsCount = allJobs?.filter((j: any) => j.status === 'Blocked').length || 0;
   const activeJobsCount = allJobs?.filter((j: any) => !['Closed', 'Completed', 'Blocked', 'Ready for Customer', 'Ready for QA'].includes(j.status)).length || 0;
@@ -220,17 +227,16 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     return acc;
   }, 0) || 0;
 
-  const jobsMissingPartsCount = new Set(
-    partsRequests?.filter((pr: any) => pr.jobId && ['pending', 'ordered', 'requested'].includes((pr.status || 'pending').toLowerCase()))
-      .map((pr: any) => pr.jobId)
-  ).size;
+  const missingPartsCount = partsRequests?.filter((pr: any) => 
+    ['pending', 'ordered', 'requested'].includes((pr.status || 'pending').toLowerCase())
+  ).length || 0;
 
   const readyForQACount = allJobs?.filter((j: any) => j.status === 'Ready for QA').length || 0;
   const readyForCustomerCount = allJobs?.filter((j: any) => j.status === 'Ready for Customer').length || 0;
 
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
-    { label: 'Missing Parts', value: jobsMissingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
+    { label: 'Missing Parts', value: missingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
     { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs?status=Blocked', loading: statsLoading },
     { label: 'Ready for QA', value: readyForQACount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QA', loading: statsLoading },
     { label: 'Ready Customer', value: readyForCustomerCount, icon: CheckSquare, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs?status=Ready+for+Customer', loading: statsLoading },
@@ -290,6 +296,30 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           }
         }
       });
+    } else if (status === 'ordered') {
+      // Potentially missing or received but not checked in
+      const timeRef = pr.statusChangedAt || pr.createdAt;
+      if (timeRef) {
+        const timeValue = timeRef.seconds ? timeRef.seconds * 1000 : new Date(timeRef).getTime();
+        const days = (Date.now() - timeValue) / (1000 * 60 * 60 * 24);
+        if (days >= 3) {
+          alerts.push({
+            id: `missing-part-${pr.id}`,
+            title: `Check In Required: ${pr.partName || 'Unknown Part'}`,
+            description: `Ordered ${Math.floor(days)} days ago but not marked received.`,
+            type: 'danger',
+            icon: Package,
+            onClick: () => {
+              if (pr.jobId) {
+                searchParams.set('jobId', pr.jobId);
+                setSearchParams(searchParams);
+              } else {
+                onTabChange('parts');
+              }
+            }
+          });
+        }
+      }
     }
   });
 
@@ -439,8 +469,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   return (
     <div className="space-y-4 sm:space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white hidden md:block">Mission Control</h1>
+      <div className="flex flex-col md:flex-row md:items-center justify-end gap-4 mb-4 sm:-mt-20 relative z-10 w-full">
         <button 
           onClick={handleGenerateReport}
           className="w-full md:w-auto px-4 py-2 bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
@@ -587,18 +616,39 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       const timestamp = bay.lastAssignedAt || bay.updatedAt;
 
                       return (
-                        <div key={bay.id} className="relative group/item pointer-events-auto">
-                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0">
+                        <div 
+                          key={bay.id} 
+                          onClick={() => setSelectedZoneId(bay.id)}
+                          className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
+                        >
+                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{bay.name}</span>
-                                <span className="text-zinc-900 dark:text-white truncate font-bold text-base">
+                                <span 
+                                  className={cn("truncate font-bold text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
+                                  onClick={(e) => {
+                                    if (vehicle) {
+                                      e.stopPropagation();
+                                      setSelectedVehicle(vehicle);
+                                    }
+                                  }}
+                                >
                                   {vehicleDisplay}
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
                                 {job ? (
-                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                                  <span 
+                                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (jobId) {
+                                        searchParams.set('jobId', jobId);
+                                        setSearchParams(searchParams);
+                                      }
+                                    }}
+                                  >
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
@@ -643,6 +693,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               return (
                                 <div className="flex flex-col items-end shrink-0">
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
+                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">IN BAY:</span>
                                     {calculateDuration(timestamp)}
                                   </span>
                                   {(() => {
@@ -676,18 +727,6 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               );
                             })()}
                           </div>
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              if (jobId) {
-                                searchParams.set('jobId', jobId);
-                                setSearchParams(searchParams);
-                              } else {
-                                setSelectedZoneId(bay.id); 
-                              }
-                            }}
-                            className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
-                          />
                         </div>
                       );
                     })}
@@ -747,18 +786,39 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         const itemKey = `${zone.id}-${vin}-${index}`;
 
                         return (
-                          <div key={itemKey} className="relative group/item pointer-events-auto">
-                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0">
+                          <div 
+                            key={itemKey} 
+                            onClick={() => setSelectedZoneId(zone.id)}
+                            className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
+                          >
+                          <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{zone.name}</span>
-                                <span className="text-zinc-900 dark:text-white truncate font-bold text-base">
+                                <span 
+                                  className={cn("truncate font-bold text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
+                                  onClick={(e) => {
+                                    if (vehicle) {
+                                      e.stopPropagation();
+                                      setSelectedVehicle(vehicle);
+                                    }
+                                  }}
+                                >
                                   {vehicleDisplay}
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
                                 {job ? (
-                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                                  <span 
+                                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (jobId) {
+                                        searchParams.set('jobId', jobId);
+                                        setSearchParams(searchParams);
+                                      }
+                                    }}
+                                  >
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
@@ -796,6 +856,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               return (
                                 <div className="flex flex-col items-end shrink-0">
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
+                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">PARKED:</span>
                                     {calculateDuration(timestamp)}
                                   </span>
                                   <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 168 ? 'text-amber-500' : 'text-zinc-400'}`}>
@@ -805,18 +866,6 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               );
                             })()}
                           </div>
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              if (jobId) {
-                                searchParams.set('jobId', jobId);
-                                setSearchParams(searchParams);
-                              } else {
-                                setSelectedZoneId(zone.id); 
-                              }
-                            }}
-                            className="absolute inset-0 w-full h-full bg-indigo-500/0 hover:bg-indigo-500/5 transition-colors rounded-lg z-10"
-                          />
                         </div>
                         );
                       });

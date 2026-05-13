@@ -4,7 +4,7 @@ import { auth, db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { LogOut, User as UserIcon, Sun, Moon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useThemeStore } from '../../lib/theme/store';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc } from 'firebase/firestore';
@@ -12,12 +12,21 @@ import { UserProfileSheet } from '../../features/users/UserProfileSheet';
 import { useLocationStore } from '../../lib/store/locationStore';
 import { GlobalLocationTracker } from '../telemetry/GlobalLocationTracker';
 import { GlobalSearchModal } from './GlobalSearchModal';
+import { MasqueradeSelector } from '../../features/business/MasqueradeSelector';
+import { Eye, ShieldAlert } from 'lucide-react';
+import { cn } from '../../lib/utils';
+
 export function TopNav() {
-  const { user, isSuperAdmin, tenantId } = useAuthStore();
+  const { user, isSuperAdmin, tenantId: storeTenantId, permissions, impersonatedStaff, stopImpersonating } = useAuthStore();
+  const params = useParams();
+  const tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : storeTenantId;
   const { theme, toggleTheme } = useThemeStore();
   const { isSharing, stopSharing } = useLocationStore();
   const navigate = useNavigate();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isMasqueradeOpen, setIsMasqueradeOpen] = useState(false);
+
+  const canMasquerade = isSuperAdmin || permissions['staff.manage'];
 
   // Rule 16: Fetch Business metadata natively via cached query
   const { data: business } = useQuery({
@@ -56,7 +65,33 @@ export function TopNav() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-6 shrink-0">
+      <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        {impersonatedStaff && (
+          <button 
+            onClick={stopImpersonating}
+            className="hidden lg:flex items-center gap-2 bg-emerald-600 text-white px-4 h-10 rounded-xl text-xs font-black hover:bg-emerald-700 transition-all shadow-md active:scale-95 animate-pulse"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            Stop Viewing As {impersonatedStaff.name.split(' ')[0]}
+          </button>
+        )}
+
+        {canMasquerade && (
+          <button 
+            onClick={() => setIsMasqueradeOpen(true)}
+            className={cn(
+              "flex items-center justify-center gap-2 h-10 sm:h-12 px-3 sm:px-4 rounded-xl transition-all active:scale-[0.95] border text-sm font-bold",
+              impersonatedStaff 
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-500/20" 
+                : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+            )}
+            title="View platform as another user or role"
+          >
+            <Eye className="w-5 h-5" />
+            <span className="hidden lg:inline">View As</span>
+          </button>
+        )}
+
         {isSharing && (
           <button 
             onClick={stopSharing} 
@@ -85,7 +120,7 @@ export function TopNav() {
           <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full bg-zinc-200 dark:bg-zinc-900 flex items-center justify-center border border-zinc-300 dark:border-zinc-700 shadow-sm">
             <UserIcon className="w-4 h-4 sm:w-5 sm:h-5 text-zinc-600 dark:text-zinc-300" />
           </div>
-          <span className="hidden sm:block font-medium text-zinc-900 dark:text-zinc-100">{user?.email}</span>
+          <span className="hidden sm:block font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-[150px]">{user?.email}</span>
         </button>
         <button 
           onClick={handleLogout}
@@ -99,6 +134,7 @@ export function TopNav() {
       <UserProfileSheet isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} />
       <GlobalLocationTracker />
       <GlobalSearchModal />
+      <MasqueradeSelector isOpen={isMasqueradeOpen} onClose={() => setIsMasqueradeOpen(false)} />
     </div>
   );
 }

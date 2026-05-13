@@ -3,6 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getMessaging, isSupported as isMessagingSupported } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -22,3 +23,4 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 
 export const analyticsPromise = isSupported().then(yes => yes ? getAnalytics(app) : null);
+export const messagingPromise = isMessagingSupported().then(yes => yes ? getMessaging(app) : null);

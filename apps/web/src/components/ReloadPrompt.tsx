@@ -5,6 +5,8 @@ import { cn } from '../lib/utils';
 
 const UPDATE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const SNOOZE_DURATION = 4 * 60 * 60 * 1000; // 4 hours
+const INACTIVITY_THRESHOLD = 3 * 60 * 1000; // 3 minutes
+const AUTO_RELOAD_COUNTDOWN_START = 60; // 60 seconds
 
 export function ReloadPrompt() {
   const [snoozedUntil, setSnoozedUntil] = useState<number | null>(() => {
@@ -13,6 +15,9 @@ export function ReloadPrompt() {
   });
 
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
+  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [isAutoReloadPaused, setIsAutoReloadPaused] = useState(false);
+  const [countdown, setCountdown] = useState(AUTO_RELOAD_COUNTDOWN_START);
 
   const {
     offlineReady: [offlineReady, setOfflineReady],
@@ -52,6 +57,54 @@ export function ReloadPrompt() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [registration]);
+  
+  // Track user activity
+  useEffect(() => {
+    const handleActivity = () => {
+      setLastActivity(Date.now());
+      if (!isAutoReloadPaused) {
+        setCountdown(AUTO_RELOAD_COUNTDOWN_START);
+      }
+    };
+
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('mousedown', handleActivity);
+    window.addEventListener('touchstart', handleActivity);
+
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('mousedown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+    };
+  }, [isAutoReloadPaused]);
+
+  // Handle auto-reload countdown
+  useEffect(() => {
+    if (!needRefresh || isAutoReloadPaused) return;
+
+    const interval = setInterval(() => {
+      const timeSinceLastActivity = Date.now() - lastActivity;
+      
+      if (timeSinceLastActivity > INACTIVITY_THRESHOLD) {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            updateServiceWorker(true);
+            // Fallback for some desktop browsers that might not auto-reload
+            setTimeout(() => window.location.reload(), 1500);
+            return 0;
+          }
+          return prev - 1;
+        });
+      } else {
+        setCountdown(AUTO_RELOAD_COUNTDOWN_START);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [needRefresh, lastActivity, isAutoReloadPaused, updateServiceWorker]);
 
   const close = () => {
     setOfflineReady(false);
@@ -77,7 +130,10 @@ export function ReloadPrompt() {
   if (!offlineReady && !needRefresh) return null;
   
   // If snoozed, we only hide it if it's an update notification
-  if (needRefresh && isSnoozed) {
+  // EXCEPT if the auto-reload countdown has started - then we show the full prompt
+  const isCountingDown = countdown < AUTO_RELOAD_COUNTDOWN_START && !isAutoReloadPaused;
+
+  if (needRefresh && isSnoozed && !isCountingDown) {
     return (
       <div className="fixed bottom-6 right-6 z-[200]">
         <button 
@@ -162,6 +218,43 @@ export function ReloadPrompt() {
               <Clock className="w-3.5 h-3.5" />
               <span>Remind me in 4 hours</span>
             </button>
+
+            {isCountingDown && (
+              <div className="mt-2 p-3 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 flex items-center justify-between animate-in fade-in zoom-in duration-300">
+                <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-medium text-sm">
+                  <div className="relative">
+                    <Clock className="w-4 h-4 animate-pulse" />
+                    <div className="absolute inset-0 border-2 border-indigo-500 rounded-full border-t-transparent animate-spin opacity-50" />
+                  </div>
+                  <span>Auto-reloading in {countdown}s</span>
+                </div>
+                <button 
+                  onClick={() => setIsAutoReloadPaused(true)}
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 px-2 py-1.5 rounded-lg transition-all"
+                >
+                  Pause
+                </button>
+              </div>
+            )}
+
+            {isAutoReloadPaused && (
+              <div className="mt-2 p-3 bg-zinc-100 dark:bg-zinc-800 rounded-2xl flex items-center justify-between animate-in fade-in zoom-in duration-300">
+                <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-sm font-medium">
+                  <Clock className="w-3.5 h-3.5 opacity-50" />
+                  <span>Auto-reload paused</span>
+                </div>
+                <button 
+                  onClick={() => {
+                    setIsAutoReloadPaused(false);
+                    setLastActivity(Date.now());
+                    setCountdown(AUTO_RELOAD_COUNTDOWN_START);
+                  }}
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 px-2 py-1.5 rounded-lg transition-all"
+                >
+                  Resume
+                </button>
+              </div>
+            )}
           </div>
         )}
 

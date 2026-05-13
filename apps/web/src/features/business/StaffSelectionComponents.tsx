@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { Users, X, Check } from 'lucide-react';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
+import { cn } from '../../lib/utils';
 
 interface StaffMember {
   id: string;
   name: string;
+  percentage?: number;
 }
 
 interface StaffSelectorProps {
@@ -13,13 +15,15 @@ interface StaffSelectorProps {
   onAssign: (staff: StaffMember[]) => void;
   tenantId: string;
   placeholder?: string;
+  showPercentages?: boolean;
 }
 
 export function StaffSelector({ 
   selectedStaff, 
   onAssign, 
   tenantId,
-  placeholder = "Search and assign staff..."
+  placeholder = "Search and assign staff...",
+  showPercentages = false
 }: StaffSelectorProps) {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -52,11 +56,27 @@ export function StaffSelector({
 
   const toggleStaff = (id: string, name: string) => {
     const isSelected = selectedStaff.some(s => s.id === id);
+    let newStaff: StaffMember[];
+    
     if (isSelected) {
-      onAssign(selectedStaff.filter(s => s.id !== id));
+      newStaff = selectedStaff.filter(s => s.id !== id);
     } else {
-      onAssign([...selectedStaff, { id, name }]);
+      newStaff = [...selectedStaff, { id, name }];
     }
+
+    if (showPercentages && newStaff.length > 0) {
+      const perPerson = Math.floor(100 / newStaff.length);
+      newStaff = newStaff.map((s, idx) => ({
+        ...s,
+        percentage: idx === 0 ? 100 - (perPerson * (newStaff.length - 1)) : perPerson
+      }));
+    }
+    onAssign(newStaff);
+  };
+
+  const updatePercentage = (id: string, percentage: number) => {
+    const newStaff = selectedStaff.map(s => s.id === id ? { ...s, percentage } : s);
+    onAssign(newStaff);
   };
 
   const clearAll = () => {
@@ -124,18 +144,49 @@ export function StaffSelector({
       
       {/* Show tags of selected staff underneath when not searching */}
       {selectedStaff.length > 0 && !isOpen && (
-        <div className="flex flex-wrap gap-2 mt-2">
+        <div className="flex flex-col gap-2 mt-2">
           {selectedStaff.map(s => (
-            <div key={s.id} className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-md">
-              <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{s.name}</span>
-              <button 
-                onClick={() => toggleStaff(s.id, s.name)} 
-                className="text-amber-500 hover:text-amber-700 dark:hover:text-amber-300"
-              >
-                <X className="w-3 h-3" />
-              </button>
+            <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-amber-50 dark:bg-amber-500/5 border border-amber-100 dark:border-amber-500/20 rounded-xl">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600">
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{s.name}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {showPercentages && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={s.percentage ?? 0}
+                      onChange={(e) => updatePercentage(s.id, parseInt(e.target.value) || 0)}
+                      className="w-12 px-1.5 py-0.5 text-xs font-bold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-center focus:ring-1 focus:ring-amber-500 outline-none"
+                    />
+                    <span className="text-[10px] font-black text-zinc-400">%</span>
+                  </div>
+                )}
+                <button 
+                  onClick={() => toggleStaff(s.id, s.name)} 
+                  className="p-1 text-zinc-400 hover:text-red-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
+          {showPercentages && selectedStaff.length > 0 && (
+             <div className="px-3 flex justify-between items-center">
+                <span className="text-[10px] font-black text-zinc-400 uppercase">Total Allocation</span>
+                <span className={cn(
+                  "text-[10px] font-black",
+                  selectedStaff.reduce((acc, s) => acc + (s.percentage || 0), 0) === 100 ? "text-emerald-500" : "text-rose-500"
+                )}>
+                  {selectedStaff.reduce((acc, s) => acc + (s.percentage || 0), 0)}%
+                </span>
+             </div>
+          )}
         </div>
       )}
     </div>

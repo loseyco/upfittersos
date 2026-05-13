@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { BrowserMultiFormatReader, Result, BarcodeFormat, DecodeHintType } from '@zxing/library';
-import { X, Camera, ImagePlus, Loader2, Package, MapPin, Search, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { Result, BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { BrowserMultiFormatReader, BrowserCodeReader } from '@zxing/browser';
+import { X, Camera, ImagePlus, Loader2, Package, MapPin, Search, ChevronRight, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { db } from '../../lib/firebase/config';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db, storage } from '../../lib/firebase/config';
+import { collection, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuthStore } from '../../lib/auth/store';
 
 interface PackageIntakeModalProps {
@@ -21,15 +23,21 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
   const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isManualScanning, setIsManualScanning] = useState(false);
+  const isSecure = typeof window !== 'undefined' && window.isSecureContext;
 
   // Form State
   const [scannedId, setScannedId] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
+  const [images, setImages] = useState<{file: File, preview: string}[]>([]);
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
+  const controlsRef = useRef<any>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -48,13 +56,13 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
     const reader = new BrowserMultiFormatReader(hints);
     codeReaderRef.current = reader;
 
-    reader.listVideoInputDevices()
+    BrowserCodeReader.listVideoInputDevices()
       .then((videoInputDevices) => {
         if (videoInputDevices.length > 0) {
           setCameras(videoInputDevices);
           let defaultIndex = 0;
           for (let i = 0; i < videoInputDevices.length; i++) {
-            const label = videoInputDevices[i].label.toLowerCase();
+            const label = (videoInputDevices[i].label || '').toLowerCase();
             if (label.includes('back') || label.includes('environment')) {
               defaultIndex = i;
               break;
@@ -63,19 +71,36 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
           setCurrentCameraIndex(defaultIndex);
         }
       })
-      .catch((err) => console.error("Camera check failed", err));
+      .catch((err) => {
+        console.error("Camera check failed", err);
+        setCameraError("Could not access camera list. Please ensure permissions are granted.");
+      });
 
     return () => {
-      reader.reset();
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
     };
   }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && step === 'scan' && isScanning && cameras.length > 0 && videoRef.current && codeReaderRef.current) {
-      const deviceId = cameras[currentCameraIndex].deviceId;
+      const device = cameras[currentCameraIndex];
+      if (!device) return;
+      const deviceId = device.deviceId;
       
-      codeReaderRef.current.decodeFromVideoDevice(
-        deviceId, 
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          width: { min: 640, ideal: 1920, max: 1920 },
+          height: { min: 480, ideal: 1080, max: 1080 },
+          facingMode: 'environment'
+        }
+      };
+
+      codeReaderRef.current.decodeFromConstraints(
+        constraints, 
         videoRef.current, 
         (result: Result | null | undefined) => {
           if (result) {
@@ -83,67 +108,137 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
             handleScanSuccess(text);
           }
         }
-      ).catch((err) => console.error("Scanner start failed", err));
+      ).then(controls => {
+        controlsRef.current = controls;
+      }).catch((err) => {
+        console.error("Scanner start failed", err);
+        setCameraError("Failed to start high-res camera stream. Falling back to default.");
+        
+        // Fallback to simpler method if constraints fail
+        if (codeReaderRef.current) {
+          codeReaderRef.current.decodeFromVideoDevice(
+            deviceId,
+            videoRef.current!,
+            (result: Result | null | undefined) => {
+              if (result) handleScanSuccess(result.getText().trim());
+            }
+          ).then(controls => {
+            controlsRef.current = controls;
+          }).catch(e => console.error("Total camera failure", e));
+        }
+      });
     }
 
     return () => {
-      if (codeReaderRef.current) codeReaderRef.current.reset();
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
     };
   }, [isOpen, step, isScanning, cameras, currentCameraIndex]);
 
   const handleScanSuccess = (text: string) => {
     setScannedId(text);
     setIsScanning(false);
-    if (codeReaderRef.current) codeReaderRef.current.reset();
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
     setStep('details');
     toast.success("Package scanned successfully!");
   };
 
-  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !codeReaderRef.current) return;
-
-    setIsProcessingImage(true);
-    codeReaderRef.current.reset();
-
+  const handleManualFrameCapture = async () => {
+    if (!videoRef.current || !codeReaderRef.current) return;
+    
+    setIsManualScanning(true);
     try {
-      const originalUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.src = originalUrl;
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-      });
-
+      const video = videoRef.current;
       const canvas = document.createElement('canvas');
-      const MAX_DIMENSION = 1200;
-      let width = img.width;
-      let height = img.height;
-
-      if (width > height && width > MAX_DIMENSION) {
-        height = Math.round((height * MAX_DIMENSION) / width);
-        width = MAX_DIMENSION;
-      } else if (height > width && height > MAX_DIMENSION) {
-        width = Math.round((width * MAX_DIMENSION) / height);
-        height = MAX_DIMENSION;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
-      if (ctx) ctx.drawImage(img, 0, 0, width, height);
-
-      const resizedImageUrl = canvas.toDataURL('image/jpeg', 0.9);
-      const result = await codeReaderRef.current.decodeFromImageUrl(resizedImageUrl);
+      if (!ctx) return;
+      
+      ctx.drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 1.0);
+      
+      const result = await codeReaderRef.current.decodeFromImageUrl(imageData);
       handleScanSuccess(result.getText().trim());
     } catch (err) {
-      console.error("Image decode failed", err);
-      toast.error("Could not find a barcode in that photo.");
-      setIsScanning(true);
+      console.error("Manual frame decode failed", err);
+      toast.error("Could not find a barcode in this frame. Try adjusting focus or lighting.");
     } finally {
-      setIsProcessingImage(false);
-      e.target.value = '';
+      setIsManualScanning(false);
     }
+  };
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Add to images gallery
+    const preview = URL.createObjectURL(file);
+    setImages(prev => [...prev, { file, preview }]);
+
+    // Only attempt barcode decode if we are still in scan mode
+    if (step === 'scan' && codeReaderRef.current) {
+      setIsProcessingImage(true);
+      if (controlsRef.current) {
+        controlsRef.current.stop();
+        controlsRef.current = null;
+      }
+
+      try {
+        const img = new Image();
+        img.src = preview;
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        const canvas = document.createElement('canvas');
+        const MAX_DIMENSION = 1200;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > MAX_DIMENSION) {
+          height = Math.round((height * MAX_DIMENSION) / width);
+          width = MAX_DIMENSION;
+        } else if (height > width && height > MAX_DIMENSION) {
+          width = Math.round((width * MAX_DIMENSION) / height);
+          height = MAX_DIMENSION;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(img, 0, 0, width, height);
+
+        const resizedImageUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const result = await codeReaderRef.current.decodeFromImageUrl(resizedImageUrl);
+        handleScanSuccess(result.getText().trim());
+      } catch (err) {
+        console.error("Image decode failed", err);
+        // We don't toast error here because they might just be taking a content photo
+      } finally {
+        setIsProcessingImage(false);
+      }
+    } else {
+      // If we are already in details mode, just switch to it (though we should already be there)
+      if (step === 'scan') setStep('details');
+    }
+    
+    e.target.value = '';
+  };
+
+  const removeImage = (index: number) => {
+    setImages(prev => {
+      const newImages = [...prev];
+      URL.revokeObjectURL(newImages[index].preview);
+      newImages.splice(index, 1);
+      return newImages;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -154,7 +249,8 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
     try {
       const finalId = scannedId.trim() || `MANUAL-${new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 12)}`;
       
-      await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
+      // 1. Create the shipment document first to get an ID
+      const shipmentRef = await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
         trackingNumber: finalId,
         carrier: detectCarrier(finalId),
         description: description.trim(),
@@ -168,21 +264,39 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
         createdBy: user?.uid || 'system',
         createdByName: user?.displayName || user?.email?.split('@')[0] || null,
         createdByEmail: user?.email || null,
+        images: [] // Placeholder
       });
+
+      // 2. Upload images if any
+      if (images.length > 0) {
+        setIsUploadingImages(true);
+        const imageUrls: string[] = [];
+        
+        for (const imgItem of images) {
+          const storageRef = ref(storage, `businesses/${tenantId}/shipments/${shipmentRef.id}/${Date.now()}_${imgItem.file.name}`);
+          const snapshot = await uploadBytes(storageRef, imgItem.file);
+          const url = await getDownloadURL(snapshot.ref);
+          imageUrls.push(url);
+        }
+
+        // 3. Update shipment with URLs
+        await updateDoc(shipmentRef, { images: imageUrls });
+      }
 
       toast.success("Package intake complete!");
       onSuccess();
       handleClose();
-    } catch (err) {
-      console.error("Submit failed", err);
-      toast.error("Failed to log package intake.");
+    } catch (err: any) {
+      console.error("Submit failed:", err);
+      toast.error(`Failed to log package intake: ${err.message || 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
+      setIsUploadingImages(false);
     }
   };
 
   const detectCarrier = (tracking: string) => {
-    const t = tracking.toUpperCase().replace(/\s/g, '');
+    const t = (tracking || '').toUpperCase().replace(/\s/g, '');
     if (t.startsWith('1Z')) return 'UPS';
     if (t.length === 12 || t.length === 15 || t.length === 20) return 'FedEx';
     if (t.startsWith('TBA')) return 'Amazon';
@@ -197,6 +311,9 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
     setDescription('');
     setLocation('');
     setNotes('');
+    // Clear image previews
+    images.forEach(img => URL.revokeObjectURL(img.preview));
+    setImages([]);
     onClose();
   };
 
@@ -242,6 +359,38 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                     <Loader2 className="w-12 h-12 animate-spin" />
                     <p className="font-bold animate-pulse uppercase tracking-widest text-xs">Processing Photo...</p>
                   </div>
+                ) : !isSecure ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
+                    <div className="p-4 bg-amber-500/10 rounded-full">
+                      <AlertCircle className="w-8 h-8 text-amber-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white mb-2">Insecure Context Detected</p>
+                      <p className="text-xs text-zinc-400">
+                        Camera access requires <span className="text-amber-500 font-mono">HTTPS</span>. 
+                        Please use a secure tunnel (like ngrok) or access via localhost.
+                      </p>
+                    </div>
+                    <div className="pt-4 w-full">
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Use fallback instead:</p>
+                      <label className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white text-xs font-bold cursor-pointer hover:bg-white/10 transition-all">
+                        <ImagePlus className="w-4 h-4 text-emerald-500" />
+                        Take Photo (System Camera)
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
+                      </label>
+                    </div>
+                  </div>
+                ) : cameraError ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
+                    <AlertCircle className="w-10 h-10 text-rose-500" />
+                    <p className="text-xs text-zinc-400">{cameraError}</p>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="px-4 py-2 bg-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-white hover:bg-white/20"
+                    >
+                      Retry Connection
+                    </button>
+                  </div>
                 ) : (
                   <>
                     <video 
@@ -250,9 +399,13 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                       playsInline 
                       muted 
                     />
-                    {/* Viewfinder Overlay */}
-                    <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                      <div className="w-64 h-32 border-2 border-indigo-500/50 rounded-2xl relative shadow-[0_0_50px_rgba(99,102,241,0.2)]">
+                    {/* Manual Scan Trigger Overlay */}
+                    <button 
+                      onClick={handleManualFrameCapture}
+                      disabled={isManualScanning}
+                      className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-transparent group"
+                    >
+                      <div className="w-64 h-32 border-2 border-indigo-500/50 rounded-2xl relative shadow-[0_0_50px_rgba(99,102,241,0.2)] group-active:scale-95 transition-transform">
                         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse" />
                         
                         {/* Corner Accents */}
@@ -260,9 +413,17 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                         <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-500 rounded-tr-lg" />
                         <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-500 rounded-bl-lg" />
                         <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-indigo-500 rounded-br-lg" />
+                        
+                        {isManualScanning && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl animate-in fade-in duration-200">
+                            <Loader2 className="w-8 h-8 text-white animate-spin" />
+                          </div>
+                        )}
                       </div>
-                      <p className="text-white text-[10px] font-bold uppercase tracking-widest mt-6 opacity-50">Align barcode within frame</p>
-                    </div>
+                      <p className="text-white text-[10px] font-bold uppercase tracking-widest mt-6 opacity-70 group-hover:opacity-100 transition-opacity">
+                        {isManualScanning ? 'Decoding...' : 'Tap screen to force scan'}
+                      </p>
+                    </button>
                   </>
                 )}
               </div>
@@ -352,6 +513,44 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                     />
                   </div>
                 </div>
+
+                {/* Multi-Image Capture Section */}
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Package & Content Photos</label>
+                    <span className="text-[10px] font-bold text-indigo-500 bg-indigo-500/10 px-2 py-0.5 rounded-full">{images.length} Captured</span>
+                  </div>
+
+                  <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                    {/* Add Photo Trigger */}
+                    <label className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/50">
+                      <ImagePlus className="w-6 h-6" />
+                      <span className="text-[8px] font-bold uppercase tracking-wider">Add Photo</span>
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
+                    </label>
+
+                    {/* Previews */}
+                    {images.map((img, idx) => (
+                      <div key={idx} className="shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group">
+                        <img src={img.preview} className="w-full h-full object-cover" />
+                        <button 
+                          type="button"
+                          onClick={() => removeImage(idx)}
+                          className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+
+                    {images.length === 0 && (
+                      <div className="flex-1 flex items-center gap-3 px-4 border border-zinc-100 dark:border-zinc-800 rounded-2xl bg-zinc-50/30 dark:bg-zinc-950/30">
+                        <Camera className="w-5 h-5 text-zinc-300" />
+                        <p className="text-[10px] text-zinc-400 italic">No photos taken yet. Document the package and its contents.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-4 pt-4">
@@ -364,14 +563,17 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                 </button>
                 <button 
                   type="submit"
-                  disabled={isSubmitting || !description.trim() || !location.trim()}
+                  disabled={isSubmitting || isUploadingImages || !description.trim() || !location.trim()}
                   className="flex-[2] py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
                 >
-                  {isSubmitting ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                  {isSubmitting || isUploadingImages ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-xs uppercase tracking-widest">{isUploadingImages ? 'Uploading Photos...' : 'Saving...'}</span>
+                    </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-5 h-5" />
+                      <CheckCircle className="w-5 h-5" />
                       Complete Intake
                     </>
                   )}
@@ -399,8 +601,8 @@ function LocationSelector({ value, onChange, zones }: { value: string; onChange:
   }, []);
 
   const filtered = zones.filter(z => 
-    z.name.toLowerCase().includes(search.toLowerCase()) || 
-    z.type.toLowerCase().includes(search.toLowerCase())
+    (z.name || '').toLowerCase().includes(search.toLowerCase()) || 
+    (z.type || '').toLowerCase().includes(search.toLowerCase())
   );
 
   return (

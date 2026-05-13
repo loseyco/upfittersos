@@ -1,0 +1,1 @@
+const admin = require('firebase-admin'); admin.initializeApp(); admin.firestore().collection('businesses').doc('6Jv3VUr8lwHmE19gGSAR').set({qbwcInitialized: false, lastQbSyncTime: admin.firestore.FieldValue.delete()}, {merge: true}).then(() => { console.log('Fixed'); process.exit(0); }).catch(e => { console.log(e); process.exit(1); });

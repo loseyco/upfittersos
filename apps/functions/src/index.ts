@@ -22,6 +22,8 @@ import { deliveriesRoutes } from './routes/deliveries.routes';
 
 export * from './notifications';
 export * from './triggers/qbSync';
+export * from './triggers/staffTriggers';
+export * from './triggers/chatTriggers';
 
 // Initialize Firebase Admin
 admin.initializeApp();

@@ -385,7 +385,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
             }
           }
 
-          await setDoc(vehicleRef, { vin: trimmedVin, ...details, tenantId, createdAt: serverTimestamp(), source: 'Zone Manager' });
+          await setDoc(vehicleRef, { vin: trimmedVin, ...details, tenantId, createdAt: serverTimestamp(), arrivedAt: serverTimestamp(), source: 'Zone Manager' });
           
           if (details.make) {
             toast.success(`Identified: ${details.year} ${details.make} ${details.model}`, { action: { label: 'Undo', onClick: undoAssignment } });
@@ -395,6 +395,12 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         } else {
           // Vehicle exists. Try auto-decode if it's missing make/model
           const data = vehicleDoc.data();
+          
+          // Auto-mark as arrived if missing
+          if (!data.arrivedAt && !data.departedAt) {
+            await updateDoc(vehicleRef, { arrivedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+          }
+
           if (!data.make && trimmedVin.length === 17) {
             try {
               const res = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${trimmedVin}?format=json`);

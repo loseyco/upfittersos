@@ -7,6 +7,9 @@ import { TenantGuard } from './components/guards/TenantGuard';
 import { BusinessManager } from './features/super-admin/BusinessManager';
 import { TenantDashboard } from './features/business/TenantDashboard';
 import { UserProfilePage } from './features/users/UserProfilePage';
+import { BayMonitorAuthWrapper } from './features/business/BayMonitorAuthWrapper';
+import { TvSetupScreen } from './features/business/TvSetupScreen';
+import { TvPairingApprove } from './features/business/TvPairingApprove';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ReloadPrompt } from './components/ReloadPrompt';
@@ -26,6 +29,9 @@ function App() {
             <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/tv" element={<BayMonitorAuthWrapper />} />
+            <Route path="/tv-setup" element={<TvSetupScreen />} />
+            <Route path="/pair" element={<TvPairingApprove />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
 
             {/* Super Admin Tier */}

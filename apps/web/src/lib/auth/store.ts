@@ -10,7 +10,7 @@ interface AuthState {
   loading: boolean;
   
   // Impersonation state
-  impersonatedStaff: { id: string; name: string; permissions: PermissionSet } | null;
+  impersonatedStaff: { id: string; name: string; permissions: PermissionSet; type: 'staff' | 'role' } | null;
   originalPermissions: PermissionSet | null;
   originalIsSuperAdmin: boolean | null;
 
@@ -21,7 +21,7 @@ interface AuthState {
   setLoading: (loading: boolean) => void;
 
   // Actions
-  impersonate: (staff: { id: string; name: string; permissions: PermissionSet }) => void;
+  impersonate: (staff: { id: string; name: string; permissions: PermissionSet; type: 'staff' | 'role' }) => void;
   stopImpersonating: () => void;
 }
 
@@ -62,7 +62,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       originalPermissions: currentPerms,
       originalIsSuperAdmin: currentSuper,
       permissions: staff.permissions,
-      isSuperAdmin: false // View strictly as the staff member
+      isSuperAdmin: false // View strictly as the staff member/role
     });
   },
 

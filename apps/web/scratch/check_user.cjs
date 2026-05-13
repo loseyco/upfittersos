@@ -1,24 +1,18 @@
 const admin = require('firebase-admin');
 
+admin.initializeApp({
+  projectId: 'saegroup-c6487'
+});
+
 async function checkUser() {
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      projectId: 'saegroup-c6487'
-    });
-  }
-  const email = 'qbtest@losey.co';
   try {
+    const email = 'j.briggs@saegrp.com';
     const user = await admin.auth().getUserByEmail(email);
-    console.log('User Found in Auth:', user.email);
-    console.log('UID:', user.uid);
+    console.log('User UID:', user.uid);
     console.log('Custom Claims:', user.customClaims);
-  } catch (e) {
-    console.log(`User ${email} NOT found in Firebase Auth.`);
+  } catch (error) {
+    console.error('Error fetching user:', error);
   }
-  process.exit();
 }
 
-checkUser().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+checkUser().then(() => process.exit(0));

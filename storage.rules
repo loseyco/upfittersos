@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Helper function to check if the user belongs to the target tenant
+    function isTenant(tid) {
+      return request.auth != null && request.auth.token.tenantId == tid;
+    }
+
+    match /businesses/{tenantId}/{allPaths=**} {
+      allow read: if isTenant(tenantId);
+      allow write: if isTenant(tenantId);
+    }
+
+    // Allow users to upload their own profiles
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

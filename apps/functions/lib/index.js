@@ -63,6 +63,8 @@ const purchase_orders_routes_1 = require("./routes/purchase_orders.routes");
 const deliveries_routes_1 = require("./routes/deliveries.routes");
 __exportStar(require("./notifications"), exports);
 __exportStar(require("./triggers/qbSync"), exports);
+__exportStar(require("./triggers/staffTriggers"), exports);
+__exportStar(require("./triggers/chatTriggers"), exports);
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();
