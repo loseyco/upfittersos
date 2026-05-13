@@ -101,7 +101,7 @@ export function BusinessSidebar({
                   {(() => {
                     if (!lastSync) return 'Pending...';
                     const ts = lastSync.timestamp;
-                    const date = ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
+                    const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
                     // Just show time if today, else date
                     return date.toLocaleDateString() === new Date().toLocaleDateString()
                       ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })

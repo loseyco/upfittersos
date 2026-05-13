@@ -745,6 +745,57 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="truncate text-indigo-500 font-bold">{assignedStaffDisplay}</span>
                                   </>
                                 )}
+                                {(() => {
+                                  const target = job || bay;
+                                  const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
+                                  const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+                                  const isBlocked = activeBlockers.length > 0;
+
+                                  const currentVin = job?.vehicleVin || bay?.currentVehicleVin;
+                                  const relevantParts = partsRequests.filter((pr: any) => {
+                                    const prStatus = (pr.status || '').toLowerCase();
+                                    const isActive = ['pending', 'received', 'ordered'].includes(prStatus);
+                                    if (!isActive) return false;
+                                    if (job?.id && pr.jobId === job.id) return true;
+                                    if (bay?.id && pr.zoneId === bay.id) return true;
+                                    if (currentVin && pr.vin === currentVin) return true;
+                                    return false;
+                                  });
+
+                                  const reqCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
+                                  const ordCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
+                                  const recCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
+                                  const hasParts = reqCount + ordCount + recCount > 0;
+                                  const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
+
+                                  if (!isBlocked && !hasParts) return null;
+
+                                  return (
+                                    <div className="flex items-center gap-2 mt-1 w-full">
+                                      {isBlocked && (
+                                        <div className="bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse border border-red-200 dark:border-red-900/50">
+                                          <AlertCircle className="w-3 h-3" />
+                                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                            {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {hasParts && (
+                                        <div className={cn(
+                                          "px-1.5 py-0.5 rounded flex items-center gap-1 border",
+                                          partsArrived 
+                                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50" 
+                                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/50"
+                                        )}>
+                                          <ShoppingCart className="w-3 h-3" />
+                                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                            Parts {reqCount}/{ordCount}/{recCount}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                             {(() => {
@@ -915,6 +966,57 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     <span className="truncate text-indigo-500 font-bold">{assignedStaffDisplay}</span>
                                   </>
                                 )}
+                                {(() => {
+                                  const target = job || zone;
+                                  const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
+                                  const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+                                  const isBlocked = activeBlockers.length > 0;
+
+                                  const currentVin = job?.vehicleVin || vin;
+                                  const relevantParts = partsRequests.filter((pr: any) => {
+                                    const prStatus = (pr.status || '').toLowerCase();
+                                    const isActive = ['pending', 'received', 'ordered'].includes(prStatus);
+                                    if (!isActive) return false;
+                                    if (job?.id && pr.jobId === job.id) return true;
+                                    if (zone?.id && pr.zoneId === zone.id) return true;
+                                    if (currentVin && pr.vin === currentVin) return true;
+                                    return false;
+                                  });
+
+                                  const reqCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
+                                  const ordCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
+                                  const recCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
+                                  const hasParts = reqCount + ordCount + recCount > 0;
+                                  const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
+
+                                  if (!isBlocked && !hasParts) return null;
+
+                                  return (
+                                    <div className="flex items-center gap-2 mt-1 w-full">
+                                      {isBlocked && (
+                                        <div className="bg-red-500/10 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse border border-red-200 dark:border-red-900/50">
+                                          <AlertCircle className="w-3 h-3" />
+                                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                            {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
+                                          </span>
+                                        </div>
+                                      )}
+                                      {hasParts && (
+                                        <div className={cn(
+                                          "px-1.5 py-0.5 rounded flex items-center gap-1 border",
+                                          partsArrived 
+                                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50" 
+                                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/50"
+                                        )}>
+                                          <ShoppingCart className="w-3 h-3" />
+                                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                            Parts {reqCount}/{ordCount}/{recCount}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                             {(() => {

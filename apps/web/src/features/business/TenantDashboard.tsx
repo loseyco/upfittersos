@@ -107,16 +107,13 @@ export function TenantDashboard() {
     queryKey: ['last-qb-sync', tenantId],
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return null;
-      const q = query(
-        collection(db, 'businesses', tenantId, 'activity_feed'),
-        where('type', '==', 'qbwc_sync'),
-        orderBy('timestamp', 'desc'),
-        limit(1)
-      );
-      const snap = await getDocs(q);
-      if (snap.empty) return null;
-      return snap.docs[0].data();
+      const snap = await getDoc(doc(db, 'businesses', tenantId));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      if (!data.lastQbSyncTime) return null;
+      return { timestamp: new Date(data.lastQbSyncTime) };
     },
+    refetchInterval: 30000, // Refetch every 30 seconds to keep the sync time up to date
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
 
@@ -196,7 +193,7 @@ export function TenantDashboard() {
                       <span className="text-[10px] font-bold uppercase tracking-wider">
                         QuickBooks Synced: {(() => {
                           const ts = lastSync.timestamp;
-                          const date = ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : new Date(lastSync.createdAt);
+                          const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : new Date(lastSync.createdAt);
                           return date.toLocaleString();
                         })()}
                       </span>

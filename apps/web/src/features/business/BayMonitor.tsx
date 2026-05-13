@@ -147,6 +147,11 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     });
     const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
 
+    const requestedCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
+    const orderedCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
+    const receivedCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
+    const hasParts = requestedCount + orderedCount + receivedCount > 0;
+
     const etaRaw = job?.expectedFinishTime || job?.eta || zone.eta;
     let isOverdue = false;
     let timeLabel = '';
@@ -235,12 +240,15 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
             <div className="flex items-center gap-0.5 shrink-0 z-10">
               {isBlocked && (
                 <div className="bg-red-500 text-white px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[10px] font-black uppercase tracking-widest flex items-center animate-pulse leading-none mt-0.5">
-                   Block
+                   {activeBlockers.length > 1 ? `${activeBlockers.length}!` : 'Block'}
                 </div>
               )}
-              {partsArrived && !isBlocked && (
-                <div className="bg-emerald-500 text-white px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[10px] font-black uppercase tracking-widest flex items-center leading-none mt-0.5">
-                   Parts
+              {hasParts && (
+                <div className={cn(
+                  "px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[10px] font-black uppercase tracking-widest flex items-center leading-none mt-0.5",
+                  partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
+                )}>
+                   {requestedCount}/{orderedCount}/{receivedCount}
                 </div>
               )}
             </div>
@@ -268,12 +276,17 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
             <div className="flex flex-col items-end gap-[max(0.25rem,1cqw)] shrink-0 ml-2">
               {isBlocked && (
                 <div className="bg-red-500 text-white px-[max(0.5rem,1.5cqw)] py-[max(0.25rem,1cqw)] rounded-lg text-[max(0.6rem,2cqw)] font-black uppercase tracking-widest flex items-center gap-[max(0.25rem,1cqw)] animate-pulse">
-                  <AlertTriangle className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> Blocked
+                  <AlertTriangle className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> 
+                  {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
                 </div>
               )}
-              {partsArrived && !isBlocked && (
-                <div className="bg-emerald-500 text-white px-[max(0.5rem,1.5cqw)] py-[max(0.25rem,1cqw)] rounded-lg text-[max(0.6rem,2cqw)] font-black uppercase tracking-widest flex items-center gap-[max(0.25rem,1cqw)]">
-                  <ShoppingCart className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> Parts
+              {hasParts && (
+                <div className={cn(
+                  "px-[max(0.5rem,1.5cqw)] py-[max(0.25rem,1cqw)] rounded-lg text-[max(0.6rem,2cqw)] font-black uppercase tracking-widest flex items-center gap-[max(0.25rem,1cqw)]",
+                  partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
+                )}>
+                  <ShoppingCart className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> 
+                  PARTS {requestedCount}/{orderedCount}/{receivedCount}
                 </div>
               )}
             </div>
@@ -289,8 +302,10 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                   {job.title}
                 </div>
               )}
-              <div className="text-[max(0.75rem,3cqw)] font-bold uppercase tracking-widest text-white/50 truncate leading-none">
-                {job?.customerName || vehicle?.customerName || 'No Customer Info'}
+              <div className="text-[max(0.75rem,3cqw)] font-bold uppercase tracking-widest text-white/50 line-clamp-1 leading-none">
+                {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 
+                  ? (job?.customerName || vehicle?.customerName || 'No Customer Info')
+                  : ''}
               </div>
             </div>
           ) : (
