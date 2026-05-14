@@ -1,6 +1,6 @@
 export const PERMISSIONS = {
   'mission_control.view': 'View Mission Control',
-  'foreman.view': 'View Upfitters Board',
+  'foreman.view': 'View Upfitters',
   'vehicles.view': 'View Vehicles',
   'vehicles.manage': 'Manage Vehicles',
   'zones.view': 'View Zones',
@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   'customers.view': 'View Customers',
   'customers.manage': 'Manage Customers',
   'jobs.view': 'View Jobs',
+  'jobs.move_vehicle': 'Move Vehicles / Change Bay',
   'jobs.manage': 'Manage Jobs',
   'staff.view': 'View Staff',
   'staff.manage': 'Manage Staff',
@@ -29,6 +30,7 @@ export const PERMISSIONS = {
   'facility.view': 'View Facility Tools',
   'communication.view': 'View Communication Tools',
   'sync.view': 'View Raw Sync Data',
+  'sync.manage': 'Manage Sync Integrations',
   'experimental.new_modals': 'Beta: Use New Modals',
 } as const;
 

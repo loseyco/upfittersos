@@ -65,6 +65,7 @@ __exportStar(require("./notifications"), exports);
 __exportStar(require("./triggers/qbSync"), exports);
 __exportStar(require("./triggers/staffTriggers"), exports);
 __exportStar(require("./triggers/chatTriggers"), exports);
+__exportStar(require("./triggers/shopFloorTriggers"), exports);
 // Initialize Firebase Admin
 admin.initializeApp();
 const db = admin.firestore();

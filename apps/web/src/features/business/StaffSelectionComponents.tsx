@@ -35,6 +35,8 @@ export function StaffSelector({
     const q = query(collection(db, `businesses/${tenantId}/staff`), orderBy('firstName', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       setStaffList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => !s.isArchived));
+    }, (err) => {
+      console.error("Staff list listener error:", err);
     });
     return () => unsub();
   }, [tenantId]);

@@ -69,11 +69,15 @@
     scrollbar-width: none;
   }
 
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
+  @keyframes cop-lights {
+    0%, 100% { border-color: #ef4444; box-shadow: 0 0 20px rgba(239, 68, 68, 0.6); background-color: rgba(239, 68, 68, 0.05); }
+    50% { border-color: #3b82f6; box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); background-color: rgba(59, 130, 246, 0.05); }
   }
-  .animate-blink {
-    animation: blink 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  .cop-lights-toast {
+    border: 4px solid !important;
+    animation: cop-lights 0.25s linear infinite !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
   }
 }

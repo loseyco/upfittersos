@@ -16,15 +16,23 @@ import { ReloadPrompt } from './components/ReloadPrompt';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { FeedbackReports } from './features/super-admin/FeedbackReports';
 import { GlobalWakeLock } from './components/telemetry/GlobalWakeLock';
+import { FCMListener } from './components/FCMListener';
 
 const queryClient = new QueryClient();
 
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Toaster position="top-right" richColors theme="system" closeButton expand={true} />
+      <Toaster 
+        position="top-right" 
+        richColors 
+        theme="system" 
+        closeButton 
+        expand={true} 
+      />
       <AuthProvider>
         <GlobalWakeLock />
+        <FCMListener />
         <ReloadPrompt />
         <Router>
           <AnalyticsProvider>

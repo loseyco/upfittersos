@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks,
   Maximize, Minimize
@@ -15,11 +15,18 @@ import { VehicleDetailsModal } from './VehiclesManager';
 import { ConfirmModal } from '../../components/ConfirmModal';
 
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   useWakeLock(isFullscreen);
 
@@ -74,19 +81,22 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Zones listener error:", err));
+    
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
+    
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Jobs listener error:", err));
+    
     const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Parts listener error:", err));
 
     return () => {
       unsubZones();
@@ -98,22 +108,38 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
   const [searchQuery, setSearchQuery] = useState('');
 
+  const formatSmartDuration = (seconds: number, includeSeconds: boolean = false) => {
+    if (seconds <= 0) return 'Just now';
+    const years = Math.floor(seconds / 31536000);
+    const months = Math.floor((seconds % 31536000) / 2592000);
+    const days = Math.floor((seconds % 2592000) / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (years > 0) return `${years}y ${months}mo`;
+    if (months > 0) return `${months}mo ${days}d`;
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (includeSeconds && seconds < 3600) return `${minutes}m ${secs}s`;
+    return `${minutes}m`;
+  };
+
   const calculateDuration = (timestamp: any) => {
     if (!timestamp) return '---';
     const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 0) return 'Just now';
-    
-    const months = Math.floor(diff / (86400 * 30));
-    const days = Math.floor(diff / 86400);
-    const hours = Math.floor((diff % 86400) / 3600);
-    const mins = Math.floor((diff % 3600) / 60);
-    
-    if (months > 0) return `${months} month${months > 1 ? 's' : ''}`;
-    if (days > 0) return `${days} day${days > 1 ? 's' : ''}`;
-    if (hours > 0) return `${hours} hr${hours > 1 ? 's' : ''}`;
-    if (mins > 0) return `${mins} min${mins > 1 ? 's' : ''}`;
-    return 'Just now';
+    const diff = Math.max(0, Math.floor((now - date.getTime()) / 1000));
+    return formatSmartDuration(diff, true);
+  };
+
+  const calculateTotalDuration = (totalSeconds: number, sessionStart: any) => {
+    let total = totalSeconds || 0;
+    if (sessionStart) {
+      const start = sessionStart.seconds ? sessionStart.seconds * 1000 : new Date(sessionStart).getTime();
+      total += Math.max(0, Math.floor((now - start) / 1000));
+    }
+    if (total === 0) return null;
+    return formatSmartDuration(total);
   };
 
   const matchesSearch = (zone: any, job: any) => {
@@ -163,7 +189,6 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   // 3. Due Soon / Overdue
   let dueSoonCount = 0;
   let overdueCount = 0;
-  const now = Date.now();
   const twentyFourHours = 24 * 60 * 60 * 1000;
 
   allJobs.forEach(j => {
@@ -253,7 +278,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           title: `Check Bay: ${bay.name}`,
           description: `No updates in over 4 hours.`,
           zoneId: bay.id,
-          timestamp: ts
+          timestamp: ts,
+          jobId: bay.currentJobId
         });
       }
     }
@@ -280,9 +306,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
       type: 'part_needed',
       priority: part.status === 'pending' ? 'high' : 'medium',
       title: part.status === 'pending' ? `Order Part: ${part.partName}` : `Awaiting Part: ${part.partName}`,
-      description: job ? `For Job: ${job.title}` : `Requested by ${part.requestedByName}`,
+      description: job ? `Job: ${job.title}` : `Requested by ${part.requestedBy || 'Staff'}`,
       zoneId: part.zoneId,
-      timestamp: part.createdAt
+      timestamp: part.createdAt,
+      jobId: part.jobId
     });
   });
 
@@ -383,39 +410,30 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
       return (
         <div 
-          key={itemKey} 
-          onClick={() => setSelectedZoneId(bay.id)}
+          key={bay.id} 
+          onClick={() => {
+            const vehicle = vehicles.find(v => v.vin === bay.currentVehicleVin);
+            const jobId = bay.currentJobId || vehicle?.jobId;
+            if (jobId) {
+              navigate(`/business/${tenantId}/job/${jobId}`);
+            } else {
+              setSelectedZoneId(bay.id);
+            }
+          }}
           className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
         >
           <div className="flex items-center justify-between py-2 border-b border-zinc-200 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
           <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-zinc-400 dark:text-zinc-500 w-20 sm:w-24 truncate shrink-0 text-xs sm:text-sm">{bay.name}</span>
-              <span 
-                className={cn("truncate font-bold text-sm sm:text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
-                onClick={(e) => {
-                  if (vehicle) {
-                    e.stopPropagation();
-                    setSelectedVehicle(vehicle);
-                  }
-                }}
-              >
+              <span className="font-black text-zinc-400 dark:text-zinc-500 w-24 sm:w-28 truncate shrink-0 text-xs sm:text-sm">{bay.name}</span>
+              <span className="truncate font-black text-base sm:text-lg text-zinc-900 dark:text-white">
                 {vehicleDisplay}
               </span>
             </div>
             {hasVehicle && (
-              <div className="flex flex-wrap items-center gap-1.5 pl-[88px] sm:pl-[104px] text-[10px] sm:text-xs text-zinc-400 truncate">
+              <div className="flex flex-wrap items-center gap-1.5 pl-[104px] sm:pl-[120px] text-xs sm:text-sm text-zinc-400 truncate">
                 {job ? (
-                  <span 
-                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (jobId) {
-                        searchParams.set('jobId', jobId);
-                        setSearchParams(searchParams);
-                      }
-                    }}
-                  >
+                  <span className="text-emerald-500 font-black uppercase tracking-tight">
                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                   </span>
                 ) : (
@@ -426,7 +444,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                 {customerName ? (
                   <>
                     <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                    <span className="truncate">{customerName}</span>
+                    <span className="truncate font-bold text-zinc-500 dark:text-zinc-400">{customerName}</span>
                   </>
                 ) : !job && (
                   <>
@@ -461,10 +479,19 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             
             return (
               <div className="flex flex-col items-end shrink-0">
-                <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-xs sm:text-sm`}>
-                  <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">{bay.type === 'bay' ? 'IN BAY:' : 'PARKED:'}</span>
+                <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
+                  <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
                   {calculateDuration(timestamp)}
                 </span>
+                {job && (calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, bay.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart)) && (
+                  <span className={cn(
+                    "font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5",
+                    bay.type === 'bay' ? "text-indigo-500" : "text-zinc-500"
+                  )}>
+                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL {bay.type === 'bay' ? 'BAY' : 'LOT'}:</span>
+                    {calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, bay.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart)}
+                  </span>
+                )}
                 {(() => {
                   const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
                   if (!etaRaw) return (
@@ -517,13 +544,13 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
         {isFullscreen && (
           <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Foreman Dashboard</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Upfitters Dashboard</span>
             <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -663,9 +690,8 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                   <div 
                     key={todo.id} 
                     onClick={() => {
-                      if (todo.jobId && (todo.type === 'overdue_job' || todo.type === 'blocker')) {
-                        searchParams.set('jobId', todo.jobId);
-                        setSearchParams(searchParams);
+                      if (todo.jobId) {
+                        navigate(`/business/${tenantId}/job/${todo.jobId}`);
                       } else if (todo.zoneId) {
                         setSelectedZoneId(todo.zoneId);
                       }
@@ -749,7 +775,14 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                 const job = allJobs.find(j => j.id === part.jobId);
                 const zone = zones.find(z => z.id === part.zoneId);
                 return (
-                  <div key={part.id} className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div 
+                    key={part.id} 
+                    onClick={() => {
+                      if (part.jobId) navigate(`/business/${tenantId}/job/${part.jobId}`);
+                      else if (part.zoneId) setSelectedZoneId(part.zoneId);
+                    }}
+                    className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl cursor-pointer hover:shadow-md transition-all group"
+                  >
                     <div className="flex justify-between items-start mb-2">
                       <p className="font-bold text-sm text-zinc-900 dark:text-white line-clamp-2">{part.partName}</p>
                       <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest ml-2 shrink-0", 
@@ -761,7 +794,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                         {job && <p className="text-[10px] font-bold text-zinc-500 uppercase truncate max-w-[150px]">Job: {job.title}</p>}
                         {zone && <p className="text-[10px] font-bold text-indigo-500 uppercase">{zone.name}</p>}
                       </div>
-                      <p className="text-[10px] text-zinc-400">By {part.requestedByName?.split(' ')[0]}</p>
+                      <p className="text-[10px] text-zinc-400">By {(part.requestedBy || 'Staff').split(' ')[0]}</p>
                     </div>
                   </div>
                 );

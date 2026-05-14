@@ -10,11 +10,11 @@ import {
 import { GenericDataGrid } from './GenericDataGrid';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
-import { JobDetailsModal } from './JobDetailsModal';
 import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
 import type { Vehicle } from './VehicleSelector';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { useAuthStore } from '../../lib/auth/store';
+import { SearchableSelect } from './SearchableSelect';
 
 interface JobsManagerProps {
   tenantId: string;
@@ -25,7 +25,6 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedJob, setSelectedJob] = useState<any>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
   const queryParams = new URLSearchParams(location.search);
@@ -47,7 +46,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
     const q = query(collection(db, `businesses/${tenantId}/zones`));
     const unsub = onSnapshot(q, (snap) => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+    }, (err) => console.error("Zones listener error:", err));
     return () => unsub();
   }, [tenantId]);
 
@@ -67,7 +66,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         }
       });
       setVehicles(data);
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
     return () => unsub();
   }, [tenantId]);
 
@@ -84,32 +83,12 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
     }
   });
 
-  // Handle jobId from URL
+  // Handle jobId from URL - Standardized to navigate to full page
   React.useEffect(() => {
     if (jobId) {
-      if (selectedJob?.id === jobId) return;
-
-      const jobInList = data?.find((j: any) => j.id === jobId);
-      if (jobInList) {
-        setSelectedJob(jobInList);
-      } else {
-        // Fetch specific job if not in list
-        const fetchJob = async () => {
-          try {
-            const snap = await getDoc(doc(db, `businesses/${tenantId}/jobs`, jobId));
-            if (snap.exists()) {
-              setSelectedJob({ id: snap.id, ...snap.data() });
-            }
-          } catch (err) {
-            console.error('Error fetching job:', err);
-          }
-        };
-        fetchJob();
-      }
-    } else {
-      setSelectedJob(null);
+      navigate(`/business/${tenantId}/job/${jobId}`, { replace: true });
     }
-  }, [jobId, data, tenantId]);
+  }, [jobId, tenantId, navigate]);
 
   const jobColumns = [
     { 
@@ -126,7 +105,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
       label: 'Job Title',
       format: (val: any, row: any) => (
         <div className="flex flex-col">
-          <span className="font-bold text-zinc-900 dark:text-white">{val}</span>
+          <span className="font-black text-zinc-900 dark:text-white text-base">{val}</span>
           <span className="text-[10px] text-zinc-500 font-mono">{row.id.substring(0, 8)}</span>
         </div>
       )
@@ -138,6 +117,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         <span className={cn(
           "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
           val === 'Active' || val === 'Open' ? "bg-emerald-500/10 text-emerald-600" :
+          val === 'Almost Ready' ? "bg-amber-500/10 text-amber-600" :
           val === 'Completed' || val === 'Closed' ? "bg-zinc-100 text-zinc-500" :
           "bg-amber-500/10 text-amber-600"
         )}>
@@ -150,8 +130,8 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
       label: 'Customer',
       format: (val: any, row: any) => (
         <div className="flex flex-col">
-          <div className="flex items-center gap-1.5 text-zinc-900 dark:text-white font-bold">
-            <User className="w-3.5 h-3.5 text-zinc-400" />
+          <div className="flex items-center gap-1.5 text-zinc-900 dark:text-white font-black text-sm">
+            <User className="w-4 h-4 text-zinc-400" />
             {val || 'Walk-in'}
           </div>
           {row.customerId && <span className="text-[10px] text-zinc-500 font-mono pl-5">ID: {row.customerId.substring(0, 8)}</span>}
@@ -166,8 +146,8 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         if (!val) return <span className="text-zinc-400 italic">Unlinked</span>;
         return (
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-bold">
-              <Car className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-black">
+              <Car className="w-4 h-4" />
               {v ? `${v.year} ${v.make} ${v.model}` : 'Unknown Vehicle'}
             </div>
             <span className="text-[10px] text-zinc-500 font-mono pl-5">{val}</span>
@@ -229,27 +209,22 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
             />
           </div>
 
-          <select 
+          <SearchableSelect
+            className="w-full md:w-48"
+            options={['all', 'Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QA', 'Ready for Customer', 'Completed', 'Closed']}
             value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              navigate(e.target.value === 'all' ? `/business/${tenantId}/jobs` : `/business/${tenantId}/jobs?status=${encodeURIComponent(e.target.value)}`, { replace: true });
+            onChange={(val) => {
+              const newVal = val || 'all';
+              setStatusFilter(newVal);
+              navigate(newVal === 'all' ? `/business/${tenantId}/jobs` : `/business/${tenantId}/jobs?status=${encodeURIComponent(newVal)}`, { replace: true });
             }}
-            className="px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer"
-          >
-            <option value="all">All Statuses</option>
-            <option value="Open">Open</option>
-            <option value="Active">Active</option>
-            <option value="Blocked">Blocked</option>
-            <option value="On Hold">On Hold</option>
-            <option value="Ready for QA">Ready for QA</option>
-            <option value="Ready for Customer">Ready for Customer</option>
-            <option value="Completed">Completed</option>
-            <option value="Closed">Closed</option>
-          </select>
+            getLabel={s => s === 'all' ? 'All Statuses' : s}
+            getValue={s => s}
+            theme="indigo"
+          />
           
           <button 
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => navigate(`/business/${tenantId}/job/create`)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 shrink-0"
           >
             <Plus className="w-4 h-4" />
@@ -274,7 +249,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
           const matchesStatus = statusFilter === 'all' || job.status === statusFilter;
           return matchesSearch && matchesStatus;
         }}
-        onRowClick={(row) => navigate(`/business/${tenantId}/jobs/${row.id}`)}
+        onRowClick={(row) => navigate(`/business/${tenantId}/job/${row.id}`)}
       />
 
       {isAddModalOpen && (
@@ -289,20 +264,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         />
       )}
 
-      {selectedJob && (
-        <JobDetailsModal 
-          tenantId={tenantId}
-          job={selectedJob}
-          onClose={() => {
-            if (location.state?.returnTo) {
-              navigate(location.state.returnTo);
-            } else {
-              navigate(`/business/${tenantId}/jobs`);
-            }
-          }}
-          onUpdate={() => refetch()}
-        />
-      )}
+
     </div>
   );
 }

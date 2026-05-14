@@ -165,6 +165,7 @@ export function TimeClockBar() {
       const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
         userId: user!.uid,
         userName: user!.displayName || user!.email,
+        staffName: user!.displayName || user!.email,
         clockIn: {
           timestamp: serverTimestamp(),
           ...loc
@@ -207,6 +208,13 @@ export function TimeClockBar() {
         }
       }
 
+      // Also clock out of any active job
+      const jobs = [...(sessionData?.jobs || [])];
+      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+      if (lastJob && !lastJob.end) {
+        lastJob.end = new Date();
+      }
+
       await updateDoc(sessionRef, {
         clockOut: {
           timestamp: serverTimestamp(),
@@ -214,6 +222,7 @@ export function TimeClockBar() {
         },
         status: 'completed',
         breaks,
+        jobs,
         updatedAt: serverTimestamp()
       });
 
@@ -232,16 +241,33 @@ export function TimeClockBar() {
     try {
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
       const sessionSnap = await getDoc(sessionRef);
-      const breaks = [...(sessionSnap.data()?.breaks || [])];
+      const sessionData = sessionSnap.data();
+      const breaks = [...(sessionData?.breaks || [])];
+      const jobs = [...(sessionData?.jobs || [])];
+      
+      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+      let suspendedJob = null;
+      
+      if (lastJob && !lastJob.end) {
+        lastJob.end = new Date();
+        suspendedJob = {
+          id: lastJob.id,
+          name: lastJob.name,
+          taskId: lastJob.taskId || null,
+          taskName: lastJob.taskName || null
+        };
+      }
       
       breaks.push({
         type,
         start: new Date(),
-        isPaid: !!(type === 'lunch' ? settings?.lunchPaid : settings?.breakPaid)
+        isPaid: !!(type === 'lunch' ? settings?.lunchPaid : settings?.breakPaid),
+        suspendedJob
       });
 
       await updateDoc(sessionRef, {
         breaks,
+        jobs,
         status: 'on_break',
         updatedAt: serverTimestamp()
       });
@@ -264,13 +290,29 @@ export function TimeClockBar() {
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.data();
       const breaks = [...(sessionData?.breaks || [])];
+      const jobs = [...(sessionData?.jobs || [])];
       
+      let suspendedJob = null;
       if (breaks.length > 0) {
-        breaks[breaks.length - 1].end = new Date();
+        const lastBreak = breaks[breaks.length - 1];
+        lastBreak.end = new Date();
+        suspendedJob = lastBreak.suspendedJob;
+      }
+
+      if (suspendedJob) {
+        jobs.push({
+          id: suspendedJob.id,
+          name: suspendedJob.name,
+          taskId: suspendedJob.taskId || null,
+          taskName: suspendedJob.taskName || null,
+          start: new Date()
+        });
       }
 
       await updateDoc(sessionRef, {
         breaks,
+        jobs,
+        jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
         status: 'active',
         updatedAt: serverTimestamp()
       });
@@ -278,7 +320,12 @@ export function TimeClockBar() {
       // Resume main clock - we need the original clock in time
       const originalClockIn = sessionData?.clockIn?.timestamp?.toMillis() || Date.now();
       setStatus('clocked_in', originalClockIn, activeSessionId);
-      toast.success("Break ended");
+      
+      if (suspendedJob) {
+        toast.success(`Resumed work on ${suspendedJob.taskName || suspendedJob.name}`);
+      } else {
+        toast.success("Break ended");
+      }
     } catch (e) {
       toast.error("Failed to end break");
     } finally {

@@ -18,6 +18,7 @@ import { cn } from '../../lib/utils';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { ItemDetailsModal } from './ItemDetailsModal';
+import { useNavigate } from 'react-router-dom';
 import { StaffLink } from './StaffPerformance';
 
 
@@ -44,6 +45,8 @@ interface PartsRequest {
   status: RequestStatus;
   notes?: string;
   createdAt: any;
+  zoneId?: string;
+  vin?: string;
 }
 
 interface Shipment {
@@ -76,6 +79,7 @@ interface Vehicle {
 }
 
 export function PartsMissionControl() {
+  const navigate = useNavigate();
   const { tenantId, user, permissions, isSuperAdmin } = useAuthStore();
   const queryClient = useQueryClient();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,7 +153,7 @@ export function PartsMissionControl() {
     const unsub = onSnapshot(q, (snap) => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Zones listener error:", err));
     return () => unsub();
   }, [tenantId]);
 
@@ -168,7 +172,7 @@ export function PartsMissionControl() {
         data.push({ id: doc.id, ...doc.data() } as PartsRequest);
       });
       setRequests(data);
-    });
+    }, (err) => console.error("Parts Requests listener error:", err));
 
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), (snap) => {
       setJobs(snap.docs.map(doc => {
@@ -180,11 +184,11 @@ export function PartsMissionControl() {
           vehicleId: data.vehicleId
         } as Job;
       }));
-    });
+    }, (err) => console.error("Jobs listener error:", err));
 
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
       setVehicles(snap.docs.map(doc => ({ vin: doc.id, ...doc.data() } as Vehicle)));
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
 
     return () => {
       unsubscribe();
@@ -492,7 +496,7 @@ export function PartsMissionControl() {
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -715,7 +719,17 @@ export function PartsMissionControl() {
               return (
                 <div className="space-y-3">
                   {filteredRequests.map(request => (
-                  <div key={request.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/50 transition-colors">
+                  <div 
+                    key={request.id} 
+                    onClick={() => {
+                      if (request.jobId) {
+                        navigate(`/business/${tenantId}/job/${request.jobId}`);
+                      } else {
+                        setSelectedPartId(request.id);
+                      }
+                    }}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/50 transition-colors cursor-pointer"
+                  >
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -742,7 +756,10 @@ export function PartsMissionControl() {
                         </span>
                         {canManage && request.status === 'pending' && (
                           <button 
-                            onClick={() => handleAddTrackingToRequest(request)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddTrackingToRequest(request);
+                            }}
                             className="p-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg shadow-sm transition-all active:scale-95 flex items-center gap-1 group"
                             title="Add Tracking & Mark Ordered"
                           >
@@ -752,7 +769,10 @@ export function PartsMissionControl() {
                         )}
                         {canManage && (
                           <button 
-                            onClick={() => handleDeleteRequest(request.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteRequest(request.id);
+                            }}
                             className="p-1 text-zinc-400 hover:text-red-500 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -764,30 +784,50 @@ export function PartsMissionControl() {
                     <div className="bg-zinc-50 dark:bg-zinc-950/50 rounded-xl p-3 border border-zinc-100 dark:border-zinc-800 space-y-2 mb-3">
                       {(() => {
                         const job = jobs.find(j => j.id === request.jobId);
-                        const vehicle = vehicles.find(v => v.vin === job?.vehicleId);
-                        const zone = zones.find(z => z.currentJobId === request.jobId || z.currentVehicleVin === job?.vehicleId);
+                        const currentVin = request.vin || job?.vehicleId;
+                        const vehicle = vehicles.find(v => v.vin === currentVin);
+                        
+                        // Try to find current zone first, then fall back to requested zoneId
+                        const currentZone = zones.find(z => 
+                          (request.jobId && z.currentJobId === request.jobId) || 
+                          (currentVin && z.currentVehicleVin === currentVin)
+                        );
+                        const requestedZone = zones.find(z => z.id === request.zoneId);
+                        const zone = currentZone || requestedZone;
                         
                         return (
                           <>
                             <div className="flex items-center justify-between text-xs">
                               <div className="flex items-center gap-2">
                                 <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                                <span className="font-bold text-zinc-900 dark:text-white">{job?.title || 'Unknown Job'}</span>
+                                <span className="font-bold text-zinc-900 dark:text-white">
+                                  {job?.title || (currentVin ? 'Vehicle Request' : 'Unknown Job')}
+                                </span>
                                 {job?.jobNumber && <span className="text-zinc-400 font-mono">#{job.jobNumber}</span>}
                               </div>
                               {zone && (
-                                <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase">
+                                <div className={cn(
+                                  "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase",
+                                  currentZone 
+                                    ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400" 
+                                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                                )}>
                                   <MapPin className="w-2.5 h-2.5" />
                                   {zone.name}
+                                  {!currentZone && <span className="ml-1 text-[8px] opacity-60">(Requested)</span>}
                                 </div>
                               )}
                             </div>
                             
-                            {vehicle && (
+                            {(vehicle || currentVin) && (
                               <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-medium">
                                 <CarFront className="w-3.5 h-3.5 text-zinc-400" />
-                                <span>{vehicle.year} {vehicle.make} {vehicle.model}</span>
-                                <span className="text-zinc-300 dark:text-zinc-700 font-mono text-[10px]">{vehicle.vin}</span>
+                                {vehicle ? (
+                                  <span>{vehicle.year} {vehicle.make} {vehicle.model}</span>
+                                ) : (
+                                  <span>Unknown Vehicle</span>
+                                )}
+                                <span className="text-zinc-300 dark:text-zinc-700 font-mono text-[10px]">{currentVin}</span>
                               </div>
                             )}
                           </>
@@ -807,7 +847,7 @@ export function PartsMissionControl() {
                       <div className="flex items-center gap-1 pt-3 border-t border-zinc-100 dark:border-zinc-800">
                         {request.status === 'pending' && (
                           <button 
-                            onClick={() => handleUpdateStatus(request.id, 'ordered')}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'ordered'); }}
                             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 transition-all"
                           >
                             <ShoppingCart className="w-3 h-3" />
@@ -816,7 +856,7 @@ export function PartsMissionControl() {
                         )}
                         {request.status === 'ordered' && (
                           <button 
-                            onClick={() => handleUpdateStatus(request.id, 'received')}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'received'); }}
                             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-all"
                           >
                             <CheckCircle className="w-3 h-3" />
@@ -825,7 +865,7 @@ export function PartsMissionControl() {
                         )}
                         {request.status === 'received' && (
                           <button 
-                            onClick={() => handleUpdateStatus(request.id, 'fulfilled')}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'fulfilled'); }}
                             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20 transition-all"
                           >
                             <CheckCircle className="w-3 h-3" />
@@ -839,7 +879,7 @@ export function PartsMissionControl() {
                         )}
                         {(request.status === 'pending' || request.status === 'ordered') && (
                           <button 
-                            onClick={() => handleUpdateStatus(request.id, 'cancelled')}
+                            onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'cancelled'); }}
                             className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-zinc-400 hover:text-red-500 hover:bg-red-500/10 transition-all"
                           >
                             CANCEL

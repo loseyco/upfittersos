@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Camera, Send, Loader2, Undo, Trash2 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { domToCanvas } from 'modern-screenshot';
 import { ReactSketchCanvas, type ReactSketchCanvasRef } from 'react-sketch-canvas';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
@@ -42,11 +42,9 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
     if (modalElement) modalElement.style.display = 'none';
 
     try {
-      const canvas = await html2canvas(document.body, {
-        useCORS: true,
-        allowTaint: true,
+      const canvas = await domToCanvas(document.body, {
         backgroundColor: '#171717', // dark background matching the app
-        ignoreElements: (element) => element.id === 'feedback-widget-button',
+        filter: (element) => (element as HTMLElement).id !== 'feedback-widget-button',
       });
       const dataUrl = canvas.toDataURL('image/png');
       setScreenshotData(dataUrl);

@@ -25,7 +25,7 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!tenantId || !jobId) return;
@@ -41,13 +41,18 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
         ...doc.data()
       })) as ChatMessage[];
       setMessages(msgs);
+    }, (err) => {
+      console.error("Job chat listener error:", err);
+      toast.error("You don't have permission to view this chat.");
     });
 
     return () => unsubscribe();
   }, [tenantId, jobId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -81,7 +86,10 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+      <div 
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar"
+      >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic">
             <p>No messages yet. Start the conversation!</p>
@@ -103,9 +111,12 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
 
             return (
               <div key={msg.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
-                {showHeader && !isMe && (
-                  <div className="flex items-center gap-1.5 mb-1 ml-1 text-xs text-zinc-500 font-medium">
-                    <UserIcon className="w-3 h-3" />
+                {showHeader && (
+                  <div className={cn(
+                    "flex items-center gap-1.5 mb-1 text-[10px] font-black uppercase tracking-widest text-zinc-500",
+                    isMe ? "mr-1 flex-row-reverse text-indigo-500/70" : "ml-1"
+                  )}>
+                    <UserIcon className="w-2.5 h-2.5" />
                     <span>{msg.senderName}</span>
                   </div>
                 )}
@@ -127,7 +138,6 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
             );
           })
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}

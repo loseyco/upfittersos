@@ -24,6 +24,7 @@ export * from './notifications';
 export * from './triggers/qbSync';
 export * from './triggers/staffTriggers';
 export * from './triggers/chatTriggers';
+export * from './triggers/shopFloorTriggers';
 
 // Initialize Firebase Admin
 admin.initializeApp();

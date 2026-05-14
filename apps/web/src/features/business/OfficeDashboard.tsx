@@ -9,7 +9,7 @@ import {
   Maximize, Minimize
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { useAuthStore } from '../../lib/auth/store';
 import { ItemDetailsModal } from './ItemDetailsModal';
@@ -21,6 +21,7 @@ interface OfficeDashboardProps {
 }
 
 export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -65,6 +66,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   
   // Filtering & Pagination
   const [activeFilter, setActiveFilter] = useState<'all' | 'arriving' | 'received' | 'delivered'>('received');
+  const [jobStatusFilter, setJobStatusFilter] = useState<'all' | 'Almost Ready' | 'Ready for QA' | 'Ready for Customer'>('all');
   const [displayLimit, setDisplayLimit] = useState(10);
 
   useEffect(() => {
@@ -73,15 +75,17 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Jobs listener error:", err));
+
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
+
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Zones listener error:", err));
 
     const qShipments = query(
       collection(db, `businesses/${tenantId}/shipments`),
@@ -91,7 +95,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShipments(data);
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Shipments listener error:", err));
 
     const qReceivedParts = query(
       collection(db, `businesses/${tenantId}/parts_requests`),
@@ -100,7 +104,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     const unsubReceivedParts = onSnapshot(qReceivedParts, snap => {
       setReceivedParts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Received parts listener error:", err));
 
     return () => {
       unsubJobs();
@@ -154,9 +158,12 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
 
   // 2. Vehicles Expected Done Next
   // Jobs that are active/in progress with an ETA, sorted by ETA ascending
-  const activeJobs = jobs.filter(job => 
-    !['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status)
-  ).map(job => ({
+  const activeJobs = jobs.filter(job => {
+    if (jobStatusFilter === 'all') {
+      return !['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status);
+    }
+    return job.status === jobStatusFilter;
+  }).map(job => ({
     ...job,
     etaRaw: getJobEta(job)
   })).filter(job => job.etaRaw).filter(job => {
@@ -186,9 +193,10 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   };
 
   const allReceived = baseReceived.filter(item => {
-    if (activeFilter === 'arriving') return item.status === 'ordered';
-    if (activeFilter === 'received') return item.status === 'received';
-    if (activeFilter === 'delivered') return item.status === 'delivered' || item.status === 'fulfilled';
+    if (activeFilter === 'arriving' && item.status !== 'ordered') return false;
+    if (activeFilter === 'received' && item.status !== 'received') return false;
+    if (activeFilter === 'delivered' && !(item.status === 'delivered' || item.status === 'fulfilled')) return false;
+    
     return true;
   }).sort((a, b) => {
     const timeA = a.createdAt?.seconds || a.statusChangedAt?.seconds || 0;
@@ -238,8 +246,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
       <div 
         key={job.id} 
         onClick={() => {
-          searchParams.set('jobId', job.id);
-          setSearchParams(searchParams);
+          navigate(`/business/${tenantId}/job/${job.id}`);
         }}
         className="group bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md hover:border-indigo-500/50 transition-all cursor-pointer relative overflow-hidden"
       >
@@ -252,12 +259,12 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
               {isNextUp ? <Clock className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
             </div>
             <div>
-              <h3 className="font-bold text-zinc-900 dark:text-white text-sm sm:text-base line-clamp-1">
+              <h3 className="font-black text-zinc-900 dark:text-white text-base sm:text-lg line-clamp-1">
                 {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title || 'Untitled Job'}
               </h3>
-              <div className="flex items-center gap-2 text-xs font-medium text-zinc-500 mt-0.5">
+              <div className="flex items-center gap-2 text-sm font-bold text-zinc-500 mt-1">
                 <span className="flex items-center gap-1">
-                  <User className="w-3.5 h-3.5" />
+                  <User className="w-4 h-4" />
                   {job.customerName || 'No Customer'}
                 </span>
                 <span className="text-zinc-300 dark:text-zinc-700">•</span>
@@ -381,7 +388,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -479,7 +486,13 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
                   )}>
                     <div 
                       className="absolute inset-0 z-0 cursor-pointer" 
-                      onClick={() => setSelectedItemId({ id: item.id, type: item.type })}
+                      onClick={() => {
+                        if (item.jobId) {
+                          navigate(`/business/${tenantId}/job/${item.jobId}`);
+                        } else {
+                          setSelectedItemId({ id: item.id, type: item.type });
+                        }
+                      }}
                     />
                     <div className="flex items-start justify-between mb-2 relative z-10 pointer-events-none">
                       <div className="flex-1 min-w-0">
@@ -601,6 +614,24 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
             <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
               {activeJobs.length} Jobs
             </span>
+          </div>
+
+          {/* Job Status Filters */}
+          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl mb-4">
+            {(['all', 'Almost Ready', 'Ready for QA', 'Ready for Customer'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setJobStatusFilter(f)}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-2 py-1.5 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  jobStatusFilter === f 
+                    ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-400 shadow-sm" 
+                    : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {f === 'all' ? 'All normally' : f}
+              </button>
+            ))}
           </div>
           
           <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">

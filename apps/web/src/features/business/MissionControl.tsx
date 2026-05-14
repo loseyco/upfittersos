@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
   Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X,
-  Maximize, Minimize
+  Maximize, Minimize, ShoppingCart
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -30,11 +30,18 @@ interface MissionControlProps {
 }
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { open: openSearch } = useSearchStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(timer);
+  }, []);
 
   useWakeLock(isFullscreen);
 
@@ -64,7 +71,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
   // Stats fetching
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { isLoading: statsLoading } = useQuery({
     queryKey: ['mission-control-stats', tenantId],
     queryFn: async () => {
       const collections = ['customers', 'jobs', 'inventory_items', 'tasks', 'vehicles'];
@@ -126,16 +133,43 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
       const previousVin = zone?.currentVehicleVin || null;
       const previousJobId = zone?.currentJobId || null;
       
+      const targetJobId = jobId || previousJobId;
+      const job = allJobs.find(j => j.id === targetJobId);
+      const now = new Date();
+
       // AUTO-MOVE: If this VIN or Job is already in another zone, clear it from there first
-      if (actionType === 'assign' && (trimmedVin || jobId)) {
+      if (actionType === 'assign' && (trimmedVin || targetJobId)) {
         const otherZones = zones.filter(z => z.id !== zoneId);
         for (const oz of otherZones) {
           let needsClear = false;
           if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
-          else if (jobId && oz.currentJobId === jobId) needsClear = true;
+          else if (targetJobId && oz.currentJobId === targetJobId) needsClear = true;
           else if (trimmedVin && oz.currentVehicleVins?.includes(trimmedVin)) needsClear = true;
           
           if (needsClear) {
+            // If leaving a bay or parking spot, update total time
+            const isBay = oz.type === 'bay';
+            const isParking = oz.type === 'parking' || oz.type === 'lot';
+
+            if ((isBay || isParking) && targetJobId && job) {
+              const lastAssigned = oz.lastAssignedAt?.seconds ? oz.lastAssignedAt.seconds * 1000 : (oz.lastAssignedAt || oz.updatedAt || Date.now());
+              const durationSeconds = Math.max(0, Math.floor((now.getTime() - new Date(lastAssigned).getTime()) / 1000));
+              
+              const updateData: any = {
+                updatedAt: serverTimestamp()
+              };
+
+              if (isBay) {
+                updateData.totalBayTimeSeconds = (job.totalBayTimeSeconds || 0) + durationSeconds;
+                updateData.currentBaySessionStart = null;
+              } else if (isParking) {
+                updateData.totalParkingTimeSeconds = (job.totalParkingTimeSeconds || 0) + durationSeconds;
+                updateData.currentParkingSessionStart = null;
+              }
+
+              await updateDoc(doc(db, `businesses/${tenantId}/jobs`, targetJobId), updateData);
+            }
+
             await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), { 
               currentVehicleVin: null, 
               currentJobId: null,
@@ -161,9 +195,57 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           updatedAt: serverTimestamp()
         });
       } else {
+        // Handle leaving the current zone
+        if (actionType === 'clear' || actionType === 'remove_job') {
+          const isBay = zone?.type === 'bay';
+          const isParking = zone?.type === 'parking' || zone?.type === 'lot';
+
+          if ((isBay || isParking) && targetJobId && job) {
+            const lastAssigned = zone.lastAssignedAt?.seconds ? zone.lastAssignedAt.seconds * 1000 : (zone.lastAssignedAt || zone.updatedAt || Date.now());
+            const durationSeconds = Math.max(0, Math.floor((now.getTime() - new Date(lastAssigned).getTime()) / 1000));
+            
+            const updateData: any = {
+              updatedAt: serverTimestamp()
+            };
+
+            if (isBay) {
+              updateData.totalBayTimeSeconds = (job.totalBayTimeSeconds || 0) + durationSeconds;
+              updateData.currentBaySessionStart = null;
+            } else if (isParking) {
+              updateData.totalParkingTimeSeconds = (job.totalParkingTimeSeconds || 0) + durationSeconds;
+              updateData.currentParkingSessionStart = null;
+            }
+
+            await updateDoc(doc(db, `businesses/${tenantId}/jobs`, targetJobId), updateData);
+          }
+        }
+
+        // Handle entering a new zone
+        if (actionType === 'assign' && targetJobId) {
+          const isBay = zone?.type === 'bay';
+          const isParking = zone?.type === 'parking' || zone?.type === 'lot';
+
+          const jobUpdate: any = {
+            updatedAt: serverTimestamp()
+          };
+
+          if (isBay) {
+            jobUpdate.currentBaySessionStart = serverTimestamp();
+            jobUpdate.currentParkingSessionStart = null;
+          } else if (isParking) {
+            jobUpdate.currentParkingSessionStart = serverTimestamp();
+            jobUpdate.currentBaySessionStart = null;
+          } else {
+            jobUpdate.currentBaySessionStart = null;
+            jobUpdate.currentParkingSessionStart = null;
+          }
+
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, targetJobId), jobUpdate);
+        }
+
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
           currentVehicleVin: actionType === 'clear' ? null : trimmedVin || previousVin,
-          currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : jobId || previousJobId,
+          currentJobId: actionType === 'clear' || actionType === 'remove_job' ? null : targetJobId,
           lastAssignedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -173,7 +255,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         zoneId,
         zoneName: zone?.name || 'Unknown',
         vin: trimmedVin || null,
-        jobId: jobId || null,
+        jobId: targetJobId || null,
         action: actionType === 'clear' ? 'cleared' : 'assigned',
         assignedAt: serverTimestamp(),
         assignedBy: user?.uid || 'system',
@@ -193,19 +275,23 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Zones listener error:", err));
+
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
+
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Jobs listener error:", err));
+
     const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Parts listener error:", err));
+
     return () => {
       unsubZones();
       unsubVehicles();
@@ -269,32 +355,52 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   ).length || 0;
 
   const readyForQACount = allJobs?.filter((j: any) => j.status === 'Ready for QA').length || 0;
-  const readyForCustomerCount = allJobs?.filter((j: any) => j.status === 'Ready for Customer').length || 0;
 
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
+    { label: 'Bay Capacity', value: `${occupiedBays}/${totalBays}`, icon: Warehouse, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'zones?type=bay', loading: false },
+    { label: 'Parking Lot', value: `${occupiedParking}/${totalParking}`, icon: Car, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'zones?type=parking', loading: false },
     { label: 'Missing Parts', value: missingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
     { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs?status=Blocked', loading: statsLoading },
     { label: 'Ready for QA', value: readyForQACount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QA', loading: statsLoading },
-    { label: 'Ready Customer', value: readyForCustomerCount, icon: CheckSquare, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'jobs?status=Ready+for+Customer', loading: statsLoading },
-    { label: 'Pending Tasks', value: stats?.tasks ?? 0, icon: CheckSquare, color: 'text-purple-500', bg: 'bg-purple-500/10', tab: 'tasks', loading: statsLoading },
-    { label: 'Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: shipmentsLoading },
+    { label: 'Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: false },
     { label: 'On Site', value: vehiclesOnSiteCount, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
   ];
 
 
 
+  const formatSmartDuration = (seconds: number, includeSeconds: boolean = false) => {
+    if (seconds <= 0) return '0m';
+    const years = Math.floor(seconds / 31536000);
+    const months = Math.floor((seconds % 31536000) / 2592000);
+    const days = Math.floor((seconds % 2592000) / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (years > 0) return `${years}y ${months}mo`;
+    if (months > 0) return `${months}mo ${days}d`;
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (includeSeconds && seconds < 3600) return `${minutes}m ${secs}s`;
+    return `${minutes}m`;
+  };
+
   const calculateDuration = (timestamp: any) => {
     if (!timestamp) return '---';
     const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp);
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 0) return '0m';
-    const days = Math.floor(diff / 86400);
-    const hours = Math.floor((diff % 86400) / 3600);
-    const mins = Math.floor((diff % 3600) / 60);
-    if (days > 0) return `${days}d ${hours}h`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
+    const diff = Math.max(0, Math.floor((now - date.getTime()) / 1000));
+    return formatSmartDuration(diff, true);
+  };
+
+  const calculateTotalDuration = (totalSeconds: number, sessionStart: any) => {
+    let total = totalSeconds || 0;
+    if (sessionStart) {
+      const start = sessionStart.seconds ? sessionStart.seconds * 1000 : new Date(sessionStart).getTime();
+      total += Math.max(0, Math.floor((now - start) / 1000));
+    }
+    if (total === 0) return null;
+    return formatSmartDuration(total);
   };
 
   // Generate Actionable Alerts
@@ -326,8 +432,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         icon: Package,
         onClick: () => {
           if (pr.jobId) {
-            searchParams.set('jobId', pr.jobId);
-            setSearchParams(searchParams);
+            navigate(`/business/${tenantId}/job/${pr.jobId}`);
           } else {
             onTabChange('parts');
           }
@@ -347,10 +452,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
             type: 'danger',
             icon: Package,
             onClick: () => {
-              if (pr.jobId) {
-                searchParams.set('jobId', pr.jobId);
-                setSearchParams(searchParams);
-              } else {
+            if (pr.jobId) {
+              navigate(`/business/${tenantId}/job/${pr.jobId}`);
+            } else {
                 onTabChange('parts');
               }
             }
@@ -373,8 +477,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           type: 'warning',
           icon: Clock,
           onClick: () => {
-            searchParams.set('jobId', job.id);
-            setSearchParams(searchParams);
+            navigate(`/business/${tenantId}/job/${job.id}`);
           }
         });
       }
@@ -403,8 +506,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           type: 'danger',
           icon: Clock,
           onClick: () => {
-            searchParams.set('jobId', job.id);
-            setSearchParams(searchParams);
+            navigate(`/business/${tenantId}/job/${job.id}`);
           }
         });
       }
@@ -425,8 +527,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         type: 'danger',
         icon: AlertCircle,
         onClick: () => {
-          searchParams.set('jobId', job.id);
-          setSearchParams(searchParams);
+          navigate(`/business/${tenantId}/job/${job.id}`);
         }
       });
     }
@@ -526,7 +627,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full md:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden md:flex w-full md:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -688,37 +789,28 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       return (
                         <div 
                           key={bay.id} 
-                          onClick={() => setSelectedZoneId(bay.id)}
-                          className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
+                          onClick={() => {
+                            const vehicle = vehicles?.find((v: any) => v.vin === bay.currentVehicleVin);
+                            const jobId = bay.currentJobId || vehicle?.jobId;
+                            if (jobId) {
+                              navigate(`/business/${tenantId}/job/${jobId}`);
+                            } else {
+                              setSelectedZoneId(bay.id);
+                            }
+                          }}
+                          className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2 pointer-events-auto"
                         >
                           <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{bay.name}</span>
-                                <span 
-                                  className={cn("truncate font-bold text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
-                                  onClick={(e) => {
-                                    if (vehicle) {
-                                      e.stopPropagation();
-                                      setSelectedVehicle(vehicle);
-                                    }
-                                  }}
-                                >
+                                <span className="truncate font-bold text-base text-zinc-900 dark:text-white">
                                   {vehicleDisplay}
                                 </span>
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
                                 {job ? (
-                                  <span 
-                                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (jobId) {
-                                        searchParams.set('jobId', jobId);
-                                        setSearchParams(searchParams);
-                                      }
-                                    }}
-                                  >
+                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
@@ -813,10 +905,16 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               
                               return (
                                 <div className="flex flex-col items-end shrink-0">
-                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
-                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">IN BAY:</span>
+                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
+                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
                                     {calculateDuration(timestamp)}
                                   </span>
+                                  {job && (calculateTotalDuration(job.totalBayTimeSeconds, job.currentBaySessionStart)) && (
+                                    <span className="text-indigo-500 font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5">
+                                      <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL BAY:</span>
+                                      {calculateTotalDuration(job.totalBayTimeSeconds, job.currentBaySessionStart)}
+                                    </span>
+                                  )}
                                   {(() => {
                                     const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
                                     if (!etaRaw) return (
@@ -909,37 +1007,28 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         return (
                           <div 
                             key={itemKey} 
-                            onClick={() => setSelectedZoneId(zone.id)}
-                            className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2"
+                            onClick={() => {
+                              const vehicle = vehicles?.find((v: any) => v.vin === vin);
+                              const jobId = (zone.currentJobId && index === 0 && !vehicle?.jobId) ? zone.currentJobId : vehicle?.jobId;
+                              if (jobId) {
+                                navigate(`/business/${tenantId}/job/${jobId}`);
+                              } else {
+                                setSelectedZoneId(zone.id);
+                              }
+                            }}
+                            className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2 pointer-events-auto"
                           >
                           <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm">{zone.name}</span>
-                                <span 
-                                  className={cn("truncate font-bold text-base transition-colors", vehicle ? "text-zinc-900 dark:text-white hover:text-indigo-500" : "text-zinc-900 dark:text-white")}
-                                  onClick={(e) => {
-                                    if (vehicle) {
-                                      e.stopPropagation();
-                                      setSelectedVehicle(vehicle);
-                                    }
-                                  }}
-                                >
+                                <span className="font-bold text-zinc-400 dark:text-zinc-500 w-24 truncate shrink-0 text-sm sm:text-base">{zone.name}</span>
+                                <span className="truncate font-black text-lg sm:text-xl text-zinc-900 dark:text-white">
                                   {vehicleDisplay}
                                 </span>
                               </div>
-                              <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
+                              <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-sm sm:text-base text-zinc-400 truncate">
                                 {job ? (
-                                  <span 
-                                    className="text-emerald-500 font-bold uppercase tracking-tight hover:text-emerald-400 transition-colors cursor-pointer"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (jobId) {
-                                        searchParams.set('jobId', jobId);
-                                        setSearchParams(searchParams);
-                                      }
-                                    }}
-                                  >
+                                  <span className="text-emerald-500 font-black uppercase tracking-tight">
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
                                 ) : (
@@ -977,9 +1066,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     const prStatus = (pr.status || '').toLowerCase();
                                     const isActive = ['pending', 'received', 'ordered'].includes(prStatus);
                                     if (!isActive) return false;
+                                    // Strictly tie parts to the Job ID if it exists
                                     if (job?.id && pr.jobId === job.id) return true;
-                                    if (zone?.id && pr.zoneId === zone.id) return true;
-                                    if (currentVin && pr.vin === currentVin) return true;
+                                    
+                                    // Fallback to VIN only if there is NO job assigned
+                                    if (!job?.id && currentVin && pr.vin === currentVin) return true;
+                                    
                                     return false;
                                   });
 
@@ -1027,11 +1119,17 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               const colorClass = hours >= 336 ? 'text-red-500' : hours >= 168 ? 'text-amber-500' : 'text-emerald-500';
                               return (
                                 <div className="flex flex-col items-end shrink-0">
-                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-sm`}>
-                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">PARKED:</span>
+                                  <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
+                                    <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
                                     {calculateDuration(timestamp)}
                                   </span>
-                                  <span className={`text-[10px] font-medium uppercase tracking-tighter ${hours >= 168 ? 'text-amber-500' : 'text-zinc-400'}`}>
+                                  {job && (calculateTotalDuration(job.totalParkingTimeSeconds, job.currentParkingSessionStart)) && (
+                                    <span className="text-zinc-500 font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5">
+                                      <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL LOT:</span>
+                                      {calculateTotalDuration(job.totalParkingTimeSeconds, job.currentParkingSessionStart)}
+                                    </span>
+                                  )}
+                                  <span className={`text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 168 ? 'text-amber-500' : 'text-zinc-400'}`}>
                                     Updated: {new Date(assignedTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>

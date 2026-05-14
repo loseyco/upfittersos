@@ -3,7 +3,7 @@ import { getToken } from 'firebase/messaging';
 import { collection, query, where, getDocs, updateDoc, arrayUnion } from 'firebase/firestore';
 import { db, messagingPromise } from '../lib/firebase/config';
 import { useAuthStore } from '../lib/auth/store';
-import { Smartphone, BellRing, Share } from 'lucide-react';
+import { Smartphone, BellRing, Share, Settings2, Building2 } from 'lucide-react';
 
 interface DeviceSettingsProps {
   tenantId?: string;
@@ -23,6 +23,10 @@ export const DeviceSettings: React.FC<DeviceSettingsProps> = ({ tenantId }) => {
   const [isAndroid, setIsAndroid] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+
+  // User Preferences State
+  const [preferences, setPreferences] = useState<any>({});
+  const [staffDocRef, setStaffDocRef] = useState<any>(null);
 
   useEffect(() => {
     // Check initial notification permission
@@ -56,6 +60,54 @@ export const DeviceSettings: React.FC<DeviceSettingsProps> = ({ tenantId }) => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  // Fetch staff doc and preferences
+  useEffect(() => {
+    if (user?.email && tenantId) {
+      const fetchStaff = async () => {
+        const staffQuery = query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('email', '==', user.email?.toLowerCase())
+        );
+        const staffSnap = await getDocs(staffQuery);
+        if (!staffSnap.empty) {
+          const docRef = staffSnap.docs[0].ref;
+          setStaffDocRef(docRef);
+          
+          const data = staffSnap.docs[0].data();
+          if (data.notificationPreferences) {
+            setPreferences(data.notificationPreferences);
+          } else {
+            // Default them to false if unset
+            setPreferences({
+              notifyBayArrivals: false,
+              notifyBayUpdates: false,
+              notifyReadyForQA: false,
+              notifyReadyForCustomer: false,
+              notifyStaleBays: false,
+              notifyBlockers: false,
+              notifyMissingParts: false,
+              dept_fabrication: false,
+              dept_fast: false,
+              dept_graphics: false,
+              dept_parts: false
+            });
+          }
+        }
+      };
+      fetchStaff();
+    }
+  }, [user, tenantId]);
+
+  const togglePreference = async (key: string, value: boolean) => {
+    const newPrefs = { ...preferences, [key]: value };
+    setPreferences(newPrefs);
+    if (staffDocRef) {
+      await updateDoc(staffDocRef, {
+        notificationPreferences: newPrefs
+      });
+    }
+  };
 
   const handleInstallClick = async () => {
     if (deferredPrompt) {
@@ -152,6 +204,104 @@ export const DeviceSettings: React.FC<DeviceSettingsProps> = ({ tenantId }) => {
           {status && (
             <div className="mt-3 p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold text-center">
               {status}
+            </div>
+          )}
+
+          {permission === 'granted' && (
+            <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
+              <div className="flex items-center gap-2 mb-4">
+                <Settings2 className="w-4 h-4 text-zinc-500" />
+                <h4 className="font-bold text-zinc-900 dark:text-white">Event Preferences</h4>
+              </div>
+              <div className="space-y-4">
+                {[
+                  { key: 'notifyBayArrivals', label: 'Bay Arrivals', desc: 'Alert when a vehicle is assigned to a bay' },
+                  { key: 'notifyBayUpdates', label: 'General Bay Updates', desc: 'Alert when a bay\'s status, ETA, or notes are updated' },
+                  { key: 'notifyStaleBays', label: 'Stale Bays Alert', desc: 'Alert when a bay has had no activity beyond the threshold' },
+                  { key: 'notifyReadyForQA', label: 'Ready for QA', desc: 'Alert when a job is marked ready for quality assurance' },
+                  { key: 'notifyReadyForCustomer', label: 'Ready for Customer', desc: 'Alert when a job is marked ready for the customer' }
+                ].map(pref => (
+                  <div key={pref.key} className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-zinc-900 dark:text-white">{pref.label}</div>
+                      <div className="text-[11px] text-zinc-500">{pref.desc}</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={preferences[pref.key] || false}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => togglePreference(pref.key, e.target.checked)}
+                      />
+                      <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"></div>
+                      <span className="sr-only">Enable {pref.label} notifications</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="flex items-center gap-2 mt-6 mb-4">
+                <BellRing className="w-4 h-4 text-zinc-500" />
+                <h4 className="font-bold text-zinc-900 dark:text-white">Issues & Blockers</h4>
+              </div>
+              <div className="space-y-4">
+                {[
+                  { key: 'notifyBlockers', label: 'Active Blockers', desc: 'Alert when a blocker is added to a job/bay' },
+                  { key: 'notifyMissingParts', label: 'Missing Parts', desc: 'Alert when parts are requested by the team' }
+                ].map(pref => (
+                  <div key={pref.key} className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-zinc-900 dark:text-white">{pref.label}</div>
+                      <div className="text-[11px] text-zinc-500">{pref.desc}</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={preferences[pref.key] || false}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => togglePreference(pref.key, e.target.checked)}
+                      />
+                      <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"></div>
+                      <span className="sr-only">Enable {pref.label} notifications</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {permission === 'granted' && (
+            <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/50">
+              <div className="flex items-center gap-2 mb-4">
+                <Building2 className="w-4 h-4 text-zinc-500" />
+                <h4 className="font-bold text-zinc-900 dark:text-white">Department Filters</h4>
+              </div>
+              <p className="text-xs text-zinc-500 mb-4">Only receive the events above if the job/vehicle belongs to one of the selected departments. Leave all off to receive events from ALL departments.</p>
+              <div className="space-y-4">
+                {[
+                  { key: 'dept_fabrication', label: 'Fabrication', desc: 'Alerts for the Fabrication team' },
+                  { key: 'dept_fast', label: 'F.A.S.T', desc: 'Alerts for the F.A.S.T team' },
+                  { key: 'dept_graphics', label: 'Graphics', desc: 'Alerts for the Graphics team' },
+                  { key: 'dept_parts', label: 'Parts', desc: 'Alerts for the Parts team' }
+                ].map(pref => (
+                  <div key={pref.key} className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-zinc-900 dark:text-white">{pref.label}</div>
+                      <div className="text-[11px] text-zinc-500">{pref.desc}</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        className="sr-only peer" 
+                        checked={preferences[pref.key] || false}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => togglePreference(pref.key, e.target.checked)}
+                      />
+                      <div className="w-11 h-6 bg-zinc-200 peer-focus:outline-none rounded-full peer dark:bg-zinc-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-500"></div>
+                      <span className="sr-only">Enable {pref.label} notifications</span>
+                    </label>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

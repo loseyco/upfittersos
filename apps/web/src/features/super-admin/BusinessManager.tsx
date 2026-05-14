@@ -5,7 +5,7 @@ import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
-import { Plus, Building2, ExternalLink } from 'lucide-react';
+import { Plus, Building2, ExternalLink, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 
@@ -13,6 +13,12 @@ interface Business {
   id: string;
   name: string;
   createdAt: any;
+}
+
+interface FeedbackStats {
+  openBugs: number;
+  openFeatures: number;
+  totalOpen: number;
 }
 
 export function BusinessManager() {
@@ -28,6 +34,21 @@ export function BusinessManager() {
     queryFn: async () => {
       const snap = await getDocs(collection(db, 'businesses'));
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Business));
+    }
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ['feedback_stats'],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, 'feedback_reports'));
+      const reports = snap.docs.map(doc => doc.data());
+      const openReports = reports.filter(r => r.status === 'open');
+      
+      return {
+        openBugs: openReports.filter(r => r.type === 'bug').length,
+        openFeatures: openReports.filter(r => r.type === 'feature').length,
+        totalOpen: openReports.length
+      } as FeedbackStats;
     }
   });
 
@@ -73,6 +94,42 @@ export function BusinessManager() {
           >
             View Feedback Reports
           </button>
+        </div>
+
+        {/* Platform Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Total Tenants</p>
+              <p className="text-2xl font-bold dark:text-white mt-1">{businesses?.length || 0}</p>
+            </div>
+            <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-500">
+              <Building2 size={24} />
+            </div>
+          </div>
+          
+          <div 
+            onClick={() => navigate('/super-admin/feedback')}
+            className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between cursor-pointer hover:border-indigo-500/50 transition-colors"
+          >
+            <div>
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Open Feedback</p>
+              <p className="text-2xl font-bold dark:text-white mt-1">{stats?.totalOpen || 0}</p>
+            </div>
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500">
+              <ExternalLink size={24} />
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Active Bugs</p>
+              <p className="text-2xl font-bold text-rose-500 mt-1">{stats?.openBugs || 0}</p>
+            </div>
+            <div className="w-12 h-12 bg-rose-500/10 rounded-xl flex items-center justify-center text-rose-500">
+              <AlertCircle size={24} />
+            </div>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-4 gap-8">

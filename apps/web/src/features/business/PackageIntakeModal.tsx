@@ -328,7 +328,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
       />
 
       {/* Modal Content */}
-      <div className="relative w-full max-w-xl bg-white dark:bg-zinc-900 rounded-[2.5rem] shadow-2xl border border-white/10 overflow-hidden animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
+      <div className="relative w-full max-w-xl bg-white dark:bg-zinc-900 rounded-[2.5rem] shadow-2xl border border-white/10 animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
         
         {/* Header */}
         <div className="px-8 pt-8 pb-4 flex items-center justify-between">
@@ -491,7 +491,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                 </div>
 
                 {/* Location Field - Custom Searchable Dropdown */}
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative z-50">
                   <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Where is it put?</label>
                   <LocationSelector 
                     value={location}
@@ -636,6 +636,7 @@ function LocationSelector({ value, onChange, zones }: { value: string; onChange:
               <button 
                 key={z.id} 
                 type="button"
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   setSearch(z.name);
                   onChange(z.name);

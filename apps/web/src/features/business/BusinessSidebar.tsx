@@ -2,8 +2,9 @@ import React from 'react';
 import { 
   Home, Users, Briefcase, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen
+  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';
 
@@ -18,7 +19,7 @@ export type NavItem = {
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'My Dashboard', icon: Home, group: 'boards' },
   { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'boards', permission: 'mission_control.view' },
-  { id: 'foreman', label: 'Upfitters', icon: ClipboardList, group: 'boards', permission: 'foreman.view' },
+  { id: 'upfitters', label: 'Upfitters', icon: ClipboardList, group: 'boards', permission: 'foreman.view' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'boards', permission: 'parts.view' },
   { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'parts.view' },
   { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards', permission: 'graphics.view' },
@@ -46,6 +47,7 @@ const ITEMS: NavItem[] = [
   { id: 'staff', label: 'Staff', icon: UserCog, group: 'config', permission: 'staff.view' },
   { id: 'departments', label: 'Departments', icon: Building2, group: 'config', permission: 'staff.view' },
   { id: 'settings', label: 'Settings', icon: Settings, group: 'config', permission: 'settings.view' },
+  { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, group: 'sync', permission: 'sync.view' },
   { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
   { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
   { id: 'qb_items', label: 'QB Items', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
@@ -58,13 +60,15 @@ export function BusinessSidebar({
   setActiveTab,
   isOpen,
   setIsOpen,
-  lastSync
+  lastSync,
+  activeSync
 }: { 
   activeTab: string; 
   setActiveTab: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   lastSync?: any;
+  activeSync?: any;
 }) {
   const groups = {
     boards: 'Control Boards',
@@ -75,7 +79,11 @@ export function BusinessSidebar({
     sync: 'Sync Data (Raw)'
   };
 
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const navigate = useNavigate();
+
+  const SUPER_ADMIN_EMAILS = ['p.losey@saegrp.com', 'loseyp@gmail.com'];
+  const canAccessGlobalAdmin = isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email));
 
   const NavContent = () => (
     <div className="flex flex-col h-full py-6 px-4 space-y-8 overflow-y-auto no-scrollbar">
@@ -97,16 +105,25 @@ export function BusinessSidebar({
               </h3>
               {groupId === 'sync' && (
                 <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-500/80 uppercase tracking-wider" title="Last successful sync">
-                  <RefreshCw className={`w-2.5 h-2.5 ${!lastSync ? 'animate-spin opacity-50' : ''}`} />
-                  {(() => {
-                    if (!lastSync) return 'Pending...';
-                    const ts = lastSync.timestamp;
-                    const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
-                    // Just show time if today, else date
-                    return date.toLocaleDateString() === new Date().toLocaleDateString()
-                      ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-                  })()}
+                  {activeSync ? (
+                    <>
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                      <span>Syncing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className={`w-2.5 h-2.5 ${!lastSync ? 'animate-spin opacity-50' : ''}`} />
+                      {(() => {
+                        if (!lastSync) return 'Pending...';
+                        const ts = lastSync.timestamp;
+                        const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
+                        // Just show time if today, else date
+                        return date.toLocaleDateString() === new Date().toLocaleDateString()
+                          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                      })()}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -132,6 +149,31 @@ export function BusinessSidebar({
           </div>
         );
       })}
+
+      {/* Super Admin Section */}
+      {canAccessGlobalAdmin && (
+        <div className="pt-4 mt-4 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
+          <h3 className="px-4 text-[10px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-[0.2em] mb-4">
+            Super Admin
+          </h3>
+          <div className="space-y-1">
+            <button
+              onClick={() => navigate('/super-admin')}
+              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all duration-200 active:scale-95"
+            >
+              <ShieldCheck className="w-5 h-5" />
+              <span className="text-sm font-semibold tracking-tight">Platform Manager</span>
+            </button>
+            <button
+              onClick={() => navigate('/super-admin/feedback')}
+              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all duration-200 active:scale-95"
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="text-sm font-semibold tracking-tight">Feedback & Bugs</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 

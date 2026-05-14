@@ -5,10 +5,26 @@ import { Maximize, Minimize, AlertTriangle, ShoppingCart } from 'lucide-react';
 import _QRCode from 'react-qr-code';
 import { cn } from '../../lib/utils';
 import { Toaster } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 import type { Zone } from './ZoneModals';
 
 const QRCode = (_QRCode as any).default || _QRCode;
 import type { Vehicle } from './VehicleSelector';
+
+const LiveIndicator = () => (
+  <div className="flex items-center gap-2 3xl:gap-4 bg-zinc-900/50 px-3 py-1.5 3xl:px-6 3xl:py-3 rounded-lg 3xl:rounded-2xl border border-zinc-800 relative overflow-hidden group">
+    <div className="relative">
+      <div className="w-2 h-2 3xl:w-4 3xl:h-4 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)] z-10"></div>
+      <div className="absolute inset-0 bg-emerald-500 rounded-full animate-ping opacity-20 scale-150"></div>
+    </div>
+    <span className="text-zinc-400 text-xs 2xl:text-sm 3xl:text-[30px] font-black uppercase tracking-widest leading-none">LIVE</span>
+    <motion.div 
+      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full"
+      animate={{ x: ['100%', '-100%'] }}
+      transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+    />
+  </div>
+);
 
 export function BayMonitor({ tenantId }: { tenantId: string }) {
   const [zones, setZones] = useState<Zone[]>([]);
@@ -19,6 +35,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
   const [now, setNow] = useState(Date.now());
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [businessName, setBusinessName] = useState('UPFITTERS OS');
+  const [monitorSettings, setMonitorSettings] = useState<any>(null);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 60000);
@@ -30,6 +47,18 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     getDoc(doc(db, 'businesses', tenantId)).then(snap => {
       if (snap.exists()) setBusinessName(snap.data().name || 'UPFITTERS OS');
     });
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsub = onSnapshot(doc(db, 'businesses', tenantId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setBusinessName(data.name || 'UPFITTERS OS');
+        setMonitorSettings(data);
+      }
+    });
+    return () => unsub();
   }, [tenantId]);
 
   useEffect(() => {
@@ -98,19 +127,61 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       document.documentElement.requestFullscreen().catch(err => {
         console.error(`Error attempting to enable fullscreen: ${err.message}`);
       });
+      localStorage.setItem('bayMonitorFullscreenPreference', 'true');
     } else {
       if (document.exitFullscreen) {
         document.exitFullscreen();
       }
+      localStorage.removeItem('bayMonitorFullscreenPreference');
     }
   };
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const isCurrentlyFullscreen = !!document.fullscreenElement;
+      setIsFullscreen(isCurrentlyFullscreen);
+      if (isCurrentlyFullscreen) {
+        localStorage.setItem('bayMonitorFullscreenPreference', 'true');
+      } else {
+        // We don't automatically remove it here because a reload might have cleared it
+        // but the user might still want it. 
+        // We only remove if they explicitly clicked the exit button (handled in toggleFullscreen)
+      }
     };
+
+    const attemptAutoFullscreen = () => {
+      const preference = localStorage.getItem('bayMonitorFullscreenPreference');
+      if (preference === 'true' && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {
+          // Expected to fail without gesture
+        });
+      }
+    };
+
+    // Listen for the first interaction to restore fullscreen
+    const handleFirstInteraction = () => {
+      const preference = localStorage.getItem('bayMonitorFullscreenPreference');
+      if (preference === 'true' && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      // Remove listener after first try
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+
+    window.addEventListener('click', handleFirstInteraction);
+    window.addEventListener('touchstart', handleFirstInteraction);
+
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    
+    // Initial check
+    attemptAutoFullscreen();
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
   }, []);
 
   const bayZones = zones.filter(zone => !zone.isArchived && zone.type === 'bay');
@@ -126,6 +197,9 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       return 0;
     });
 
+  const occupiedBays = bayZones.filter(z => !!z.currentVehicleVin).length;
+  const occupiedParking = parkingZones.filter(z => !!z.currentVehicleVin).length;
+
   const renderZoneCard = (zone: Zone, isCompact: boolean = false) => {
     const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
     const job = jobs.find((j: any) => j.id === zone.currentJobId);
@@ -137,12 +211,17 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
 
     const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
     const relevantParts = partsRequests.filter((pr: any) => {
-      const status = (pr.status || '').toLowerCase();
-      const isActive = ['pending', 'received', 'ordered'].includes(status);
+      const prStatus = (pr.status || '').toLowerCase();
+      const isActive = ['pending', 'received', 'ordered'].includes(prStatus);
       if (!isActive) return false;
+      
+      // Strictly tie parts to the Job ID if it exists
       if (job?.id && pr.jobId === job.id) return true;
-      if (zone?.id && pr.zoneId === zone.id) return true;
-      if (currentVin && pr.vin === currentVin) return true;
+      
+      // Fallback to VIN only if there is NO job assigned to this zone
+      // This allows tracking parts for a vehicle before a job is created
+      if (!job?.id && currentVin && pr.vin === currentVin) return true;
+      
       return false;
     });
     const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
@@ -154,13 +233,19 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
 
     const etaRaw = job?.expectedFinishTime || job?.eta || zone.eta;
     let isOverdue = false;
+    let isUrgent = false; // Based on business settings
     let timeLabel = '';
     let etaDate: Date | null = null;
+
+    const urgentThreshold = monitorSettings?.monitorUrgentThreshold || 4;
+
     if (etaRaw) {
       const parsedDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
       etaDate = parsedDate;
       const diffMs = parsedDate.getTime() - now;
       isOverdue = diffMs < 0;
+      isUrgent = diffMs > 0 && diffMs < urgentThreshold * 3600 * 1000;
+      
       const absDiff = Math.abs(diffMs);
       const days = Math.floor(absDiff / 86400000);
       const hours = Math.floor((absDiff % 86400000) / 3600000);
@@ -170,25 +255,58 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
 
     const hasVehicle = !!currentVin;
 
-    // Determine card color based on priority
+    const formatSmartDuration = (seconds: number, includeSeconds: boolean = false) => {
+      if (seconds <= 0) return '0m';
+      const years = Math.floor(seconds / 31536000);
+      const months = Math.floor((seconds % 31536000) / 2592000);
+      const days = Math.floor((seconds % 2592000) / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = Math.floor(seconds % 60);
+
+      if (years > 0) return `${years}y ${months}mo`;
+      if (months > 0) return `${months}mo ${days}d`;
+      if (days > 0) return `${days}d ${hours}h`;
+      if (hours > 0) return `${hours}h ${minutes}m`;
+      if (includeSeconds && seconds < 3600) return `${minutes}m ${secs}s`;
+      return `${minutes}m`;
+    };
+
+    const calculateTotalDuration = (totalSeconds: number, sessionStart: any, includeSeconds: boolean = false) => {
+      let total = totalSeconds || 0;
+      if (sessionStart) {
+        const start = sessionStart.seconds ? sessionStart.seconds * 1000 : new Date(sessionStart).getTime();
+        total += Math.max(0, Math.floor((now - start) / 1000));
+      }
+      if (total === 0) return null;
+      return formatSmartDuration(total, includeSeconds);
+    };
+
+    // Determine card color based on priority and business settings
     let cardBg = "bg-zinc-900 border-zinc-800";
+    let customBgStyle: React.CSSProperties = {};
     let textColor = "text-white";
+
+    const colors = {
+      blocked: monitorSettings?.monitorColorBlocked || '#b91c1c', // red-700
+      urgent: monitorSettings?.monitorColorUrgent || '#d97706', // amber-600
+      overdue: monitorSettings?.monitorColorOverdue || '#b91c1c', // red-700
+      active: monitorSettings?.monitorColorActive || '#1d4ed8', // blue-700
+      empty: monitorSettings?.monitorColorEmpty || '#27272a' // zinc-800
+    };
     
-    if (isBlocked) {
-      cardBg = "bg-red-950/80 border-red-900/50";
-      textColor = "text-red-100";
-    } else if (partsArrived) {
-      cardBg = "bg-emerald-950/80 border-emerald-900/50";
-      textColor = "text-emerald-100";
-    } else if (hasVehicle && isOverdue) {
-      cardBg = "bg-amber-950/80 border-amber-900/50";
-      textColor = "text-amber-100";
+    if (isBlocked || (hasVehicle && isOverdue)) {
+      customBgStyle = { backgroundColor: colors.overdue, borderColor: `${colors.overdue}ff`, boxShadow: `0 0 30px ${colors.overdue}66` };
+      textColor = "text-white font-black";
+    } else if (hasVehicle && (isUrgent || (hasParts && !partsArrived))) {
+      customBgStyle = { backgroundColor: colors.urgent, borderColor: `${colors.urgent}ff`, boxShadow: `0 0 30px ${colors.urgent}4d` };
+      textColor = "text-white font-black";
     } else if (hasVehicle) {
-      cardBg = "bg-indigo-950/80 border-indigo-900/50";
-      textColor = "text-indigo-100";
+      customBgStyle = { backgroundColor: colors.active, borderColor: `${colors.active}ff` };
+      textColor = "text-white";
     } else {
-      cardBg = "bg-zinc-900/50 border-zinc-800/50 opacity-50";
-      textColor = "text-zinc-500";
+      customBgStyle = { backgroundColor: `${colors.empty}`, borderColor: `${colors.empty}80`, opacity: 0.6 };
+      textColor = "text-zinc-400";
     }
 
     const timeInArea = () => {
@@ -206,12 +324,15 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       return `${minutes}m`;
     };
 
+    const lastUpdatedRaw = job?.updatedAt || zone.updatedAt || zone.createdAt;
+    const lastUpdatedDate = lastUpdatedRaw ? (typeof lastUpdatedRaw.toDate === 'function' ? lastUpdatedRaw.toDate() : new Date(lastUpdatedRaw.seconds ? lastUpdatedRaw.seconds * 1000 : lastUpdatedRaw)) : new Date();
+    
+    const isStale = lastUpdatedDate && (Date.now() - lastUpdatedDate.getTime() > (monitorSettings?.monitorStaleThreshold || 4) * 60 * 60 * 1000);
+
     const lastUpdated = () => {
-      const timestamp = job?.updatedAt || zone.updatedAt || zone.createdAt;
-      if (!timestamp) return 'Never';
-      let date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp.seconds ? timestamp.seconds * 1000 : timestamp);
-      if (isNaN(date.getTime())) return 'Never';
-      const diff = Math.floor((now - date.getTime()) / 1000);
+      if (!lastUpdatedRaw) return 'Never';
+      if (isNaN(lastUpdatedDate.getTime())) return 'Never';
+      const diff = Math.floor((now - lastUpdatedDate.getTime()) / 1000);
       if (diff < 60) return 'Just now';
       const hours = Math.floor(diff / 3600);
       const minutes = Math.floor((diff % 3600) / 60);
@@ -219,135 +340,325 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       if (hours > 0) return `${hours}h ago`;
       return `${minutes}m ago`;
     };
+    
+    const statusKey = `${isBlocked}-${requestedCount}-${receivedCount}-${job?.lastUpdated || ''}-${hasVehicle}`;
+
+    const cardVariants = {
+      initial: { opacity: 0, scale: 0.95 },
+      animate: { 
+        opacity: 1, 
+        scale: 1,
+        boxShadow: (isBlocked || (hasVehicle && isOverdue)) 
+          ? [`0 0 20px ${colors.overdue}66`, `0 0 50px ${colors.overdue}cc`, `0 0 20px ${colors.overdue}66`]
+          : (hasVehicle && (isUrgent || (hasParts && !partsArrived)))
+            ? [`0 0 15px ${colors.urgent}4d`, `0 0 40px ${colors.urgent}99`, `0 0 15px ${colors.urgent}4d`]
+            : "0px 0px 0px rgba(0,0,0,0)",
+        transition: {
+          boxShadow: {
+            repeat: Infinity,
+            duration: 3,
+            ease: "easeInOut" as const
+          }
+        }
+      },
+      exit: { opacity: 0, scale: 0.9, transition: { duration: 0.2 } }
+    };
 
     if (isCompact) {
       return (
-        <div key={zone.id} className={cn("relative rounded-lg border flex flex-col justify-between transition-all duration-1000 min-h-0 overflow-hidden p-2 3xl:p-3", cardBg)}>
-          
-          <div className="flex items-start justify-between shrink-0 min-h-0">
-            <div className="flex-1 min-w-0 pr-2">
-              {hasVehicle ? (
-                <div className="text-[11px] 2xl:text-sm 3xl:text-2xl font-bold text-white line-clamp-2 leading-tight">
-                  {vehicle?.year || ''} {vehicle?.make || 'Unknown'} {vehicle?.model || 'Vehicle'}
-                </div>
-              ) : (
-                <div className="text-[10px] 2xl:text-xs 3xl:text-xl font-bold text-zinc-500 uppercase tracking-widest mt-0.5">
-                  Empty
-                </div>
-              )}
+        <motion.div 
+          layout
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          variants={cardVariants}
+          key={zone.id} 
+          className={cn("relative rounded-xl border flex flex-col justify-center transition-all duration-1000 min-h-0 overflow-hidden p-1.5 3xl:p-3", cardBg)}
+          style={customBgStyle}
+        >
+          {/* Status Flash Overlay */}
+          <motion.div
+            key={statusKey}
+            initial={{ opacity: 0.8 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1 }}
+            className={cn(
+              "absolute inset-0 pointer-events-none z-20",
+              isBlocked ? "bg-red-500/20" : hasParts ? "bg-amber-500/20" : "bg-emerald-500/20"
+            )}
+          />
+
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center justify-between mb-0.5">
+              <h2 className={cn("text-[10px] 2xl:text-sm 3xl:text-2xl font-black tracking-widest uppercase opacity-50", textColor)}>
+                {zone.name}
+              </h2>
+              <div className="flex items-center gap-0.5 shrink-0 z-10">
+                {isBlocked && (
+                  <motion.div 
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ repeat: Infinity, duration: 2 }}
+                    className="bg-red-500 text-white px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[12px] font-black uppercase tracking-widest flex items-center leading-none"
+                  >
+                     !
+                  </motion.div>
+                )}
+                {hasParts && (
+                  <motion.div 
+                    key={`${requestedCount}-${receivedCount}`}
+                    animate={{ y: [0, -5, 0] }}
+                    className={cn(
+                      "px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[12px] font-black uppercase tracking-widest flex items-center leading-none",
+                      partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
+                    )}
+                  >
+                     {requestedCount}/{orderedCount}/{receivedCount}
+                  </motion.div>
+                )}
+              </div>
             </div>
             
-            <div className="flex items-center gap-0.5 shrink-0 z-10">
-              {isBlocked && (
-                <div className="bg-red-500 text-white px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[10px] font-black uppercase tracking-widest flex items-center animate-pulse leading-none mt-0.5">
-                   {activeBlockers.length > 1 ? `${activeBlockers.length}!` : 'Block'}
-                </div>
+            <AnimatePresence mode="wait">
+              {hasVehicle ? (
+                <motion.div 
+                  key={vehicle?.id || 'vehicle'}
+                  initial={{ x: 10, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: -10, opacity: 0 }}
+                  className="flex flex-col"
+                >
+                  <div className="text-[12px] 2xl:text-base 3xl:text-3xl font-black text-white line-clamp-1 leading-tight tracking-tight">
+                    {vehicle?.year || ''} {vehicle?.make || ''} {vehicle?.model || 'Vehicle'}
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <div className="text-[8px] 3xl:text-[16px] text-white/40 font-bold tracking-widest uppercase">
+                      {timeInArea()}
+                      {job && calculateTotalDuration(zone.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, zone.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart) && (
+                        <span className="ml-2 text-white/20">
+                          / {calculateTotalDuration(zone.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, zone.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.5 }}
+                  className="text-[10px] 2xl:text-xs 3xl:text-2xl font-bold text-zinc-800 uppercase tracking-widest"
+                >
+                  ---
+                </motion.div>
               )}
-              {hasParts && (
-                <div className={cn(
-                  "px-1 py-0.5 rounded-[2px] text-[7px] 3xl:text-[10px] font-black uppercase tracking-widest flex items-center leading-none mt-0.5",
-                  partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
-                )}>
-                   {requestedCount}/{orderedCount}/{receivedCount}
-                </div>
-              )}
-            </div>
+            </AnimatePresence>
           </div>
-
-          <div className="flex items-end justify-between mt-2 shrink-0">
-            <h2 className={cn("text-[10px] 2xl:text-xs 3xl:text-xl font-bold tracking-tight truncate pr-2 opacity-75", textColor)}>
-              {zone.name}
-            </h2>
-            {hasVehicle && (
-              <div className="shrink-0 text-[8px] 3xl:text-[14px] text-white/50 font-black tracking-widest bg-black/40 px-1.5 py-0.5 rounded">
-                {timeInArea()}
-              </div>
-            )}
-          </div>
-        </div>
+        </motion.div>
       );
     }
 
     return (
-      <div key={zone.id} className={cn("@container rounded-3xl p-[max(1rem,3cqw)] border-4 flex flex-col transition-all duration-1000 min-h-0 overflow-hidden", cardBg)}>
-        <div className="flex-1 min-h-0 flex flex-col">
-          <div className="flex items-start justify-between mb-[max(0.5rem,2cqw)]">
-            <h2 className={cn("text-[max(1.25rem,8cqw)] font-black tracking-tight line-clamp-2 leading-none", textColor)}>{zone.name}</h2>
-            <div className="flex flex-col items-end gap-[max(0.25rem,1cqw)] shrink-0 ml-2">
+      <motion.div 
+        layout
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        variants={cardVariants}
+        key={zone.id} 
+        className={cn(
+          "@container rounded-[1.25rem] p-[max(0.5rem,1.2cqw)] border-[3px] flex flex-col transition-all duration-500 min-h-0 overflow-hidden relative", 
+          cardBg,
+          !hasVehicle && "border-dashed opacity-60"
+        )}
+        style={customBgStyle}
+      >
+        {/* Status Flash Effect */}
+        <motion.div
+          key={statusKey}
+          initial={{ opacity: 1 }}
+          animate={{ 
+            opacity: [0, 1, 0, 1, 0],
+            backgroundColor: [
+              "rgba(255, 255, 255, 0.2)",
+              "rgba(239, 68, 68, 0.4)", // Red
+              "rgba(59, 130, 246, 0.4)", // Blue
+              "rgba(239, 68, 68, 0.4)", // Red
+              "rgba(59, 130, 246, 0.4)"  // Blue
+            ],
+            boxShadow: [
+              "inset 0 0 0px rgba(0,0,0,0)",
+              "inset 0 0 60px rgba(239, 68, 68, 0.6)",
+              "inset 0 0 60px rgba(59, 130, 246, 0.6)",
+              "inset 0 0 60px rgba(239, 68, 68, 0.6)",
+              "inset 0 0 60px rgba(59, 130, 246, 0.6)"
+            ]
+          }}
+          transition={{ duration: 1.2, ease: "linear" }}
+          className="absolute inset-0 pointer-events-none z-20 border-[8px] border-double border-white/20"
+        />
+        <div className="flex-1 min-h-0 flex flex-col justify-between">
+          <div className="flex items-start justify-between mb-0.5">
+            <h2 
+              className={cn("font-black tracking-tighter line-clamp-1 leading-none uppercase shrink-0", textColor)}
+              style={{ fontSize: 'clamp(1rem, 7cqw, 3rem)' }}
+            >
+              {zone.name}
+            </h2>
+            <div className="flex flex-col items-end gap-0.5 shrink-0 ml-2">
               {isBlocked && (
-                <div className="bg-red-500 text-white px-[max(0.5rem,1.5cqw)] py-[max(0.25rem,1cqw)] rounded-lg text-[max(0.6rem,2cqw)] font-black uppercase tracking-widest flex items-center gap-[max(0.25rem,1cqw)] animate-pulse">
-                  <AlertTriangle className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> 
-                  {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
-                </div>
+                <motion.div 
+                  animate={{ scale: [1, 1.05, 1] }}
+                  transition={{ repeat: Infinity, duration: 3 }}
+                  className="bg-red-500 text-white px-1.5 py-0.5 rounded-md text-[max(0.5rem,1.8cqw)] font-black uppercase tracking-widest flex items-center gap-1"
+                >
+                  <AlertTriangle className="w-[max(0.6rem,2cqw)] h-[max(0.6rem,2cqw)]" /> 
+                  Blocked
+                </motion.div>
               )}
               {hasParts && (
-                <div className={cn(
-                  "px-[max(0.5rem,1.5cqw)] py-[max(0.25rem,1cqw)] rounded-lg text-[max(0.6rem,2cqw)] font-black uppercase tracking-widest flex items-center gap-[max(0.25rem,1cqw)]",
-                  partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
-                )}>
-                  <ShoppingCart className="w-[max(0.75rem,2.5cqw)] h-[max(0.75rem,2.5cqw)]" /> 
-                  PARTS {requestedCount}/{orderedCount}/{receivedCount}
-                </div>
+                <motion.div 
+                  key={`${requestedCount}-${receivedCount}`}
+                  animate={{ scale: [1, 1.1, 1] }}
+                  className={cn(
+                    "px-1.5 py-0.5 rounded-md text-[max(0.5rem,1.8cqw)] font-black uppercase tracking-widest flex items-center gap-1 shadow-lg",
+                    partsArrived ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
+                  )}
+                >
+                  <ShoppingCart className="w-[max(0.6rem,2cqw)] h-[max(0.6rem,2cqw)]" /> 
+                  {requestedCount}/{orderedCount}/{receivedCount}
+                </motion.div>
               )}
             </div>
           </div>
 
-          {hasVehicle ? (
-            <div className="flex-1 min-h-0 flex flex-col justify-center mb-[max(0.5rem,2cqw)]">
-              <div className="text-[max(1.25rem,7cqw)] font-bold text-white truncate leading-tight mb-[max(0.25rem,1cqw)]">
-                {vehicle?.year || ''} {vehicle?.make || 'Unknown'} {vehicle?.model || 'Vehicle'}
-              </div>
-              {job?.title && (
-                <div className={cn("text-[max(1rem,4.5cqw)] font-medium line-clamp-2 leading-tight mb-[max(0.25rem,1cqw)]", textColor, "opacity-90")}>
-                  {job.title}
+          <AnimatePresence mode="wait">
+            {hasVehicle ? (
+              <motion.div 
+                key={vehicle?.id || 'vehicle'}
+                initial={{ y: 10, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -10, opacity: 0 }}
+                className="flex-1 min-h-0 flex flex-col justify-center py-0.5"
+              >
+                <div 
+                  className="font-black text-white line-clamp-1 tracking-tighter leading-none mb-0.5"
+                  style={{ fontSize: 'clamp(0.9rem, 6.5cqw, 2.8rem)' }}
+                >
+                  {vehicle?.year || ''} {vehicle?.make || ''} {vehicle?.model || 'Vehicle'}
                 </div>
-              )}
-              <div className="text-[max(0.65rem,2.5cqw)] font-bold uppercase tracking-widest text-white/50 line-clamp-1 leading-none">
-                {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 
-                  ? (job?.customerName || vehicle?.customerName || 'No Customer Info')
-                  : ''}
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 min-h-0 flex items-center text-[max(1.25rem,7cqw)] font-bold text-zinc-600">
-              Empty Bay
-            </div>
-          )}
+                {job?.title && (
+                  <div 
+                    className={cn("font-bold line-clamp-1 leading-none mb-0.5 tracking-tight", textColor, "opacity-90")}
+                    style={{ fontSize: 'clamp(0.7rem, 4cqw, 1.8rem)' }}
+                  >
+                    {job.title}
+                  </div>
+                )}
+                <div 
+                  className="font-black uppercase tracking-widest text-white/30 line-clamp-1 leading-none"
+                  style={{ fontSize: 'clamp(0.5rem, 2cqw, 1rem)' }}
+                >
+                  {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 
+                    ? (job?.customerName || vehicle?.customerName || 'No Customer')
+                    : ''}
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex-1 min-h-0 flex flex-col justify-center"
+              >
+                <div 
+                  className="font-black text-zinc-900/40 uppercase tracking-tighter leading-none"
+                  style={{ fontSize: 'clamp(1rem, 6cqw, 3.5rem)' }}
+                >
+                  Empty
+                </div>
+                <div 
+                  className="font-bold uppercase tracking-widest text-zinc-500 mt-1.5 leading-none"
+                  style={{ fontSize: 'clamp(0.6rem, 2cqw, 1.1rem)' }}
+                >
+                  For {timeInArea()}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {hasVehicle && (
-          <div className="pt-[max(0.5rem,2cqw)] border-t-2 border-white/10 shrink-0 grid grid-cols-2 gap-[max(0.5rem,2cqw)]">
+          <div className="pt-1 border-t border-white/10 shrink-0 grid grid-cols-2 gap-1.5">
             <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Time in Bay</span>
-              <span className="font-black text-white/90 text-[max(0.8rem,3cqw)] leading-none truncate">{timeInArea()}</span>
+              <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.6rem,2cqw)] leading-none mb-1">
+                {zone.type === 'bay' ? 'Session' : 'Parked'}
+              </span>
+              <span 
+                className="font-black text-white leading-none truncate"
+                style={{ fontSize: 'clamp(0.9rem, 3.5cqw, 2rem)' }}
+              >
+                {calculateTotalDuration(0, zone.type === 'bay' ? job?.currentBaySessionStart : job?.currentParkingSessionStart, true) || '---'}
+              </span>
             </div>
             <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Last Update</span>
-              <span className="font-black text-white/90 text-[max(0.8rem,3cqw)] leading-none truncate">{lastUpdated()}</span>
+              <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.6rem,2cqw)] leading-none mb-1">
+                {zone.type === 'bay' ? 'Total Bay' : 'Total Lot'}
+              </span>
+              <span 
+                className="font-black text-white leading-none truncate"
+                style={{ fontSize: 'clamp(0.9rem, 3.5cqw, 2rem)' }}
+              >
+                {job ? calculateTotalDuration(zone.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, zone.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart) || '---' : '---'}
+              </span>
             </div>
-            
+            <div className="flex flex-col col-span-2 mt-1.5 pt-1.5 border-t border-white/5">
+              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.5rem,1.8cqw)] leading-none mb-1">Last Updated</span>
+              <span 
+                className={cn(
+                  "font-black leading-none truncate", 
+                  isStale ? "text-amber-400" : "text-white/60"
+                )}
+                style={{ fontSize: 'clamp(0.8rem, 2.8cqw, 1.8rem)' }}
+              >
+                {lastUpdated()}
+              </span>
+            </div>
+
             {etaDate && (
-              <>
-                <div className="flex flex-col">
-                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">ETA Date</span>
-                  <span className="font-black text-white/90 text-[max(0.75rem,2.8cqw)] leading-none truncate">{etaDate.toLocaleDateString()} {etaDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+              <div className="flex flex-col col-span-2 mt-2">
+                <div className="flex items-center justify-between border-t border-white/20 pt-2">
+                  <div className="flex flex-col">
+                    <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.5rem,1.8cqw)] leading-none mb-1">ETA</span>
+                    <span 
+                      className="font-black text-white/70 leading-none truncate"
+                      style={{ fontSize: 'clamp(0.8rem, 2.8cqw, 1.8rem)' }}
+                    >
+                      {etaDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.5rem,1.8cqw)] leading-none mb-1">Due</span>
+                    <span 
+                      className={cn(
+                        "font-black tracking-tighter leading-none truncate", 
+                        isOverdue ? "text-red-400 animate-pulse" : isUrgent ? "text-amber-300" : "text-emerald-400"
+                      )}
+                      style={{ fontSize: 'clamp(1.1rem, 4.5cqw, 3rem)' }}
+                    >
+                      {isOverdue ? `-${timeLabel}` : timeLabel}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex flex-col">
-                  <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.55rem,1.8cqw)] leading-none mb-[max(0.25rem,1cqw)]">Countdown</span>
-                  <span className={cn("font-black tracking-widest text-[max(0.8rem,3cqw)] leading-none truncate", isOverdue ? "text-red-400 animate-pulse" : "text-emerald-400")}>
-                    {isOverdue ? `-${timeLabel}` : timeLabel}
-                  </span>
-                </div>
-              </>
+              </div>
             )}
           </div>
         )}
-      </div>
+      </motion.div>
     );
   };
 
   return (
-    <div className="h-screen bg-black text-white p-4 md:p-6 lg:p-8 3xl:p-8 relative overflow-hidden flex flex-col">
+    <div className="h-[100dvh] bg-black text-white p-4 md:p-6 lg:p-8 3xl:p-8 relative overflow-hidden flex flex-col">
       <Toaster position="top-right" richColors theme="system" closeButton />
       <div className="flex items-center justify-between mb-4 lg:mb-6 3xl:mb-3 shrink-0">
         <div className="flex items-center gap-4 lg:gap-6 3xl:gap-8">
@@ -367,10 +678,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
         </div>
         <div className="flex items-center gap-4 lg:gap-8 3xl:gap-8 relative z-10">
           <div className="flex flex-col items-end gap-1 3xl:gap-2">
-            <div className="flex items-center gap-2 3xl:gap-4 bg-zinc-900/50 px-3 py-1.5 3xl:px-6 3xl:py-3 rounded-lg 3xl:rounded-2xl border border-zinc-800">
-              <div className="w-2 h-2 3xl:w-4 3xl:h-4 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-              <span className="text-zinc-400 text-xs 2xl:text-sm 3xl:text-[30px] font-black uppercase tracking-widest leading-none">LIVE</span>
-            </div>
+            <LiveIndicator />
             <div className="text-[10px] md:text-xs 3xl:text-[24px] font-bold text-zinc-600 uppercase tracking-widest leading-none">
               Updated: {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>
@@ -385,28 +693,69 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
           </div>
           <button 
             onClick={toggleFullscreen}
-            className="p-3 3xl:p-6 bg-zinc-900 hover:bg-zinc-800 rounded-xl 3xl:rounded-2xl transition-colors text-zinc-400 hover:text-white shrink-0 ml-2 3xl:ml-4 border border-zinc-800"
+            className="hidden md:block p-3 3xl:p-6 bg-zinc-900 hover:bg-zinc-800 rounded-xl 3xl:rounded-2xl transition-colors text-zinc-400 hover:text-white shrink-0 ml-2 3xl:ml-4 border border-zinc-800"
           >
             {isFullscreen ? <Minimize className="w-6 h-6 3xl:w-10 3xl:h-10" /> : <Maximize className="w-6 h-6 3xl:w-10 3xl:h-10" />}
           </button>
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 gap-4 lg:gap-8 3xl:gap-4">
+      <div className="flex flex-1 min-h-0 gap-2 lg:gap-4 3xl:gap-8">
         {/* Main Bays Area */}
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6 3xl:gap-4 flex-1 min-h-0 auto-rows-fr">
-            {bayZones.map(zone => renderZoneCard(zone, false))}
+          <div className="flex items-center justify-between mb-2 3xl:mb-4">
+            <h3 
+              className="font-black uppercase tracking-[0.2em] text-zinc-500"
+              style={{ fontSize: 'clamp(0.8rem, 3cqw, 2.5rem)' }}
+            >
+              Active Shop
+            </h3>
+            <div className="flex items-center gap-2 3xl:gap-4 bg-zinc-900 border border-zinc-800 px-3 py-1 3xl:px-4 3xl:py-2 rounded-lg 3xl:rounded-xl shadow-lg">
+              <span 
+                className="text-zinc-500 font-black uppercase tracking-widest"
+                style={{ fontSize: 'clamp(0.6rem, 2cqw, 1.5rem)' }}
+              >
+                Bays:
+              </span>
+              <span 
+                className="text-white font-black"
+                style={{ fontSize: 'clamp(0.8rem, 2.5cqw, 2rem)' }}
+              >
+                {occupiedBays} / {bayZones.length}
+              </span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 lg:gap-3 3xl:gap-4 flex-1 min-h-0 auto-rows-fr">
+            <AnimatePresence>
+              {bayZones.map((zone: Zone) => renderZoneCard(zone, false))}
+            </AnimatePresence>
           </div>
         </div>
 
         {/* Parking Lot Area */}
         {parkingZones.length > 0 && (
-          <div className="w-[280px] lg:w-[350px] 3xl:w-[600px] shrink-0 flex flex-col border-l-4 border-zinc-900 pl-4 lg:pl-8 3xl:pl-12 overflow-hidden">
-            <h3 className="text-lg lg:text-xl 3xl:text-[54px] font-black uppercase tracking-widest text-zinc-500 mb-4 3xl:mb-4 shrink-0">Parking / Staging</h3>
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 min-h-0">
-              <div className="grid grid-cols-2 gap-2 lg:gap-3 3xl:gap-4 auto-rows-[minmax(60px,1fr)] 2xl:auto-rows-[minmax(80px,1fr)] 3xl:auto-rows-[minmax(120px,1fr)]">
-                {parkingZones.map(zone => renderZoneCard(zone, true))}
+          <div className="w-[200px] lg:w-[280px] 3xl:w-[500px] shrink-0 flex flex-col border-l border-zinc-900 pl-2 lg:pl-4 3xl:pl-8 overflow-hidden">
+            <div className="flex items-center justify-between mb-2 3xl:mb-4">
+              <h3 
+                className="font-black uppercase tracking-[0.2em] text-zinc-500"
+                style={{ fontSize: 'clamp(0.8rem, 3cqw, 2.5rem)' }}
+              >
+                Lot
+              </h3>
+              <div className="flex items-center gap-2 3xl:gap-4 bg-zinc-900 border border-zinc-800 px-3 py-1 3xl:px-4 3xl:py-2 rounded-lg 3xl:rounded-xl shadow-lg">
+                <span 
+                  className="text-white font-black"
+                  style={{ fontSize: 'clamp(0.8rem, 2.5cqw, 2rem)' }}
+                >
+                  {occupiedParking} / {parkingZones.length}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 min-h-0">
+              <div className="grid grid-cols-2 gap-1.5 lg:gap-2 3xl:gap-3 auto-rows-[minmax(40px,1fr)] 2xl:auto-rows-[minmax(60px,1fr)] 3xl:auto-rows-[minmax(100px,1fr)]">
+                <AnimatePresence>
+                  {parkingZones.map((zone: Zone) => renderZoneCard(zone, true))}
+                </AnimatePresence>
               </div>
             </div>
           </div>

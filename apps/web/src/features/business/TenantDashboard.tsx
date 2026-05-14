@@ -2,11 +2,11 @@ import React from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc, query, collection, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, getDoc, query, collection, where, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { Building2, Menu, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import type { PermissionKey } from '../../lib/auth/permissions';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { ForemanDashboard } from './ForemanDashboard';
 import { BusinessEvents } from './BusinessEvents';
@@ -38,6 +38,9 @@ import { StaffRoster } from './StaffRoster';
 import { PullToRefresh } from '../../components/layout/PullToRefresh';
 import { DepartmentDashboard } from './DepartmentDashboard';
 import { BayMonitor } from './BayMonitor';
+import { QuickBooksSyncPage } from './QuickBooksSyncPage';
+import { JobDetailPage } from './JobDetailPage';
+import { JobEditPage } from './JobEditPage';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -51,7 +54,7 @@ export function TenantDashboard() {
   const titleMap: Record<string, string> = {
     overview: 'My Dashboard',
     mission_control: 'Mission Control',
-    foreman: 'Shop Floor',
+    upfitters: 'Upfitters',
     settings: 'Settings',
     staff: 'Staff',
     reports: 'Reports',
@@ -67,7 +70,8 @@ export function TenantDashboard() {
     jobs: 'Jobs',
     vehicles: 'Vehicles',
     zones: 'Zones',
-    bay_monitor: 'Bay Monitor'
+    bay_monitor: 'Bay Monitor',
+    job: 'Job Detail'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -79,6 +83,13 @@ export function TenantDashboard() {
   const tenantId = (isSuperAdmin && urlTenantId) ? urlTenantId : storeTenantId;
 
   const navigate = useNavigate();
+  
+  // Legacy Redirect: foreman -> upfitters
+  useEffect(() => {
+    if (activeTab === 'foreman') {
+      navigate(`/business/${tenantId}/upfitters`, { replace: true });
+    }
+  }, [activeTab, navigate, tenantId]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleTabClick = (tabId: string, state?: any) => {
@@ -117,6 +128,24 @@ export function TenantDashboard() {
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
 
+  const { data: activeSync } = useQuery({
+    queryKey: ['qbwc-active-sync', tenantId],
+    queryFn: async () => {
+      if (!tenantId || tenantId === 'GLOBAL') return null;
+      const q = query(
+        collection(db, 'qbwc_queue'),
+        where('tenantId', '==', tenantId),
+        where('status', 'in', ['pending', 'processing']),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) return null;
+      return snap.docs[0].data();
+    },
+    refetchInterval: 5000,
+    enabled: !!tenantId && tenantId !== 'GLOBAL'
+  });
+
   return (
     <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
       <PullToRefresh onRefresh={() => window.location.reload()} />
@@ -127,6 +156,7 @@ export function TenantDashboard() {
           isOpen={isSidebarOpen} 
           setIsOpen={setIsSidebarOpen} 
           lastSync={lastSync}
+          activeSync={activeSync}
         />
       )}
 
@@ -180,20 +210,28 @@ export function TenantDashboard() {
                 </div>
                 <div>
                   <h1 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {activeTab === 'overview' ? 'My Dashboard' : activeTab === 'mission_control' ? business?.name : activeTab === 'foreman' ? 'Shop' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    {activeTab === 'overview' ? 'My Dashboard' : activeTab === 'mission_control' ? business?.name : activeTab === 'upfitters' ? 'Upfitters' : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </h1>
                   {activeTab !== 'overview' && (
                     <p className="text-sm text-zinc-500 dark:text-zinc-400">
                       {activeTab === 'mission_control' ? 'Tenant Overview' : `Business ${activeTab.includes('qb_') ? 'Sync' : 'Operational'} Data`}
                     </p>
                   )}
-                  {activeTab === 'mission_control' && lastSync && (
+                  {activeTab === 'mission_control' && activeSync && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <RefreshCw className="w-4 h-4 text-emerald-500 animate-spin" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-emerald-500 animate-pulse">
+                        Sync in Progress... ({activeSync.action.replace('Query', '')})
+                      </span>
+                    </div>
+                  )}
+                  {activeTab === 'mission_control' && !activeSync && lastSync && (
                     <div className="flex items-center gap-1.5 mt-2 text-zinc-400">
                       <RefreshCw className="w-3 h-3 text-emerald-500" />
                       <span className="text-[10px] font-bold uppercase tracking-wider">
                         QuickBooks Synced: {(() => {
-                          const ts = lastSync.timestamp;
-                          const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : new Date(lastSync.createdAt);
+                          const ts = lastSync.timestamp as any;
+                          const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : new Date((lastSync as any).createdAt);
                           return date.toLocaleString();
                         })()}
                       </span>
@@ -217,7 +255,7 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
-            {activeTab === 'foreman' && (
+            {activeTab === 'upfitters' && (
               <PermissionGate permission="foreman.view">
                 <ForemanDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
               </PermissionGate>
@@ -331,6 +369,18 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
+              <PermissionGate permission="jobs.view">
+                <JobDetailPage tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'job' && (pathParts[2] === 'edit' || pathParts[1] === 'create') && (
+              <PermissionGate permission="jobs.manage">
+                <JobEditPage tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'items' && (
               <PermissionGate permission="parts.view">
                 <PartsManager tenantId={tenantId!} />
@@ -373,6 +423,10 @@ export function TenantDashboard() {
 
             {activeTab === 'announcements' && (
               <GenericDataGrid collectionPath={`businesses/${tenantId}/announcements`} title="Announcements" />
+            )}
+
+            {activeTab === 'qb_sync_status' && (
+              <QuickBooksSyncPage tenantId={tenantId!} />
             )}
 
             {activeTab === 'qb_customers' && (

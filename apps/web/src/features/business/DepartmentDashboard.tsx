@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Hammer, Package, Clock, Filter, AlertCircle, Car, Warehouse, ListChecks, User, Palette, Wrench,
   Maximize, Minimize
@@ -17,6 +17,7 @@ interface DepartmentDashboardProps {
 }
 
 export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: DepartmentDashboardProps) {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -61,15 +62,17 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), snap => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
+
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), snap => {
       setAllJobs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Jobs listener error:", err));
+
     const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Parts listener error:", err));
 
     return () => {
       unsubVehicles();
@@ -132,7 +135,7 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -224,8 +227,7 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
                   <div 
                     key={job.id}
                     onClick={() => {
-                      searchParams.set('jobId', job.id);
-                      setSearchParams(searchParams);
+                      navigate(`/business/${tenantId}/job/${job.id}`);
                     }}
                     className={cn(
                       "p-5 bg-white dark:bg-zinc-900 border rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer group",
@@ -274,7 +276,11 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
           </h2>
           <div className="space-y-4">
             {blockedJobs.map(job => (
-              <div key={job.id} className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl">
+              <div 
+                key={job.id} 
+                onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl cursor-pointer hover:border-red-500/50 transition-colors"
+              >
                 <p className="text-xs font-black text-red-600 uppercase tracking-widest mb-1">Production Blocked</p>
                 <h4 className="font-bold text-sm text-zinc-900 dark:text-white mb-2">{job.title}</h4>
                 <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-red-100 dark:border-red-900/20 text-xs text-red-600 font-medium">
@@ -284,7 +290,15 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
             ))}
 
             {pendingParts.map(part => (
-              <div key={part.id} className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl">
+              <div 
+                key={part.id} 
+                onClick={() => {
+                  if (part.jobId) {
+                    navigate(`/business/${tenantId}/job/${part.jobId}`);
+                  }
+                }}
+                className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl cursor-pointer hover:border-amber-500/50 transition-colors"
+              >
                 <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Part Awaiting</p>
                 <h4 className="font-bold text-sm text-zinc-900 dark:text-white mb-1">{part.partName}</h4>
                 <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500 uppercase">

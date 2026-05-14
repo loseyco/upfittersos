@@ -105,7 +105,7 @@ export function GlobalSearchModal() {
   }, [isOpen]);
 
   const { data: searchIndex, isLoading } = useQuery({
-    queryKey: ['global-search-index', tenantId],
+    queryKey: ['global-search-index', tenantId, allVehicles?.length],
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return [];
       
@@ -118,6 +118,15 @@ export function GlobalSearchModal() {
             const data = docSnap.data();
             if (data.isArchived) return;
             const { title, subtitle, searchTerms = [] } = mapper(data);
+            
+            // Enrich Job with Vehicle info for searchability
+            if (type === 'Job' && data.vehicleId) {
+              const v = allVehicles.find(veh => veh.id === data.vehicleId || veh.vin === data.vehicleId);
+              if (v) {
+                searchTerms.push(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim());
+              }
+            }
+
             const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
             results.push({ id: docSnap.id, type, title, subtitle, searchString, rawData: data });
           });
@@ -137,11 +146,15 @@ export function GlobalSearchModal() {
           subtitle: `VIN: ${data.vin || 'N/A'} • ${data.customerName || 'No Customer'}`,
           searchTerms: [data.vin, data.licensePlate, data.color, data.customerName, data.notes]
         })),
-        fetchCollection('jobs', 'Job', data => ({
-          title: data.title || data.Name || data.FullName || 'Unnamed Job',
-          subtitle: `Status: ${data.status || data.JobStatus || 'Pending'} • ${data.description || data.notes || ''}`.substring(0, 100),
-          searchTerms: [data.jobNumber, data.description, data.notes, data.customerName, data.vin]
-        })),
+        fetchCollection('jobs', 'Job', data => {
+          const vehicle = allVehicles.find(v => v.id === data.vehicleId || v.vin === data.vehicleId);
+          const vehicleInfo = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : `VIN: ${data.vehicleId || data.vin || 'N/A'}`;
+          return {
+            title: data.title || data.Name || data.FullName || 'Unnamed Job',
+            subtitle: `${data.customerName || 'No Customer'} • ${vehicleInfo} • ${data.status || data.JobStatus || 'Pending'}`.substring(0, 100),
+            searchTerms: [data.jobNumber, data.description, data.notes, data.customerName, data.vehicleId, data.vin]
+          };
+        }),
         fetchCollection('inventory_items', 'Inventory', data => ({
           title: data.name || data.FullName || data.Name || 'Unnamed Item',
           subtitle: `SKU: ${data.sku || data.SalesDesc || 'N/A'} • Stock: ${data.quantityOnHand || data.QuantityOnHand || 0}`,
@@ -191,6 +204,11 @@ export function GlobalSearchModal() {
   function handleResultClick(item: SearchResult) {
     if (item.type === 'Staff') {
       navigate(`/business/${tenantId}/performance?staffName=${encodeURIComponent(item.title)}`);
+      close();
+      return;
+    }
+    if (item.type === 'Job') {
+      navigate(`/business/${tenantId}/job/${item.id}`);
       close();
       return;
     }
@@ -310,17 +328,6 @@ export function GlobalSearchModal() {
           }}
           getSource={getSource}
           onConfirmAction={setConfirmConfig}
-        />
-      )}
-
-      {selectedResult && selectedResult.type === 'Job' && (
-        <JobDetailsModal 
-          tenantId={tenantId as string}
-          job={{ id: selectedResult.id, ...selectedResult.rawData }}
-          onClose={() => setSelectedResult(null)}
-          onUpdate={() => {
-            queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
-          }}
         />
       )}
 

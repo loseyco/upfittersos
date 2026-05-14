@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
+import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore';
 import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize } from 'lucide-react';
 import { JobDetailsModal } from './JobDetailsModal';
 import { ZoneDetailsModal } from './ZoneModals';
@@ -18,7 +19,9 @@ import { useSearchStore } from '../../lib/store/searchStore';
 import { DeviceSettings } from '../../components/DeviceSettings';
 
 export function UserMissionControl({ tenantId }: { tenantId: string }) {
-  const { user } = useAuthStore();
+  const navigate = useNavigate();
+  const { user, impersonatedStaff } = useAuthStore();
+  const effectiveUserId = impersonatedStaff?.id || user?.uid;
   const { activeSessionId } = useTimeclockStore();
   const { open: openSearch } = useSearchStore();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,6 +60,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const [allActiveJobs, setAllActiveJobs] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [sessionJobIds, setSessionJobIds] = useState<string[]>([]);
   
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<any>(null);
@@ -123,40 +127,58 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   };
 
   useEffect(() => {
-    if (!tenantId || !user?.uid) return;
+    if (!tenantId || !effectiveUserId) return;
 
     // Fetch All Jobs to allow deriving both direct and zone-based assignments
-    const jobsQ = query(collection(db, `businesses/${tenantId}/jobs`));
+    // Sorted by lastWorkedAt to show most recently worked on at the top
+    const jobsQ = query(
+      collection(db, `businesses/${tenantId}/jobs`),
+      orderBy('lastWorkedAt', 'desc')
+    );
     const unsubJobs = onSnapshot(jobsQ, (snap) => {
       const active = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status));
       setAllActiveJobs(active);
       setLastUpdated(new Date());
+    }, (err) => {
+      // Fallback if index isn't created yet or other error
+      console.error("Jobs query error (likely missing index):", err);
+      const fallbackQ = query(collection(db, `businesses/${tenantId}/jobs`));
+      onSnapshot(fallbackQ, (snap) => {
+        const active = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status))
+          .sort((a: any, b: any) => {
+            const getTs = (item: any) => item.lastWorkedAt?.seconds ? item.lastWorkedAt.seconds * 1000 : new Date(item.lastWorkedAt || 0).getTime();
+            return getTs(b) - getTs(a);
+          });
+        setAllActiveJobs(active);
+      });
     });
 
     // Fetch My Zones (Bays)
     const zonesQ = query(
       collection(db, `businesses/${tenantId}/zones`),
-      where('assignedStaffIds', 'array-contains', user.uid)
+      where('assignedStaffIds', 'array-contains', effectiveUserId)
     );
     const unsubZones = onSnapshot(zonesQ, (snap) => {
       setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Zones listener error:", err));
 
     // Fetch vehicles for display context
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
       setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    });
+    }, (err) => console.error("Vehicles listener error:", err));
 
     return () => {
       unsubJobs();
       unsubZones();
       unsubVehicles();
     };
-  }, [tenantId, user?.uid]);
+  }, [tenantId, effectiveUserId]);
 
   useEffect(() => {
     if (!tenantId || !activeSessionId) {
@@ -168,6 +190,11 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         const data = snap.data();
         const jobs = data.jobs || [];
         const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+        
+        // Track all jobs worked in this session for "Recent" visibility
+        const uniqueJobIds = Array.from(new Set(jobs.map((j: any) => j.id))) as string[];
+        setSessionJobIds(uniqueJobIds);
+
         if (lastJob && !lastJob.end) {
           setActiveJobId(lastJob.id);
         } else {
@@ -180,11 +207,14 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [tenantId, activeSessionId]);
 
-  // Derive my jobs: explicitly assigned OR implicitly assigned via my zones
+  // Derive my jobs: explicitly assigned OR implicitly assigned via my zones OR clocked in OR recently worked
   const myJobs = allActiveJobs.filter(job => {
-    const explicitlyAssigned = job.assignedStaffIds?.includes(user?.uid);
+    const explicitlyAssigned = job.assignedStaffIds?.includes(effectiveUserId);
     const implicitlyAssigned = zones.some(z => z.currentJobId === job.id);
-    return explicitlyAssigned || implicitlyAssigned;
+    const isClockedIn = job.id === activeJobId;
+    const workedRecently = sessionJobIds.includes(job.id);
+    
+    return explicitlyAssigned || implicitlyAssigned || isClockedIn || workedRecently;
   });
 
   const getStatusColor = (status: string) => {
@@ -218,7 +248,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         )}
         <button 
           onClick={toggleFullscreen}
-          className="w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
         >
           {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
           {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
@@ -316,7 +346,14 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
               myJobs.map(job => (
                 <div 
                   key={job.id}
-                  onClick={() => setSelectedJob(job)}
+                  onClick={() => {
+                    const zone = zones.find(z => z.currentJobId === job.id);
+                    const vehicle = vehicles.find(v => v.vin === zone?.currentVehicleVin);
+                    const jobId = job.id || zone?.currentJobId || vehicle?.jobId;
+                    if (jobId) {
+                      navigate(`/business/${tenantId}/job/${jobId}`);
+                    }
+                  }}
                   className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
                 >
                   <div className="flex-1 min-w-0 pr-4">
@@ -325,10 +362,20 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
                         {job.status}
                       </span>
+                      {activeJobId === job.id && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse">
+                          Clocked In
+                        </span>
+                      )}
+                      {(!job.assignedStaffIds?.includes(effectiveUserId) && !zones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && activeJobId !== job.id) && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                          Recent Activity
+                        </span>
+                      )}
                     </div>
-                    <h3 className="font-bold text-zinc-900 dark:text-white text-base leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
+                    <h3 className="font-black text-zinc-900 dark:text-white text-lg leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
                     {job.customerName && (
-                      <p className="text-xs font-medium text-zinc-500 mt-1">{job.customerName}</p>
+                      <p className="text-sm font-bold text-zinc-500 mt-1">{job.customerName}</p>
                     )}
                     {job.scheduledArrivalTime && (
                       <p className="text-[10px] font-bold text-indigo-500 mt-1.5 flex items-center gap-1 uppercase tracking-widest">
@@ -404,14 +451,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         tenantId={tenantId}
       />
 
-      {selectedJob && (
-        <JobDetailsModal
-          tenantId={tenantId}
-          job={selectedJob}
-          onClose={() => setSelectedJob(null)}
-          onUpdate={() => {}}
-        />
-      )}
+
 
       {selectedZone && (
         <ZoneDetailsModal

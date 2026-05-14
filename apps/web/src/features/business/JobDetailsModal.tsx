@@ -700,6 +700,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
                         >
                           <option value="Open">Open</option>
                           <option value="Active">Active</option>
+                          <option value="Almost Ready">Almost Ready</option>
                           <option value="Blocked">Blocked</option>
                           <option value="On Hold">On Hold</option>
                           <option value="Ready for QA">Ready for QA</option>

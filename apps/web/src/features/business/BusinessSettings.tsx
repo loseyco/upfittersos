@@ -3,7 +3,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
-import { Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map } from 'lucide-react';
+import { Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map, Monitor, Palette, AlertTriangle, BellRing } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function BusinessSettings({ tenantId, initialData }: { tenantId: string; initialData?: any }) {
@@ -28,7 +28,23 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     breakPaid: initialData?.breakPaid ?? false,
     siteLat: initialData?.siteLat || '',
     siteLng: initialData?.siteLng || '',
-    siteRadius: initialData?.siteRadius || 500
+    siteRadius: initialData?.siteRadius || 500,
+    // Monitor Settings
+    monitorUrgentThreshold: initialData?.monitorUrgentThreshold || 4,
+    monitorStaleThreshold: initialData?.monitorStaleThreshold || 24,
+    monitorColorBlocked: initialData?.monitorColorBlocked || '#b91c1c',
+    monitorColorUrgent: initialData?.monitorColorUrgent || '#d97706',
+    monitorColorOverdue: initialData?.monitorColorOverdue || '#b91c1c',
+    monitorColorActive: initialData?.monitorColorActive || '#1d4ed8',
+    monitorColorEmpty: initialData?.monitorColorEmpty || '#27272a',
+    // Global Notifications
+    globalNotifyBayArrivals: initialData?.globalNotifyBayArrivals ?? true,
+    globalNotifyReadyForQA: initialData?.globalNotifyReadyForQA ?? true,
+    globalNotifyReadyForCustomer: initialData?.globalNotifyReadyForCustomer ?? true,
+    globalNotifyStaleBays: initialData?.globalNotifyStaleBays ?? true,
+    globalNotifyBlockers: initialData?.globalNotifyBlockers ?? true,
+    globalNotifyMissingParts: initialData?.globalNotifyMissingParts ?? true,
+    globalNotifyBayUpdates: initialData?.globalNotifyBayUpdates ?? true
   });
 
   useEffect(() => {
@@ -51,7 +67,21 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         breakPaid: initialData.breakPaid ?? false,
         siteLat: initialData.siteLat || '',
         siteLng: initialData.siteLng || '',
-        siteRadius: initialData.siteRadius || 500
+        siteRadius: initialData.siteRadius || 500,
+        monitorUrgentThreshold: initialData.monitorUrgentThreshold || 4,
+        monitorStaleThreshold: initialData.monitorStaleThreshold || 24,
+        monitorColorBlocked: initialData.monitorColorBlocked || '#b91c1c',
+        monitorColorUrgent: initialData.monitorColorUrgent || '#d97706',
+        monitorColorOverdue: initialData.monitorColorOverdue || '#b91c1c',
+        monitorColorActive: initialData.monitorColorActive || '#1d4ed8',
+        monitorColorEmpty: initialData.monitorColorEmpty || '#27272a',
+        globalNotifyBayArrivals: initialData.globalNotifyBayArrivals ?? true,
+        globalNotifyReadyForQA: initialData.globalNotifyReadyForQA ?? true,
+        globalNotifyReadyForCustomer: initialData.globalNotifyReadyForCustomer ?? true,
+        globalNotifyStaleBays: initialData.globalNotifyStaleBays ?? true,
+        globalNotifyBlockers: initialData.globalNotifyBlockers ?? true,
+        globalNotifyMissingParts: initialData.globalNotifyMissingParts ?? true,
+        globalNotifyBayUpdates: initialData.globalNotifyBayUpdates ?? true
       });
     }
   }, [initialData]);
@@ -109,6 +139,14 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     }
   };
 
+
+  const handleTestNotification = () => {
+    toast.info('PATROL ALERT TEST', {
+      description: 'This is a preview of the emergency notification system.',
+      duration: 5000,
+      className: 'cop-lights-toast',
+    });
+  };
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
@@ -250,6 +288,168 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
                   <input type="number" name="siteRadius" value={formData.siteRadius} onChange={handleChange} placeholder="500" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white font-mono text-sm" />
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+        
+        {/* Monitor & Dashboard Settings */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg">
+              <Monitor className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Monitor & Dashboard</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Configure thresholds and visual priorities for shop floor monitors.</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Urgent Threshold (Hours)
+                </label>
+                <input 
+                  type="number" 
+                  name="monitorUrgentThreshold" 
+                  value={formData.monitorUrgentThreshold} 
+                  onChange={handleChange} 
+                  className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white"
+                  placeholder="e.g. 4"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1">Jobs due in less than this many hours will turn Amber.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Stale Threshold (Hours)
+                </label>
+                <input 
+                  type="number" 
+                  name="monitorStaleThreshold" 
+                  value={formData.monitorStaleThreshold} 
+                  onChange={handleChange} 
+                  className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white"
+                  placeholder="e.g. 24"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1">Jobs with no updates for this long will pulse Red.</p>
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-2 mb-4">
+                <Palette className="w-4 h-4 text-zinc-400" />
+                <label className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Monitor Color Themes</label>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Priority / Blocked (Red)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" name="monitorColorBlocked" value={formData.monitorColorBlocked} onChange={handleChange} className="w-8 h-8 rounded border-none cursor-pointer p-0 bg-transparent" />
+                    <input type="text" name="monitorColorBlocked" value={formData.monitorColorBlocked} onChange={handleChange} className="flex-1 min-w-0 text-[10px] font-mono bg-transparent border-none dark:text-white p-0" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Issue / Soon Due (Yellow)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" name="monitorColorUrgent" value={formData.monitorColorUrgent} onChange={handleChange} className="w-8 h-8 rounded border-none cursor-pointer p-0 bg-transparent" />
+                    <input type="text" name="monitorColorUrgent" value={formData.monitorColorUrgent} onChange={handleChange} className="flex-1 min-w-0 text-[10px] font-mono bg-transparent border-none dark:text-white p-0" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Normal (Blue)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" name="monitorColorActive" value={formData.monitorColorActive} onChange={handleChange} className="w-8 h-8 rounded border-none cursor-pointer p-0 bg-transparent" />
+                    <input type="text" name="monitorColorActive" value={formData.monitorColorActive} onChange={handleChange} className="flex-1 min-w-0 text-[10px] font-mono bg-transparent border-none dark:text-white p-0" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1.5">Empty (Gray)</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" name="monitorColorEmpty" value={formData.monitorColorEmpty} onChange={handleChange} className="w-8 h-8 rounded border-none cursor-pointer p-0 bg-transparent" />
+                    <input type="text" name="monitorColorEmpty" value={formData.monitorColorEmpty} onChange={handleChange} className="flex-1 min-w-0 text-[10px] font-mono bg-transparent border-none dark:text-white p-0" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Global Notifications */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
+            <div className="p-2 bg-rose-50 dark:bg-rose-500/10 rounded-lg">
+              <BellRing className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Global Notification Controls</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Determine which automated alerts are active across the entire platform.</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Bay Arrivals</span>
+                <span className="text-xs text-zinc-500">Alert staff when a vehicle enters a bay</span>
+              </div>
+              <input type="checkbox" name="globalNotifyBayArrivals" checked={formData.globalNotifyBayArrivals} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">General Bay Updates</span>
+                <span className="text-xs text-zinc-500">Alert staff when a user updates a bay's status, notes, or ETA</span>
+              </div>
+              <input type="checkbox" name="globalNotifyBayUpdates" checked={formData.globalNotifyBayUpdates} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Stale Bays Warning</span>
+                <span className="text-xs text-zinc-500">Alert staff when a bay has been inactive beyond the threshold</span>
+              </div>
+              <input type="checkbox" name="globalNotifyStaleBays" checked={formData.globalNotifyStaleBays} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Job Ready for QA</span>
+                <span className="text-xs text-zinc-500">Alert staff when a job's status changes to "Ready for QA"</span>
+              </div>
+              <input type="checkbox" name="globalNotifyReadyForQA" checked={formData.globalNotifyReadyForQA} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Job Ready for Customer</span>
+                <span className="text-xs text-zinc-500">Alert staff when a job's status changes to "Ready for Customer"</span>
+              </div>
+              <input type="checkbox" name="globalNotifyReadyForCustomer" checked={formData.globalNotifyReadyForCustomer} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Active Blockers</span>
+                <span className="text-xs text-zinc-500">Alert staff when a blocker is added to a job or bay</span>
+              </div>
+              <input type="checkbox" name="globalNotifyBlockers" checked={formData.globalNotifyBlockers} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Missing Parts Requests</span>
+                <span className="text-xs text-zinc-500">Alert staff when missing parts are requested</span>
+              </div>
+              <input type="checkbox" name="globalNotifyMissingParts" checked={formData.globalNotifyMissingParts} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+            </div>
+            
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+              <div>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block">Preview Alert System</span>
+                <span className="text-xs text-zinc-500">Test the "Patrol Mode" cop light notification effect</span>
+              </div>
+              <button 
+                type="button"
+                onClick={handleTestNotification}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded-lg transition-colors shadow-lg shadow-rose-900/20"
+              >
+                Trigger Test Alert
+              </button>
             </div>
           </div>
         </section>

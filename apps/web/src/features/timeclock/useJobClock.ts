@@ -53,6 +53,11 @@ export function useJobClock(tenantId: string) {
         updatedAt: serverTimestamp()
       });
 
+      // Update lastWorkedAt on the job itself for dashboard sorting
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+        lastWorkedAt: serverTimestamp()
+      });
+
       toast.success(`Clocked into ${taskName || jobName}`);
     } catch (e) {
       console.error(e);

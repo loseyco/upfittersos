@@ -15,6 +15,7 @@ import { StaffSelector } from './StaffSelectionComponents';
 import { VinSelector } from './VehicleSelector';
 import { useAuthStore } from '../../lib/auth/store';
 import { useSearchParams } from 'react-router-dom';
+import { cn } from '../../lib/utils';
 
 export interface Zone {
   id: string;
@@ -337,20 +338,22 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                   </button>
                   <button 
                     onClick={() => openFloorWalk('parts')}
-                    className="flex flex-col items-center justify-center gap-1 p-2 bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-xl transition-all group relative"
+                    disabled={!job}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-1 p-2 border rounded-xl transition-all group relative",
+                      job 
+                        ? "bg-amber-500/5 hover:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                        : "bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-600 border-zinc-100 dark:border-zinc-800 opacity-50 cursor-not-allowed"
+                    )}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     <span className="text-[8px] font-black uppercase tracking-tighter">Parts</span>
-                    {(() => {
+                    {job && (() => {
                       const activeParts = (partsRequests || []).filter((pr: any) => {
                         const status = (pr.status || '').toLowerCase();
                         const isActive = ['pending', 'received', 'ordered'].includes(status);
                         if (!isActive) return false;
-                        
-                        if (pr.jobId) return job?.id === pr.jobId;
-                        const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
-                        if (pr.vin) return currentVin === pr.vin;
-                        return zone?.id === pr.zoneId;
+                        return pr.jobId === job.id;
                       });
                       const count = activeParts.length;
                       if (count === 0) return null;
@@ -364,12 +367,18 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                   </button>
                   <button 
                     onClick={() => openFloorWalk('notes')}
-                    className="flex flex-col items-center justify-center gap-1 p-2 bg-indigo-500/5 hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-xl transition-all group relative"
+                    disabled={!job}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-1 p-2 border rounded-xl transition-all group relative",
+                      job 
+                        ? "bg-indigo-500/5 hover:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                        : "bg-zinc-50 dark:bg-zinc-800/50 text-zinc-300 dark:text-zinc-600 border-zinc-100 dark:border-zinc-800 opacity-50 cursor-not-allowed"
+                    )}
                   >
                     <MessageSquare className="w-4 h-4" />
                     <span className="text-[8px] font-black uppercase tracking-tighter">Note</span>
-                    {(() => {
-                      const noteCount = targetEntity.work_notes?.length || 0;
+                    {job && (() => {
+                      const noteCount = job.work_notes?.length || 0;
                       if (noteCount === 0) return null;
                       return (
                         <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-500 text-white text-[8px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-zinc-900 shadow-sm">
@@ -394,17 +403,13 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
               {/* High-Level Status Summary (Blockers/Parts/Notes) */}
               {(() => {
                 const activeBlocker = (targetEntity.blockers || []).find((b: any) => b.status === 'active')?.message || targetEntity.blocker;
-                const latestNote = targetEntity.work_notes?.[targetEntity.work_notes.length - 1]?.message;
+                const latestNote = job?.work_notes?.[job.work_notes.length - 1]?.message;
                 
                 const activeParts = (partsRequests || []).filter((pr: any) => {
                   const status = (pr.status || '').toLowerCase();
                   const isActive = ['pending', 'received', 'ordered'].includes(status);
                   if (!isActive) return false;
-                  
-                  if (pr.jobId) return job?.id === pr.jobId;
-                  const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
-                  if (pr.vin) return currentVin === pr.vin;
-                  return zone?.id === pr.zoneId;
+                  return job?.id && pr.jobId === job.id;
                 });
                 
                 if (!activeBlocker && !latestNote && activeParts.length === 0) return null;
@@ -961,6 +966,16 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
           type: 'job',
           title: 'ETA Updated',
           message: `ETA updated to ${new Date(floorWalk.eta).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} for ${job?.jobNumber ? '#' + job.jobNumber : zone.name}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author
+        });
+      } else {
+        // Generic Bay Update
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'job',
+          title: 'Bay Updated',
+          message: `${author} updated ${zone.name}`,
           timestamp: serverTimestamp(),
           severity: 'info',
           author
