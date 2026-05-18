@@ -90,7 +90,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           expectedFinishTime: formatDatetimeLocal(data.expectedFinishTime),
           estimatedHours: data.estimatedHours || '',
           assignedStaff: data.assignedStaff || [],
-          currentZoneId: zones.find(z => z.currentJobId === jobId)?.id || ''
+          currentZoneId: zones.find(z => z.currentJobId === jobId)?.id || '',
+          companyCamId: data.companyCamId || ''
         });
       }
     }, (err) => console.error("Job header listener error:", err));
@@ -748,7 +749,12 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             <input 
               type="text"
               value={formData.companyCamId || ''}
-              onChange={e => setFormData((prev: any) => ({ ...prev, companyCamId: e.target.value }))}
+              onChange={e => {
+                let val = e.target.value;
+                const match = val.match(/projects\/(\d+)/);
+                if (match) val = match[1];
+                setFormData((prev: any) => ({ ...prev, companyCamId: val }));
+              }}
               placeholder="Project ID..."
               className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-bold"
             />
