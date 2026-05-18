@@ -356,6 +356,8 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
         instructions: template?.instructions || null,
         status: 'pending',
         assignedStaff: [],
+        assignedStaffIds: [],
+        tenantId: tenantId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
@@ -423,7 +425,11 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
   const handleUpdateTask = async (taskId: string, updates: any) => {
     try {
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId);
-      const updatedData = { ...updates, updatedAt: new Date().toISOString() };
+      const updatedData = { 
+        ...updates, 
+        assignedStaffIds: updates.assignedStaff ? updates.assignedStaff.map((s: any) => s.id) : undefined,
+        updatedAt: new Date().toISOString() 
+      };
       await updateDoc(taskRef, updatedData);
 
       if (updates.assignedStaff) {
@@ -912,48 +918,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
               <div className="grid grid-cols-1 gap-4 mb-8">
                   {/* Add Task Form */}
-                 <div className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
-                    <div className="flex-1">
-                      <input
-                        type="text"
-                        list="task-templates-list"
-                        value={newTaskTitle}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setNewTaskTitle(val);
-                          const t = taskTemplates.find(tmp => tmp.name === val);
-                          if (t && t.defaultBookTime) {
-                            setNewTaskBookTime(t.defaultBookTime.toString());
-                          }
-                        }}
-                        placeholder="Task description (e.g. Install Front Bumper)..."
-                        className="w-full px-4 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
-                      <datalist id="task-templates-list">
-                        {taskTemplates.map(t => (
-                          <option key={t.id} value={t.name} />
-                        ))}
-                      </datalist>
-                    </div>
-                    <div className="w-full sm:w-48 flex gap-2">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={newTaskBookTime}
-                        onChange={e => setNewTaskBookTime(e.target.value)}
-                        placeholder="Book h"
-                        className="w-20 px-3 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center"
-                      />
-                      <button
-                        onClick={handleAddTask}
-                        disabled={isAddingTask || !newTaskTitle.trim()}
-                        className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Task
-                      </button>
-                    </div>
-                 </div>
+                  {/* Add Task Form Removed - Use Edit Job Page */}
 
                  {/* Task List */}
                  {tasks.length === 0 ? (
@@ -1641,6 +1606,8 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
         instructions: template?.instructions || null,
         status: 'pending',
         assignedStaff: [],
+        assignedStaffIds: [],
+        tenantId: tenantId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
@@ -1708,7 +1675,11 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
   const handleUpdateTask = async (taskId: string, updates: any) => {
     try {
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId);
-      const updatedData = { ...updates, updatedAt: new Date().toISOString() };
+      const updatedData = { 
+        ...updates, 
+        assignedStaffIds: updates.assignedStaff ? updates.assignedStaff.map((s: any) => s.id) : undefined,
+        updatedAt: new Date().toISOString() 
+      };
       await updateDoc(taskRef, updatedData);
 
       if (updates.assignedStaff) {
@@ -2196,48 +2167,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
               <div className="grid grid-cols-1 gap-4 mb-8">
                   {/* Add Task Form */}
-                 <div className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
-                    <div className="flex-1">
-                      <input
-                        type="text"
-                        list="task-templates-list"
-                        value={newTaskTitle}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setNewTaskTitle(val);
-                          const t = taskTemplates.find(tmp => tmp.name === val);
-                          if (t && t.defaultBookTime) {
-                            setNewTaskBookTime(t.defaultBookTime.toString());
-                          }
-                        }}
-                        placeholder="Task description (e.g. Install Front Bumper)..."
-                        className="w-full px-4 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                      />
-                      <datalist id="task-templates-list">
-                        {taskTemplates.map(t => (
-                          <option key={t.id} value={t.name} />
-                        ))}
-                      </datalist>
-                    </div>
-                    <div className="w-full sm:w-48 flex gap-2">
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={newTaskBookTime}
-                        onChange={e => setNewTaskBookTime(e.target.value)}
-                        placeholder="Book h"
-                        className="w-20 px-3 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center"
-                      />
-                      <button
-                        onClick={handleAddTask}
-                        disabled={isAddingTask || !newTaskTitle.trim()}
-                        className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Add Task
-                      </button>
-                    </div>
-                 </div>
+                  {/* Add Task Form Removed - Use Edit Job Page */}
 
                  {/* Task List */}
                  {tasks.length === 0 ? (

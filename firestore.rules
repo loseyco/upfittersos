@@ -20,6 +20,20 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false; 
     }
+
+    // ============================================
+    // COLLECTION GROUP RULES
+    // ============================================
+    match /{path=**}/tasks/{taskId} {
+      allow read: if request.auth != null && (
+        isSuperAdmin() || 
+        (resource != null && (
+          request.auth.uid in resource.data.get('assignedStaffIds', []) || 
+          resource.data.get('effectiveUserId', '') == request.auth.uid ||
+          resource.data.get('tenantId', '') == request.auth.token.tenantId
+        ))
+      );
+    }
     
     // ============================================
     // TV PAIRINGS (Ephemeral)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
@@ -31,7 +31,7 @@ interface MissionControlProps {
 
 export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  // const [searchParams, setSearchParams] = useSearchParams();
   const { open: openSearch } = useSearchStore();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -786,6 +786,47 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         : (bay.currentVehicleVin ? `VIN: ${bay.currentVehicleVin}` : 'Unlinked');
                       const timestamp = bay.lastAssignedAt || bay.updatedAt;
 
+                      const target = job || bay;
+                      const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
+                      const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+                      const isBlocked = activeBlockers.length > 0;
+
+                      const currentVin = job?.vehicleVin || bay?.currentVehicleVin;
+                      const relevantParts = partsRequests.filter((pr: any) => {
+                        const prStatus = (pr.status || '').toLowerCase();
+                        if (!['pending', 'received', 'ordered'].includes(prStatus)) return false;
+                        if (job?.id && pr.jobId === job.id) return true;
+                        if (bay?.id && pr.zoneId === bay.id) return true;
+                        if (currentVin && pr.vin === currentVin) return true;
+                        return false;
+                      });
+
+                      const reqCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
+                      const ordCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
+                      const recCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
+                      const hasParts = reqCount + ordCount + recCount > 0;
+                      const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
+                      const isPartsMissing = reqCount > 0;
+                      const isPartsOrderedOrReceived = ordCount > 0 || recCount > 0;
+
+                      const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
+                      let isOverdue = false;
+                      if (etaRaw) {
+                        const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+                        if (etaDate.getTime() - Date.now() < 0) isOverdue = true;
+                      }
+
+                      let customStyle = "hover:bg-zinc-50 dark:hover:bg-zinc-800/30 border-transparent";
+                      if (isBlocked) {
+                        customStyle = "bg-red-500/20 border-red-500 hover:bg-red-500/30 dark:bg-red-900/40";
+                      } else if (isPartsMissing) {
+                        customStyle = "bg-amber-500/20 border-amber-500 hover:bg-amber-500/30 dark:bg-amber-900/40";
+                      } else if (isOverdue) {
+                        customStyle = "border-red-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30";
+                      } else if (isPartsOrderedOrReceived) {
+                        customStyle = "border-amber-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30";
+                      }
+
                       return (
                         <div 
                           key={bay.id} 
@@ -798,7 +839,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               setSelectedZoneId(bay.id);
                             }
                           }}
-                          className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2 pointer-events-auto"
+                          className={cn(
+                            "relative group/item cursor-pointer transition-colors rounded-xl px-2 -mx-2 pointer-events-auto border",
+                            customStyle
+                          )}
                         >
                           <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
@@ -838,28 +882,6 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                   </>
                                 )}
                                 {(() => {
-                                  const target = job || bay;
-                                  const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
-                                  const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
-                                  const isBlocked = activeBlockers.length > 0;
-
-                                  const currentVin = job?.vehicleVin || bay?.currentVehicleVin;
-                                  const relevantParts = partsRequests.filter((pr: any) => {
-                                    const prStatus = (pr.status || '').toLowerCase();
-                                    const isActive = ['pending', 'received', 'ordered'].includes(prStatus);
-                                    if (!isActive) return false;
-                                    if (job?.id && pr.jobId === job.id) return true;
-                                    if (bay?.id && pr.zoneId === bay.id) return true;
-                                    if (currentVin && pr.vin === currentVin) return true;
-                                    return false;
-                                  });
-
-                                  const reqCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
-                                  const ordCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
-                                  const recCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
-                                  const hasParts = reqCount + ordCount + recCount > 0;
-                                  const partsArrived = relevantParts.some(pr => (pr.status || '').toLowerCase() === 'received');
-
                                   if (!isBlocked && !hasParts) return null;
 
                                   return (

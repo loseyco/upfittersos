@@ -17,7 +17,7 @@ import { ConfirmModal } from '../../components/ConfirmModal';
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -410,7 +410,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
       return (
         <div 
-          key={bay.id} 
+          key={itemKey} 
           onClick={() => {
             const vehicle = vehicles.find(v => v.vin === bay.currentVehicleVin);
             const jobId = bay.currentJobId || vehicle?.jobId;

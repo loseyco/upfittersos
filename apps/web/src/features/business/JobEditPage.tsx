@@ -5,10 +5,9 @@ import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Save, ArrowLeft, X, User, Car, MapPin, 
   Sparkles, AlertCircle, Trash2, Plus, CheckSquare, 
-  Search, Users, Clock, Timer
+  Search, Timer
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
@@ -22,7 +21,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   const isNew = jobId === 'create';
   
   const navigate = useNavigate();
-  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const { permissions, isSuperAdmin } = useAuthStore();
   
   // Permission gate
   if (!isSuperAdmin && !permissions['jobs.manage']) {
@@ -47,7 +46,6 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
   const [quickAddVehicle, setQuickAddVehicle] = useState<string | null>(null);
 
@@ -151,6 +149,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             description: 'General shop work and cleanup',
             bookTime: 0,
             status: 'pending',
+            tenantId: tenantId,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
@@ -161,6 +160,33 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       addGeneralTask();
     }
   }, [jobTasks, tasksLoaded, jobId, tenantId, !!job]);
+
+  // SYNC: Keep job-level assignedStaffIds in sync with task-level assignments
+  useEffect(() => {
+    if (isNew || !jobId || !tenantId || !tasksLoaded || !job) return;
+    
+    const allAssignedIds = Array.from(new Set(
+      jobTasks.flatMap(t => t.assignedStaffIds || [])
+    ));
+    
+    const currentJobIds = job.assignedStaffIds || [];
+    const hasMismatch = allAssignedIds.length !== currentJobIds.length || 
+                        !allAssignedIds.every(id => currentJobIds.includes(id));
+                        
+    if (hasMismatch) {
+      const syncJobTechs = async () => {
+        try {
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+            assignedStaffIds: allAssignedIds,
+            updatedAt: serverTimestamp()
+          });
+        } catch (err) {
+          console.error("Tech sync error:", err);
+        }
+      };
+      syncJobTechs();
+    }
+  }, [jobTasks, jobId, tenantId, job, tasksLoaded, isNew]);
 
   // Progression Logic Hook
   useEffect(() => {
@@ -237,6 +263,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           const { id, ...taskData } = task;
           tasksBatch.set(taskRef, {
             ...taskData,
+            assignedStaffIds: (taskData.assignedStaff || []).map((s: any) => s.id),
+            tenantId: tenantId,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
           });
@@ -294,8 +322,10 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       try {
         await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
           ...newTaskData,
+          assignedStaffIds: (newTaskData.assignedStaff || []).map((s: any) => s.id),
           bookTime: parseFloat(newTaskData.bookTime) || 0,
           status: 'pending',
+          tenantId: tenantId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
@@ -337,10 +367,16 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
     } else {
       try {
-        await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), {
+        const updateObj: any = {
           [field]: value,
           updatedAt: serverTimestamp()
-        });
+        };
+
+        if (field === 'assignedStaff') {
+          updateObj.assignedStaffIds = (value || []).map((s: any) => s.id);
+        }
+
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateObj);
       } catch (err) {
         console.error(err);
         toast.error('Failed to update task');
@@ -408,7 +444,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <input 
                   type="text" 
                   value={formData.jobNumber} 
-                  onChange={e => setFormData(prev => ({ ...prev, jobNumber: e.target.value }))}
+                  onChange={e => setFormData((prev: any) => ({ ...prev, jobNumber: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-mono text-sm"
                 />
               </div>
@@ -417,7 +453,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <input 
                   type="text" 
                   value={formData.title} 
-                  onChange={e => setFormData(prev => ({ ...prev, title: e.target.value }))}
+                  onChange={e => setFormData((prev: any) => ({ ...prev, title: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-medium"
                 />
               </div>
@@ -429,7 +465,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <SearchableSelect
                   options={['Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QA', 'Ready for Customer', 'Completed', 'Closed']}
                   value={formData.status}
-                  onChange={val => setFormData(prev => ({ ...prev, status: val || 'Open' }))}
+                  onChange={val => setFormData((prev: any) => ({ ...prev, status: val || 'Open' }))}
                   getLabel={s => s}
                   getValue={s => s}
                   theme="indigo"
@@ -440,7 +476,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <SearchableSelect
                   options={['Low', 'Medium', 'High', 'Urgent']}
                   value={formData.priority}
-                  onChange={val => setFormData(prev => ({ ...prev, priority: val || 'Medium' }))}
+                  onChange={val => setFormData((prev: any) => ({ ...prev, priority: val || 'Medium' }))}
                   getLabel={s => s}
                   getValue={s => s}
                   theme="rose"
@@ -454,7 +490,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <input 
                   type="datetime-local" 
                   value={formData.scheduledArrivalTime} 
-                  onChange={e => setFormData(prev => ({ ...prev, scheduledArrivalTime: e.target.value }))}
+                  onChange={e => setFormData((prev: any) => ({ ...prev, scheduledArrivalTime: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-medium text-sm"
                 />
               </div>
@@ -463,7 +499,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <input 
                   type="datetime-local" 
                   value={formData.expectedFinishTime} 
-                  onChange={e => setFormData(prev => ({ ...prev, expectedFinishTime: e.target.value }))}
+                  onChange={e => setFormData((prev: any) => ({ ...prev, expectedFinishTime: e.target.value }))}
                   className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-medium text-sm"
                 />
               </div>
@@ -481,8 +517,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
               tenantId={tenantId}
               customerId={formData.customerId}
               placeholder={formData.customerName || "Assign a Customer..."}
-              onAssign={(id, name) => setFormData(prev => ({ ...prev, customerId: id, customerName: name }))}
-              onClear={() => setFormData(prev => ({ ...prev, customerId: null, customerName: '' }))}
+              onAssign={(id, name) => setFormData((prev: any) => ({ ...prev, customerId: id, customerName: name }))}
+              onClear={() => setFormData((prev: any) => ({ ...prev, customerId: null, customerName: '' }))}
               onCreateNewRequest={(name) => setQuickAddCustomer(name || '')}
             />
           </section>
@@ -530,7 +566,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                   
                   {showTemplates && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar">
-                      {taskTemplates.filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(t => (
+                      {taskTemplates.filter(t => (t.name || '').toLowerCase().includes(templateSearch.toLowerCase())).map(t => (
                         <button 
                           key={t.id}
                           onClick={() => applyTemplate(t)}
@@ -665,7 +701,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
               theme="indigo"
               options={zones.sort((a, b) => a.name.localeCompare(b.name))}
               value={formData.currentZoneId}
-              onChange={val => setFormData(prev => ({ ...prev, currentZoneId: val || '' }))}
+              onChange={val => setFormData((prev: any) => ({ ...prev, currentZoneId: val || '' }))}
               getLabel={z => z.name}
               getValue={z => z.id}
               placeholder="-- Unassigned --"
@@ -701,8 +737,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             <VinSelector
               vin={formData.vehicleId}
               vehicles={vehicles}
-              onAssign={(vin) => setFormData(prev => ({ ...prev, vehicleId: vin }))}
-              onClear={() => setFormData(prev => ({ ...prev, vehicleId: '' }))}
+              onAssign={(vin) => setFormData((prev: any) => ({ ...prev, vehicleId: vin }))}
+              onClear={() => setFormData((prev: any) => ({ ...prev, vehicleId: '' }))}
               onQuickAddRequest={(vin) => setQuickAddVehicle(vin)}
             />
           </section>
@@ -712,7 +748,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             <input 
               type="text"
               value={formData.companyCamId || ''}
-              onChange={e => setFormData(prev => ({ ...prev, companyCamId: e.target.value }))}
+              onChange={e => setFormData((prev: any) => ({ ...prev, companyCamId: e.target.value }))}
               placeholder="Project ID..."
               className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-bold"
             />
@@ -722,7 +758,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">Internal Staff Notes</label>
             <textarea 
               value={formData.notes}
-              onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              onChange={e => setFormData((prev: any) => ({ ...prev, notes: e.target.value }))}
               placeholder="Private internal notes..."
               className="w-full px-4 py-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all resize-none h-64"
             />
@@ -747,7 +783,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           initialName={quickAddCustomer}
           onClose={() => setQuickAddCustomer(null)}
           onSuccess={(id: string, name: string) => {
-            setFormData(prev => ({ ...prev, customerId: id, customerName: name }));
+            setFormData((prev: any) => ({ ...prev, customerId: id, customerName: name }));
             setQuickAddCustomer(null);
           }}
         />
@@ -759,7 +795,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           initialVin={quickAddVehicle}
           onClose={() => setQuickAddVehicle(null)}
           onAssign={(vin) => {
-            setFormData(prev => ({ ...prev, vehicleId: vin }));
+            setFormData((prev: any) => ({ ...prev, vehicleId: vin }));
             setQuickAddVehicle(null);
           }}
         />

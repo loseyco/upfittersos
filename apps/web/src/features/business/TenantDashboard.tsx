@@ -41,6 +41,7 @@ import { BayMonitor } from './BayMonitor';
 import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
+import { TaskDetailPage } from './TaskDetailPage';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -378,6 +379,12 @@ export function TenantDashboard() {
             {activeTab === 'job' && (pathParts[2] === 'edit' || pathParts[1] === 'create') && (
               <PermissionGate permission="jobs.manage">
                 <JobEditPage tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'task' && pathParts[1] && pathParts[2] && (
+              <PermissionGate permission="tasks.view">
+                <TaskDetailPage tenantId={tenantId!} />
               </PermissionGate>
             )}
 

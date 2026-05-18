@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -71,7 +71,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
   }, [tenantId]);
 
   // Fetch Jobs
-  const { data, refetch } = useQuery({
+  const { refetch } = useQuery({
     queryKey: ['jobs-list', tenantId],
     queryFn: async () => {
       const q = query(

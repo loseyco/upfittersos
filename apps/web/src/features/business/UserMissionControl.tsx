@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
-import { collection, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore';
-import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize } from 'lucide-react';
-import { JobDetailsModal } from './JobDetailsModal';
+import { collection, query, where, onSnapshot, doc, updateDoc, collectionGroup } from 'firebase/firestore';
+import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize, MapPin } from 'lucide-react';
 import { ZoneDetailsModal } from './ZoneModals';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { FeedbackModal } from '../../components/FeedbackModal';
@@ -58,12 +57,32 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   
   const [allActiveJobs, setAllActiveJobs] = useState<any[]>([]);
-  const [zones, setZones] = useState<any[]>([]);
+  const [allZones, setAllZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [sessionJobIds, setSessionJobIds] = useState<string[]>([]);
   
-  const [selectedJob, setSelectedJob] = useState<any>(null);
+  // const [selectedJob, setSelectedJob] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<any>(null);
+  const [taskJobIds, setTaskJobIds] = useState<string[]>([]);
+
+  // Track jobs where the user is assigned to specific tasks
+  useEffect(() => {
+    if (!effectiveUserId || !tenantId) return;
+    const q = query(
+      collectionGroup(db, 'tasks'),
+      where('tenantId', '==', tenantId),
+      where('assignedStaffIds', 'array-contains', effectiveUserId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const ids = snap.docs
+        .filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`))
+        .map(doc => doc.ref.path.split('/')[3]);
+      setTaskJobIds([...new Set(ids)]);
+    }, (err) => {
+      console.error("Task assignment listener error:", err);
+    });
+    return () => unsub();
+  }, [effectiveUserId, tenantId]);
 
   // Modal States
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
@@ -71,18 +90,18 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
   const [isVehicleIntakeOpen, setIsVehicleIntakeOpen] = useState(false);
 
-  const { clockIntoJob, clockOutOfJob, isProcessing } = useJobClock(tenantId);
+  const { clockOutOfJob, isProcessing } = useJobClock(tenantId);
 
   const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
       const trimmedVin = vin?.trim().toUpperCase();
-      const zone = zones.find(z => z.id === zoneId);
+      const zone = allZones.find(z => z.id === zoneId);
       const previousVin = zone?.currentVehicleVin || null;
       const previousJobId = zone?.currentJobId || null;
 
       // AUTO-MOVE: If this VIN or Job is already in another zone, clear it from there first
       if (actionType === 'assign' && (trimmedVin || jobId)) {
-        const otherZones = zones.filter(z => z.id !== zoneId);
+        const otherZones = allZones.filter(z => z.id !== zoneId);
         for (const oz of otherZones) {
           let needsClear = false;
           if (trimmedVin && oz.currentVehicleVin === trimmedVin) needsClear = true;
@@ -132,13 +151,16 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     // Fetch All Jobs to allow deriving both direct and zone-based assignments
     // Sorted by lastWorkedAt to show most recently worked on at the top
     const jobsQ = query(
-      collection(db, `businesses/${tenantId}/jobs`),
-      orderBy('lastWorkedAt', 'desc')
+      collection(db, `businesses/${tenantId}/jobs`)
     );
     const unsubJobs = onSnapshot(jobsQ, (snap) => {
       const active = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status));
+        .filter((j: any) => !['Ready for Customer', 'Completed', 'Closed'].includes(j.status))
+        .sort((a: any, b: any) => {
+          const getTs = (item: any) => item.lastWorkedAt?.seconds ? item.lastWorkedAt.seconds * 1000 : new Date(item.lastWorkedAt || 0).getTime();
+          return getTs(b) - getTs(a);
+        });
       setAllActiveJobs(active);
       setLastUpdated(new Date());
     }, (err) => {
@@ -157,13 +179,9 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
       });
     });
 
-    // Fetch My Zones (Bays)
-    const zonesQ = query(
-      collection(db, `businesses/${tenantId}/zones`),
-      where('assignedStaffIds', 'array-contains', effectiveUserId)
-    );
-    const unsubZones = onSnapshot(zonesQ, (snap) => {
-      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // Fetch ALL Zones (Bays) so we can see where any job is
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
+      setAllZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
     }, (err) => console.error("Zones listener error:", err));
 
@@ -207,14 +225,17 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [tenantId, activeSessionId]);
 
+  const myZones = allZones.filter(z => z.assignedStaffIds?.includes(effectiveUserId));
+
   // Derive my jobs: explicitly assigned OR implicitly assigned via my zones OR clocked in OR recently worked
   const myJobs = allActiveJobs.filter(job => {
     const explicitlyAssigned = job.assignedStaffIds?.includes(effectiveUserId);
-    const implicitlyAssigned = zones.some(z => z.currentJobId === job.id);
+    const implicitlyAssigned = myZones.some(z => z.currentJobId === job.id);
     const isClockedIn = job.id === activeJobId;
     const workedRecently = sessionJobIds.includes(job.id);
+    const taskAssigned = taskJobIds.includes(job.id);
     
-    return explicitlyAssigned || implicitlyAssigned || isClockedIn || workedRecently;
+    return explicitlyAssigned || implicitlyAssigned || isClockedIn || workedRecently || taskAssigned;
   });
 
   const getStatusColor = (status: string) => {
@@ -347,7 +368,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                 <div 
                   key={job.id}
                   onClick={() => {
-                    const zone = zones.find(z => z.currentJobId === job.id);
+                    const zone = allZones.find(z => z.currentJobId === job.id);
                     const vehicle = vehicles.find(v => v.vin === zone?.currentVehicleVin);
                     const jobId = job.id || zone?.currentJobId || vehicle?.jobId;
                     if (jobId) {
@@ -367,7 +388,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                           Clocked In
                         </span>
                       )}
-                      {(!job.assignedStaffIds?.includes(effectiveUserId) && !zones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && activeJobId !== job.id) && (
+                      {(!job.assignedStaffIds?.includes(effectiveUserId) && !allZones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && activeJobId !== job.id) && (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
                           Recent Activity
                         </span>
@@ -390,25 +411,36 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                     )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    {activeJobId === job.id ? (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
-                        disabled={isProcessing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                      >
-                        <Timer className="w-3.5 h-3.5" />
-                        Clock Out
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); clockIntoJob(job.id, job.title); }}
-                        disabled={isProcessing}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-500/20 dark:hover:bg-indigo-500/30 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                      >
-                        <Timer className="w-3.5 h-3.5" />
-                        Clock In
-                      </button>
-                    )}
+                    <div className="flex flex-col items-end gap-1.5">
+                      {activeJobId === job.id && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
+                          disabled={isProcessing}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                        >
+                          <Timer className="w-3.5 h-3.5" />
+                          Clock Out
+                        </button>
+                      )}
+                      
+                      {(() => {
+                        const zone = allZones.find(z => z.currentJobId === job.id);
+                        const vehicle = (job.vehicleId && job.vehicleId !== 'N/A') 
+                          ? vehicles.find(v => v.id === job.vehicleId || v.vin === job.vehicleId)
+                          : null;
+                        
+                        const locationLabel = zone?.name || job.location || job.department || (vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : null);
+                        
+                        if (!locationLabel) return null;
+                        
+                        return (
+                          <span className="text-[9px] font-black uppercase tracking-tighter text-zinc-400 flex items-center gap-1">
+                            {zone ? <MapPin className="w-2.5 h-2.5" /> : (vehicle ? <CarFront className="w-2.5 h-2.5" /> : <Briefcase className="w-2.5 h-2.5" />)}
+                            {locationLabel}
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
                   </div>
                 </div>
@@ -428,7 +460,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         isOpen={isIntakeOpen}
         onClose={() => setIsIntakeOpen(false)}
         onSuccess={() => {}}
-        zones={zones}
+        zones={allZones}
       />
 
       <FeedbackModal 

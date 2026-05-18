@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useSearchParams } from 'react-router-dom';
 import { GenericDataGrid } from './GenericDataGrid';
-import { X, Edit2, CarFront, Search, Archive, ShieldCheck, MapPin, Loader2, Clock, LogIn, LogOut } from 'lucide-react';
+import { QuickAddVehicleModal } from './VehicleSelector';
+import { X, Edit2, CarFront, Search, Archive, ShieldCheck, MapPin, Loader2, Clock, LogIn, LogOut, Plus } from 'lucide-react';
 import { doc, updateDoc, collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
@@ -46,6 +47,7 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
   const queryClient = useQueryClient();
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
+  const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchParams] = useSearchParams();
   const filterType = searchParams.get('filter');
@@ -146,17 +148,26 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
           <h2 className="text-lg font-bold text-zinc-900 dark:text-white">Vehicle Database</h2>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Search and manage all customer vehicles.</p>
         </div>
-        <div className="relative w-full sm:w-80">
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
-            <Search className="w-4 h-4" />
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="relative w-full sm:w-80">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
+              <Search className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search VIN, make, model, customer..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+            />
           </div>
-          <input
-            type="text"
-            placeholder="Search VIN, make, model, customer..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
-          />
+          <button
+            onClick={() => setIsAddVehicleModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-sm whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add Vehicle</span>
+          </button>
         </div>
       </div>
 
@@ -212,6 +223,19 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
             queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
             queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
             setEditingVehicle(null);
+          }}
+        />
+      )}
+
+      {isAddVehicleModalOpen && (
+        <QuickAddVehicleModal
+          tenantId={tenantId}
+          initialVin=""
+          onClose={() => setIsAddVehicleModalOpen(false)}
+          onAssign={() => {
+            queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
+            queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
+            setIsAddVehicleModalOpen(false);
           }}
         />
       )}

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, ChevronDown, X, Plus } from 'lucide-react';
+import { Search, ChevronDown, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export type ThemeColor = 'indigo' | 'amber' | 'blue' | 'emerald' | 'rose' | 'zinc' | 'violet';

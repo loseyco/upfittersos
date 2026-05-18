@@ -18,7 +18,7 @@ interface DepartmentDashboardProps {
 
 export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: DepartmentDashboardProps) {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [] = useSearchParams();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());

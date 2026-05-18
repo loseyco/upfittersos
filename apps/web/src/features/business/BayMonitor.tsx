@@ -295,17 +295,26 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       empty: monitorSettings?.monitorColorEmpty || '#27272a' // zinc-800
     };
     
-    if (isBlocked || (hasVehicle && isOverdue)) {
-      customBgStyle = { backgroundColor: colors.overdue, borderColor: `${colors.overdue}ff`, boxShadow: `0 0 30px ${colors.overdue}66` };
+    const isPartsMissing = requestedCount > 0;
+    const isPartsOrderedOrReceived = orderedCount > 0 || receivedCount > 0;
+
+    if (isBlocked) {
+      customBgStyle = { backgroundColor: colors.blocked, borderColor: `${colors.blocked}ff`, boxShadow: `0 0 30px ${colors.blocked}66`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-black";
-    } else if (hasVehicle && (isUrgent || (hasParts && !partsArrived))) {
-      customBgStyle = { backgroundColor: colors.urgent, borderColor: `${colors.urgent}ff`, boxShadow: `0 0 30px ${colors.urgent}4d` };
+    } else if (hasVehicle && isPartsMissing) {
+      customBgStyle = { backgroundColor: colors.urgent, borderColor: `${colors.urgent}ff`, boxShadow: `0 0 30px ${colors.urgent}4d`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-black";
+    } else if (hasVehicle && isOverdue) {
+      customBgStyle = { backgroundColor: colors.active, borderColor: colors.overdue, boxShadow: `inset 0 0 20px ${colors.overdue}66`, borderWidth: '4px', borderStyle: 'solid' };
+      textColor = "text-white font-bold";
+    } else if (hasVehicle && isPartsOrderedOrReceived) {
+      customBgStyle = { backgroundColor: colors.active, borderColor: colors.urgent, boxShadow: `inset 0 0 20px ${colors.urgent}4d`, borderWidth: '4px', borderStyle: 'solid' };
+      textColor = "text-white font-bold";
     } else if (hasVehicle) {
-      customBgStyle = { backgroundColor: colors.active, borderColor: `${colors.active}ff` };
+      customBgStyle = { backgroundColor: colors.active, borderColor: `${colors.active}ff`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white";
     } else {
-      customBgStyle = { backgroundColor: `${colors.empty}`, borderColor: `${colors.empty}80`, opacity: 0.6 };
+      customBgStyle = { backgroundColor: `${colors.empty}`, borderColor: `${colors.empty}80`, opacity: 0.6, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-zinc-400";
     }
 
@@ -348,11 +357,15 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       animate: { 
         opacity: 1, 
         scale: 1,
-        boxShadow: (isBlocked || (hasVehicle && isOverdue)) 
-          ? [`0 0 20px ${colors.overdue}66`, `0 0 50px ${colors.overdue}cc`, `0 0 20px ${colors.overdue}66`]
-          : (hasVehicle && (isUrgent || (hasParts && !partsArrived)))
+        boxShadow: isBlocked 
+          ? [`0 0 20px ${colors.blocked}66`, `0 0 50px ${colors.blocked}cc`, `0 0 20px ${colors.blocked}66`]
+          : (hasVehicle && isPartsMissing)
             ? [`0 0 15px ${colors.urgent}4d`, `0 0 40px ${colors.urgent}99`, `0 0 15px ${colors.urgent}4d`]
-            : "0px 0px 0px rgba(0,0,0,0)",
+            : (hasVehicle && isOverdue)
+              ? [`inset 0 0 10px ${colors.overdue}66`, `inset 0 0 30px ${colors.overdue}99`, `inset 0 0 10px ${colors.overdue}66`]
+              : (hasVehicle && isPartsOrderedOrReceived)
+                ? [`inset 0 0 10px ${colors.urgent}4d`, `inset 0 0 30px ${colors.urgent}80`, `inset 0 0 10px ${colors.urgent}4d`]
+                : "0px 0px 0px rgba(0,0,0,0)",
         transition: {
           boxShadow: {
             repeat: Infinity,

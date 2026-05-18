@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, updateDoc, addDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, 
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
-  AlertCircle, MapPin, User, Car, Package, Plus, Trash2, Save, Sparkles, X, ArrowRight
+  AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -116,6 +116,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
             description: 'General shop work and cleanup',
             bookTime: 0,
             status: 'pending',
+            tenantId: tenantId,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           });
@@ -417,10 +418,22 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const handleNoChange = async () => {
     try {
       await logActivity('patrol_check', 'Patrol Check: Confirmed no changes needed at this time.');
+      
       // Update job to trigger "Just Updated" on boards
-      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+      const jobUpdate = {
         updatedAt: serverTimestamp()
-      });
+      };
+      
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), jobUpdate);
+
+      // Also update the zone if this job is currently assigned to one
+      const zoneId = job.currentZoneId || zones.find(z => z.currentJobId === jobId)?.id;
+      if (zoneId) {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
+          updatedAt: serverTimestamp()
+        });
+      }
+
       toast.success('Check recorded');
       navigate(-1);
     } catch (e) {
@@ -604,11 +617,42 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                     task.assignedStaffIds?.includes(user?.uid) || 
                                     task.assignedStaff?.some((s: any) => s.uid === user?.uid || s.id === user?.uid);
                   const isCurrentTask = activeJobId === jobId && activeTaskId === task.id;
+
+                  const taskParts = parts.filter(p => p.taskId === task.id);
+                  const totalParts = taskParts.length;
+                  const receivedParts = taskParts.filter(p => p.status === 'received' || p.status === 'delivered').length;
+                  const orderedParts = taskParts.filter(p => p.status === 'ordered').length;
+                  const pendingParts = taskParts.filter(p => p.status === 'pending' || p.status === 'requested').length;
+
+                  // Compute user times for this task
+                  const userTimeMap: Record<string, { name: string, ms: number }> = {};
+                  timeLogs.forEach(session => {
+                    const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === task.id);
+                    if (taskSegments.length > 0) {
+                      const staffName = session.staffName || session.userName || 'Staff';
+                      taskSegments.forEach((seg: any) => {
+                        const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+                        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
+                        const duration = Math.max(0, end - start);
+                        if (!userTimeMap[staffName]) {
+                          userTimeMap[staffName] = { name: staffName, ms: 0 };
+                        }
+                        userTimeMap[staffName].ms += duration;
+                      });
+                    }
+                  });
+                  const userTimes = Object.values(userTimeMap).filter(u => u.ms > 0);
                   
                   return (
                     <div 
                       key={task.id}
-                      className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 hover:border-indigo-500/30 transition-all"
+                      onClick={() => navigate(`/business/${tenantId}/task/${jobId}/${task.id}`)}
+                      className={cn(
+                        "rounded-2xl p-5 cursor-pointer transition-all group",
+                        task.status === 'Blocked' 
+                          ? "bg-rose-50/50 dark:bg-rose-950/20 border border-rose-500/50 hover:border-rose-500 hover:shadow-md hover:shadow-rose-500/10"
+                          : "bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 hover:shadow-md"
+                      )}
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
@@ -618,6 +662,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                               "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider",
                               task.status === 'QC' ? "bg-amber-500/10 text-amber-600" :
                               task.status === 'QC Complete' ? "bg-emerald-500/10 text-emerald-600" :
+                              task.status === 'Blocked' ? "bg-rose-500/10 text-rose-600" :
                               "bg-indigo-500/10 text-indigo-600"
                             )}>
                               {task.status || 'Pending'}
@@ -625,18 +670,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                           </div>
                           {task.description && <p className="text-xs text-zinc-500 mb-2">{task.description}</p>}
                           
-                          <button 
-                            onClick={() => {
-                              setSelectedTaskForPart(task);
-                              setIsPartRequestOpen(true);
-                            }}
-                            className="flex items-center gap-1.5 text-[10px] font-black text-amber-600 uppercase tracking-widest mb-3 hover:text-amber-700 transition-colors"
-                          >
-                            <Wrench className="w-3 h-3" />
-                            Request Task Part
-                          </button>
-
-                          <div className="flex items-center gap-6">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
                             {task.title !== 'General' && (
                               <div className="flex flex-col">
                                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Allotted Time</span>
@@ -652,7 +686,35 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 {formatMs(loggedMs)}
                               </span>
                             </div>
+                            
+                            {/* Parts Status Tag */}
+                            {totalParts > 0 && (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest w-fit">
+                                <Wrench className="w-3 h-3 text-amber-500" />
+                                <span className="text-zinc-500">Parts:</span>
+                                <span className="text-amber-500">{pendingParts} P</span>
+                                <span className="text-zinc-300 dark:text-zinc-600">/</span>
+                                <span className="text-blue-500">{orderedParts} O</span>
+                                <span className="text-zinc-300 dark:text-zinc-600">/</span>
+                                <span className="text-emerald-500">{receivedParts} R</span>
+                              </div>
+                            )}
                           </div>
+
+                          {/* Time Breakdown per Staff */}
+                          {userTimes.length > 0 && (
+                            <div className="mt-4 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/60 grid gap-1.5">
+                              {userTimes.map(u => (
+                                <div key={u.name} className="flex justify-between items-center text-[10px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                                    <span className="text-zinc-500 font-bold uppercase tracking-wider">{u.name}</span>
+                                  </div>
+                                  <span className="font-mono text-zinc-700 dark:text-zinc-300 font-bold">{formatMs(u.ms)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                           <div className="flex items-center gap-2">
@@ -660,7 +722,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                               <>
                                 {isCurrentTask ? (
                                   <button 
-                                    onClick={() => clockOutOfJob()}
+                                    onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
                                     className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
                                   >
                                     <Timer className="w-4 h-4 animate-pulse" />
@@ -669,7 +731,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 ) : (
                                   task.status !== 'QC Complete' && (
                                     <button 
-                                      onClick={() => clockIntoJob(jobId, job.title, task.id, task.title)}
+                                      onClick={(e) => { e.stopPropagation(); clockIntoJob(jobId, job.title, task.id, task.title); }}
                                       disabled={isClockingIn}
                                       className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
                                     >
@@ -681,7 +743,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 
                                 {task.status !== 'QC Complete' && task.title !== 'General' && (
                                   <button 
-                                    onClick={() => handleTaskStatusChange(task.id, task.status || 'pending')}
+                                    onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(task.id, task.status || 'pending'); }}
                                     className={cn(
                                       "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg",
                                       task.status === 'QC' 
@@ -700,6 +762,12 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 Assigned to {task.assignedStaff?.[0]?.name || 'Technician'}
                               </span>
                             )}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); navigate(`/business/${tenantId}/task/${jobId}/${task.id}`); }}
+                              className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-900 dark:text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                            >
+                              Details
+                            </button>
                           </div>
                       </div>
                     </div>

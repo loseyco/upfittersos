@@ -9,7 +9,7 @@ import {
   Maximize, Minimize
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { useAuthStore } from '../../lib/auth/store';
 import { ItemDetailsModal } from './ItemDetailsModal';
@@ -58,7 +58,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchParams, setSearchParams] = useSearchParams();
+  // const [searchParams, setSearchParams] = useSearchParams();
   const [shipments, setShipments] = useState<any[]>([]);
   const [receivedParts, setReceivedParts] = useState<any[]>([]);
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
