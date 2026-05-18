@@ -14,6 +14,7 @@ interface TaskTemplateModalProps {
 export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: TaskTemplateModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [taskGroup, setTaskGroup] = useState('');
   const [partsNeeded, setPartsNeeded] = useState('');
   const [instructions, setInstructions] = useState('');
   const [defaultBookTime, setDefaultBookTime] = useState('');
@@ -29,6 +30,7 @@ export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: 
           const data = docSnap.data();
           setName(data.name || '');
           setDescription(data.description || '');
+          setTaskGroup(data.taskGroup || '');
           setPartsNeeded(data.partsNeeded || '');
           setInstructions(data.instructions || '');
           setDefaultBookTime(data.defaultBookTime?.toString() || '');
@@ -55,6 +57,7 @@ export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: 
       const templateData = {
         name: name.trim(),
         description: description.trim(),
+        taskGroup: taskGroup.trim(),
         partsNeeded: partsNeeded.trim(),
         instructions: instructions.trim(),
         defaultBookTime: Number(defaultBookTime) || 0,
@@ -97,8 +100,8 @@ export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: 
           <div className="p-12 text-center text-zinc-500">Loading...</div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1">
-            <div className="grid grid-cols-4 gap-4">
-              <div className="col-span-3">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+              <div className="md:col-span-3">
                 <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Task Name *</label>
                 <input 
                   type="text" 
@@ -109,8 +112,18 @@ export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: 
                   placeholder="e.g. Install Front Bumper"
                 />
               </div>
-              <div className="col-span-1">
-                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Book Time (h)</label>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Default Group</label>
+                <input 
+                  type="text" 
+                  value={taskGroup}
+                  onChange={(e) => setTaskGroup(e.target.value)}
+                  className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                  placeholder="e.g. Front End"
+                />
+              </div>
+              <div className="md:col-span-1">
+                <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-1">Hrs</label>
                 <input 
                   type="number" 
                   step="0.1"
@@ -118,7 +131,7 @@ export function TaskTemplateModal({ tenantId, templateId, onClose, onSuccess }: 
                   value={defaultBookTime}
                   onChange={(e) => setDefaultBookTime(e.target.value)}
                   className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                  placeholder="e.g. 1.5"
+                  placeholder="1.5"
                 />
               </div>
             </div>

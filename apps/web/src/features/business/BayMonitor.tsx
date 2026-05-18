@@ -207,7 +207,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     const target = job || zone;
     const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
     const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
-    const isBlocked = activeBlockers.length > 0;
+    const isBlocked = activeBlockers.length > 0 || target?.status === 'Blocked' || job?.status === 'Blocked' || zone?.status === 'Blocked';
 
     const currentVin = job?.vehicleVin || zone?.currentVehicleVin;
     const relevantParts = partsRequests.filter((pr: any) => {

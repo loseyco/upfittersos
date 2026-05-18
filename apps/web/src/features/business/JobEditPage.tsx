@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, onSnapshot, updateDoc, collection, getDocs, addDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Briefcase, Save, ArrowLeft, X, User, Car, MapPin, 
+  Briefcase, Save, ArrowLeft, User, Car, MapPin, 
   Sparkles, AlertCircle, Trash2, Plus, CheckSquare, 
-  Search, Timer
+  Timer
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -51,18 +51,10 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
   const [formData, setFormData] = useState<any>(null);
   const [jobTasks, setJobTasks] = useState<any[]>([]);
-  const [taskTemplates, setTaskTemplates] = useState<any[]>([]);
-  const [isAddingTask, setIsAddingTask] = useState(false);
-  const [templateSearch, setTemplateSearch] = useState('');
-  const [showTemplates, setShowTemplates] = useState(false);
 
-  const [newTaskData, setNewTaskData] = useState({
-    title: '',
-    description: '',
-    bookTime: '0.5',
-    assignedStaff: [] as any[]
-  });
+  const [customGroups, setCustomGroups] = useState<string[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
+  const [zonesLoaded, setZonesLoaded] = useState(false);
 
   const formatDatetimeLocal = (dateString?: any) => {
     if (!dateString) return '';
@@ -77,7 +69,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       if (snap.exists()) {
         const data = snap.data();
         setJob({ id: snap.id, ...data });
-        setFormData({
+        setFormData((prev: any) => ({
           title: data.title || '',
           jobNumber: data.jobNumber || '',
           status: data.status || 'Open',
@@ -90,9 +82,9 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           expectedFinishTime: formatDatetimeLocal(data.expectedFinishTime),
           estimatedHours: data.estimatedHours || '',
           assignedStaff: data.assignedStaff || [],
-          currentZoneId: zones.find(z => z.currentJobId === jobId)?.id || '',
+          currentZoneId: prev?.currentZoneId !== undefined ? prev.currentZoneId : undefined,
           companyCamId: data.companyCamId || ''
-        });
+        }));
       }
     }, (err) => console.error("Job header listener error:", err));
     return () => unsub();
@@ -122,6 +114,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       id: 'general-init',
       title: 'General',
       description: 'General shop work and cleanup',
+      taskGroup: 'General',
       bookTime: 0,
       status: 'pending',
       assignedStaff: []
@@ -148,6 +141,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
             title: 'General',
             description: 'General shop work and cleanup',
+            taskGroup: 'General',
             bookTime: 0,
             status: 'pending',
             tenantId: tenantId,
@@ -220,12 +214,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   }, [jobTasks, job?.status, tenantId, jobId]);
 
-  useEffect(() => {
-    if (!tenantId) return;
-    getDocs(collection(db, `businesses/${tenantId}/tasks`)).then(snap => {
-      setTaskTemplates(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-  }, [tenantId]);
+
 
   useEffect(() => {
     getDocs(collection(db, `businesses/${tenantId}/vehicles`)).then(snap => {
@@ -233,8 +222,19 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     });
     getDocs(collection(db, `businesses/${tenantId}/zones`)).then(snap => {
       setZones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setZonesLoaded(true);
     });
   }, [tenantId]);
+
+  // Sync initial zone once zones are loaded
+  useEffect(() => {
+    if (!isNew && jobId && zonesLoaded && formData && formData.currentZoneId === undefined) {
+      const zone = zones.find(z => z.currentJobId === jobId);
+      setFormData((prev: any) => ({ ...prev, currentZoneId: zone ? zone.id : '' }));
+    } else if (isNew && formData && formData.currentZoneId === undefined) {
+      setFormData((prev: any) => ({ ...prev, currentZoneId: '' }));
+    }
+  }, [zonesLoaded, formData, jobId, isNew, zones]);
 
   const handleSave = async () => {
     if (!formData || isSaving) return;
@@ -306,45 +306,37 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleAddTask = async () => {
-    if (!newTaskData.title.trim()) {
-      toast.error('Task title is required');
-      return;
-    }
+  const handleInlineAddTask = async (group: string, initialStaff: any[]) => {
+    const tempId = Math.random().toString(36).substr(2, 9);
+    const newTask = {
+      title: '',
+      description: '',
+      taskGroup: group,
+      assignedStaff: initialStaff,
+      assignedStaffIds: initialStaff.map(s => s.id),
+      bookTime: 0.5,
+      status: 'pending'
+    };
 
     if (isNew) {
-      setJobTasks(prev => [...prev, {
-        id: Math.random().toString(36).substr(2, 9),
-        ...newTaskData,
-        bookTime: parseFloat(newTaskData.bookTime) || 0,
-        status: 'pending'
-      }]);
+      setJobTasks(prev => [...prev, { id: tempId, ...newTask }]);
+      setTimeout(() => document.getElementById(`task-title-${tempId}`)?.focus(), 100);
     } else {
       try {
-        await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
-          ...newTaskData,
-          assignedStaffIds: (newTaskData.assignedStaff || []).map((s: any) => s.id),
-          bookTime: parseFloat(newTaskData.bookTime) || 0,
-          status: 'pending',
+        const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
+          ...newTask,
           tenantId: tenantId,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
+        // Real-time listener will pull it in, but we need to focus it.
+        // We'll focus by docRef.id.
+        setTimeout(() => document.getElementById(`task-title-${docRef.id}`)?.focus(), 500);
       } catch (err) {
         console.error(err);
         toast.error('Failed to add task');
-        return;
       }
     }
-      
-      setNewTaskData({
-        title: '',
-        description: '',
-        bookTime: '0.5',
-        assignedStaff: []
-      });
-      setIsAddingTask(false);
-      toast.success('Task added');
   };
 
   const handleDeleteTask = async (taskId: string) => {
@@ -385,17 +377,38 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const applyTemplate = (template: any) => {
-    setNewTaskData(prev => ({
-      ...prev,
-      title: template.name,
-      description: template.description || '',
-      bookTime: template.defaultBookTime?.toString() || '0.5'
-    }));
-    setShowTemplates(false);
+  const handleAssignGroup = async (group: string, staff: any[]) => {
+    const tasksInGroup = jobTasks.filter(t => (t.taskGroup || 'Uncategorized') === group && t.title !== 'General');
+    if (isNew) {
+      setJobTasks(prev => prev.map(t => 
+        (t.taskGroup || 'Uncategorized') === group && t.title !== 'General' 
+          ? { ...t, assignedStaff: staff } 
+          : t
+      ));
+    } else {
+      try {
+        const batch = writeBatch(db);
+        const staffIds = staff.map(s => s.id);
+        tasksInGroup.forEach(t => {
+          const ref = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
+          batch.update(ref, {
+            assignedStaff: staff,
+            assignedStaffIds: staffIds,
+            updatedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+        toast.success(`Updated staff for ${group}`);
+      } catch (err) {
+        console.error(err);
+        toast.error(`Failed to assign group`);
+      }
+    }
   };
 
-  if (!formData) return (
+
+
+  if (!formData || formData.currentZoneId === undefined) return (
     <div className="flex items-center justify-center p-12">
       <Sparkles className="w-8 h-8 text-indigo-500 animate-spin" />
     </div>
@@ -536,149 +549,135 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Job Tasks</h3>
               </div>
               <button 
-                onClick={() => setIsAddingTask(!isAddingTask)}
-                className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.1em] shadow-lg shadow-indigo-500/20 hover:scale-[1.02] transition-all active:scale-95"
+                onClick={() => {
+                  const groupName = window.prompt('Enter new Task Group name:');
+                  if (groupName && groupName.trim()) {
+                    setCustomGroups(prev => [...prev, groupName.trim()]);
+                  }
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl text-[11px] font-black uppercase tracking-[0.1em] shadow-lg hover:scale-[1.02] transition-all active:scale-95"
               >
-                {isAddingTask ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {isAddingTask ? 'Cancel' : 'Add New Task'}
+                <Plus className="w-4 h-4" /> Add Task Group
               </button>
             </div>
 
-            {isAddingTask && (
-              <div className="p-5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                <div className="relative">
-                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Template (Optional)</label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                      <input 
-                        type="text" 
-                        placeholder="Search templates..."
-                        value={templateSearch}
-                        onChange={(e) => { setTemplateSearch(e.target.value); setShowTemplates(true); }}
-                        onFocus={() => setShowTemplates(true)}
-                        className="w-full pl-9 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                      />
-                    </div>
-                    {showTemplates && (
-                      <button onClick={() => setShowTemplates(false)} className="p-2 text-zinc-400 hover:text-zinc-600"><X className="w-4 h-4" /></button>
-                    )}
-                  </div>
-                  
-                  {showTemplates && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar">
-                      {taskTemplates.filter(t => (t.name || '').toLowerCase().includes(templateSearch.toLowerCase())).map(t => (
-                        <button 
-                          key={t.id}
-                          onClick={() => applyTemplate(t)}
-                          className="w-full px-4 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 last:border-0"
-                        >
-                          <div>
-                            <p className="text-sm font-bold text-zinc-900 dark:text-white">{t.name}</p>
-                            <p className="text-[10px] text-zinc-500 truncate">{t.description}</p>
-                          </div>
-                          <span className="text-[10px] font-black text-indigo-500">{t.defaultBookTime}h</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="md:col-span-3">
-                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Task Title</label>
-                    <input 
-                      type="text" 
-                      placeholder="Enter task name..."
-                      value={newTaskData.title}
-                      onChange={e => setNewTaskData(prev => ({ ...prev, title: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Allotted Time (Hrs)</label>
-                    <input 
-                      type="number" 
-                      step="0.1"
-                      value={newTaskData.bookTime}
-                      onChange={e => setNewTaskData(prev => ({ ...prev, bookTime: e.target.value }))}
-                      className="w-full px-4 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono font-bold text-indigo-600"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2">Assign Technicians</label>
-                  <StaffSelector 
-                    tenantId={tenantId}
-                    selectedStaff={newTaskData.assignedStaff}
-                    onAssign={staff => setNewTaskData(prev => ({ ...prev, assignedStaff: staff }))}
-                  />
-                </div>
-
-                <button 
-                  onClick={handleAddTask}
-                  className="w-full py-3 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl text-sm font-black uppercase tracking-widest hover:scale-[1.02] transition-all active:scale-95"
-                >
-                  Confirm New Task
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {jobTasks.map(task => (
-                <div key={task.id} className="p-5 bg-zinc-50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-2xl group hover:border-indigo-500/30 transition-all">
-                  <div className="flex items-start justify-between gap-6">
-                    <div className="flex-1 space-y-4">
-                      <div className="flex flex-col md:flex-row md:items-center gap-4">
-                        <div className="flex-1">
-                          <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Task Title</label>
-                          <input 
-                            type="text" 
-                            value={task.title}
-                            onChange={e => updateTaskField(task.id, 'title', e.target.value)}
-                            className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
-                          />
-                        </div>
-                        {task.title !== 'General' && (
-                          <div className="w-full md:w-40">
-                            <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Allotted Time</label>
-                            <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
-                              <Timer className="w-4 h-4 text-indigo-500" />
-                              <input 
-                                type="number" 
-                                step="0.1"
-                                value={task.bookTime}
-                                onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
-                                className="w-full bg-transparent border-none p-0 text-sm font-mono font-bold text-indigo-600 focus:ring-0 text-center"
-                              />
-                              <span className="text-[10px] font-black text-zinc-400">HRS</span>
-                            </div>
-                          </div>
-                        )}
+            <div className="space-y-6">
+              {(() => {
+                const groupedTasks = jobTasks.reduce((acc, task) => {
+                  const group = task.taskGroup || 'Uncategorized';
+                  if (!acc[group]) acc[group] = [];
+                  acc[group].push(task);
+                  return acc;
+                }, {} as Record<string, any[]>);
+                
+                customGroups.forEach(cg => {
+                  if (!groupedTasks[cg]) groupedTasks[cg] = [];
+                });
+                
+                return Object.entries(groupedTasks).sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)).map(([group, tasksData]) => {
+                  const tasks = tasksData as any[];
+                  return (
+                  <div key={group} className="space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                      <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                      <div className="flex items-center gap-4">
+                         {group !== 'General' && (
+                           <>
+                             <div className="w-48">
+                               <StaffSelector 
+                                 tenantId={tenantId}
+                                 selectedStaff={[]}
+                                 onAssign={staff => handleAssignGroup(group, staff)}
+                                 placeholder="Assign Section..."
+                               />
+                             </div>
+                             <button
+                               onClick={() => {
+                                 // Inherit staff from the first task in this group
+                                 const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                                 handleInlineAddTask(group, staff);
+                               }}
+                               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors text-[10px] font-black uppercase tracking-widest"
+                               title={`Add Task to ${group}`}
+                             >
+                               <Plus className="w-3 h-3" /> Add Task
+                             </button>
+                           </>
+                         )}
+                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg shrink-0">
+                           {tasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
+                         </span>
                       </div>
-                      
-                      {task.title !== 'General' && (
-                        <div>
-                          <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Assigned Technicians</label>
-                          <StaffSelector 
-                            tenantId={tenantId}
-                            selectedStaff={task.assignedStaff || []}
-                            onAssign={staff => updateTaskField(task.id, 'assignedStaff', staff)}
-                          />
-                        </div>
-                      )}
                     </div>
-                    <button 
-                      onClick={() => handleDeleteTask(task.id)}
-                      className="p-2 text-zinc-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {tasks.map(task => (
+                      <div key={task.id} className="p-5 bg-zinc-50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-2xl group hover:border-indigo-500/30 transition-all">
+                        <div className="flex items-start justify-between gap-6">
+                          <div className="flex-1 space-y-4">
+                            <div className="flex flex-col md:flex-row md:items-center gap-4">
+                              <div className="flex-1">
+                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Task Title</label>
+                                <input 
+                                  id={`task-title-${task.id}`}
+                                  type="text" 
+                                  value={task.title}
+                                  placeholder="Untitled Task"
+                                  onChange={e => updateTaskField(task.id, 'title', e.target.value)}
+                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
+                                />
+                              </div>
+                              <div className="flex-1 md:w-1/3">
+                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Task Group</label>
+                                <input 
+                                  type="text" 
+                                  defaultValue={task.taskGroup || ''}
+                                  placeholder="e.g. Front End"
+                                  onBlur={e => updateTaskField(task.id, 'taskGroup', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
+                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
+                                />
+                              </div>
+                              {task.title !== 'General' && (
+                                <div className="w-full md:w-40">
+                                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Allotted Time</label>
+                                  <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
+                                    <Timer className="w-4 h-4 text-indigo-500" />
+                                    <input 
+                                      type="number" 
+                                      step="0.1"
+                                      value={task.bookTime}
+                                      onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
+                                      className="w-full bg-transparent border-none p-0 text-sm font-mono font-bold text-indigo-600 focus:ring-0 text-center"
+                                    />
+                                    <span className="text-[10px] font-black text-zinc-400">HRS</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {task.title !== 'General' && (
+                              <div>
+                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Assigned Technicians</label>
+                                <StaffSelector 
+                                  tenantId={tenantId}
+                                  selectedStaff={task.assignedStaff || []}
+                                  onAssign={staff => updateTaskField(task.id, 'assignedStaff', staff)}
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="p-2 text-zinc-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-              {jobTasks.length === 0 && !isAddingTask && (
+                );});
+              })()}
+              {jobTasks.length === 0 && (
                 <div className="p-12 text-center border-2 border-dashed border-zinc-100 dark:border-zinc-800 rounded-3xl">
                   <CheckSquare className="w-8 h-8 text-zinc-200 dark:text-zinc-800 mx-auto mb-3" />
                   <p className="text-sm font-bold text-zinc-400">No tasks added to this job yet.</p>

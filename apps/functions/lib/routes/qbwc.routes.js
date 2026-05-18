@@ -151,12 +151,12 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                 const queueRef = admin.firestore().collection('qbwc_queue');
                 batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ItemQuery', qbxml: '<ItemQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus></ItemQueryRq>', createdAt: new Date().toISOString() });
                 batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'CustomerQuery', qbxml: '<CustomerQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus><OwnerID>0</OwnerID></CustomerQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus></VendorQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'VendorQuery', qbxml: '<VendorQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus><VendorQueryRq>', createdAt: new Date().toISOString() });
                 batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EmployeeQuery', qbxml: '<EmployeeQueryRq><ActiveStatus>All</ActiveStatus></EmployeeQueryRq>', createdAt: new Date().toISOString() });
                 batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'ClassQuery', qbxml: '<ClassQueryRq><ActiveStatus>All</ActiveStatus></ClassQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq iterator="Start"><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq iterator="Start"><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
-                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq iterator="Start"><MaxReturned>100</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'EstimateQuery', qbxml: '<EstimateQueryRq iterator="Start"><MaxReturned>50</MaxReturned><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'InvoiceQuery', qbxml: '<InvoiceQueryRq iterator="Start"><MaxReturned>50</MaxReturned><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>', createdAt: new Date().toISOString() });
+                batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'PurchaseOrderQuery', qbxml: '<PurchaseOrderQueryRq iterator="Start"><MaxReturned>50</MaxReturned><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>', createdAt: new Date().toISOString() });
                 batch.set(queueRef.doc(), { tenantId, status: 'pending', action: 'TimeTrackingQuery', qbxml: '<TimeTrackingQueryRq iterator="Start"><MaxReturned>100</MaxReturned></TimeTrackingQueryRq>', createdAt: new Date().toISOString() });
                 // Mark initialized
                 batch.update(admin.firestore().collection('businesses').doc(tenantId), { qbwcInitialized: true });
@@ -195,9 +195,9 @@ exports.qbwcRoutes.post('/', async (req, res) => {
                         { action: 'CustomerQuery', xml: `<CustomerQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate><OwnerID>0</OwnerID></CustomerQueryRq>` },
                         { action: 'VendorQuery', xml: `<VendorQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ActiveStatus>All</ActiveStatus><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></VendorQueryRq>` },
                         { action: 'EmployeeQuery', xml: `<EmployeeQueryRq><ActiveStatus>All</ActiveStatus></EmployeeQueryRq>` },
-                        { action: 'EstimateQuery', xml: `<EstimateQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
-                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
-                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
+                        { action: 'EstimateQuery', xml: `<EstimateQueryRq iterator="Start"><MaxReturned>50</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></EstimateQueryRq>` },
+                        { action: 'InvoiceQuery', xml: `<InvoiceQueryRq iterator="Start"><MaxReturned>50</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></InvoiceQueryRq>` },
+                        { action: 'PurchaseOrderQuery', xml: `<PurchaseOrderQueryRq iterator="Start"><MaxReturned>50</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter><IncludeLineItems>true</IncludeLineItems></PurchaseOrderQueryRq>` },
                         { action: 'TimeTrackingQuery', xml: `<TimeTrackingQueryRq iterator="Start"><MaxReturned>100</MaxReturned><ModifiedDateRangeFilter><FromModifiedDate>${qbFormattedDate}</FromModifiedDate></ModifiedDateRangeFilter></TimeTrackingQueryRq>` },
                         { action: 'HostQuery', xml: `<HostQueryRq></HostQueryRq>` }
                     ];
@@ -226,6 +226,31 @@ exports.qbwcRoutes.post('/', async (req, res) => {
             if (!sessionDoc.exists)
                 return res.type('text/xml').send(buildSoapResponse('sendRequestXML', ''));
             const tenantId = (_c = sessionDoc.data()) === null || _c === void 0 ? void 0 : _c.tenantId;
+            // Check for stuck processing jobs (older than 5 minutes) and mark them as error
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            const stuckSnap = await admin.firestore().collection('qbwc_queue')
+                .where('tenantId', '==', tenantId)
+                .where('status', '==', 'processing')
+                .get();
+            if (!stuckSnap.empty) {
+                const stuckBatch = admin.firestore().batch();
+                let hasUpdates = false;
+                stuckSnap.docs.forEach(doc => {
+                    const data = doc.data();
+                    const startedAt = data.processingStartedAt || data.createdAt;
+                    if (startedAt && startedAt < fiveMinutesAgo) {
+                        stuckBatch.update(doc.ref, {
+                            status: 'error',
+                            error: 'Sync session timed out. The QuickBooks client failed to respond within 5 minutes.',
+                            completedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        hasUpdates = true;
+                    }
+                });
+                if (hasUpdates) {
+                    await stuckBatch.commit();
+                }
+            }
             // Fetch next pending queue item
             // We use .limit(1) to save massive amounts of reads. 
             // The QB Web Connector generic queries don't depend strictly on order.

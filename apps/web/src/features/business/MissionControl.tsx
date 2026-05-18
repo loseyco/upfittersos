@@ -696,7 +696,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
         <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          {/* Action Required */}
+          {/* Action Required
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
             <div className="p-4 sm:p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -742,6 +742,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
               )}
             </div>
           </div>
+          */}
 
           {/* Utilization Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
@@ -789,7 +790,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       const target = job || bay;
                       const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
                       const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
-                      const isBlocked = activeBlockers.length > 0;
+                      const isBlocked = activeBlockers.length > 0 || target?.status === 'Blocked' || job?.status === 'Blocked' || bay?.status === 'Blocked';
 
                       const currentVin = job?.vehicleVin || bay?.currentVehicleVin;
                       const relevantParts = partsRequests.filter((pr: any) => {
@@ -1081,7 +1082,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                   const target = job || zone;
                                   const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
                                   const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
-                                  const isBlocked = activeBlockers.length > 0;
+                                  const isBlocked = activeBlockers.length > 0 || target?.status === 'Blocked' || job?.status === 'Blocked' || zone?.status === 'Blocked';
 
                                   const currentVin = job?.vehicleVin || vin;
                                   const relevantParts = partsRequests.filter((pr: any) => {

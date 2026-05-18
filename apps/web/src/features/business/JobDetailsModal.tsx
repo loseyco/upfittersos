@@ -936,9 +936,31 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
                       </button>
                    </div>
                  ) : (
-                   <div className="space-y-3">
-                     {tasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map(task => {
-                       const loggedMs = getTaskLoggedMs(task.id);
+                   <div className="space-y-6">
+                     {(() => {
+                        const groupedTasks = tasks.reduce((acc, task) => {
+                          const group = task.taskGroup || 'Uncategorized';
+                          if (!acc[group]) acc[group] = [];
+                          acc[group].push(task);
+                          return acc;
+                        }, {} as Record<string, any[]>);
+                        
+                        return Object.entries(groupedTasks)
+                          .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+                          .map(([group, tasksData]) => {
+                            const groupTasks = tasksData as any[];
+                            return (
+                            <div key={group} className="space-y-3">
+                              <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                                <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                                <div className="flex items-center gap-2">
+                                   <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
+                                     {groupTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
+                                   </span>
+                                </div>
+                              </div>
+                              {groupTasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map(task => {
+                                const loggedMs = getTaskLoggedMs(task.id);
                        const loggedHours = loggedMs / 3600000;
                        const progress = task.bookTime > 0 ? Math.min(100, (loggedHours / task.bookTime) * 100) : 0;
                        const isClockedIn = activeJobId === job.id && activeTaskId === task.id;
@@ -1072,6 +1094,9 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
                          </div>
                        );
                      })}
+                            </div>
+                          );});
+                     })()}
                    </div>
                  )}
               </div>
@@ -2185,9 +2210,31 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
                       </button>
                    </div>
                  ) : (
-                   <div className="space-y-3">
-                     {tasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map(task => {
-                       const loggedMs = getTaskLoggedMs(task.id);
+                   <div className="space-y-6">
+                     {(() => {
+                        const groupedTasks = tasks.reduce((acc, task) => {
+                          const group = task.taskGroup || 'Uncategorized';
+                          if (!acc[group]) acc[group] = [];
+                          acc[group].push(task);
+                          return acc;
+                        }, {} as Record<string, any[]>);
+                        
+                        return Object.entries(groupedTasks)
+                          .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+                          .map(([group, tasksData]) => {
+                            const groupTasks = tasksData as any[];
+                            return (
+                            <div key={group} className="space-y-3">
+                              <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                                <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                                <div className="flex items-center gap-2">
+                                   <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
+                                     {groupTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
+                                   </span>
+                                </div>
+                              </div>
+                              {groupTasks.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map(task => {
+                                const loggedMs = getTaskLoggedMs(task.id);
                        const loggedHours = loggedMs / 3600000;
                        const progress = task.bookTime > 0 ? Math.min(100, (loggedHours / task.bookTime) * 100) : 0;
                        const isClockedIn = activeJobId === job.id && activeTaskId === task.id;
@@ -2321,6 +2368,9 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
                          </div>
                        );
                      })}
+                            </div>
+                          );});
+                     })()}
                    </div>
                  )}
               </div>

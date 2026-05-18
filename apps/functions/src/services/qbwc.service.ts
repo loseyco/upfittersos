@@ -139,13 +139,15 @@ export class QbwcService {
             
             if (iteratorRemainingCount > 0 && iteratorID) {
                 // If this query used IncludeLineItems, we must ensure the continuation query does too
-                const includeLineItems = ['EstimateQuery', 'InvoiceQuery', 'PurchaseOrderQuery'].includes(action) 
+                const isHeavyQuery = ['EstimateQuery', 'InvoiceQuery', 'PurchaseOrderQuery'].includes(action);
+                const includeLineItems = isHeavyQuery 
                     ? '<IncludeLineItems>true</IncludeLineItems>' 
                     : '';
+                const maxReturned = isHeavyQuery ? 50 : 100;
                 
                 // Construct the continuation query using the same root tag name (e.g. CustomerQueryRq)
                 const rqTag = `${action}Rq`;
-                const continuationXml = `<${rqTag} iterator="Continue" iteratorID="${iteratorID}"><MaxReturned>500</MaxReturned>${includeLineItems}</${rqTag}>`;
+                const continuationXml = `<${rqTag} iterator="Continue" iteratorID="${iteratorID}"><MaxReturned>${maxReturned}</MaxReturned>${includeLineItems}</${rqTag}>`;
                 
                 // Enqueue the continuation query
                 await db.collection('qbwc_queue').add({

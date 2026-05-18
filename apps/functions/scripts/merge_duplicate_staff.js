@@ -1,9 +1,20 @@
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin
-admin.initializeApp({
-    projectId: 'saegroup-c6487'
-});
+const { execSync } = require('child_process');
+const token = execSync('gcloud auth print-access-token').toString().trim();
+const credential = {
+    getAccessToken: () => Promise.resolve({
+        access_token: token,
+        expires_in: 3600
+    })
+};
+
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: credential,
+        projectId: 'saegroup-c6487'
+    });
+}
 const db = admin.firestore();
 
 const tenantId = '7jlg4IA2G6lvDJ0S5Vbp';
@@ -38,7 +49,7 @@ async function mergeDuplicateStaff() {
                 const nLastName = n.lastName || '';
                 
                 return (email && nEmail === email) || 
-                       (firstName && lastName && nFirstName === firstName && nLastName === lastName);
+                       (firstName && lastName && nFirstName.toLowerCase() === firstName.toLowerCase() && nLastName.toLowerCase() === lastName.toLowerCase());
             });
 
             if (match) {

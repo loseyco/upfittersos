@@ -610,7 +610,29 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                   <p className="text-sm font-bold text-zinc-500">No tasks assigned to this job.</p>
                 </div>
               ) : (
-                tasks.map(task => {
+                (() => {
+                  const groupedTasks = tasks.reduce((acc, task) => {
+                    const group = task.taskGroup || 'Uncategorized';
+                    if (!acc[group]) acc[group] = [];
+                    acc[group].push(task);
+                    return acc;
+                  }, {} as Record<string, any[]>);
+                  
+                  return Object.entries(groupedTasks)
+                    .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+                    .map(([group, tasksData]) => {
+                      const groupTasks = tasksData as any[];
+                      return (
+                        <div key={group} className="space-y-4">
+                          <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800 mt-6 first:mt-0">
+                            <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                          </div>
+                          {groupTasks.sort((a, b) => {
+                            const order: Record<string, number> = { 'Blocked': -1, 'pending': 0, 'in_progress': 0, 'QC': 1, 'QC Complete': 2 };
+                            const aOrder = order[a.status || 'pending'] ?? 0;
+                            const bOrder = order[b.status || 'pending'] ?? 0;
+                            return aOrder - bOrder;
+                          }).map(task => {
                   const loggedMs = getTaskLoggedMs(task.id);
                   const isAssigned = task.title === 'General' || 
                                     isSuperAdmin || 
@@ -772,7 +794,11 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       </div>
                     </div>
                   );
-                })
+                })}
+                        </div>
+                      );
+                    });
+                })()
               )}
             </div>
           </div>

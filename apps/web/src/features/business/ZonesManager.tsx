@@ -706,11 +706,12 @@ function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zon
               const target = job || zone;
               const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
               const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+              const isBlocked = activeBlockers.length > 0 || target?.status === 'Blocked' || job?.status === 'Blocked' || zone?.status === 'Blocked';
 
               return (
                 <div className="flex items-center gap-1">
-                  {activeBlockers.length > 0 && (
-                    <span title={activeBlockers.map((b: any) => b.message).join('\n')} className="flex items-center gap-1 text-[10px] font-black uppercase text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0 animate-pulse">
+                  {isBlocked && (
+                    <span title={activeBlockers.length > 0 ? activeBlockers.map((b: any) => b.message).join('\n') : 'Marked as Blocked'} className="flex items-center gap-1 text-[10px] font-black uppercase text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0 animate-pulse">
                       <AlertTriangle className="w-3 h-3" /> {activeBlockers.length > 1 ? `${activeBlockers.length} Blockers` : 'Blocked'}
                     </span>
                   )}

@@ -32,6 +32,7 @@ export interface Zone {
   blocker?: string;
   notes?: string;
   eta?: any;
+  status?: string;
 }
 
 export const zoneTypeIcons = {
@@ -57,6 +58,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
     createdBy: 'Legacy'
   }] : [];
   const activeBlockers = (targetEntity.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+  const isBlocked = activeBlockers.length > 0 || targetEntity?.status === 'Blocked' || job?.status === 'Blocked' || zone?.status === 'Blocked';
 
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const zoneVehicles = zone.allowMultiple ? (zone.currentVehicleVins || []).map((vin: string) => {
@@ -330,9 +332,9 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                   >
                     <AlertTriangle className="w-4 h-4" />
                     <span className="text-[8px] font-black uppercase tracking-tighter">Blocker</span>
-                    {activeBlockers.length > 0 && (
+                    {isBlocked && (
                       <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center animate-pulse border-2 border-white dark:border-zinc-900 shadow-sm">
-                        {activeBlockers.length}
+                        {activeBlockers.length > 0 ? activeBlockers.length : '!'}
                       </span>
                     )}
                   </button>
@@ -402,7 +404,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
               
               {/* High-Level Status Summary (Blockers/Parts/Notes) */}
               {(() => {
-                const activeBlocker = (targetEntity.blockers || []).find((b: any) => b.status === 'active')?.message || targetEntity.blocker;
+                const activeBlocker = (targetEntity.blockers || []).find((b: any) => b.status === 'active')?.message || targetEntity.blocker || (isBlocked ? 'Marked as Blocked' : null);
                 const latestNote = job?.work_notes?.[job.work_notes.length - 1]?.message;
                 
                 const activeParts = (partsRequests || []).filter((pr: any) => {

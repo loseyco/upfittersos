@@ -228,15 +228,17 @@ export const onQbEmployeeWrite = functions.firestore
     }
 
     if (staffRef.id === employeeId && firstName && lastName) {
-      // If still using QB ID, try one more search by name
-      const existingNameQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('staff')
-        .where('firstName', '==', firstName)
-        .where('lastName', '==', lastName)
-        .limit(1)
-        .get();
+      // If still using QB ID, try one more search by case-insensitive name
+      const allStaffSnap = await admin.firestore().collection('businesses').doc(tenantId).collection('staff').get();
+      const existingNameMatch = allStaffSnap.docs.find(doc => {
+        const d = doc.data();
+        return d.firstName && d.lastName && 
+               d.firstName.toLowerCase() === firstName.toLowerCase() && 
+               d.lastName.toLowerCase() === lastName.toLowerCase();
+      });
       
-      if (!existingNameQuery.empty) {
-        staffRef = existingNameQuery.docs[0].ref;
+      if (existingNameMatch) {
+        staffRef = existingNameMatch.ref;
         console.log(`Found existing staff member by name: ${firstName} ${lastName}. Merging into doc ${staffRef.id}`);
       }
     }
