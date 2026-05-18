@@ -4,7 +4,7 @@ import { doc, onSnapshot, collection, query, where, updateDoc, addDoc } from 'fi
 import { db } from '../../lib/firebase/config';
 import { 
   ArrowLeft, Clock, Timer, CheckCircle2, 
-  Wrench, AlertTriangle, MessageSquare, Trash2
+  Wrench, AlertTriangle, MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -21,7 +21,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const taskId = pathParts[2];
   
   const navigate = useNavigate();
-  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const { user, isSuperAdmin } = useAuthStore();
   const { activeSessionId } = useTimeclockStore();
   const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
   
@@ -124,7 +124,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       // Filter logs by taskId manually if we don't have an index, 
       // or we just show them if they contain metadata.taskId == taskId or type starts with part_requested for this task.
-      const taskLogs = logs.filter(log => log.metadata?.taskId === taskId || log.taskId === taskId);
+      const taskLogs = logs.filter((log: any) => log.metadata?.taskId === taskId || log.taskId === taskId);
       
       taskLogs.sort((a: any, b: any) => {
         const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : new Date(a.timestamp || 0).getTime();
@@ -217,7 +217,6 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       const blocker = (task.blockers || []).find((b: any) => b.id === blockerId);
       
       const hasActiveBlockers = updatedBlockers.some((b: any) => b.status === 'active');
-      const newStatus = hasActiveBlockers ? 'Blocked' : 'Active';
 
       await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), {
         blockers: updatedBlockers,
