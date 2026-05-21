@@ -22,6 +22,7 @@ import { PartsMissionControl } from './PartsMissionControl';
 import { PrintedPartsMissionControl } from './PrintedPartsMissionControl';
 import { PartsManager } from './PartsManager';
 import { TasksManager } from './TasksManager';
+import { ScheduleBoard } from './ScheduleBoard';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
@@ -42,6 +43,8 @@ import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
 import { TaskDetailPage } from './TaskDetailPage';
+import { VendorsManager } from './VendorsManager';
+import { FeedbackReports } from '../super-admin/FeedbackReports';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -60,7 +63,8 @@ export function TenantDashboard() {
     staff: 'Staff',
     reports: 'Reports',
     performance: 'Performance',
-    schedule: 'Schedule',
+    schedule: 'Staff Roster',
+    job_schedule: 'Schedule',
     timeclock: 'Timeclock',
     live_timeclock: 'Live Timeclock',
     parts: 'Parts Dept',
@@ -72,7 +76,9 @@ export function TenantDashboard() {
     vehicles: 'Vehicles',
     zones: 'Zones',
     bay_monitor: 'Bay Monitor',
-    job: 'Job Detail'
+    job: 'Job Detail',
+    vendors: 'Vendors & Services',
+    feedback: 'Feedback & Bugs'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -203,7 +209,7 @@ export function TenantDashboard() {
               </button>
             </div>
           )}
-          {!isLoading && activeTab !== 'bay_monitor' && (
+          {!isLoading && activeTab !== 'bay_monitor' && activeTab !== 'job_schedule' && (
             <div className="flex items-center justify-between mb-4 md:mb-8">
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex w-14 h-14 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl items-center justify-center shadow-sm">
@@ -298,6 +304,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'job_schedule' && (
+              <PermissionGate permission="jobs.view">
+                <ScheduleBoard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'timeclock' && (
               <PermissionGate permission="timeclock.manage">
                 <TimeclockAdmin tenantId={tenantId!} />
@@ -317,7 +329,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'printed_parts' && (
-              <PermissionGate permission="parts.view">
+              <PermissionGate permission="printed_parts.view">
                 <PrintedPartsMissionControl />
               </PermissionGate>
             )}
@@ -371,9 +383,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
-              <PermissionGate permission="jobs.view">
-                <JobDetailPage tenantId={tenantId!} />
-              </PermissionGate>
+              <JobDetailPage tenantId={tenantId!} />
             )}
 
             {activeTab === 'job' && (pathParts[2] === 'edit' || pathParts[1] === 'create') && (
@@ -383,9 +393,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'task' && pathParts[1] && pathParts[2] && (
-              <PermissionGate permission="tasks.view">
-                <TaskDetailPage tenantId={tenantId!} />
-              </PermissionGate>
+              <TaskDetailPage tenantId={tenantId!} />
             )}
 
             {activeTab === 'items' && (
@@ -407,7 +415,9 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'bay_monitor' && (
-              <BayMonitor tenantId={tenantId!} />
+              <PermissionGate permission="facility.view">
+                <BayMonitor tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'tasks' && (
@@ -417,19 +427,43 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'facility_maps' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/facility_maps`} title="Facility Maps" />
+              <PermissionGate permission="facility.view">
+                <GenericDataGrid collectionPath={`businesses/${tenantId}/facility_maps`} title="Facility Maps" />
+              </PermissionGate>
             )}
 
             {activeTab === 'canvases' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/canvases`} title="Canvases" />
+              <PermissionGate permission="facility.view">
+                <GenericDataGrid collectionPath={`businesses/${tenantId}/canvases`} title="Canvases" />
+              </PermissionGate>
             )}
 
             {activeTab === 'messages' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/messages`} title="Messages" />
+              <PermissionGate permission="communication.view">
+                <GenericDataGrid collectionPath={`businesses/${tenantId}/messages`} title="Messages" />
+              </PermissionGate>
             )}
 
             {activeTab === 'announcements' && (
-              <GenericDataGrid collectionPath={`businesses/${tenantId}/announcements`} title="Announcements" />
+              <PermissionGate permission="communication.view">
+                <GenericDataGrid collectionPath={`businesses/${tenantId}/announcements`} title="Announcements" />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'vendors' && (
+              <PermissionGate permission="vendors.view">
+                <VendorsManager 
+                  tenantId={tenantId!} 
+                  subView={pathParts[1]}
+                  viewId={pathParts[2]}
+                />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'feedback' && (
+              <PermissionGate permission="facility.view">
+                <FeedbackReports tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'qb_sync_status' && (
@@ -470,8 +504,22 @@ export function TenantDashboard() {
               <GenericDataGrid collectionPath={`businesses/${tenantId}/qb_purchase_orders`} title="QuickBooks Raw Purchase Orders" />
             )}
 
+            {activeTab === 'qb_employees' && (
+              <GenericDataGrid collectionPath={`businesses/${tenantId}/qb_employees`} title="QuickBooks Raw Employees" />
+            )}
+
+            {activeTab === 'qb_vendors' && (
+              <GenericDataGrid collectionPath={`businesses/${tenantId}/qb_vendors`} title="QuickBooks Raw Vendors" />
+            )}
+
+            {activeTab === 'qb_time_tracking' && (
+              <GenericDataGrid collectionPath={`businesses/${tenantId}/qb_time_tracking`} title="QuickBooks Raw Time Tracking" />
+            )}
+
             {activeTab === 'events' && (
-              <BusinessEvents tenantId={tenantId as string} eventId={eventId} />
+              <PermissionGate permission="communication.view">
+                <BusinessEvents tenantId={tenantId as string} eventId={eventId} />
+              </PermissionGate>
             )}
           </div>
         </main>

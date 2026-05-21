@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, updateDoc, addDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   ArrowLeft, Clock, Timer, CheckCircle2, 
-  Wrench, AlertTriangle, MessageSquare
+  Wrench, AlertTriangle, MessageSquare, Users,
+  Play, Square, ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -21,15 +22,14 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const taskId = pathParts[2];
   
   const navigate = useNavigate();
-  const { user, isSuperAdmin } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
   const { activeSessionId } = useTimeclockStore();
   const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
   
   const [job, setJob] = useState<any>(null);
   const [task, setTask] = useState<any>(null);
   const [timeLogs, setTimeLogs] = useState<any[]>([]);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeTasks, setActiveTasks] = useState<Array<{ jobId: string, taskId: string | null }>>([]);
   const [now, setNow] = useState(Date.now());
   
   const [parts, setParts] = useState<any[]>([]);
@@ -139,22 +139,17 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   // Sync Active Job/Task from current session
   useEffect(() => {
     if (!tenantId || !activeSessionId) {
-      setActiveJobId(null);
-      setActiveTaskId(null);
+      setActiveTasks([]);
       return;
     }
     const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         const jobs = data.jobs || [];
-        const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-        if (lastJob && !lastJob.end) {
-          setActiveJobId(lastJob.id);
-          setActiveTaskId(lastJob.taskId || null);
-        } else {
-          setActiveJobId(null);
-          setActiveTaskId(null);
-        }
+        const activeSegments = jobs.filter((j: any) => !j.end);
+        
+        // Track all active segments
+        setActiveTasks(activeSegments.map((j: any) => ({ jobId: j.id, taskId: j.taskId || null })));
       }
     }, (err) => {
       console.error("Session sync listener error:", err);
@@ -164,14 +159,59 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
 
   const logActivity = async (type: string, message: string, metadata: any = {}) => {
     try {
-      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/activity`), {
+      const activityData = {
         type,
         message,
         metadata: { ...metadata, taskId },
-        taskId, // Save taskId directly as well for easier filtering
+        taskId,
         timestamp: new Date(),
         staffId: user?.uid,
         staffName: user?.displayName || user?.email || 'Staff'
+      };
+
+      // 1. Write to local subcollection
+      const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/activity`), activityData);
+
+      // 2. Write to global activity feed
+      const jobPrefix = job ? (job.jobNumber ? `Job #${job.jobNumber}` : `Job ${job.title}`) : 'Job';
+      const typeToTitle: Record<string, string> = {
+        blocker_added: 'Blocker Added',
+        blocker_resolved: 'Blocker Resolved',
+        part_status_changed: 'Part Status Changed',
+        location_changed: 'Vehicle Moved',
+        patrol_check: 'Patrol Check',
+        status_changed: 'Status Changed',
+        task_added: 'Task Added',
+        task_duplicated: 'Task Duplicated',
+        task_deleted: 'Task Removed',
+        task_updated: 'Task Updated',
+        task_assigned: 'Task Assigned',
+      };
+
+      const getSeverity = (t: string, msg: string) => {
+        if (t === 'blocker_added') return 'warning';
+        if (t === 'blocker_resolved') return 'success';
+        if (t === 'status_changed') {
+          if (msg.toLowerCase().includes('blocked')) return 'error';
+          if (msg.toLowerCase().includes('restored') || msg.toLowerCase().includes('active')) return 'success';
+        }
+        return 'info';
+      };
+
+      await setDoc(doc(db, `businesses/${tenantId}/activity_feed`, `job_act_${jobId}_${docRef.id}`), {
+        type: 'job',
+        title: typeToTitle[type] || 'Job Update',
+        message: `${jobPrefix}: ${message}`,
+        timestamp: activityData.timestamp,
+        severity: getSeverity(type, message),
+        author: activityData.staffName,
+        metadata: {
+          jobId,
+          jobTitle: job?.title || '',
+          jobNumber: job?.jobNumber || '',
+          taskId,
+          ...metadata
+        }
       });
     } catch (err) {
       console.error("Activity logging error:", err);
@@ -270,6 +310,57 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
     }, 0);
   };
 
+  const getTaskSessionsAndContributions = () => {
+    const segments: any[] = [];
+    const techMap: { [name: string]: { ms: number; isActive: boolean; userId: string } } = {};
+    let totalMs = 0;
+
+    timeLogs.forEach(session => {
+      const techName = session.staffName || session.userName || 'Unknown Staff';
+      const userId = session.userId || session.staffId || '';
+      
+      const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === taskId);
+      
+      taskSegments.forEach((seg: any) => {
+        const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : null;
+        const duration = (end || now) - start;
+        const isActive = !seg.end;
+
+        segments.push({
+          id: `${session.id}-${start}`,
+          techName,
+          userId,
+          start,
+          end,
+          duration,
+          isActive
+        });
+
+        if (!techMap[techName]) {
+          techMap[techName] = { ms: 0, isActive: false, userId };
+        }
+        techMap[techName].ms += duration;
+        if (isActive) {
+          techMap[techName].isActive = true;
+        }
+        totalMs += duration;
+      });
+    });
+
+    segments.sort((a, b) => b.start - a.start);
+
+    const contributions = Object.entries(techMap).map(([name, data]) => ({
+      name,
+      userId: data.userId,
+      ms: data.ms,
+      percentage: totalMs > 0 ? Math.round((data.ms / totalMs) * 100) : 0,
+      isActive: data.isActive
+    })).sort((a, b) => b.ms - a.ms);
+
+    return { segments, contributions, totalMs };
+  };
+
   const formatMs = (ms: number) => {
     const hours = Math.floor(ms / 3600000);
     const minutes = Math.floor((ms % 3600000) / 60000);
@@ -287,7 +378,24 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                     isSuperAdmin || 
                     task.assignedStaffIds?.includes(user?.uid) || 
                     task.assignedStaff?.some((s: any) => s.uid === user?.uid || s.id === user?.uid);
-  const isCurrentTask = activeJobId === jobId && activeTaskId === task.id;
+
+  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned;
+
+  if (!hasAccess) {
+    return (
+      <div className="p-12 text-center animate-in fade-in duration-500">
+        <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+          <ShieldAlert className="w-10 h-10 text-rose-500" />
+        </div>
+        <h3 className="text-xl font-black text-zinc-900 dark:text-white mb-2">Access Restricted</h3>
+        <p className="text-zinc-500 max-w-sm mx-auto">
+          Your account does not have the required permissions to access this task. Please contact your administrator for elevated access.
+        </p>
+      </div>
+    );
+  }
+
+  const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id);
 
   const activeBlockers = (task.blockers || []).filter((b: any) => b.status === 'active');
   const resolvedBlockers = (task.blockers || []).filter((b: any) => b.status === 'resolved');
@@ -327,7 +435,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
              <>
                {isCurrentTask ? (
                  <button 
-                   onClick={() => clockOutOfJob()}
+                   onClick={() => clockOutOfJob(jobId, task.id)}
                    className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
                  >
                    <Timer className="w-4 h-4 animate-pulse" />
@@ -390,12 +498,37 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
         <div className="lg:col-span-2 space-y-6">
           {/* Task Details Card */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
-            <h2 className="text-xl font-bold mb-4">Task Details</h2>
-            {task.description ? (
-              <p className="text-zinc-600 dark:text-zinc-400 mb-6">{task.description}</p>
-            ) : (
-              <p className="text-sm font-bold text-zinc-500 mb-6 italic">No description provided.</p>
-            )}
+            <div className="flex items-center justify-between mb-6 pb-6 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <h2 className="text-xl font-bold">Task Details</h2>
+                {task.description ? (
+                  <p className="text-zinc-600 dark:text-zinc-400 mt-2 text-sm">{task.description}</p>
+                ) : (
+                  <p className="text-sm font-bold text-zinc-500 mt-2 italic">No description provided.</p>
+                )}
+              </div>
+              
+              <div className="flex flex-col items-end shrink-0">
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Assigned Staff</span>
+                {task.assignedStaff && task.assignedStaff.length > 0 ? (
+                  <div className="flex items-center -space-x-2">
+                    {task.assignedStaff.map((staff: any) => (
+                      <div 
+                        key={staff.id || staff.uid} 
+                        className="w-8 h-8 rounded-full bg-indigo-500/10 border-2 border-white dark:border-zinc-900 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-400 animate-in fade-in"
+                        title={staff.name || 'Staff Member'}
+                      >
+                        {(staff.name || '?').substring(0, 2).toUpperCase()}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-2.5 py-1 rounded bg-rose-500/10 border border-rose-500/20 text-rose-600 text-[10px] font-black uppercase tracking-widest">
+                    Unassigned
+                  </div>
+                )}
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl">
@@ -414,41 +547,185 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
             </div>
           </div>
 
-          {/* Activity Log */}
+          {/* Technician Sessions & Hours Card */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-indigo-500/10 rounded-xl">
+                <Users className="w-5 h-5 text-indigo-500" />
+              </div>
+              <h2 className="text-xl font-bold">Technician Sessions & Hours</h2>
+            </div>
+
+            {(() => {
+              const { segments, contributions } = getTaskSessionsAndContributions();
+
+              if (segments.length === 0) {
+                return (
+                  <div className="p-8 text-center text-zinc-500 font-bold bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                    No work logged on this task yet.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-6">
+                  {/* Contributions list */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400">Time Contributions</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {contributions.map((contrib) => (
+                        <div key={contrib.name} className="p-3 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800 flex flex-col justify-between">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">{contrib.name}</span>
+                              {contrib.isActive && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-[8px] font-black uppercase tracking-widest animate-pulse">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  Active
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-mono text-sm font-bold text-indigo-500">{formatMs(contrib.ms)}</span>
+                          </div>
+                          
+                          {/* Progress bar */}
+                          <div className="w-full bg-zinc-200 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-indigo-500 h-full rounded-full transition-all" 
+                              style={{ width: `${contrib.percentage}%` }}
+                            />
+                          </div>
+                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mt-1.5 self-end">
+                            {contrib.percentage}% contribution
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sessions Timeline */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-black uppercase tracking-widest text-zinc-400">Login Sessions</h3>
+                    <div className="max-h-[250px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                      {segments.map((seg) => (
+                        <div key={seg.id} className="p-3 bg-zinc-50/50 dark:bg-zinc-950/20 border border-zinc-100 dark:border-zinc-900 rounded-xl flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {seg.isActive ? (
+                              <Play className="w-3.5 h-3.5 text-emerald-500 fill-emerald-500 shrink-0" />
+                            ) : (
+                              <Square className="w-3.5 h-3.5 text-zinc-400 fill-zinc-400 shrink-0" />
+                            )}
+                            <span className="font-bold text-xs text-zinc-800 dark:text-zinc-200">{seg.techName}</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs">
+                            <div className="text-zinc-500 text-[10px] font-medium text-right">
+                              <div>{new Date(seg.start).toLocaleDateString()}</div>
+                              <div>
+                                {new Date(seg.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {seg.end ? new Date(seg.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}
+                              </div>
+                            </div>
+                            <span className="font-mono font-bold text-zinc-700 dark:text-zinc-300">{formatMs(seg.duration)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Activity Timeline */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-indigo-500/10 rounded-xl">
                 <MessageSquare className="w-5 h-5 text-indigo-500" />
               </div>
-              <h2 className="text-xl font-bold">Activity Log</h2>
+              <h2 className="text-xl font-bold">Unified History & Activity</h2>
             </div>
             
-            <div className="space-y-4">
-              {activityLogs.length === 0 ? (
-                <div className="p-8 text-center text-zinc-500 font-bold bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
-                  No activity recorded for this task yet.
-                </div>
-              ) : (
-                activityLogs.map((log: any) => (
-                  <div key={log.id} className="flex gap-4">
-                    <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0 border border-zinc-200 dark:border-zinc-700">
-                      <span className="text-xs font-bold text-zinc-500 uppercase">
-                        {(log.staffName || '?').substring(0, 2)}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-zinc-900 dark:text-white">{log.staffName}</span>
-                        <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">
-                          {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : new Date(log.timestamp || 0).toLocaleString()}
+            {(() => {
+              const allEvents: any[] = [];
+              
+              // 1. Add manual Activity Logs
+              activityLogs.forEach(log => {
+                allEvents.push({
+                  id: log.id,
+                  timestamp: log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp),
+                  staffName: log.staffName,
+                  message: log.message,
+                  type: log.type,
+                  isManual: true
+                });
+              });
+              
+              // 2. Add time log sessions as events
+              const { segments } = getTaskSessionsAndContributions();
+              segments.forEach(seg => {
+                allEvents.push({
+                  id: `${seg.id}-in`,
+                  timestamp: new Date(seg.start),
+                  staffName: seg.techName,
+                  message: 'clocked in',
+                  type: 'clock_in',
+                  isManual: false
+                });
+
+                if (seg.end) {
+                  allEvents.push({
+                    id: `${seg.id}-out`,
+                    timestamp: new Date(seg.end),
+                    staffName: seg.techName,
+                    message: 'clocked out',
+                    type: 'clock_out',
+                    isManual: false
+                  });
+                }
+              });
+              
+              allEvents.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+              
+              if (allEvents.length === 0) {
+                return (
+                  <div className="p-8 text-center text-zinc-500 font-bold bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800">
+                    No activity recorded for this task yet.
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                  {allEvents.map((event) => (
+                    <div key={event.id} className={cn(
+                      "flex gap-4 p-3 hover:bg-zinc-50 dark:hover:bg-zinc-950/50 rounded-xl transition-colors group",
+                      event.isManual ? "border-l-2 border-indigo-500/20" : "border-l-2 border-emerald-500/20"
+                    )}>
+                      <div className="w-8 h-8 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0 border border-zinc-200 dark:border-zinc-700">
+                        <span className="text-xs font-bold text-zinc-500 uppercase">
+                          {(event.staffName || '?').substring(0, 2)}
                         </span>
                       </div>
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-0.5">{log.message}</p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sm text-zinc-900 dark:text-white truncate">{event.staffName}</span>
+                          <span className="text-[9px] text-zinc-400 uppercase tracking-widest font-black shrink-0">
+                            {event.timestamp.toLocaleDateString()} {event.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className={cn(
+                          "text-sm mt-0.5",
+                          event.type === 'clock_in' ? "text-emerald-500 font-medium animate-in fade-in" :
+                          event.type === 'clock_out' ? "text-zinc-400" :
+                          "text-zinc-600 dark:text-zinc-400"
+                        )}>
+                          {event.message}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -549,11 +826,12 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                       </div>
                       <span className={cn(
                         "px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest",
+                        part.status === 'delivered' || part.status === 'fulfilled' ? "bg-indigo-500/10 text-indigo-600 animate-in fade-in" :
                         part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
                         part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
                         "bg-amber-500/10 text-amber-600"
                       )}>
-                        {part.status}
+                        {part.status === 'delivered' || part.status === 'fulfilled' ? "WITH VEHICLE" : part.status.toUpperCase()}
                       </span>
                     </div>
                   </div>
