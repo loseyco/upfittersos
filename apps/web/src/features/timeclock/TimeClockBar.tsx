@@ -119,11 +119,10 @@ export function TimeClockBar() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const validateLocation = async (): Promise<{ lat: number; lng: number; onSite: boolean } | null> => {
+  const validateLocation = async (): Promise<{ lat: number | null; lng: number | null; onSite: boolean } | null> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
-        toast.error("Geolocation not supported");
-        resolve(null);
+        resolve({ lat: null, lng: null, onSite: true });
         return;
       }
 
@@ -147,8 +146,8 @@ export function TimeClockBar() {
 
         resolve({ lat: latitude, lng: longitude, onSite });
       }, (err) => {
-        toast.error("Failed to get location: " + err.message);
-        resolve(null);
+        console.warn("Geolocation failed or denied, proceeding with default location:", err.message);
+        resolve({ lat: null, lng: null, onSite: true });
       });
     });
   };
@@ -162,10 +161,24 @@ export function TimeClockBar() {
     }
 
     try {
+      // Find the staff record to get the actual full name!
+      let actualName = user!.displayName || user!.email || 'Technician';
+      if (tenantId) {
+        const staffQuery = query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('email', '==', user!.email?.toLowerCase())
+        );
+        const staffSnap = await getDocs(staffQuery);
+        if (!staffSnap.empty) {
+          const sd = staffSnap.docs[0].data();
+          actualName = `${sd.firstName || ''} ${sd.lastName || ''}`.trim() || actualName;
+        }
+      }
+
       const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
         userId: user!.uid,
-        userName: user!.displayName || user!.email,
-        staffName: user!.displayName || user!.email,
+        userName: actualName,
+        staffName: actualName,
         clockIn: {
           timestamp: serverTimestamp(),
           ...loc

@@ -1,5 +1,5 @@
 import { signOut } from 'firebase/auth';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { submitAuditLog } from '../../lib/logging/audit';
@@ -19,7 +19,10 @@ import { cn } from '../../lib/utils';
 export function TopNav() {
   const { user, isSuperAdmin, tenantId: storeTenantId, permissions, impersonatedStaff, stopImpersonating } = useAuthStore();
   const params = useParams();
-  const tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : storeTenantId;
+  let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : storeTenantId;
+  if (params.tenantId && storeTenantId && params.tenantId.toLowerCase() === storeTenantId.toLowerCase()) {
+    tenantId = storeTenantId;
+  }
   const { theme, toggleTheme } = useThemeStore();
   const { isSharing, stopSharing } = useLocationStore();
   const navigate = useNavigate();
@@ -34,10 +37,30 @@ export function TopNav() {
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return null;
       const snap = await getDoc(doc(db, 'businesses', tenantId as string));
-      return snap.exists() ? { id: snap.id, ...snap.data() } as { id: string; name: string } : null;
+      return snap.exists() ? { id: snap.id, ...snap.data() } as { id: string; name: string; logoUrl?: string } : null;
     },
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
+
+  // Dynamic White-label Favicon & PWA Icons Swapper
+  useEffect(() => {
+    if (business?.logoUrl) {
+      // 1. Update standard favicon icons
+      const iconLinks = document.querySelectorAll("link[rel*='icon']");
+      iconLinks.forEach(link => {
+        (link as HTMLLinkElement).href = business.logoUrl!;
+      });
+      
+      // 2. Update/create Apple Touch icon (used by PWA installs)
+      let appleIcon = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
+      if (!appleIcon) {
+        appleIcon = document.createElement('link');
+        appleIcon.rel = 'apple-touch-icon';
+        document.head.appendChild(appleIcon);
+      }
+      appleIcon.href = business.logoUrl;
+    }
+  }, [business?.logoUrl]);
 
   const handleLogout = async () => {
     if (user) {
@@ -53,7 +76,11 @@ export function TopNav() {
   return (
     <div className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-50 transition-colors gap-2">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-        <img src="/favicon.png" alt="UpFittersOS Icon" className="w-8 h-8 rounded-lg shrink-0" />
+        <img 
+          src={business?.logoUrl || "/favicon.png"} 
+          alt={`${business?.name || 'UpFittersOS'} Icon`} 
+          className="w-8 h-8 rounded-lg shrink-0 object-contain bg-transparent" 
+        />
         <div className="flex items-baseline gap-1.5 shrink-0">
           <span className="hidden sm:inline text-zinc-900 dark:text-white font-medium tracking-tight">UpFittersOS</span>
         </div>
@@ -69,10 +96,11 @@ export function TopNav() {
         {impersonatedStaff && (
           <button 
             onClick={stopImpersonating}
-            className="hidden lg:flex items-center gap-2 bg-emerald-600 text-white px-4 h-10 rounded-xl text-xs font-black hover:bg-emerald-700 transition-all shadow-md active:scale-95 animate-pulse"
+            className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-3 sm:px-4 h-10 sm:h-12 rounded-xl text-xs font-black hover:bg-emerald-700 transition-all shadow-md active:scale-95 animate-pulse"
+            title={`Stop Viewing As ${impersonatedStaff.name.split(' ')[0]}`}
           >
-            <ShieldAlert className="w-4 h-4" />
-            Stop Viewing As {impersonatedStaff.name.split(' ')[0]}
+            <ShieldAlert className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="hidden lg:inline">Stop Viewing As {impersonatedStaff.name.split(' ')[0]}</span>
           </button>
         )}
 

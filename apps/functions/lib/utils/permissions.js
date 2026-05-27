@@ -43,7 +43,7 @@ exports.DEFAULT_PERMISSIONS = {
         view_vehicles: true, manage_vehicles: true,
         view_jobs: true, manage_jobs: true,
         view_inventory: true, manage_inventory: true,
-        manage_canvases: true, manage_tasks: true,
+        manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
         view_financials: true,
         view_facility_map: true, manage_facility_map: true,
         simulate_roles: true
@@ -54,7 +54,7 @@ exports.DEFAULT_PERMISSIONS = {
         view_vehicles: true, manage_vehicles: true,
         view_jobs: true, manage_jobs: true,
         view_inventory: true, manage_inventory: true,
-        manage_canvases: true, manage_tasks: true,
+        manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
         view_financials: true, super_admin_core: true,
         view_facility_map: true, manage_facility_map: true,
         simulate_roles: true
@@ -65,7 +65,7 @@ exports.DEFAULT_PERMISSIONS = {
         view_vehicles: true, manage_vehicles: true,
         view_jobs: true, manage_jobs: true,
         view_inventory: true, manage_inventory: true,
-        manage_canvases: true, manage_tasks: true,
+        manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
         view_financials: true, super_admin_core: true,
         view_facility_map: true, manage_facility_map: true,
         simulate_roles: true

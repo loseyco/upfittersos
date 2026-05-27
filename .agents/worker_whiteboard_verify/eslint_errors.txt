@@ -1,0 +1,497 @@
+﻿
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx
+   84:39  error    Error: Cannot access variable before it is declared
+
+`handleDeleteNode` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:84:39
+  82 |                             readOnly,
+  83 |                             outputs: migratedOutputs,
+> 84 |                             onDelete: handleDeleteNode,
+     |                                       ^^^^^^^^^^^^^^^^ `handleDeleteNode` accessed before it is declared
+  85 |                             onEdit: handleEditNodeClick,
+  86 |                             onAddOutput: handleAddOutput,
+  87 |                             onEditOutput: handleEditOutput,
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:210:5
+  208 |     }, [isCanvasLoaded, rfInstance]);
+  209 |
+> 210 |     const handleDeleteNode = useCallback((id: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 211 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 212 |         setNodes((nds) => nds.filter(node => node.id !== id));
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 213 |         setEdges((eds) => eds.filter(edge => edge.source !== id && edge.target !== id));
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 214 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 215 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleDeleteNode` is declared here
+  216 |
+  217 |     const handleAddOutput = useCallback((nodeId: string, label: string = 'Action Route') => {
+  218 |         if (readOnly) return;                                                                                                                                                                                                  react-hooks/immutability
+   85:37  error    Error: Cannot access variable before it is declared
+
+`handleEditNodeClick` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:85:37
+  83 |                             outputs: migratedOutputs,
+  84 |                             onDelete: handleDeleteNode,
+> 85 |                             onEdit: handleEditNodeClick,
+     |                                     ^^^^^^^^^^^^^^^^^^^ `handleEditNodeClick` accessed before it is declared
+  86 |                             onAddOutput: handleAddOutput,
+  87 |                             onEditOutput: handleEditOutput,
+  88 |                             onDeleteOutput: handleDeleteOutput,
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:378:5
+  376 |     );
+  377 |
+> 378 |     const handleEditNodeClick = useCallback((id: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 379 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 380 |         const nodeToEdit = nodesRef.current.find((n: Node) => n.id === id);
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 389 |         setShowModal(true);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 390 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleEditNodeClick` is declared here
+  391 |
+  392 |     const handleInsertNodeClick = useCallback((id: string) => {
+  393 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                        react-hooks/immutability
+   86:42  error    Error: Cannot access variable before it is declared
+
+`handleAddOutput` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:86:42
+  84 |                             onDelete: handleDeleteNode,
+  85 |                             onEdit: handleEditNodeClick,
+> 86 |                             onAddOutput: handleAddOutput,
+     |                                          ^^^^^^^^^^^^^^^ `handleAddOutput` accessed before it is declared
+  87 |                             onEditOutput: handleEditOutput,
+  88 |                             onDeleteOutput: handleDeleteOutput,
+  89 |                             onReorderOutputs: handleReorderOutputs,
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:217:5
+  215 |     }, [readOnly]);
+  216 |
+> 217 |     const handleAddOutput = useCallback((nodeId: string, label: string = 'Action Route') => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 218 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 219 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 232 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 233 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleAddOutput` is declared here
+  234 |
+  235 |     const handleEditOutput = useCallback((nodeId: string, outputId: string, newLabel: string) => {
+  236 |         if (readOnly) return;                                                                                                                                                                                                                                                  react-hooks/immutability
+   87:43  error    Error: Cannot access variable before it is declared
+
+`handleEditOutput` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:87:43
+  85 |                             onEdit: handleEditNodeClick,
+  86 |                             onAddOutput: handleAddOutput,
+> 87 |                             onEditOutput: handleEditOutput,
+     |                                           ^^^^^^^^^^^^^^^^ `handleEditOutput` accessed before it is declared
+  88 |                             onDeleteOutput: handleDeleteOutput,
+  89 |                             onReorderOutputs: handleReorderOutputs,
+  90 |                             onOutputColorChange: handleOutputColorChange,
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:235:5
+  233 |     }, [readOnly]);
+  234 |
+> 235 |     const handleEditOutput = useCallback((nodeId: string, outputId: string, newLabel: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 236 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 237 |         if (newLabel && newLabel.trim().length > 0) {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 251 |         }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 252 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleEditOutput` is declared here
+  253 |
+  254 |     const handleDeleteOutput = useCallback((nodeId: string, outputId: string) => {
+  255 |         if (readOnly) return;                                                                                                                                                                                                                                                            react-hooks/immutability
+   88:45  error    Error: Cannot access variable before it is declared
+
+`handleDeleteOutput` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:88:45
+  86 |                             onAddOutput: handleAddOutput,
+  87 |                             onEditOutput: handleEditOutput,
+> 88 |                             onDeleteOutput: handleDeleteOutput,
+     |                                             ^^^^^^^^^^^^^^^^^^ `handleDeleteOutput` accessed before it is declared
+  89 |                             onReorderOutputs: handleReorderOutputs,
+  90 |                             onOutputColorChange: handleOutputColorChange,
+  91 |                             onNodeColorChange: handleNodeColorChange
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:254:5
+  252 |     }, [readOnly]);
+  253 |
+> 254 |     const handleDeleteOutput = useCallback((nodeId: string, outputId: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 255 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 256 |         if (!window.confirm("Delete this output route? Any connected wires will be cut.")) return;
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 273 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 274 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleDeleteOutput` is declared here
+  275 |
+  276 |     const handleReorderOutputs = useCallback((nodeId: string, newOutputs: any[]) => {
+  277 |         if (readOnly) return;                                                                                                                                                                                   react-hooks/immutability
+   89:47  error    Error: Cannot access variable before it is declared
+
+`handleReorderOutputs` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:89:47
+  87 |                             onEditOutput: handleEditOutput,
+  88 |                             onDeleteOutput: handleDeleteOutput,
+> 89 |                             onReorderOutputs: handleReorderOutputs,
+     |                                               ^^^^^^^^^^^^^^^^^^^^ `handleReorderOutputs` accessed before it is declared
+  90 |                             onOutputColorChange: handleOutputColorChange,
+  91 |                             onNodeColorChange: handleNodeColorChange
+  92 |                         }
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:276:5
+  274 |     }, [readOnly]);
+  275 |
+> 276 |     const handleReorderOutputs = useCallback((nodeId: string, newOutputs: any[]) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 277 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 278 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 290 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 291 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleReorderOutputs` is declared here
+  292 |
+  293 |     const handleOutputColorChange = useCallback((nodeId: string, outputId: string, color: string) => {
+  294 |         if (readOnly) return;                                                                                                                                                                                                                                       react-hooks/immutability
+   90:50  error    Error: Cannot access variable before it is declared
+
+`handleOutputColorChange` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:90:50
+  88 |                             onDeleteOutput: handleDeleteOutput,
+  89 |                             onReorderOutputs: handleReorderOutputs,
+> 90 |                             onOutputColorChange: handleOutputColorChange,
+     |                                                  ^^^^^^^^^^^^^^^^^^^^^^^ `handleOutputColorChange` accessed before it is declared
+  91 |                             onNodeColorChange: handleNodeColorChange
+  92 |                         }
+  93 |                     };
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:293:5
+  291 |     }, [readOnly]);
+  292 |
+> 293 |     const handleOutputColorChange = useCallback((nodeId: string, outputId: string, color: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 294 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 295 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 316 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 317 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleOutputColorChange` is declared here
+  318 |
+  319 |     const handleNodeColorChange = useCallback((nodeId: string, color: string) => {
+  320 |         if (readOnly) return;                                                                                                                                                                                                                                               react-hooks/immutability
+   91:48  error    Error: Cannot access variable before it is declared
+
+`handleNodeColorChange` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:91:48
+  89 |                             onReorderOutputs: handleReorderOutputs,
+  90 |                             onOutputColorChange: handleOutputColorChange,
+> 91 |                             onNodeColorChange: handleNodeColorChange
+     |                                                ^^^^^^^^^^^^^^^^^^^^^ `handleNodeColorChange` accessed before it is declared
+  92 |                         }
+  93 |                     };
+  94 |                 });
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:319:5
+  317 |     }, [readOnly]);
+  318 |
+> 319 |     const handleNodeColorChange = useCallback((nodeId: string, color: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 320 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 321 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 333 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 334 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleNodeColorChange` is declared here
+  335 |
+  336 |     const onNodesChange = useCallback(
+  337 |         (changes: NodeChange[]) => {                                                                                                                                                                                                                                                                                                                                                                                  react-hooks/immutability
+   98:25  error    The value assigned to 'safeTargetHandle' is not used in subsequent statements                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         no-useless-assignment
+  114:43  error    Error: Cannot access variable before it is declared
+
+`handleInsertNodeClick` is accessed before it is declared, which prevents the earlier access from updating when this value changes over time.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:114:43
+  112 |                             ...edge.data,
+  113 |                             readOnly,
+> 114 |                             onInsertNode: handleInsertNodeClick,
+      |                                           ^^^^^^^^^^^^^^^^^^^^^ `handleInsertNodeClick` accessed before it is declared
+  115 |                             onLabelDrag: () => { if (!readOnly) hasUnsavedChangesRef.current = true; }
+  116 |                         }
+  117 |                     };
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:392:5
+  390 |     }, [readOnly]);
+  391 |
+> 392 |     const handleInsertNodeClick = useCallback((id: string) => {
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 393 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 394 |         setInsertNodeTargetEdgeId(id);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 395 |         setEditingNodeId(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 396 |         setQuickAddSource(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 397 |         setQuickAddPosition(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 398 |         setNewNodeData({ label: '', description: '', type: 'workflow', priority: 'normal' });
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 399 |         setShowModal(true);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 400 |     }, [readOnly]);
+      | ^^^^^^^^^^^^^^^^^^^^ `handleInsertNodeClick` is declared here
+  401 |
+  402 |     const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+  403 |         if (readOnly) return;  react-hooks/immutability
+  143:8   warning  React Hook useEffect has missing dependencies: 'handleAddOutput', 'handleDeleteNode', 'handleDeleteOutput', 'handleEditNodeClick', 'handleEditOutput', 'handleInsertNodeClick', 'handleNodeColorChange', 'handleOutputColorChange', and 'handleReorderOutputs'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    react-hooks/exhaustive-deps
+  208:8   warning  React Hook useEffect has a missing dependency: 'nodes.length'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       react-hooks/exhaustive-deps
+  210:42  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:210:42
+  208 |     }, [isCanvasLoaded, rfInstance]);
+  209 |
+> 210 |     const handleDeleteNode = useCallback((id: string) => {
+      |                                          ^^^^^^^^^^^^^^^^^
+> 211 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 212 |         setNodes((nds) => nds.filter(node => node.id !== id));
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 213 |         setEdges((eds) => eds.filter(edge => edge.source !== id && edge.target !== id));
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 214 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 215 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  216 |
+  217 |     const handleAddOutput = useCallback((nodeId: string, label: string = 'Action Route') => {
+  218 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       react-hooks/preserve-manual-memoization
+  217:41  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:217:41
+  215 |     }, [readOnly]);
+  216 |
+> 217 |     const handleAddOutput = useCallback((nodeId: string, label: string = 'Action Route') => {
+      |                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 218 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 219 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 232 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 233 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  234 |
+  235 |     const handleEditOutput = useCallback((nodeId: string, outputId: string, newLabel: string) => {
+  236 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              react-hooks/preserve-manual-memoization
+  221:62  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  235:42  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:235:42
+  233 |     }, [readOnly]);
+  234 |
+> 235 |     const handleEditOutput = useCallback((nodeId: string, outputId: string, newLabel: string) => {
+      |                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 236 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 237 |         if (newLabel && newLabel.trim().length > 0) {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 251 |         }
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 252 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  253 |
+  254 |     const handleDeleteOutput = useCallback((nodeId: string, outputId: string) => {
+  255 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/preserve-manual-memoization
+  244:61  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  244:85  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  254:44  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:254:44
+  252 |     }, [readOnly]);
+  253 |
+> 254 |     const handleDeleteOutput = useCallback((nodeId: string, outputId: string) => {
+      |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 255 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 256 |         if (!window.confirm("Delete this output route? Any connected wires will be cut.")) return;
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 273 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 274 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  275 |
+  276 |     const handleReorderOutputs = useCallback((nodeId: string, newOutputs: any[]) => {
+  277 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/preserve-manual-memoization
+  260:44  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  266:56  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  266:76  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  276:46  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:276:46
+  274 |     }, [readOnly]);
+  275 |
+> 276 |     const handleReorderOutputs = useCallback((nodeId: string, newOutputs: any[]) => {
+      |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 277 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 278 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 290 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 291 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  292 |
+  293 |     const handleOutputColorChange = useCallback((nodeId: string, outputId: string, color: string) => {
+  294 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          react-hooks/preserve-manual-memoization
+  276:75  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  293:49  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:293:49
+  291 |     }, [readOnly]);
+  292 |
+> 293 |     const handleOutputColorChange = useCallback((nodeId: string, outputId: string, color: string) => {
+      |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 294 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 295 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 316 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 317 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  318 |
+  319 |     const handleNodeColorChange = useCallback((nodeId: string, color: string) => {
+  320 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/preserve-manual-memoization
+  301:57  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  301:81  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  319:47  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:319:47
+  317 |     }, [readOnly]);
+  318 |
+> 319 |     const handleNodeColorChange = useCallback((nodeId: string, color: string) => {
+      |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 320 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 321 |         setNodes((nds) => nds.map((node) => {
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 333 |         hasUnsavedChangesRef.current = true;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 334 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  335 |
+  336 |     const onNodesChange = useCallback(
+  337 |         (changes: NodeChange[]) => {                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         react-hooks/preserve-manual-memoization
+  358:69  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  375:9   warning  React Hook useCallback has a missing dependency: 'handleInsertNodeClick'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            react-hooks/exhaustive-deps
+  378:45  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:378:45
+  376 |     );
+  377 |
+> 378 |     const handleEditNodeClick = useCallback((id: string) => {
+      |                                             ^^^^^^^^^^^^^^^^^
+> 379 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 380 |         const nodeToEdit = nodesRef.current.find((n: Node) => n.id === id);
+      ΓÇª
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 389 |         setShowModal(true);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 390 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  391 |
+  392 |     const handleInsertNodeClick = useCallback((id: string) => {
+  393 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 react-hooks/preserve-manual-memoization
+  392:47  error    Compilation Skipped: Existing memoization could not be preserved
+
+React Compiler has skipped optimizing this component because the existing manual memoization could not be preserved. This value was memoized in source but not in compilation output.
+
+C:\_Projects\upfittersos.com\apps\web\src\features\business\WorkflowCanvasTab.tsx:392:47
+  390 |     }, [readOnly]);
+  391 |
+> 392 |     const handleInsertNodeClick = useCallback((id: string) => {
+      |                                               ^^^^^^^^^^^^^^^^^
+> 393 |         if (readOnly) return;
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 394 |         setInsertNodeTargetEdgeId(id);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 395 |         setEditingNodeId(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 396 |         setQuickAddSource(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 397 |         setQuickAddPosition(null);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 398 |         setNewNodeData({ label: '', description: '', type: 'workflow', priority: 'normal' });
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 399 |         setShowModal(true);
+      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+> 400 |     }, [readOnly]);
+      | ^^^^^^ Could not preserve existing memoization
+  401 |
+  402 |     const onNodeDoubleClick = useCallback((_event: React.MouseEvent, node: Node) => {
+  403 |         if (readOnly) return;                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             react-hooks/preserve-manual-memoization
+  407:88  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  539:67  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+  603:47  error    Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-explicit-any
+
+Γ£û 35 problems (32 errors, 3 warnings)
+

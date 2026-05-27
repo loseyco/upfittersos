@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { 
   X, Edit2, UserPlus, Search, Archive, Mail, Phone, 
   Building2, Loader2, Save, ShieldCheck, Check,
-  ShieldAlert, Trophy, Eye, Settings2, Calendar
+  ShieldAlert, Trophy, Eye, Settings2, Calendar,
+  Trash2, Smile, Frown, ExternalLink, Users
 } from 'lucide-react';
 import { StaffLink } from './StaffPerformance';
-import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc, getDocs, setDoc, query, where } from 'firebase/firestore';
+import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc, getDocs, setDoc, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
@@ -16,6 +17,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 
 interface WorkSchedule {
@@ -57,6 +59,8 @@ interface StaffMember {
   qb_ListID?: string;
   quickbooksId?: string;
   individualSchedule?: WorkSchedule;
+  techNumber?: string;
+  payPeriodBookTimeCredit?: number;
 }
 
 interface Department {
@@ -64,6 +68,7 @@ interface Department {
   name: string;
   permissions: PermissionSet;
   defaultSchedule?: WorkSchedule;
+  weeklyBookTimeCredit?: number;
 }
 
 export function StaffManager({ tenantId }: { tenantId: string }) {
@@ -73,6 +78,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [isAddingStaff, setIsAddingStaff] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -95,7 +101,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
   });
 
   const handleFilter = (item: any) => {
-    if (item.isArchived) return false;
+    if (item.isArchived && !showArchived) return false;
     
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -119,12 +125,21 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
                  row.notes?.includes('Imported via QBWC') || 
                  !!row.ListID || !!row.qb_ListID || 
                  !!row.quickbooksId;
-    return (
-      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
-        isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
-      }`}>
-        {isQB ? 'QuickBooks' : 'Native'}
+    const isArchivedBadge = row.isArchived ? (
+      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-500/20 mr-2">
+        Archived
       </span>
+    ) : null;
+
+    return (
+      <>
+        {isArchivedBadge}
+        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
+          isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
+        }`}>
+          {isQB ? 'QuickBooks' : 'Native'}
+        </span>
+      </>
     );
   };
 
@@ -162,6 +177,17 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+              showArchived 
+                ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white border-zinc-200 dark:border-zinc-700'
+                : 'bg-white dark:bg-zinc-900 text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800'
+            }`}
+          >
+            <Archive className="w-4 h-4" />
+            {showArchived ? 'Hide Archived' : 'Show Archived'}
+          </button>
           <div className="relative w-full sm:w-64">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400">
               <Search className="w-4 h-4" />
@@ -414,6 +440,7 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
     endTime: '17:00',
     expectedHoursPerDay: 8
   });
+  const [weeklyBookTimeCredit, setWeeklyBookTimeCredit] = useState<number>(dept?.weeklyBookTimeCredit || 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -425,6 +452,7 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
         name: name.trim(),
         permissions,
         defaultSchedule,
+        weeklyBookTimeCredit: Number(weeklyBookTimeCredit) || 0,
         updatedAt: serverTimestamp()
       };
       if (dept?.id) {
@@ -463,6 +491,22 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
                 placeholder="e.g. Sales, Service, Admin..."
                 className="w-full px-6 py-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-lg font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Default Weekly Book Time Credit (Hours)</label>
+              <div className="relative">
+                <input 
+                  type="number" 
+                  step="0.5"
+                  value={weeklyBookTimeCredit} 
+                  onChange={e => setWeeklyBookTimeCredit(Number(e.target.value))} 
+                  placeholder="e.g. 2.0"
+                  className="w-full px-6 py-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-lg font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                />
+                <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs font-black text-zinc-400 uppercase">Hours / Week</span>
+              </div>
+              <p className="text-xs text-zinc-400 mt-2">Every technician assigned to this department will receive this flat weekly book time credit as an automatic pay bonus, unless overridden on their individual staff profile.</p>
             </div>
 
             <div>
@@ -579,11 +623,11 @@ function PermissionGrid({
   onOverrideChange?: (key: PermissionKey, value: boolean | undefined) => void
 }) {
   const categories = {
-    'General': ['mission_control.view', 'foreman.view', 'graphics.view', 'fast.view', 'fabrication.view', 'office.view', 'performance.view'],
+    'General': ['quickdesk.view', 'mission_control.view', 'foreman.view', 'graphics.view', 'fast.view', 'fabrication.view', 'office.view', 'printed_parts.view', 'printed_parts.manage', 'performance.view'],
     'Inventory & Vehicles': ['vehicles.view', 'vehicles.manage', 'zones.view', 'zones.manage', 'parts.view', 'parts.manage'],
-    'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'staff.view', 'staff.manage'],
+    'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'jobs.qc', 'staff.view', 'staff.manage'],
     'Tasks & Timeclock': ['tasks.view', 'tasks.manage', 'timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
-    'Communication & Facility': ['communication.view', 'facility.view'],
+    'Communication & Facility': ['communication.view', 'facility.view', 'whiteboards.view', 'whiteboards.manage'],
     'System & Data': ['settings.view', 'settings.manage', 'reports.view', 'sync.view'],
     'Experimental': ['experimental.new_modals']
   };
@@ -691,16 +735,70 @@ function StaffDetailsModal({
   const dept = departments.find(d => d.id === staff.departmentId);
   const resolvedPerms = resolvePermissions(dept?.permissions, staff.individualPermissions);
 
+  const { permissions, isSuperAdmin } = useAuthStore();
+  const canViewLogs = isSuperAdmin || permissions['staff.manage'] === true;
+
+  const [activeTab, setActiveTab] = useState<'profile' | 'logs'>('profile');
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [expandedImg, setExpandedImg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canViewLogs || activeTab !== 'logs' || !staff.id || !tenantId) return;
+
+    setLoadingLogs(true);
+    const q = query(
+      collection(db, `businesses/${tenantId}/staff_logs`),
+      where('staffId', '==', staff.id)
+    );
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Sort in-memory to avoid composite index requirements
+      data.sort((a: any, b: any) => {
+        const getMs = (val: any) => {
+          if (!val) return 0;
+          if (val.seconds) return val.seconds * 1000 + (val.nanoseconds ? val.nanoseconds / 1000000 : 0);
+          if (typeof val.toDate === 'function') return val.toDate().getTime();
+          return new Date(val).getTime() || 0;
+        };
+        return getMs(b.createdAt) - getMs(a.createdAt);
+      });
+      
+      setLogs(data);
+      setLoadingLogs(false);
+    }, (err) => {
+      console.error("Failed to load staff logs:", err);
+      setLoadingLogs(false);
+    });
+
+    return () => unsub();
+  }, [staff.id, tenantId, activeTab, canViewLogs]);
+
+  const handleDeleteLog = async (logId: string) => {
+    if (!confirm("Are you sure you want to delete this incident log?")) return;
+    try {
+      await deleteDoc(doc(db, `businesses/${tenantId}/staff_logs`, logId));
+      toast.success("Incident log deleted successfully.");
+    } catch (err) {
+      console.error("Failed to delete incident log:", err);
+      toast.error("Failed to delete log entry.");
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/50 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-        <div className="p-8 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-950/50">
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-xl w-full max-w-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        
+        {/* Header */}
+        <div className="p-8 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-950/50 shrink-0">
           <div className="flex items-center gap-5">
-            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20">
+            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-600/20 shrink-0">
               <span className="text-2xl font-bold">{staff.firstName[0]}{staff.lastName[0]}</span>
             </div>
             <div>
-              <h3 className="text-xl font-bold text-zinc-900 dark:text-white">
+              <h3 className="text-xl font-bold text-zinc-900 dark:text-white leading-tight">
                 <StaffLink name={`${staff.firstName} ${staff.lastName}`} tenantId={tenantId} />
               </h3>
               <div className="flex items-center gap-2 mt-1">
@@ -715,11 +813,11 @@ function StaffDetailsModal({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {onImpersonate && (
               <button 
                 onClick={onImpersonate}
-                className="p-3 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-xl transition-all"
+                className="p-2.5 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 rounded-xl transition-all"
                 title="View As Staff Member"
               >
                 <Eye className="w-5 h-5" />
@@ -728,7 +826,7 @@ function StaffDetailsModal({
             {!isQB && onArchive && (
               <button 
                 onClick={onArchive}
-                className="p-3 text-rose-600 bg-rose-50 hover:bg-rose-100 dark:text-rose-400 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 rounded-xl transition-all"
+                className="p-2.5 text-rose-600 bg-rose-50 hover:bg-rose-100 dark:text-rose-400 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 rounded-xl transition-all"
                 title="Archive Staff Member"
               >
                 <Archive className="w-5 h-5" />
@@ -736,109 +834,293 @@ function StaffDetailsModal({
             )}
             <button 
               onClick={onViewPerformance}
-              className="p-3 text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 rounded-xl transition-all"
+              className="p-2.5 text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 rounded-xl transition-all"
               title="View Performance Leaderboard"
             >
               <Trophy className="w-5 h-5" />
             </button>
             <button 
               onClick={onEdit}
-              className="p-3 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 rounded-xl transition-all"
+              className="p-2.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 rounded-xl transition-all"
               title="Edit Staff Member"
             >
               <Edit2 className="w-5 h-5" />
             </button>
             <button 
               onClick={onClose}
-              className="p-3 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all"
+              className="p-2.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all"
             >
               <X className="w-6 h-6" />
             </button>
           </div>
         </div>
-          <div className="p-8 grid grid-cols-2 gap-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/30">
-            <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Sizes</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Shirt:</span> <span className="text-zinc-900 dark:text-white">{staff.shirtSize || '--'}</span></p>
-                <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Hat:</span> <span className="text-zinc-900 dark:text-white">{staff.hatSize || '--'}</span></p>
-                <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Pants:</span> <span className="text-zinc-900 dark:text-white">{staff.pantsSize || '--'}</span></p>
-                <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Shoe:</span> <span className="text-zinc-900 dark:text-white">{staff.shoeSize || '--'}</span></p>
-                <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Glove:</span> <span className="text-zinc-900 dark:text-white">{staff.gloveSize || '--'}</span></p>
+
+        {/* Tab Selection */}
+        {canViewLogs && (
+          <div className="flex bg-zinc-50 dark:bg-zinc-950 p-1.5 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
+            <button
+              onClick={() => setActiveTab('profile')}
+              className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${
+                activeTab === 'profile'
+                  ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-sm border border-zinc-200 dark:border-zinc-800'
+                  : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400'
+              }`}
+            >
+              Profile & Access
+            </button>
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+                activeTab === 'logs'
+                  ? 'bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm border border-zinc-200 dark:border-zinc-800'
+                  : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-400'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" /> Manager Log
+            </button>
+          </div>
+        )}
+
+        {/* Content Body */}
+        {activeTab === 'profile' ? (
+          <div className="flex-1 overflow-y-auto no-scrollbar">
+            <div className="p-8 grid grid-cols-2 gap-8 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/30">
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Sizes</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                  <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Shirt:</span> <span className="text-zinc-900 dark:text-white">{staff.shirtSize || '--'}</span></p>
+                  <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Hat:</span> <span className="text-zinc-900 dark:text-white">{staff.hatSize || '--'}</span></p>
+                  <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Pants:</span> <span className="text-zinc-900 dark:text-white">{staff.pantsSize || '--'}</span></p>
+                  <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Shoe:</span> <span className="text-zinc-900 dark:text-white">{staff.shoeSize || '--'}</span></p>
+                  <p className="text-[10px] font-semibold text-zinc-500 flex justify-between"><span>Glove:</span> <span className="text-zinc-900 dark:text-white">{staff.gloveSize || '--'}</span></p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Emergency Contact</p>
+                {staff.emergencyContact?.name ? (
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-zinc-900 dark:text-white">{staff.emergencyContact.name}</p>
+                    <p className="text-[10px] text-zinc-500">{staff.emergencyContact.relation} • {staff.emergencyContact.phone}</p>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-zinc-400 italic">No contact info</p>
+                )}
               </div>
             </div>
-            <div>
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Emergency Contact</p>
-              {staff.emergencyContact?.name ? (
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-zinc-900 dark:text-white">{staff.emergencyContact.name}</p>
-                  <p className="text-[10px] text-zinc-500">{staff.emergencyContact.relation} • {staff.emergencyContact.phone}</p>
+
+            <div className="p-8 grid grid-cols-2 gap-8 border-b border-zinc-100 dark:border-zinc-800">
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Contact Information</p>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-3">
+                    <Mail className="w-4 h-4 text-zinc-400" />
+                    {staff.email}
+                  </p>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-3">
+                    <Phone className="w-4 h-4 text-zinc-400" />
+                    {staff.phone || '--'}
+                  </p>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-3">
+                    <span className="font-bold text-zinc-400 w-4 inline-block text-center">#</span>
+                    Tech Number: {staff.techNumber || '--'}
+                  </p>
                 </div>
-              ) : (
-                <p className="text-[10px] text-zinc-400 italic">No contact info</p>
-              )}
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Dates</p>
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center justify-between">
+                    <span>Hired:</span>
+                    <span className="text-zinc-900 dark:text-white">{staff.hireDate ? new Date(staff.hireDate).toLocaleDateString() : 'N/A'}</span>
+                  </p>
+                  <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center justify-between">
+                    <span>Terminated:</span>
+                    <span className="text-zinc-900 dark:text-white">{staff.fireDate ? new Date(staff.fireDate).toLocaleDateString() : 'N/A'}</span>
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Record Source</p>
+                <div className="flex items-center gap-3">
+                  {getSource(staff)}
+                  {isQB && <span className="text-[10px] text-zinc-500 italic">Sync-locked</span>}
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Book Time Credit Allowance</p>
+                <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                  <Settings2 className="w-4 h-4 text-indigo-500 animate-pulse" />
+                  {staff.payPeriodBookTimeCredit && staff.payPeriodBookTimeCredit > 0 ? (
+                    <span>{staff.payPeriodBookTimeCredit}h / pay period <span className="text-[10px] font-bold uppercase tracking-tight text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded ml-1">Staff Override</span></span>
+                  ) : dept?.weeklyBookTimeCredit && dept.weeklyBookTimeCredit > 0 ? (
+                    <span>{dept.weeklyBookTimeCredit}h / week <span className="text-[10px] font-bold uppercase tracking-tight text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded ml-1">Dept Default</span></span>
+                  ) : (
+                    <span className="text-zinc-400 italic">None configured</span>
+                  )}
+                </p>
+              </div>
             </div>
-          </div>
 
-        <div className="p-8 grid grid-cols-2 gap-8 border-b border-zinc-100 dark:border-zinc-800">
-          <div>
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Contact Information</p>
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-3">
-                <Mail className="w-4 h-4 text-zinc-400" />
-                {staff.email}
-              </p>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-3">
-                <Phone className="w-4 h-4 text-zinc-400" />
-                {staff.phone || '--'}
-              </p>
+            <div className="p-8 bg-zinc-50/50 dark:bg-zinc-950/30 overflow-y-auto no-scrollbar max-h-[300px]">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-widest">Active Permissions</h4>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase">Resolved Access</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(resolvedPerms).filter(([_, v]) => v).map(([k]) => (
+                  <span key={k} className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 rounded-lg shadow-sm">
+                    {PERMISSIONS[k as PermissionKey]}
+                  </span>
+                ))}
+                {Object.values(resolvedPerms).every(v => !v) && (
+                  <div className="w-full p-8 text-center bg-zinc-100/50 dark:bg-zinc-800/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
+                    <ShieldAlert className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
+                    <p className="text-sm text-zinc-500">No active permissions for this staff member.</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          <div>
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Dates</p>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center justify-between">
-                <span>Hired:</span>
-                <span className="text-zinc-900 dark:text-white">{staff.hireDate ? new Date(staff.hireDate).toLocaleDateString() : 'N/A'}</span>
-              </p>
-              <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center justify-between">
-                <span>Terminated:</span>
-                <span className="text-zinc-900 dark:text-white">{staff.fireDate ? new Date(staff.fireDate).toLocaleDateString() : 'N/A'}</span>
-              </p>
-            </div>
-          </div>
-          <div>
-            <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Record Source</p>
-            <div className="flex items-center gap-3">
-              {getSource(staff)}
-              {isQB && <span className="text-[10px] text-zinc-500 italic">Sync-locked</span>}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-8 bg-zinc-50/50 dark:bg-zinc-950/30 overflow-y-auto no-scrollbar max-h-[300px]">
-          <div className="flex items-center justify-between mb-6">
-            <h4 className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-widest">Active Permissions</h4>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-500" />
-              <span className="text-[10px] font-bold text-emerald-600 uppercase">Resolved Access</span>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(resolvedPerms).filter(([_, v]) => v).map(([k]) => (
-              <span key={k} className="px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 rounded-lg shadow-sm">
-                {PERMISSIONS[k as PermissionKey]}
+        ) : (
+          /* Manager Incidents Log */
+          <div className="flex-1 overflow-y-auto p-8 space-y-6 custom-scrollbar">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-black text-zinc-400 uppercase tracking-widest">
+                Performance Timeline
+              </h4>
+              <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-black uppercase tracking-wider rounded-lg">
+                {logs.length} Logged Entries
               </span>
-            ))}
-            {Object.values(resolvedPerms).every(v => !v) && (
-              <div className="w-full p-8 text-center bg-zinc-100/50 dark:bg-zinc-800/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-700">
-                <ShieldAlert className="w-8 h-8 text-zinc-300 mx-auto mb-2" />
-                <p className="text-sm text-zinc-500">No active permissions for this staff member.</p>
+            </div>
+
+            {loadingLogs ? (
+              <div className="flex flex-col items-center justify-center py-16 text-zinc-400 gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                <span className="text-sm font-medium">Scanning history...</span>
+              </div>
+            ) : logs.length === 0 ? (
+              <div className="text-center py-20 border-2 border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl flex flex-col items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-zinc-50 dark:bg-zinc-800/40 flex items-center justify-center text-zinc-400">
+                  <Users className="w-6 h-6 text-zinc-500 dark:text-zinc-400" />
+                </div>
+                <div className="space-y-1">
+                  <h5 className="font-bold text-zinc-900 dark:text-white">Clean Incident Record</h5>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs mx-auto">
+                    No positive or negative performance incidents have been logged for this staff member yet.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {logs.map((log) => {
+                  const isGood = log.type === 'good';
+                  const dateStr = log.createdAt?.toDate ? log.createdAt.toDate().toLocaleDateString() : 'Recent';
+                  const timeStr = log.createdAt?.toDate ? log.createdAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                  
+                  return (
+                    <div 
+                      key={log.id} 
+                      className={`p-5 rounded-2xl border flex flex-col sm:flex-row gap-4 justify-between transition-all duration-300 ${
+                        isGood 
+                          ? 'bg-emerald-50/[0.02] border-emerald-500/10 hover:border-emerald-500/25 shadow-sm' 
+                          : 'bg-rose-50/[0.02] border-rose-500/10 hover:border-rose-500/25 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex gap-4 flex-1">
+                        {/* Icon Indicator */}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                          isGood 
+                            ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' 
+                            : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                        }`}>
+                          {isGood ? <Smile size={20} /> : <Frown size={20} />}
+                        </div>
+
+                        <div className="space-y-2 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-lg ${
+                              isGood 
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/15' 
+                                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/15'
+                            }`}>
+                              {isGood ? 'Good Thing' : 'Bad Thing'}
+                            </span>
+                            <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-tighter">
+                              {dateStr} • {timeStr}
+                            </span>
+                          </div>
+
+                          <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
+                            {log.description}
+                          </p>
+
+                          <div className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-100 dark:border-zinc-800/40 px-2 py-1 rounded-lg w-max shadow-sm">
+                            <span>Logged by:</span>
+                            <span className="font-extrabold text-zinc-700 dark:text-zinc-300">{log.loggedByName || 'Admin'}</span>
+                          </div>
+
+                          {/* Image Preview */}
+                          {log.imageUrl && (
+                            <div className="mt-3 relative w-32 aspect-video rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-950 group/img cursor-pointer shadow-sm hover:shadow" onClick={() => setExpandedImg(log.imageUrl)}>
+                              <img src={log.imageUrl} alt="Incident attachment" className="w-full h-full object-cover transition-transform duration-500 group-hover/img:scale-105" />
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity duration-300">
+                                <ExternalLink size={14} className="text-white" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-col justify-end items-end gap-2 shrink-0">
+                        <button
+                          onClick={() => handleDeleteLog(log.id)}
+                          className="p-2 text-zinc-400 hover:text-rose-500 hover:bg-rose-500/5 dark:hover:bg-rose-500/10 rounded-xl transition-all"
+                          title="Delete Log Entry"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
-        </div>
+        )}
+
       </div>
+
+      {/* Lightbox / Image Zoom */}
+      <AnimatePresence>
+        {expandedImg && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setExpandedImg(null)}
+            className="fixed inset-0 z-[150] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 cursor-pointer"
+          >
+            <motion.div
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.95 }}
+              className="relative max-w-4xl max-h-[85vh] overflow-hidden rounded-2xl bg-zinc-900 border border-zinc-800 shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <img src={expandedImg} alt="Enlarged context" className="w-full h-auto max-h-[80vh] object-contain" />
+              <button 
+                onClick={() => setExpandedImg(null)}
+                className="absolute top-4 right-4 bg-black/60 hover:bg-black/80 text-white p-2 rounded-full backdrop-blur-md transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -873,8 +1155,10 @@ function StaffEditModal({
   const [emergencyRelation, setEmergencyRelation] = useState(staff?.emergencyContact?.relation || '');
   const [jobTitle, setJobTitle] = useState(staff?.jobTitle || '');
   const [role, setRole] = useState(staff?.role || '');
+  const [techNumber, setTechNumber] = useState(staff?.techNumber || '');
   const [payRate, setPayRate] = useState(staff?.payRate || 0);
   const [payType, setPayType] = useState(staff?.payType || 'hourly');
+  const [payPeriodBookTimeCredit, setPayPeriodBookTimeCredit] = useState<number>(staff?.payPeriodBookTimeCredit || 0);
   const [notes, setNotes] = useState(staff?.notes || '');
   const [individualPermissions, setIndividualPermissions] = useState<PermissionSet>(staff?.individualPermissions || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -910,8 +1194,10 @@ function StaffEditModal({
         departmentId: departmentId || null,
         jobTitle: jobTitle.trim(),
         role: role.trim(),
+        techNumber: techNumber.trim(),
         payRate: Number(payRate) || 0,
         payType,
+        payPeriodBookTimeCredit: Number(payPeriodBookTimeCredit) || 0,
         notes: notes.trim(),
         hireDate: hireDate || null,
         fireDate: fireDate || null,
@@ -945,8 +1231,10 @@ function StaffEditModal({
             jobTitle: data.jobTitle,
             department: data.departmentId,
             role: data.role,
+            techNumber: data.techNumber,
             payRate: data.payRate,
             payType: data.payType,
+            payPeriodBookTimeCredit: data.payPeriodBookTimeCredit,
             startDate: data.hireDate,
             notes: data.notes,
             updatedAt: new Date().toISOString()
@@ -973,8 +1261,10 @@ function StaffEditModal({
             jobTitle: data.jobTitle,
             department: data.departmentId,
             role: data.role,
+            techNumber: data.techNumber,
             payRate: data.payRate,
             payType: data.payType,
+            payPeriodBookTimeCredit: data.payPeriodBookTimeCredit,
             startDate: data.hireDate,
             notes: data.notes,
             updatedAt: new Date().toISOString()
@@ -1092,7 +1382,16 @@ function StaffEditModal({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">In-House Tech Number</label>
+                    <input 
+                      type="text" value={techNumber} onChange={e => setTechNumber(e.target.value)} 
+                      placeholder="e.g. 11 for Matt, 13, etc."
+                      className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                     <div>
                       <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Pay Rate</label>
                       <div className="relative">
@@ -1111,7 +1410,20 @@ function StaffEditModal({
                       >
                         <option value="hourly">Hourly</option>
                         <option value="salary">Salary</option>
+                        <option value="flat_rate">Flat Rate (Book Time)</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Book Credit (Pay Period)</label>
+                      <div className="relative">
+                        <input 
+                          type="number" step="0.5" value={payPeriodBookTimeCredit} onChange={e => setPayPeriodBookTimeCredit(Number(e.target.value))} 
+                          placeholder="e.g. 4.0"
+                          className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-zinc-400 uppercase">Hours</span>
+                      </div>
+                      <p className="text-[9px] text-zinc-400 mt-1">Overrides department default. Set 0 to inherit.</p>
                     </div>
                   </div>
 

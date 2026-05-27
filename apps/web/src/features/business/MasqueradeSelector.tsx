@@ -29,7 +29,7 @@ interface StaffMember {
 }
 
 export function MasqueradeSelector({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { tenantId, impersonate, impersonatedStaff } = useAuthStore();
+  const { tenantId, impersonate, impersonatedStaff, stopImpersonating } = useAuthStore();
   const [searchQuery, setSearchQuery] = useState('');
 
   const { data: departments, isLoading: isLoadingDepts } = useQuery<Department[]>({
@@ -103,12 +103,27 @@ export function MasqueradeSelector({ isOpen, onClose }: { isOpen: boolean; onClo
               <p className="text-sm text-zinc-500 dark:text-zinc-400">View the platform as a specific role or staff member</p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div className="flex items-center gap-2">
+            {impersonatedStaff && (
+              <button
+                onClick={() => {
+                  stopImpersonating();
+                  toast.success('Stopped viewing as');
+                  onClose();
+                }}
+                className="hidden sm:flex items-center gap-2 px-4 py-2 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500 hover:text-white rounded-xl transition-all font-bold text-sm"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Stop
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-2.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
         {/* Search */}

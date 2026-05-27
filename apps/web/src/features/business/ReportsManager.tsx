@@ -8,6 +8,7 @@ import {
   Car, ShoppingCart, ArrowUpRight, ArrowDownRight,
   BarChart3, PieChart, Activity, Printer, FileText, ChevronRight
 } from 'lucide-react';
+import { EfficiencyReports } from './EfficiencyReports';
 
 type Timeframe = 'day' | 'week' | 'month' | 'year';
 
@@ -18,6 +19,7 @@ interface ReportsManagerProps {
 export function ReportsManager({ tenantId }: ReportsManagerProps) {
   const [timeframe, setTimeframe] = useState<Timeframe>('month');
   const [showSummary, setShowSummary] = useState(false);
+  const [reportType] = useState<'financial' | 'efficiency'>('efficiency');
 
   // Fetch all necessary data for reporting
   const { data: reportsData, isLoading } = useQuery({
@@ -97,7 +99,7 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
           const ts = parseDate(item.txnDate || item.createdAt || item.updatedAt);
           return ts >= start && ts < end;
         })
-        .reduce((sum, item) => sum + Number(item[field] || 0), 0);
+        .reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
     };
 
     const calculateCount = (data: any[], start: number, end: number) => {
@@ -107,44 +109,37 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
       }).length;
     };
 
-    // Revenue (Invoices)
+    const getTrend = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return ((current - previous) / previous) * 100;
+    };
+
     const revCurrent = calculateTotal(reportsData.qb_invoices || [], 'totalAmount', currentStart, now.getTime());
     const revPrev = calculateTotal(reportsData.qb_invoices || [], 'totalAmount', prevStart, currentStart);
 
-    // Jobs
-    const jobsCurrent = calculateCount(reportsData.jobs || [], currentStart, now.getTime());
-    const jobsPrev = calculateCount(reportsData.jobs || [], prevStart, currentStart);
-
-    // Vehicles
-    const vehiclesCurrent = calculateCount(reportsData.vehicles || [], currentStart, now.getTime());
-    const vehiclesPrev = calculateCount(reportsData.vehicles || [], prevStart, currentStart);
-
-    // Spend (POs)
     const spendCurrent = calculateTotal(reportsData.qb_purchase_orders || [], 'totalAmount', currentStart, now.getTime());
     const spendPrev = calculateTotal(reportsData.qb_purchase_orders || [], 'totalAmount', prevStart, currentStart);
 
-    const getTrend = (curr: number, prev: number) => {
-      if (prev === 0) return curr > 0 ? 100 : 0;
-      return ((curr - prev) / prev) * 100;
-    };
+    const jobsCurrent = calculateCount(reportsData.jobs || [], currentStart, now.getTime());
+    const jobsPrev = calculateCount(reportsData.jobs || [], prevStart, currentStart);
 
-    // Generate Chart Data (Last 7 intervals)
-    const chartData = Array.from({ length: 7 }).map((_, i) => {
-      const start = getPeriodStart(timeframe, 6 - i);
-      const end = i === 6 ? now.getTime() : getPeriodStart(timeframe, 5 - i);
-      return {
-        label: i === 6 ? 'Current' : `-${6 - i}${timeframe.charAt(0)}`,
-        revenue: calculateTotal(reportsData.qb_invoices || [], 'totalAmount', start, end),
-        jobs: calculateCount(reportsData.jobs || [], start, end)
-      };
-    });
+    const vehiclesCurrent = calculateCount(reportsData.vehicles || [], currentStart, now.getTime());
+    const vehiclesPrev = calculateCount(reportsData.vehicles || [], prevStart, currentStart);
 
     return {
       revenue: { val: revCurrent, trend: getTrend(revCurrent, revPrev) },
+      spend: { val: spendCurrent, trend: getTrend(spendCurrent, spendPrev) },
       jobs: { val: jobsCurrent, trend: getTrend(jobsCurrent, jobsPrev) },
       vehicles: { val: vehiclesCurrent, trend: getTrend(vehiclesCurrent, vehiclesPrev) },
-      spend: { val: spendCurrent, trend: getTrend(spendCurrent, spendPrev) },
-      chartData
+      chartData: [1,2,3,4,5,6].map(m => {
+        const s = getPeriodStart(timeframe, m);
+        const e = getPeriodStart(timeframe, m - 1);
+        return {
+          label: `-${m}${timeframe[0]}`,
+          revenue: calculateTotal(reportsData.qb_invoices || [], 'totalAmount', s, e),
+          jobs: calculateCount(reportsData.jobs || [], s, e)
+        };
+      }).reverse()
     };
   }, [reportsData, timeframe]);
 
@@ -178,7 +173,7 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
           <p className="text-sm text-zinc-500 mt-1">Real-time business intelligence and growth tracking</p>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex p-1 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
             {(['day', 'week', 'month', 'year'] as Timeframe[]).map((tf) => (
               <button
@@ -195,17 +190,19 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
             ))}
           </div>
 
-          <button 
-            onClick={() => setShowSummary(true)}
-            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
-          >
-            <FileText className="w-4 h-4" />
-            Executive Summary
-          </button>
+          {reportType === 'financial' && (
+            <button 
+              onClick={() => setShowSummary(true)}
+              className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
+            >
+              <FileText className="w-4 h-4" />
+              Executive Summary
+            </button>
+          )}
         </div>
       </div>
 
-      {showSummary && metrics && (
+      {showSummary && metrics && reportType === 'financial' && (
         <ExecutiveSummaryModal 
           tenantId={tenantId} 
           metrics={metrics} 
@@ -214,7 +211,11 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
         />
       )}
 
-      {/* KPI Cards */}
+      {reportType === 'efficiency' ? (
+        <EfficiencyReports tenantId={tenantId} timeframe={timeframe} />
+      ) : (
+        <>
+          {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {kpis.map((kpi) => (
           <div key={kpi.label} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all group">
@@ -252,8 +253,8 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
           </div>
 
           <div className="h-64 flex items-end justify-between gap-2 px-2">
-            {metrics?.chartData.map((d, i) => {
-              const maxRev = Math.max(...metrics.chartData.map(cd => cd.revenue)) || 1;
+            {metrics?.chartData.map((d: any, i: number) => {
+              const maxRev = Math.max(...metrics.chartData.map((cd: any) => cd.revenue)) || 1;
               const height = (d.revenue / maxRev) * 100;
               return (
                 <div key={i} className="flex-1 flex flex-col items-center group relative">
@@ -327,7 +328,7 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {metrics?.chartData.slice().reverse().map((d, i) => (
+              {metrics?.chartData.slice().reverse().map((d: any, i: number) => (
                 <tr key={i} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/20 transition-colors">
                   <td className="px-8 py-4 font-bold text-zinc-900 dark:text-white">{d.label}</td>
                   <td className="px-8 py-4 font-mono text-zinc-600 dark:text-zinc-400">${d.revenue.toLocaleString()}</td>
@@ -343,6 +344,8 @@ export function ReportsManager({ tenantId }: ReportsManagerProps) {
           </table>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

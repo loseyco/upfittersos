@@ -2,7 +2,8 @@ import React from 'react';
 import { 
   Home, Users, Briefcase, CheckSquare, Layers, Map, 
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck
+  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck, BarChart3,
+  Handshake, Monitor, FileSpreadsheet, QrCode
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -18,29 +19,38 @@ export type NavItem = {
 
 const ITEMS: NavItem[] = [
   { id: 'overview', label: 'My Dashboard', icon: Home, group: 'boards' },
+  { id: 'quickdesk', label: 'QuickDesk (Classic)', icon: Monitor, group: 'boards', permission: 'quickdesk.view' },
   { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'boards', permission: 'mission_control.view' },
   { id: 'upfitters', label: 'Upfitters', icon: ClipboardList, group: 'boards', permission: 'foreman.view' },
+  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, group: 'boards', permission: 'foreman.view' },
   { id: 'parts', label: 'Parts Dept', icon: Package, group: 'boards', permission: 'parts.view' },
-  { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'parts.view' },
+  { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'printed_parts.view' },
   { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards', permission: 'graphics.view' },
   { id: 'fast', label: 'F.A.S.T', icon: Wrench, group: 'boards', permission: 'fast.view' },
   { id: 'fabrication', label: 'Fabrication', icon: Wrench, group: 'boards', permission: 'fabrication.view' },
   { id: 'office', label: 'Office', icon: Building2, group: 'boards', permission: 'office.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'boards', permission: 'timeclock.view' },
   { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'boards', permission: 'performance.view' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, group: 'boards', permission: 'reports.view' },
+  { id: 'job_schedule', label: 'Schedule', icon: Calendar, group: 'boards', permission: 'jobs.view' },
   
   { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'data', permission: 'jobs.view' },
-  { id: 'tasks', label: 'Tasks', icon: CheckSquare, group: 'data', permission: 'tasks.view' },
+  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, group: 'data', permission: 'staff_worksheet.view' },
+  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, group: 'data', permission: 'bay_worksheet.view' },
+  { id: 'tasks', label: 'Todos', icon: CheckSquare, group: 'data', permission: 'tasks.view' },
+  { id: 'vendors', label: 'Vendors & Services', icon: Handshake, group: 'data', permission: 'vendors.view' },
   { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'data', permission: 'timeclock.manage' },
   { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'data', permission: 'reports.view' },
   { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'data', permission: 'vehicles.view' },
+  { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, group: 'data', permission: 'vehicles.view' },
   { id: 'customers', label: 'Customers', icon: Users, group: 'data', permission: 'customers.view' },
   { id: 'items', label: 'Parts Library', icon: PackageOpen, group: 'data', permission: 'parts.view' },
   
   { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'facility.view' },
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, group: 'facility', permission: 'facility.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility', permission: 'facility.view' },
-  { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility', permission: 'facility.view' },
+  { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility', permission: 'whiteboards.view' },
+  { id: 'feedback', label: 'Feedback & Bugs', icon: MessageSquare, group: 'facility', permission: 'facility.view' },
   { id: 'messages', label: 'Messages', icon: MessageSquare, group: 'comm', permission: 'communication.view' },
   { id: 'announcements', label: 'Announcements', icon: Megaphone, group: 'comm', permission: 'communication.view' },
   { id: 'events', label: 'Events', icon: Calendar, group: 'comm', permission: 'communication.view' },
@@ -79,11 +89,11 @@ export function BusinessSidebar({
     sync: 'Sync Data (Raw)'
   };
 
-  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
   const navigate = useNavigate();
 
   const SUPER_ADMIN_EMAILS = ['p.losey@saegrp.com', 'loseyp@gmail.com'];
-  const canAccessGlobalAdmin = isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email));
+  const canAccessGlobalAdmin = !impersonatedStaff && (isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email)));
 
   const NavContent = () => (
     <div className="flex flex-col h-full py-6 px-4 space-y-8 overflow-y-auto no-scrollbar">
@@ -163,13 +173,6 @@ export function BusinessSidebar({
             >
               <ShieldCheck className="w-5 h-5" />
               <span className="text-sm font-semibold tracking-tight">Platform Manager</span>
-            </button>
-            <button
-              onClick={() => navigate('/super-admin/feedback')}
-              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all duration-200 active:scale-95"
-            >
-              <MessageSquare className="w-5 h-5" />
-              <span className="text-sm font-semibold tracking-tight">Feedback & Bugs</span>
             </button>
           </div>
         </div>

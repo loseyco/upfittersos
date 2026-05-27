@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, updateDoc, collection, getDocs, addDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, getDocs, addDoc, deleteDoc, writeBatch, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Save, ArrowLeft, User, Car, MapPin, 
-  Sparkles, AlertCircle, Trash2, Plus, CheckSquare, 
-  Timer
+  Sparkles, AlertCircle, Trash2, Copy, Plus, CheckSquare,
+  Wrench, Package
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -13,6 +13,8 @@ import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComp
 import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
 import { StaffSelector } from './StaffSelectionComponents';
 import { SearchableSelect } from './SearchableSelect';
+import { projectWorkingHours } from './ScheduleBoard';
+import { PartsRequestModal } from './PartsRequestModal';
 
 export function JobEditPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
@@ -21,7 +23,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   const isNew = jobId === 'create';
   
   const navigate = useNavigate();
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
   
   // Permission gate
   if (!isSuperAdmin && !permissions['jobs.manage']) {
@@ -46,15 +48,71 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
   const [quickAddVehicle, setQuickAddVehicle] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<any>(null);
   const [jobTasks, setJobTasks] = useState<any[]>([]);
+  const [timeLogs, setTimeLogs] = useState<any[]>([]);
+  const [now, setNow] = useState(Date.now());
 
   const [customGroups, setCustomGroups] = useState<string[]>([]);
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const [zonesLoaded, setZonesLoaded] = useState(false);
+  const [qbItems, setQbItems] = useState<any[]>([]);
+  const [taskDefaults, setTaskDefaults] = useState<Record<string, number>>({});
+  const [parts, setParts] = useState<any[]>([]);
+  const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
+  const [selectedPartForEdit, setSelectedPartForEdit] = useState<any>(null);
+
+  useEffect(() => {
+    if (isNew) return;
+    const interval = setInterval(() => setNow(Date.now()), 10000);
+    return () => clearInterval(interval);
+  }, [isNew]);
+
+  useEffect(() => {
+    if (!jobId || !tenantId || isNew) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('jobIds', 'array-contains', jobId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setTimeLogs(logs);
+    }, (err) => {
+      console.error("Time logs listener error in JobEditPage:", err);
+    });
+    return () => unsub();
+  }, [jobId, tenantId, isNew]);
+
+  useEffect(() => {
+    if (isNew || !jobId || !tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/parts_requests`),
+      where('jobId', '==', jobId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setParts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Parts requests listener error in JobEditPage:", err);
+      setParts([]);
+    });
+    return () => unsub();
+  }, [jobId, tenantId, isNew]);
+
+  const getTaskLoggedMs = (taskId: string) => {
+    return timeLogs.reduce((acc, session) => {
+      const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === taskId);
+      const segMs = taskSegments.reduce((segAcc: number, seg: any) => {
+        const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
+        return segAcc + Math.max(0, end - start);
+      }, 0);
+      return acc + segMs;
+    }, 0);
+  };
 
   const formatDatetimeLocal = (dateString?: any) => {
     if (!dateString) return '';
@@ -80,6 +138,9 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           notes: data.notes || '',
           scheduledArrivalTime: formatDatetimeLocal(data.scheduledArrivalTime),
           expectedFinishTime: formatDatetimeLocal(data.expectedFinishTime),
+          scheduledStartDate: formatDatetimeLocal(data.scheduledStartDate),
+          scheduledEndDate: formatDatetimeLocal(data.scheduledEndDate),
+          bayId: data.bayId || '',
           estimatedHours: data.estimatedHours || '',
           assignedStaff: data.assignedStaff || [],
           currentZoneId: prev?.currentZoneId !== undefined ? prev.currentZoneId : undefined,
@@ -105,6 +166,9 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       notes: '',
       scheduledArrivalTime: formatDatetimeLocal(new Date()),
       expectedFinishTime: '',
+      scheduledStartDate: '',
+      scheduledEndDate: '',
+      bayId: '',
       estimatedHours: '',
       assignedStaff: [],
       currentZoneId: '',
@@ -131,25 +195,36 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [jobId, tenantId]);
 
+  const addingGeneralRef = useRef(false);
+
   // Auto-add "General" task if missing
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
     const hasGeneral = jobTasks.some(t => t.title === 'General');
-    if (!hasGeneral) {
+    if (!hasGeneral && !addingGeneralRef.current) {
+      addingGeneralRef.current = true;
       const addGeneralTask = async () => {
         try {
-          await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
-            title: 'General',
-            description: 'General shop work and cleanup',
-            taskGroup: 'General',
-            bookTime: 0,
-            status: 'pending',
-            tenantId: tenantId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-          });
+          const q = query(
+            collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`),
+            where('title', '==', 'General')
+          );
+          const snap = await getDocs(q);
+          if (snap.empty) {
+            await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
+              title: 'General',
+              description: 'General shop work and cleanup',
+              taskGroup: 'General',
+              bookTime: 0,
+              status: 'pending',
+              tenantId: tenantId,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            });
+          }
         } catch (e) {
           console.error("Error adding general task:", e);
+          addingGeneralRef.current = false;
         }
       };
       addGeneralTask();
@@ -224,6 +299,33 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       setZones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setZonesLoaded(true);
     });
+    getDocs(collection(db, `businesses/${tenantId}/departments`)).then(snap => {
+      setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    getDocs(collection(db, `businesses/${tenantId}/task_defaults`)).then(snap => {
+      const defaults: Record<string, number> = {};
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (data.title && typeof data.bookTime === 'number') {
+          defaults[data.title] = data.bookTime;
+        }
+      });
+      setTaskDefaults(defaults);
+    }).catch(err => console.error("Failed to load task defaults:", err));
+
+    Promise.all([
+      getDocs(collection(db, `businesses/${tenantId}/qb_items`)),
+      getDocs(collection(db, `businesses/${tenantId}/native_tasks`))
+    ]).then(([qbSnap, nativeSnap]) => {
+      const qb = qbSnap.docs.map(d => ({ id: d.id, ...d.data(), _source: 'QuickBooks' }));
+      const native = nativeSnap.docs.map(d => ({ id: d.id, ...d.data(), _source: 'Native' }));
+      const serviceItems = qb.filter((item: any) => 
+        item.Type === 'Service' || 
+        item.ItemType === 'Service' ||
+        !item.Type
+      );
+      setQbItems([...serviceItems, ...native]);
+    }).catch(err => console.error("Failed to load task items:", err));
   }, [tenantId]);
 
   // Sync initial zone once zones are loaded
@@ -240,12 +342,15 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     if (!formData || isSaving) return;
     setIsSaving(true);
     try {
-      const { expectedFinishTime, scheduledArrivalTime, currentZoneId, ...rest } = formData;
+      const { expectedFinishTime, scheduledArrivalTime, scheduledStartDate, scheduledEndDate, currentZoneId, ...rest } = formData;
       const payload = {
         ...rest,
         expectedFinishTime: expectedFinishTime ? new Date(expectedFinishTime).toISOString() : null,
         scheduledArrivalTime: scheduledArrivalTime ? new Date(scheduledArrivalTime).toISOString() : null,
+        scheduledStartDate: scheduledStartDate ? new Date(scheduledStartDate).toISOString() : null,
+        scheduledEndDate: scheduledEndDate ? new Date(scheduledEndDate).toISOString() : null,
         estimatedHours: jobTasks.filter(t => t.title !== 'General').reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0),
+        departmentIds: Array.from(new Set(jobTasks.map(t => t.departmentId).filter(Boolean))),
         updatedAt: new Date()
       };
 
@@ -296,6 +401,55 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         });
       }
 
+      // --- Cascade Logic ---
+      if (payload.bayId && payload.scheduledStartDate) {
+        try {
+          const cascadeBatch = writeBatch(db);
+          const qJobs = query(
+            collection(db, `businesses/${tenantId}/jobs`),
+            where('bayId', '==', payload.bayId)
+          );
+          const snap = await getDocs(qJobs);
+          const otherJobsInBay = snap.docs
+            .map(d => ({ id: d.id, ...d.data() } as any))
+            .filter((j: any) => j.id !== finalJobId && j.scheduledStartDate && parseFloat(j.estimatedHours || '0') > 0);
+          
+          const droppedStartTime = new Date(payload.scheduledStartDate).getTime();
+          const jobsToPush = otherJobsInBay.filter((j: any) => new Date(j.scheduledStartDate).getTime() >= droppedStartTime);
+          
+          jobsToPush.sort((a: any, b: any) => new Date(a.scheduledStartDate).getTime() - new Date(b.scheduledStartDate).getTime());
+          
+          if (payload.scheduledEndDate) {
+            let currentEndTime = new Date(payload.scheduledEndDate);
+            
+            // Get department schedule
+            const bayObj = zones.find(z => z.id === payload.bayId || z.name === payload.bayId);
+            const dept = departments.find(d => d.id === bayObj?.departmentId);
+
+            for (const otherJob of jobsToPush) {
+              // Calculate the 10-minute buffer start time (respecting working hours)
+              const bufferStart = currentEndTime;
+              const gapEnd = projectWorkingHours(bufferStart, 10 / 60, dept?.defaultSchedule);
+              
+              const otherEstHours = parseFloat(otherJob.estimatedHours) || 1;
+              const otherNewEnd = projectWorkingHours(gapEnd, otherEstHours, dept?.defaultSchedule);
+              
+              const otherJobRef = doc(db, `businesses/${tenantId}/jobs`, otherJob.id);
+              cascadeBatch.update(otherJobRef, {
+                scheduledStartDate: gapEnd.toISOString(),
+                scheduledEndDate: otherNewEnd.toISOString(),
+                updatedAt: serverTimestamp()
+              });
+              
+              currentEndTime = otherNewEnd;
+            }
+            await cascadeBatch.commit();
+          }
+        } catch (err) {
+          console.error("Cascade failed during save:", err);
+        }
+      }
+
       toast.success(isNew ? 'Job created successfully' : 'Job updated successfully');
       navigate(`/business/${tenantId}/job/${finalJobId}`);
     } catch (err) {
@@ -306,7 +460,67 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleInlineAddTask = async (group: string, initialStaff: any[]) => {
+  const logActivity = async (type: string, message: string, metadata: any = {}) => {
+    if (isNew) return;
+    try {
+      const activityData = {
+        type,
+        message,
+        metadata,
+        timestamp: new Date(),
+        staffId: user?.uid,
+        staffName: user?.displayName || user?.email || 'Staff'
+      };
+
+      // 1. Write to local subcollection
+      const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/activity`), activityData);
+
+      // 2. Write to global activity feed
+      const jobPrefix = job ? (job.jobNumber ? `Job #${job.jobNumber}` : `Job ${job.title}`) : 'Job';
+      const typeToTitle: Record<string, string> = {
+        blocker_added: 'Blocker Added',
+        blocker_resolved: 'Blocker Resolved',
+        part_status_changed: 'Part Status Changed',
+        location_changed: 'Vehicle Moved',
+        patrol_check: 'Patrol Check',
+        status_changed: 'Status Changed',
+        task_added: 'Task Added',
+        task_duplicated: 'Task Duplicated',
+        task_deleted: 'Task Removed',
+        task_updated: 'Task Updated',
+        task_assigned: 'Task Assigned',
+      };
+
+      const getSeverity = (t: string, msg: string) => {
+        if (t === 'blocker_added') return 'warning';
+        if (t === 'blocker_resolved') return 'success';
+        if (t === 'status_changed') {
+          if (msg.toLowerCase().includes('blocked')) return 'error';
+          if (msg.toLowerCase().includes('restored') || msg.toLowerCase().includes('active')) return 'success';
+        }
+        return 'info';
+      };
+
+      await setDoc(doc(db, `businesses/${tenantId}/activity_feed`, `job_act_${jobId}_${docRef.id}`), {
+        type: 'job',
+        title: typeToTitle[type] || 'Job Update',
+        message: `${jobPrefix}: ${message}`,
+        timestamp: activityData.timestamp,
+        severity: getSeverity(type, message),
+        author: activityData.staffName,
+        metadata: {
+          jobId,
+          jobTitle: job?.title || '',
+          jobNumber: job?.jobNumber || '',
+          ...metadata
+        }
+      });
+    } catch (err) {
+      console.error("Activity logging error:", err);
+    }
+  };
+
+  const handleInlineAddTask = async (group: string, initialStaff: any[], initialDepartmentId?: string) => {
     const tempId = Math.random().toString(36).substr(2, 9);
     const newTask = {
       title: '',
@@ -314,13 +528,14 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       taskGroup: group,
       assignedStaff: initialStaff,
       assignedStaffIds: initialStaff.map(s => s.id),
-      bookTime: 0.5,
-      status: 'pending'
+      bookTime: 0,
+      status: 'pending',
+      departmentId: initialDepartmentId || ''
     };
 
     if (isNew) {
       setJobTasks(prev => [...prev, { id: tempId, ...newTask }]);
-      setTimeout(() => document.getElementById(`task-title-${tempId}`)?.focus(), 100);
+      setTimeout(() => document.getElementById(`task-title-${tempId}`)?.click(), 100);
     } else {
       try {
         const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
@@ -329,9 +544,12 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
+        
+        await logActivity('task_added', `Added new task to group: ${group}`);
+        
         // Real-time listener will pull it in, but we need to focus it.
         // We'll focus by docRef.id.
-        setTimeout(() => document.getElementById(`task-title-${docRef.id}`)?.focus(), 500);
+        setTimeout(() => document.getElementById(`task-title-${docRef.id}`)?.click(), 500);
       } catch (err) {
         console.error(err);
         toast.error('Failed to add task');
@@ -339,14 +557,45 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const handleDuplicateTask = async (task: any) => {
+    const { id, ...taskData } = task;
+    const newTask = {
+      ...taskData,
+      status: 'pending',
+      completedAt: null,
+      actualTime: 0,
+      isAccidental: false
+    };
+
+    if (isNew) {
+      setJobTasks(prev => [...prev, { id: Date.now().toString(), ...newTask }]);
+      toast.success('Task duplicated');
+    } else {
+      try {
+        await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
+          ...newTask,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        await logActivity('task_duplicated', `Duplicated task: ${task.title || 'Unnamed Task'}`);
+        toast.success('Task duplicated');
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to duplicate task');
+      }
+    }
+  };
+
   const handleDeleteTask = async (taskId: string) => {
     if (!confirm('Are you sure you want to remove this task?')) return;
+    const taskToDelete = jobTasks.find(t => t.id === taskId);
     if (isNew) {
       setJobTasks(prev => prev.filter(t => t.id !== taskId));
       toast.success('Task removed');
     } else {
       try {
         await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
+        await logActivity('task_deleted', `Removed task: ${taskToDelete?.title || 'Unnamed Task'}`);
         toast.success('Task removed');
       } catch (err) {
         console.error(err);
@@ -357,7 +606,39 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
   const updateTaskField = async (taskId: string, field: string, value: any) => {
     if (isNew) {
-      setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
+      if (field === 'title') {
+        const defaultHours = taskDefaults[value];
+        if (typeof defaultHours === 'number') {
+          setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value, bookTime: defaultHours } : t));
+        } else {
+          setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value } : t));
+        }
+      } else if (field === 'completedAt') {
+        setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, completedAt: value, status: value ? 'QC' : 'pending' } : t));
+      } else if (field === 'status') {
+        setJobTasks(prev => prev.map(t => t.id === taskId ? {
+          ...t,
+          status: value,
+          completedAt: value === 'QC' ? (t.completedAt || new Date().toISOString()) : (value === 'pending' ? null : t.completedAt)
+        } : t));
+      } else {
+        setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
+      }
+
+      // Save default bookTime if updated and task has a title
+      if (field === 'bookTime') {
+        const task = jobTasks.find(t => t.id === taskId);
+        if (task?.title) {
+          const docId = encodeURIComponent(task.title);
+          setDoc(doc(db, `businesses/${tenantId}/task_defaults`, docId), {
+            title: task.title,
+            bookTime: value,
+            updatedAt: serverTimestamp()
+          }, { merge: true }).catch(err => console.error("Error saving task default time:", err));
+          
+          setTaskDefaults(prev => ({ ...prev, [task.title]: value }));
+        }
+      }
     } else {
       try {
         const updateObj: any = {
@@ -369,7 +650,55 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           updateObj.assignedStaffIds = (value || []).map((s: any) => s.id);
         }
 
+        if (field === 'title') {
+          const defaultHours = taskDefaults[value];
+          if (typeof defaultHours === 'number') {
+            updateObj.bookTime = defaultHours;
+          }
+        }
+
+        if (field === 'completedAt') {
+          updateObj.status = value ? 'QC' : 'pending';
+        }
+
+        if (field === 'status') {
+          const task = jobTasks.find(t => t.id === taskId);
+          if (value === 'QC' && !task?.completedAt) {
+            updateObj.completedAt = new Date().toISOString();
+          } else if (value === 'pending') {
+            updateObj.completedAt = null;
+          }
+        }
+
         await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateObj);
+        
+        const task = jobTasks.find(t => t.id === taskId);
+        
+        // Activity Logging
+        if (field === 'title' && task?.title !== value) {
+          logActivity('task_updated', `Task title changed to: ${value || 'Unnamed Task'}`);
+        } else if (field === 'assignedStaff') {
+          const staffNames = (value || []).map((s: any) => s.name || s.displayName || s.email).join(', ');
+          logActivity('task_assigned', `Updated staff assignment on task "${task?.title || 'Unnamed Task'}" to: ${staffNames || 'None'}`);
+        } else if (field === 'bookTime' && task?.bookTime !== value) {
+          logActivity('task_updated', `Updated book time on task "${task?.title || 'Unnamed Task'}" to ${value}h`);
+          
+          // Save default bookTime if updated and task has a title
+          if (task?.title) {
+            const docId = encodeURIComponent(task.title);
+            setDoc(doc(db, `businesses/${tenantId}/task_defaults`, docId), {
+              title: task.title,
+              bookTime: value,
+              updatedAt: serverTimestamp()
+            }, { merge: true }).catch(err => console.error("Error saving task default time:", err));
+            
+            setTaskDefaults(prev => ({ ...prev, [task.title]: value }));
+          }
+        } else if (field === 'departmentId' && task?.departmentId !== value) {
+          const dept = departments.find(d => d.id === value);
+          logActivity('task_updated', `Assigned task "${task?.title || 'Unnamed Task'}" to department: ${dept?.name || 'None'}`);
+        }
+        
       } catch (err) {
         console.error(err);
         toast.error('Failed to update task');
@@ -377,34 +706,6 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleAssignGroup = async (group: string, staff: any[]) => {
-    const tasksInGroup = jobTasks.filter(t => (t.taskGroup || 'Uncategorized') === group && t.title !== 'General');
-    if (isNew) {
-      setJobTasks(prev => prev.map(t => 
-        (t.taskGroup || 'Uncategorized') === group && t.title !== 'General' 
-          ? { ...t, assignedStaff: staff } 
-          : t
-      ));
-    } else {
-      try {
-        const batch = writeBatch(db);
-        const staffIds = staff.map(s => s.id);
-        tasksInGroup.forEach(t => {
-          const ref = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
-          batch.update(ref, {
-            assignedStaff: staff,
-            assignedStaffIds: staffIds,
-            updatedAt: serverTimestamp()
-          });
-        });
-        await batch.commit();
-        toast.success(`Updated staff for ${group}`);
-      } catch (err) {
-        console.error(err);
-        toast.error(`Failed to assign group`);
-      }
-    }
-  };
 
 
 
@@ -442,8 +743,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-        {/* Left Column - Core Meta & Customer (4/12) */}
-        <div className="lg:col-span-4 space-y-10">
+        {/* Left Column - Core Meta & Customer */}
+        <div className="lg:col-span-8 space-y-10 lg:order-1">
           <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm space-y-8">
             <div className="flex items-center gap-3 mb-2">
               <div className="p-2.5 bg-indigo-500/10 rounded-xl">
@@ -509,12 +810,68 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Finish ETA</label>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Finish ETA (Calculated)</label>
                 <input 
                   type="datetime-local" 
                   value={formData.expectedFinishTime} 
-                  onChange={e => setFormData((prev: any) => ({ ...prev, expectedFinishTime: e.target.value }))}
+                  disabled
+                  readOnly
+                  className="w-full px-4 py-2.5 bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none font-medium text-sm text-zinc-500 cursor-not-allowed"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Scheduled Start</label>
+                <input 
+                  type="datetime-local" 
+                  value={formData.scheduledStartDate || ''}
+                  onChange={e => {
+                    const newStart = e.target.value;
+                    setFormData((prev: any) => {
+                      if (!newStart) return { ...prev, scheduledStartDate: '' };
+                      
+                      const remainingHours = jobTasks.filter(t => t.title !== 'General').reduce((acc, t) => {
+                        const book = parseFloat(t.bookTime) || 0;
+                        const actual = parseFloat(t.actualTime) || 0;
+                        return acc + Math.max(0, book - actual);
+                      }, 0);
+                      
+                      const realTimeHours = remainingHours / 0.8; // 80% efficiency
+                      const startD = new Date(newStart);
+                      
+                      const endD = projectWorkingHours(startD, realTimeHours);
+                      const localEnd = new Date(endD.getTime() - (endD.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+                      
+                      return { 
+                        ...prev, 
+                        scheduledStartDate: newStart,
+                        scheduledEndDate: localEnd
+                      };
+                    });
+                  }}
                   className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-medium text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Scheduled End</label>
+                <input 
+                  type="datetime-local" 
+                  value={formData.scheduledEndDate} 
+                  onChange={e => setFormData((prev: any) => ({ ...prev, scheduledEndDate: e.target.value }))}
+                  className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-medium text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 mb-1.5">Scheduled Bay</label>
+                <SearchableSelect
+                  options={[...zones.filter(z => z.type === 'bay').sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(z => z.name || z.id), 'Mobile']}
+                  value={formData.bayId || ''}
+                  onChange={val => setFormData((prev: any) => ({ ...prev, bayId: val || '' }))}
+                  getLabel={s => s}
+                  getValue={s => s}
+                  theme="indigo"
                 />
               </div>
             </div>
@@ -538,8 +895,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           </section>
         </div>
 
-        {/* Middle Column - Tasks (5/12) */}
-        <div className="lg:col-span-5 space-y-10">
+        {/* Bottom Row - Tasks */}
+        <div className="lg:col-span-12 space-y-10 lg:order-3 mt-4">
           <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -563,7 +920,12 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
             <div className="space-y-6">
               {(() => {
-                const groupedTasks = jobTasks.reduce((acc, task) => {
+                const sortedJobTasks = [...jobTasks].sort((a, b) => {
+                   const aTime = a.createdAt?.seconds || (Date.now() / 1000);
+                   const bTime = b.createdAt?.seconds || (Date.now() / 1000);
+                   return aTime - bTime;
+                });
+                const groupedTasks = sortedJobTasks.reduce((acc, task) => {
                   const group = task.taskGroup || 'Uncategorized';
                   if (!acc[group]) acc[group] = [];
                   acc[group].push(task);
@@ -577,103 +939,319 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 return Object.entries(groupedTasks).sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)).map(([group, tasksData]) => {
                   const tasks = tasksData as any[];
                   return (
-                  <div key={group} className="space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-100 dark:border-zinc-800">
-                      <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
-                      <div className="flex items-center gap-4">
-                         {group !== 'General' && (
-                           <>
-                             <div className="w-48">
-                               <StaffSelector 
-                                 tenantId={tenantId}
-                                 selectedStaff={[]}
-                                 onAssign={staff => handleAssignGroup(group, staff)}
-                                 placeholder="Assign Section..."
-                               />
-                             </div>
-                             <button
-                               onClick={() => {
-                                 // Inherit staff from the first task in this group
-                                 const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
-                                 handleInlineAddTask(group, staff);
-                               }}
-                               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors text-[10px] font-black uppercase tracking-widest"
-                               title={`Add Task to ${group}`}
-                             >
-                               <Plus className="w-3 h-3" /> Add Task
-                             </button>
-                           </>
-                         )}
-                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg shrink-0">
-                           {tasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
-                         </span>
+                  <div key={group} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-sm">
+                    {/* Header Row */}
+                    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 rounded-t-3xl">
+                      <div className="flex items-center gap-3">
+                        <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                        <span className="text-[10px] font-bold text-zinc-500 bg-zinc-200 dark:bg-zinc-800 px-2 py-1 rounded-lg shrink-0">
+                          {tasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
+                        </span>
                       </div>
                     </div>
-                    {tasks.map(task => (
-                      <div key={task.id} className="p-5 bg-zinc-50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-2xl group hover:border-indigo-500/30 transition-all">
-                        <div className="flex items-start justify-between gap-6">
-                          <div className="flex-1 space-y-4">
-                            <div className="flex flex-col md:flex-row md:items-center gap-4">
-                              <div className="flex-1">
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Task Title</label>
-                                <input 
-                                  id={`task-title-${task.id}`}
-                                  type="text" 
-                                  value={task.title}
-                                  placeholder="Untitled Task"
-                                  onChange={e => updateTaskField(task.id, 'title', e.target.value)}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
-                                />
-                              </div>
-                              <div className="flex-1 md:w-1/3">
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Task Group</label>
-                                <input 
-                                  type="text" 
-                                  defaultValue={task.taskGroup || ''}
-                                  placeholder="e.g. Front End"
-                                  onBlur={e => updateTaskField(task.id, 'taskGroup', e.target.value)}
-                                  onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 font-medium text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
-                                />
-                              </div>
-                              {task.title !== 'General' && (
-                                <div className="w-full md:w-40">
-                                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Allotted Time</label>
-                                  <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2">
-                                    <Timer className="w-4 h-4 text-indigo-500" />
-                                    <input 
-                                      type="number" 
-                                      step="0.1"
-                                      value={task.bookTime}
-                                      onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
-                                      className="w-full bg-transparent border-none p-0 text-sm font-mono font-bold text-indigo-600 focus:ring-0 text-center"
-                                    />
-                                    <span className="text-[10px] font-black text-zinc-400">HRS</span>
+                    
+                    {/* Column Headers (Desktop) */}
+                    {tasks.length > 0 && (
+                      <div className="hidden lg:grid grid-cols-[70px_1fr_140px_140px_80px_180px_140px_90px] gap-2 px-4 py-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest bg-zinc-50/50 dark:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-800">
+                        <div className="text-center">#</div>
+                        <div>Task Title</div>
+                        <div>Department</div>
+                        <div>Tech</div>
+                        <div className="text-center">Book</div>
+                        <div className="text-center">Actual</div>
+                        <div>Completed</div>
+                        <div className="text-center">QA</div>
+                      </div>
+                    )}
+
+                    {/* Task Rows */}
+                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                      {tasks.map((task, idx) => (
+                        <div key={task.id} className={`grid grid-cols-1 lg:grid-cols-[70px_1fr_140px_140px_80px_180px_140px_90px] gap-4 lg:gap-2 items-center p-4 lg:p-2 lg:px-4 hover:bg-zinc-50 dark:hover:bg-zinc-950/50 transition-colors group relative ${task.isAccidental ? 'bg-rose-500/[0.02] dark:bg-rose-500/[0.01] opacity-75' : ''}`}>
+                          
+                          {/* 1. Mobile Actions / Index */}
+                          <div className="flex items-center justify-between lg:justify-start w-full lg:w-auto gap-2">
+                            <span className="text-xs font-bold text-zinc-300 dark:text-zinc-700 w-4 text-right">{idx + 1}</span>
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => handleDuplicateTask(task)}
+                                className="text-zinc-300 hover:text-indigo-500 transition-colors p-1"
+                                title="Duplicate Task"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteTask(task.id)}
+                                className="text-zinc-300 hover:text-rose-500 transition-colors p-1"
+                                title="Delete Task"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 2. Title */}
+                          <div className="min-w-0 w-full relative">
+                            <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Title</div>
+                            <SearchableSelect
+                              id={`task-title-${task.id}`}
+                              options={qbItems}
+                              value={task.title}
+                              onChange={val => updateTaskField(task.id, 'title', val || '')}
+                              getLabel={item => item.FullName || item.Name || 'Unnamed Task'}
+                              getValue={item => item.FullName || item.Name || item.id}
+                              placeholder="Task Title..."
+                              allowCustomValue={true}
+                              className="w-full"
+                              renderOption={(item) => (
+                                <div className="flex items-start justify-between min-w-0 w-full gap-4">
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="font-bold text-zinc-900 dark:text-white text-sm whitespace-normal text-left">
+                                      {item.FullName || item.Name || 'Unnamed Task'}
+                                    </span>
+                                    {(item.Description || item.SalesDesc) && (
+                                      <span className="text-[10px] text-zinc-500 line-clamp-2 text-left mt-0.5">
+                                        {item.Description || item.SalesDesc}
+                                      </span>
+                                    )}
                                   </div>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight shrink-0 ${item._source === 'QuickBooks' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>
+                                    {item._source || 'Native'}
+                                  </span>
                                 </div>
                               )}
-                            </div>
-                            
-                            {task.title !== 'General' && (
-                              <div>
-                                <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Assigned Technicians</label>
+                              footerAction={{
+                                label: "Save & Use Custom Title",
+                                onClick: async (search) => {
+                                  if (search.trim()) {
+                                    try {
+                                      await addDoc(collection(db, `businesses/${tenantId}/native_tasks`), {
+                                        Name: search.trim(),
+                                        FullName: search.trim(),
+                                        createdAt: serverTimestamp()
+                                      });
+                                      setQbItems(prev => [...prev, { id: Date.now().toString(), Name: search.trim(), FullName: search.trim(), _source: 'Native' }]);
+                                      toast.success('Custom task saved for future use');
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
+                                  }
+                                  updateTaskField(task.id, 'title', search);
+                                }
+                              }}
+                            />
+                          </div>
+
+                          {/* 3. Department */}
+                          <div className="w-full relative">
+                            {task.title !== 'General' ? (
+                              <>
+                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Department</div>
+                                <SearchableSelect
+                                  options={departments}
+                                  value={task.departmentId || ''}
+                                  onChange={val => updateTaskField(task.id, 'departmentId', val || '')}
+                                  getLabel={d => d.name}
+                                  getValue={d => d.id}
+                                  placeholder="Dept..."
+                                  className="w-full"
+                                />
+                              </>
+                            ) : <div/>}
+                          </div>
+
+                          {/* 4. Staff */}
+                          <div className="w-full relative">
+                            {task.title !== 'General' ? (
+                              <>
+                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Tech</div>
                                 <StaffSelector 
                                   tenantId={tenantId}
                                   selectedStaff={task.assignedStaff || []}
                                   onAssign={staff => updateTaskField(task.id, 'assignedStaff', staff)}
+                                  compact={true}
+                                  placeholder="Tech..."
+                                />
+                              </>
+                            ) : <div/>}
+                          </div>
+
+                          {/* 5. Book Time */}
+                          <div className="w-full relative">
+                            {task.title !== 'General' ? (
+                              <div className={`flex items-center rounded-xl px-2 shadow-sm relative transition-all duration-350 ${
+                                task.bookTime === 0
+                                  ? 'bg-rose-500/10 dark:bg-rose-500/20 border-2 border-rose-500 ring-2 ring-rose-500/20 animate-pulse'
+                                  : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800'
+                              }`}>
+                                <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Book Hrs</div>
+                                <input 
+                                  type="number" 
+                                  step="0.1"
+                                  value={task.bookTime}
+                                  onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
+                                  className={`w-full bg-transparent border-none p-2 text-xs font-bold focus:ring-0 text-center transition-colors ${
+                                    task.bookTime === 0
+                                      ? 'text-rose-500 dark:text-rose-450 font-black'
+                                      : 'text-indigo-600 dark:text-indigo-400'
+                                  }`}
                                 />
                               </div>
-                            )}
+                            ) : <div/>}
                           </div>
-                          <button 
-                            onClick={() => handleDeleteTask(task.id)}
-                            className="p-2 text-zinc-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+
+                          {/* 6. Actual Time */}
+                          <div className="w-full relative">
+                            {task.title !== 'General' ? (
+                              <div className="flex flex-col gap-1 w-full">
+                                <div className="flex items-center gap-1.5 w-full">
+                                  <div className="flex items-center bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2 relative grow">
+                                    <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Actual Hrs</div>
+                                    <input 
+                                      type="number" 
+                                      step="0.1"
+                                      value={task.actualTime || ''}
+                                      onChange={e => updateTaskField(task.id, 'actualTime', parseFloat(e.target.value) || 0)}
+                                      placeholder="0.0"
+                                      className="w-full bg-transparent border-none p-1.5 text-xs font-bold text-zinc-900 dark:text-white focus:ring-0 text-center"
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={() => updateTaskField(task.id, 'isAccidental', !task.isAccidental)}
+                                    className={`p-1.5 rounded-xl border transition-all flex items-center justify-center shrink-0 ${
+                                      task.isAccidental
+                                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-500 hover:bg-rose-500/20'
+                                        : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'
+                                    }`}
+                                    title={task.isAccidental ? "Accidental clock-in. Click to restore clocked hours." : "Flag as accidental clock-in (ignores logged hours)"}
+                                  >
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center justify-between px-1 text-[9px] font-bold">
+                                  <span className="text-zinc-400 dark:text-zinc-500">Logged:</span>
+                                  {task.isAccidental ? (
+                                    <span className="text-rose-500 font-mono flex items-center gap-1">
+                                      <span className="line-through opacity-50 font-normal">{(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h</span>
+                                      <span>0.0h</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-zinc-500 dark:text-zinc-400 font-mono">
+                                      {(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : <div/>}
+                          </div>
+
+                          {/* 7. Completed Date */}
+                          <div className="w-full relative">
+                            {task.title !== 'General' ? (
+                              <>
+                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Completed</div>
+                                <input 
+                                  type="datetime-local" 
+                                  value={task.completedAt ? new Date(task.completedAt.seconds ? task.completedAt.seconds * 1000 : task.completedAt).toISOString().slice(0, 16) : ''}
+                                  onChange={e => updateTaskField(task.id, 'completedAt', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-2 text-[10px] font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                />
+                              </>
+                            ) : <div/>}
+                          </div>
+
+                          {/* 8. QA Button & Mobile Delete */}
+                          <div className="w-full flex flex-col gap-2">
+                            {task.title !== 'General' ? (
+                              task.status === 'QC Complete' ? (
+                                <button 
+                                  onClick={() => {
+                                    if (confirm("Move this task back to pending? This will also clear the completed date.")) {
+                                      updateTaskField(task.id, 'status', 'pending');
+                                    }
+                                  }}
+                                  className="w-full text-center px-2 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Tab') {
+                                      if (idx === tasks.length - 1) {
+                                        e.preventDefault();
+                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+                                        handleInlineAddTask(group, staff, deptId);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <CheckSquare className="w-3 h-3" /> QA Approved
+                                </button>
+                              ) : task.status === 'QC' ? (
+                                <button 
+                                  onClick={() => {
+                                    updateTaskField(task.id, 'status', 'QC Complete');
+                                  }}
+                                  className="w-full text-center px-2 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Tab') {
+                                      if (idx === tasks.length - 1) {
+                                        e.preventDefault();
+                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+                                        handleInlineAddTask(group, staff, deptId);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <AlertCircle className="w-3 h-3" /> Needs QA
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => updateTaskField(task.id, 'status', 'QC')}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Tab') {
+                                      if (idx === tasks.length - 1) {
+                                        e.preventDefault();
+                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+                                        handleInlineAddTask(group, staff, deptId);
+                                      }
+                                    }
+                                  }}
+                                  className="w-full px-2 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-500 dark:text-zinc-400 rounded-lg font-black text-[9px] uppercase tracking-widest transition-colors text-center"
+                                >
+                                  Mark Complete
+                                </button>
+                              )
+                            ) : <div/>}
+                            
+                            {/* Mobile Delete Button */}
+                            <button 
+                              onClick={() => handleDeleteTask(task.id)}
+                              className="lg:hidden w-full py-2 text-rose-500 border border-rose-200 rounded-lg flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest bg-rose-50 mt-1"
+                            >
+                              <Trash2 className="w-4 h-4" /> Delete Task
+                            </button>
+                          </div>
+                          
                         </div>
+                      ))}
+                    </div>
+
+                    {/* Add Row Button */}
+                    {group !== 'General' && (
+                      <div className="p-1 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/50 rounded-b-3xl">
+                        <button
+                          onClick={() => {
+                            const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                            const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+                            handleInlineAddTask(group, staff, deptId);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-white dark:hover:bg-zinc-900 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest w-full"
+                          title={`Add Task to ${group}`}
+                        >
+                          <Plus className="w-4 h-4" /> Add Row
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
                 );});
               })()}
@@ -687,14 +1265,14 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           </section>
         </div>
 
-        {/* Right Column - Vehicle & Notes (3/12) */}
-        <div className="lg:col-span-3 space-y-8">
+        {/* Right Column - Vehicle & Notes */}
+        <div className="lg:col-span-4 space-y-8 lg:order-2">
           <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-indigo-500/10 rounded-xl">
                 <MapPin className="w-4 h-4 text-indigo-500" />
               </div>
-              <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest">Bay / Parking Assignment</label>
+              <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest">Current Location (Bay / Parking)</label>
             </div>
             
             <SearchableSelect
@@ -742,6 +1320,70 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
               onQuickAddRequest={(vin) => setQuickAddVehicle(vin)}
             />
           </section>
+
+          {!isNew && (
+            <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-500/10 rounded-xl">
+                    <Package className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest leading-none">Parts Management</label>
+                </div>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-lg shrink-0">
+                  {parts.length} Total
+                </span>
+              </div>
+              <div className="space-y-3">
+                {parts.length === 0 ? (
+                  <p className="text-xs text-zinc-500 italic text-center py-4">No parts requested for this job.</p>
+                ) : (
+                  parts.map(part => {
+                    return (
+                      <div 
+                        key={part.id} 
+                        onClick={() => {
+                          const canManageParts = isSuperAdmin || permissions['parts.manage'];
+                          if (canManageParts) {
+                            setSelectedPartForEdit(part);
+                          }
+                        }}
+                        className={`p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between group transition-all ${
+                          (isSuperAdmin || permissions['parts.manage']) ? "hover:border-amber-500/50 cursor-pointer" : ""
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1 mr-4">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <h4 className="text-sm font-bold text-zinc-900 dark:text-white truncate">{part.partName}</h4>
+                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest shrink-0 ${
+                              part.status === 'delivered' || part.status === 'fulfilled' ? "bg-indigo-500/10 text-indigo-600" :
+                              part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
+                              part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
+                              "bg-amber-500/10 text-amber-600"
+                            }`}>
+                              {part.status === 'delivered' || part.status === 'fulfilled' ? "with vehicle" : part.status}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-zinc-500 truncate">
+                            {part.taskTitle ? `Task: ${part.taskTitle}` : 'General Part'}
+                            {part.quantity > 1 && ` • Qty: ${part.quantity}`}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                
+                <button 
+                  onClick={() => setIsPartRequestOpen(true)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 border border-amber-500 text-amber-600 dark:text-amber-500 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-amber-500/5 transition-all mt-2"
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  Request Parts
+                </button>
+              </div>
+            </section>
+          )}
 
           <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
             <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-4">CompanyCam Project ID</label>
@@ -805,6 +1447,32 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           }}
         />
       )}
+
+      {(isPartRequestOpen || selectedPartForEdit) && (
+        <PartsRequestModal 
+          tenantId={tenantId}
+          user={user}
+          jobId={jobId!}
+          jobTitle={formData?.title || job?.title || ''}
+          taskId={selectedPartForEdit?.taskId}
+          taskTitle={selectedPartForEdit?.taskTitle}
+          part={selectedPartForEdit}
+          onClose={() => {
+            setIsPartRequestOpen(false);
+            setSelectedPartForEdit(null);
+          }}
+          onSuccess={() => {
+            setIsPartRequestOpen(false);
+            setSelectedPartForEdit(null);
+          }}
+        />
+      )}
+
+      <datalist id="qb-items-list">
+        {qbItems.map(item => (
+          <option key={item.id} value={item.Name || item.FullName || ''} />
+        ))}
+      </datalist>
     </div>
   );
 }

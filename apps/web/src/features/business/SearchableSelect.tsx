@@ -16,6 +16,8 @@ interface SearchableSelectProps<T> {
   renderOption?: (option: T) => React.ReactNode;
   className?: string;
   theme?: ThemeColor;
+  allowCustomValue?: boolean;
+  id?: string;
   footerAction?: {
     label: string;
     onClick: (search: string) => void;
@@ -93,6 +95,8 @@ export function SearchableSelect<T>({
   renderOption,
   className,
   theme = 'indigo',
+  allowCustomValue = false,
+  id,
   footerAction
 }: SearchableSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
@@ -118,23 +122,24 @@ export function SearchableSelect<T>({
     <div className={cn("relative", className)} ref={dropdownRef}>
       <button
         type="button"
+        id={id}
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-zinc-900/50 border rounded-2xl text-sm focus:ring-2 outline-none transition-all font-bold text-left shadow-sm",
           currentTheme.button
         )}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 w-full min-w-0 pr-4">
           {icon && <div className={cn("shrink-0", currentTheme.icon)}>{icon}</div>}
-          <span className={cn(selectedOption ? "text-zinc-900 dark:text-white" : "text-zinc-400")}>
-            {selectedOption ? getLabel(selectedOption) : placeholder}
+          <span className={cn("truncate", (selectedOption || (allowCustomValue && value)) ? "text-zinc-900 dark:text-white" : "text-zinc-400")}>
+            {selectedOption ? getLabel(selectedOption) : ((allowCustomValue && value) ? value : placeholder)}
           </span>
         </div>
         <ChevronDown className={cn("w-4 h-4 text-zinc-400 transition-transform shrink-0", isOpen && "rotate-180")} />
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="absolute top-full left-0 mt-2 min-w-full sm:min-w-[300px] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="p-2 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/50">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -143,6 +148,26 @@ export function SearchableSelect<T>({
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (filteredOptions.length > 0) {
+                      onChange(getValue(filteredOptions[0]));
+                    } else if (footerAction && search.trim()) {
+                      footerAction.onClick(search);
+                    }
+                    setIsOpen(false);
+                    setSearch('');
+                  } else if (e.key === 'Tab') {
+                    if (filteredOptions.length > 0) {
+                      onChange(getValue(filteredOptions[0]));
+                    } else if (footerAction && search.trim()) {
+                      footerAction.onClick(search);
+                    }
+                    setIsOpen(false);
+                    setSearch('');
+                  }
+                }}
                 placeholder={searchPlaceholder}
                 className={cn(
                   "w-full pl-9 pr-4 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none transition-all",

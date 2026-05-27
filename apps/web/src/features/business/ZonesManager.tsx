@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { collection, doc, setDoc, updateDoc, serverTimestamp, onSnapshot, query, addDoc, limit, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard, AlertTriangle, Clock, MessageSquare, ShoppingCart } from 'lucide-react';
+import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard, AlertTriangle, Clock, MessageSquare, ShoppingCart, Edit2 } from 'lucide-react';
 
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -28,10 +28,13 @@ const zoneTypeIcons = {
 };
 
 export function ZonesManager({ tenantId }: { tenantId: string }) {
+  const navigate = useNavigate();
   const [zones, setZones] = useState<Zone[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [newZoneName, setNewZoneName] = useState('');
   const [newZoneType, setNewZoneType] = useState<'bay' | 'parking' | 'office' | 'other'>('bay');
+  const [newZoneDepartmentId, setNewZoneDepartmentId] = useState<string>('');
   const [newZoneAllowMultiple, setNewZoneAllowMultiple] = useState(false);
   const [jobs, setJobs] = useState<any[]>([]);
   const [partsRequests, setPartsRequests] = useState<any[]>([]);
@@ -48,7 +51,8 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
   const [quickAddJob, setQuickAddJob] = useState<{zoneId: string, title: string, vin: string | null} | null>(null);
-  const { user } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || permissions['zones.manage'];
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -115,6 +119,15 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [tenantId]);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/departments`));
+    const unsub = onSnapshot(q, (snap) => {
+      setDepartments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [tenantId]);
+
   // Smart Default: If filtering for occupied but nothing is occupied, show all
   useEffect(() => {
     if (zones.length > 0 && filterOccupancy === 'occupied') {
@@ -147,6 +160,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         name: newZoneName.trim(),
         type: newZoneType,
         allowMultiple: newZoneAllowMultiple,
+        departmentId: newZoneDepartmentId || null,
         currentVehicleVin: null,
         currentVehicleVins: [],
         createdAt: serverTimestamp(),
@@ -487,18 +501,20 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsAdding(!isAdding)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            Add Zone
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsAdding(!isAdding)}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Add Zone
+            </button>
+          </div>
+        )}
       </div>
 
-      {isAdding && (
+      {isAdding && canManage && (
         <form onSubmit={handleAddZone} className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm animate-in fade-in slide-in-from-top-4">
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
@@ -536,6 +552,19 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
                 <option value="multiple">Multiple (Open Lot)</option>
               </select>
             </div>
+            <div className="sm:w-48">
+              <label className="block text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Department</label>
+              <select
+                value={newZoneDepartmentId}
+                onChange={(e) => setNewZoneDepartmentId(e.target.value)}
+                className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              >
+                <option value="">None</option>
+                {departments.map(d => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-end">
               <button type="submit" className="px-6 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl font-bold">
                 Save
@@ -553,7 +582,15 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
             vehicles={vehicles}
             jobs={jobs}
             partsRequests={partsRequests}
-            onSelect={() => setSelectedZoneId(zone.id)}
+            canManage={!!canManage}
+            onEdit={() => setSelectedZoneId(zone.id)}
+            onSelect={() => {
+              if (zone.currentJobId) {
+                navigate(`/business/${tenantId}/job/${zone.currentJobId}`);
+              } else {
+                setSelectedZoneId(zone.id);
+              }
+            }}
           />
         ))}
 
@@ -649,7 +686,23 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
 
 // JobSelector moved to JobSelectionComponents.tsx
 
-function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zone, vehicles: any[], jobs: any[], partsRequests: any[], onSelect: () => void }) {
+function ZoneCard({ 
+  zone, 
+  vehicles, 
+  jobs, 
+  partsRequests, 
+  canManage, 
+  onEdit, 
+  onSelect 
+}: { 
+  zone: Zone, 
+  vehicles: any[], 
+  jobs: any[], 
+  partsRequests: any[], 
+  canManage: boolean, 
+  onEdit: () => void, 
+  onSelect: () => void 
+}) {
   const Icon = zoneTypeIcons[zone.type as keyof typeof zoneTypeIcons] || LayoutDashboard;
   const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
   const job = jobs.find((j: any) => j.id === zone.currentJobId);
@@ -690,6 +743,18 @@ function ZoneCard({ zone, vehicles, jobs, partsRequests, onSelect }: { zone: Zon
       onClick={onSelect}
       className="w-full text-left bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md hover:border-indigo-500/30 transition-all group relative overflow-hidden"
     >
+      {canManage && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="absolute top-4 right-4 p-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white rounded-full transition-all z-10 border border-zinc-200/50 dark:border-zinc-700/50 opacity-0 group-hover:opacity-100 focus:opacity-100 shadow-sm cursor-pointer"
+          title="Edit Zone/Bay Details"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+        </div>
+      )}
 
       
       <div className="flex items-center gap-4 mb-4">

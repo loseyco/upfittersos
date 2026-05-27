@@ -14,6 +14,7 @@ export type PermissionKey =
   | 'manage_inventory'
   | 'manage_canvases'
   | 'manage_tasks'
+  | 'tasks.clock_others'
   | 'view_financials'
   | 'view_facility_map'
   | 'manage_facility_map'
@@ -27,7 +28,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_vehicles: true, manage_vehicles: true,
     view_jobs: true, manage_jobs: true,
     view_inventory: true, manage_inventory: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
     view_financials: true,
     view_facility_map: true, manage_facility_map: true, 
     simulate_roles: true
@@ -38,7 +39,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_vehicles: true, manage_vehicles: true,
     view_jobs: true, manage_jobs: true,
     view_inventory: true, manage_inventory: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
     view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true,
     simulate_roles: true
@@ -49,7 +50,7 @@ export const DEFAULT_PERMISSIONS: Record<string, Partial<Record<PermissionKey, b
     view_vehicles: true, manage_vehicles: true,
     view_jobs: true, manage_jobs: true,
     view_inventory: true, manage_inventory: true,
-    manage_canvases: true, manage_tasks: true,
+    manage_canvases: true, manage_tasks: true, 'tasks.clock_others': true,
     view_financials: true, super_admin_core: true,
     view_facility_map: true, manage_facility_map: true,
     simulate_roles: true

@@ -293,3 +293,54 @@ export const onActivityFeedCreated = functions.firestore.onDocumentCreated(
         }
     }
 );
+
+// Triggered when a job's task is created, updated, or deleted
+export const onJobTaskWritten = functions.firestore.onDocumentWritten(
+    'businesses/{tenantId}/jobs/{jobId}/tasks/{taskId}',
+    async (event) => {
+        const { tenantId, jobId } = event.params;
+        const db = admin.firestore();
+        try {
+            await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Updated job ${jobId} updatedAt due to task write`);
+        } catch (e) {
+            console.error(`Error updating job ${jobId} updatedAt on task write:`, e);
+        }
+    }
+);
+
+// Triggered when a job's chat message is created, updated, or deleted
+export const onJobChatMessageWritten = functions.firestore.onDocumentWritten(
+    'businesses/{tenantId}/jobs/{jobId}/chat_messages/{messageId}',
+    async (event) => {
+        const { tenantId, jobId } = event.params;
+        const db = admin.firestore();
+        try {
+            await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Updated job ${jobId} updatedAt due to chat message write`);
+        } catch (e) {
+            console.error(`Error updating job ${jobId} updatedAt on chat message write:`, e);
+        }
+    }
+);
+
+// Triggered when a job's activity is created, updated, or deleted
+export const onJobActivityWritten = functions.firestore.onDocumentWritten(
+    'businesses/{tenantId}/jobs/{jobId}/activity/{activityId}',
+    async (event) => {
+        const { tenantId, jobId } = event.params;
+        const db = admin.firestore();
+        try {
+            await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Updated job ${jobId} updatedAt due to activity write`);
+        } catch (e) {
+            console.error(`Error updating job ${jobId} updatedAt on activity write:`, e);
+        }
+    }
+);

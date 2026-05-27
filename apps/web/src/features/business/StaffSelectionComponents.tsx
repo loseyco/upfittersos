@@ -16,6 +16,7 @@ interface StaffSelectorProps {
   tenantId: string;
   placeholder?: string;
   showPercentages?: boolean;
+  compact?: boolean;
 }
 
 export function StaffSelector({ 
@@ -23,7 +24,8 @@ export function StaffSelector({
   onAssign, 
   tenantId,
   placeholder = "Search and assign staff...",
-  showPercentages = false
+  showPercentages = false,
+  compact = false
 }: StaffSelectorProps) {
   const [inputValue, setInputValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -91,7 +93,7 @@ export function StaffSelector({
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500"><Users className="w-4 h-4" /></div>
         <input
           type="text"
-          placeholder={selectedStaff.length > 0 ? `${selectedStaff.length} staff assigned` : placeholder}
+          placeholder={selectedStaff.length > 0 ? (compact ? selectedStaff.map(s => s.name.split(' ')[0]).join(', ') : `${selectedStaff.length} staff assigned`) : placeholder}
           value={inputValue}
           onChange={(e) => { setInputValue(e.target.value); setIsOpen(true); }}
           onFocus={() => setIsOpen(true)}
@@ -145,7 +147,7 @@ export function StaffSelector({
       </div>
       
       {/* Show tags of selected staff underneath when not searching */}
-      {selectedStaff.length > 0 && !isOpen && (
+      {selectedStaff.length > 0 && !isOpen && !compact && (
         <div className="flex flex-col gap-2 mt-2">
           {selectedStaff.map(s => (
             <div key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-amber-50 dark:bg-amber-500/5 border border-amber-100 dark:border-amber-500/20 rounded-xl">

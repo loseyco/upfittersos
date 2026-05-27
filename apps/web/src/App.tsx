@@ -10,6 +10,7 @@ import { UserProfilePage } from './features/users/UserProfilePage';
 import { BayMonitorAuthWrapper } from './features/business/BayMonitorAuthWrapper';
 import { TvSetupScreen } from './features/business/TvSetupScreen';
 import { TvPairingApprove } from './features/business/TvPairingApprove';
+import { QRRedirector } from './features/business/QRRedirector';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ReloadPrompt } from './components/ReloadPrompt';
@@ -42,6 +43,7 @@ function App() {
             <Route path="/tv" element={<BayMonitorAuthWrapper />} />
             <Route path="/tv-setup" element={<TvSetupScreen />} />
             <Route path="/pair" element={<TvPairingApprove />} />
+            <Route path="/qr" element={<QRRedirector />} />
             <Route path="/" element={<Navigate to="/login" replace />} />
 
             {/* Super Admin Tier */}

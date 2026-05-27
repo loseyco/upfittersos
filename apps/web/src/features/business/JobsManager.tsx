@@ -159,7 +159,11 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
       key: 'location',
       label: 'Location',
       format: (_: any, row: any) => {
-        const zone = zones.find(z => z.currentVehicleVin === row.vehicleId || z.currentJobId === row.id || z.currentVehicleVins?.includes(row.vehicleId));
+        const zone = zones.find(z => 
+          (row.vehicleId && z.currentVehicleVin === row.vehicleId) || 
+          (row.id && z.currentJobId === row.id) || 
+          (row.vehicleId && z.currentVehicleVins?.includes(row.vehicleId))
+        );
         if (!zone) return <span className="text-zinc-400 italic">Off-site</span>;
         return (
           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
@@ -238,6 +242,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         collectionPath={`businesses/${tenantId}/jobs`}
         title="Jobs"
         columns={jobColumns}
+        dbOrderBy={{ field: 'updatedAt', direction: 'desc' }}
         localFilter={(job) => {
           const vehicle = vehicles.find(v => v.vin === job.vehicleId);
           const vehicleLabel = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : '';

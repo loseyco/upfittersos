@@ -23,6 +23,7 @@ export interface Zone {
   type: 'bay' | 'parking' | 'office' | 'other' | string;
   currentVehicleVin: string | null;
   currentJobId: string | null;
+  departmentId?: string | null;
   allowMultiple?: boolean;
   currentVehicleVins?: string[];
   lastAssignedAt?: any;
@@ -73,11 +74,30 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
   const [editName, setEditName] = useState(zone.name || '');
   const [editType, setEditType] = useState(zone.type || 'bay');
   const [editAllowMultiple, setEditAllowMultiple] = useState(!!zone.allowMultiple);
+  const [editDepartmentId, setEditDepartmentId] = useState(zone.departmentId || '');
+  const [departments, setDepartments] = useState<any[]>([]);
   const [quickAddCustomer, setQuickAddCustomer] = useState<string | null>(null);
-  const { user } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || permissions['zones.manage'];
   const [isVerifying, setIsVerifying] = useState(false);
 
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/departments`));
+    const unsub = onSnapshot(q, (snap) => {
+      setDepartments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsub();
+  }, [tenantId]);
 
+  useEffect(() => {
+    if (isEditing) {
+      setEditName(zone.name || '');
+      setEditType(zone.type || 'bay');
+      setEditAllowMultiple(!!zone.allowMultiple);
+      setEditDepartmentId(zone.departmentId || '');
+    }
+  }, [isEditing, zone]);
 
   const [floorWalkTab, setFloorWalkTab] = useState<'blocker' | 'notes' | 'eta' | 'parts'>('notes');
   const [isFloorWalkOpen, setIsFloorWalkOpen] = useState(false);
@@ -99,6 +119,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
         name: editName.trim(),
         type: editType,
         allowMultiple: editAllowMultiple,
+        departmentId: editDepartmentId || null,
         updatedAt: serverTimestamp()
       });
       setIsEditing(false);
@@ -221,7 +242,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
       <div className="bg-white dark:bg-zinc-900 rounded-2xl w-full max-w-lg overflow-hidden shadow-xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
         <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex flex-col relative">
           <div className="absolute top-4 right-4 flex items-center gap-2">
-            {!isEditing && (
+            {!isEditing && canManage && (
               <button onClick={() => setIsEditing(true)} className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-full text-zinc-500 hover:text-zinc-900 dark:hover:text-white transition-colors">
                 <Edit2 className="w-4 h-4" />
               </button>
@@ -235,37 +256,61 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
             </div>
             {isEditing ? (
               <div className="flex-1 space-y-3">
-                <input 
-                  type="text" 
-                  value={editName} 
-                  onChange={e => setEditName(e.target.value)} 
-                  className="w-full px-3 py-1.5 text-lg font-bold bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-                <div className="flex gap-2">
-                  <select 
-                    value={editType} 
-                    onChange={e => setEditType(e.target.value as any)}
-                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="bay">Service Bay</option>
-                    <option value="parking">Parking Spot</option>
-                    <option value="office">Office</option>
-                    <option value="other">Other</option>
-                  </select>
-                  <select 
-                    value={editAllowMultiple ? 'multiple' : 'single'} 
-                    onChange={e => setEditAllowMultiple(e.target.value === 'multiple')}
-                    className="flex-1 px-3 py-1.5 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                  >
-                    <option value="single">Single Vehicle</option>
-                    <option value="multiple">Multiple (Open Lot)</option>
-                  </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Zone Name</label>
+                    <input 
+                      type="text" 
+                      value={editName} 
+                      onChange={e => setEditName(e.target.value)} 
+                      className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all font-bold text-zinc-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Type</label>
+                    <select 
+                      value={editType} 
+                      onChange={e => setEditType(e.target.value as any)}
+                      className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-zinc-850 dark:text-zinc-100 font-semibold"
+                    >
+                      <option value="bay">Service Bay</option>
+                      <option value="parking">Parking Spot</option>
+                      <option value="office">Office</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Capacity</label>
+                    <select 
+                      value={editAllowMultiple ? 'multiple' : 'single'} 
+                      onChange={e => setEditAllowMultiple(e.target.value === 'multiple')}
+                      className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-zinc-850 dark:text-zinc-100 font-semibold"
+                    >
+                      <option value="single">Single Vehicle</option>
+                      <option value="multiple">Multiple (Open Lot)</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">Department</label>
+                    <select 
+                      value={editDepartmentId} 
+                      onChange={e => setEditDepartmentId(e.target.value)}
+                      className="w-full px-3 py-2 text-sm bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-zinc-850 dark:text-zinc-100 font-semibold"
+                    >
+                      <option value="">None</option>
+                      {departments.map((d: any) => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <button onClick={onDelete} className="text-xs font-bold text-red-500 hover:text-red-600 px-2 py-1">Archive Zone</button>
+                <div className="flex justify-between items-center mt-4 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <button onClick={onDelete} className="text-xs font-bold text-red-500 hover:text-red-600 px-2 py-1 flex items-center gap-1">
+                    <Trash2 className="w-3.5 h-3.5" /> Archive Zone
+                  </button>
                   <div className="flex gap-2">
                     <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">Cancel</button>
-                    <button onClick={handleSaveEdit} className="px-3 py-1.5 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save</button>
+                    <button onClick={handleSaveEdit} className="px-3 py-1.5 text-sm font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Save Changes</button>
                   </div>
                 </div>
               </div>
@@ -307,23 +352,25 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
 
             {!zone.allowMultiple && (vehicle || job) && (
               <div className="space-y-2 mb-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    onClick={() => onClear()}
-                    className="flex items-center justify-center gap-2 p-2.5 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 rounded-xl transition-all group"
-                  >
-                    <X className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Empty</span>
-                  </button>
-                  <button 
-                    onClick={handleVerify}
-                    disabled={isVerifying}
-                    className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl transition-all group disabled:opacity-50"
-                  >
-                    <CheckCircle2 className={`w-4 h-4 ${isVerifying ? 'animate-pulse' : ''}`} />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-center">Verify: No Change</span>
-                  </button>
-                </div>
+                {canManage && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => onClear()}
+                      className="flex items-center justify-center gap-2 p-2.5 bg-red-500/5 hover:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 rounded-xl transition-all group"
+                    >
+                      <X className="w-4 h-4" />
+                      <span className="text-[10px] font-black uppercase tracking-widest">Empty</span>
+                    </button>
+                    <button 
+                      onClick={handleVerify}
+                      disabled={isVerifying}
+                      className="flex-1 flex items-center justify-center gap-2 p-2.5 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl transition-all group disabled:opacity-50"
+                    >
+                      <CheckCircle2 className={`w-4 h-4 ${isVerifying ? 'animate-pulse' : ''}`} />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-center">Verify: No Change</span>
+                    </button>
+                  </div>
+                )}
                 
                 <div className="grid grid-cols-4 gap-2">
                   <button 
@@ -530,31 +577,35 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           </div>
                         </div>
                       </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm('Are you sure you want to unlink this job from this bay? The vehicle will remain assigned.')) {
-                            if (onRemoveJob) onRemoveJob();
-                          }
-                        }}
-                        className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
-                        title="Unlink Job"
-                      >
-                        <Unlink className="w-4 h-4" />
-                      </button>
+                      {canManage && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm('Are you sure you want to unlink this job from this bay? The vehicle will remain assigned.')) {
+                              if (onRemoveJob) onRemoveJob();
+                            }
+                          }}
+                          className="p-2 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors"
+                          title="Unlink Job"
+                        >
+                          <Unlink className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <JobSelector 
-                      jobId={zone.currentJobId || null} 
-                      jobs={jobs} 
-                      onAssign={(id) => {
-                        const j = jobs.find((job: any) => job.id === id);
-                        // If job has a linked vehicle, assign it too!
-                        onAssign(j?.vehicleId || '', id);
-                      }} 
+                  ) : canManage ? (
+                      <JobSelector 
+                        jobId={zone.currentJobId || null} 
+                        jobs={jobs} 
+                        onAssign={(id) => {
+                          const j = jobs.find((job: any) => job.id === id);
+                          // If job has a linked vehicle, assign it too!
+                          onAssign(j?.vehicleVin || '', id);
+                        }} 
                       onClear={onClear} 
                       onCreateNewRequest={(title) => onQuickAddJobRequest(title || '')}
                     />
+                  ) : (
+                    <p className="text-sm text-zinc-500 italic p-3 text-center bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">No job assigned.</p>
                   )}
                 </div>
               )}
@@ -575,9 +626,11 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           </div>
                           <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">Open</span>
                         </button>
-                        <button onClick={() => onRemoveVehicle(v.vin)} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors">
-                          <X className="w-5 h-5" />
-                        </button>
+                        {canManage && (
+                          <button onClick={() => onRemoveVehicle(v.vin)} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors">
+                            <X className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
                     )) : (
                       <p className="text-sm text-zinc-500 italic p-3 text-center">Lot is empty.</p>
@@ -600,16 +653,20 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                       <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-full">Active</span>
                     </button>
                   </div>
+                ) : !canManage ? (
+                  <p className="text-sm text-zinc-500 italic p-3 text-center bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">No vehicle assigned.</p>
                 ) : null}
-                <VinSelector 
-                  key={`vin-selector-${zone.id}-${zone.allowMultiple ? zone.currentVehicleVins?.length || 0 : zone.currentVehicleVin}`}
-                  vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} 
-                  onAssign={(vin) => onAssign(vin, zone.currentJobId)} 
-                  onClear={onClear} 
-                  onQuickAddRequest={onQuickAddRequest} 
-                  vehicles={vehicles} 
-                  hideClearButton={true} 
-                />
+                {canManage && (
+                  <VinSelector 
+                    key={`vin-selector-${zone.id}-${zone.allowMultiple ? zone.currentVehicleVins?.length || 0 : zone.currentVehicleVin}`}
+                    vin={zone.allowMultiple ? '' : (zone.currentVehicleVin || '')} 
+                    onAssign={(vin) => onAssign(vin, zone.currentJobId)} 
+                    onClear={onClear} 
+                    onQuickAddRequest={onQuickAddRequest} 
+                    vehicles={vehicles} 
+                    hideClearButton={true} 
+                  />
+                )}
               </div>
             </div>
           </section>

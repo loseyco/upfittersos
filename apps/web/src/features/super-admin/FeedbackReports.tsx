@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   CheckCircle, 
@@ -40,7 +40,7 @@ const PRIORITY_COLORS: Record<Priority, string> = {
   urgent: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
 };
 
-export function FeedbackReports() {
+export function FeedbackReports({ tenantId }: { tenantId?: string }) {
   const [reports, setReports] = useState<FeedbackReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -48,18 +48,41 @@ export function FeedbackReports() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolved'>('all');
 
   useEffect(() => {
-    const q = query(collection(db, 'feedback_reports'), orderBy('createdAt', 'desc'));
+    let q = query(collection(db, 'feedback_reports'), orderBy('createdAt', 'desc'));
+    if (tenantId) {
+      q = query(
+        collection(db, 'feedback_reports'),
+        where('tenantId', '==', tenantId)
+      );
+    }
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data: FeedbackReport[] = [];
       snapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() } as FeedbackReport);
       });
+
+      if (tenantId) {
+        // Sort in memory by createdAt descending to avoid composite index requirements
+        data.sort((a, b) => {
+          const getMs = (val: any) => {
+            if (!val) return 0;
+            if (val.seconds) return val.seconds * 1000 + (val.nanoseconds ? val.nanoseconds / 1000000 : 0);
+            if (typeof val.toDate === 'function') return val.toDate().getTime();
+            return new Date(val).getTime() || 0;
+          };
+          return getMs(b.createdAt) - getMs(a.createdAt);
+        });
+      }
+
       setReports(data);
+      setLoading(false);
+    }, (error) => {
+      console.error('FeedbackReports fetch error:', error);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [tenantId]);
 
   const filteredReports = useMemo(() => {
     return reports.filter((report) => {

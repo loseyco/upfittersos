@@ -143,9 +143,9 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     // If vehicle has arrived or is assigned to a zone, it's not "incoming"
     if (vehicle?.arrivedAt) return false;
     const inZone = zones.some(z => 
-      z.currentJobId === job.id || 
-      z.currentVehicleVin === job.vehicleId || 
-      z.currentVehicleVins?.includes(job.vehicleId)
+      (job.id && z.currentJobId === job.id) || 
+      (job.vehicleId && z.currentVehicleVin === job.vehicleId) || 
+      (job.vehicleId && z.currentVehicleVins?.includes(job.vehicleId))
     );
     if (inZone) return false;
 
@@ -498,9 +498,9 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           {item.type === 'part' ? (
-                            <ShoppingCart className="w-3 h-3 text-indigo-500" />
+                            <ShoppingCart className="w-3 h-3 text-indigo-500 shrink-0" />
                           ) : (
-                            <Package className="w-3 h-3 text-emerald-500" />
+                            <Package className="w-3 h-3 text-emerald-500 shrink-0" />
                           )}
                           <h4 className="font-bold text-zinc-900 dark:text-white truncate">{item.description || 'Item'}</h4>
                         </div>
@@ -552,7 +552,16 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
                           )}
                         </div>
                       )}
-                      <div className="flex items-center justify-between pt-1">
+                      {((item.images && item.images.length > 0) || item.imageUrl || item.photoUrl || item.partImageUrl) && (
+                        <div className="flex items-center gap-2 overflow-x-auto pb-1 mt-2 custom-scrollbar">
+                          {(item.images?.length > 0 ? item.images : [item.imageUrl || item.photoUrl || item.partImageUrl].filter(Boolean)).map((img: string, i: number) => (
+                            <div key={i} className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-800 shrink-0 border border-zinc-200 dark:border-zinc-700 shadow-sm relative group/img">
+                              <img src={img} alt={`Item ${i+1}`} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-300" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between pt-1 mt-1">
                         <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
                           <User className="w-3 h-3" />
                           {item.receivedBy || item.requestedBy || 'Staff'}

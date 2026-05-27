@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, getDocs, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Activity, RefreshCw, Clock, 
@@ -28,6 +28,77 @@ interface ActivityItem {
 export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
   const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Silent, idempotent background backfill of historical job activities
+  useEffect(() => {
+    if (!tenantId) return;
+
+    const runBackfill = async () => {
+      const lockKey = `upfitters_activity_backfill_${tenantId}`;
+      if (localStorage.getItem(lockKey)) return;
+
+      try {
+        // 1. Fetch all jobs
+        const jobsSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs`));
+        const jobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+
+        const typeToTitle: Record<string, string> = {
+          blocker_added: 'Blocker Added',
+          blocker_resolved: 'Blocker Resolved',
+          part_status_changed: 'Part Status Changed',
+          location_changed: 'Vehicle Moved',
+          patrol_check: 'Patrol Check',
+          status_changed: 'Status Changed',
+          task_added: 'Task Added',
+          task_duplicated: 'Task Duplicated',
+          task_deleted: 'Task Removed',
+          task_updated: 'Task Updated',
+          task_assigned: 'Task Assigned',
+        };
+
+        const getSeverity = (t: string, msg: string) => {
+          if (t === 'blocker_added') return 'warning';
+          if (t === 'blocker_resolved') return 'success';
+          if (t === 'status_changed') {
+            if (msg.toLowerCase().includes('blocked')) return 'error';
+            if (msg.toLowerCase().includes('restored') || msg.toLowerCase().includes('active')) return 'success';
+          }
+          return 'info';
+        };
+
+        // 2. Query each job's activity subcollection and write to global feed
+        for (const job of jobs) {
+          const activitiesSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs/${job.id}/activity`));
+          
+          for (const actDoc of activitiesSnap.docs) {
+            const actData = actDoc.data();
+            const jobPrefix = job.jobNumber ? `Job #${job.jobNumber}` : `Job ${job.title || '?'}`;
+            
+            await setDoc(doc(db, `businesses/${tenantId}/activity_feed`, `job_act_${job.id}_${actDoc.id}`), {
+              type: 'job',
+              title: typeToTitle[actData.type] || 'Job Update',
+              message: `${jobPrefix}: ${actData.message}`,
+              timestamp: actData.timestamp || new Date(),
+              severity: getSeverity(actData.type || '', actData.message || ''),
+              author: actData.staffName || 'Staff',
+              metadata: {
+                jobId: job.id,
+                jobTitle: job.title || '',
+                jobNumber: job.jobNumber || '',
+                ...actData.metadata
+              }
+            });
+          }
+        }
+
+        localStorage.setItem(lockKey, 'true');
+        console.log(`[Backfill] Successfully backfilled historical job activities for tenant ${tenantId}.`);
+      } catch (err) {
+        console.error("[Backfill] Error backfilling activities:", err);
+      }
+    };
+
+    runBackfill();
+  }, [tenantId]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -76,39 +147,84 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
         path: `businesses/${tenantId}/time_sessions`,
         transform: (doc: any) => {
           const data = doc.data();
-          let title = 'Timeclock Event';
-          let message = `Clocked in`;
-          let severity: 'info' | 'success' | 'warning' = 'info';
-          let timestamp = data.clockIn?.timestamp;
+          const items: any[] = [];
+
+          // 1. Add the main daily timeclock event
+          let mainTimestamp = data.clockIn?.timestamp;
+          let mainMessage = 'Clocked in';
+          let mainSeverity: 'info' | 'success' | 'warning' = 'info';
 
           if (data.status === 'completed') {
-            message = `Clocked out`;
-            timestamp = data.clockOut?.timestamp;
-            severity = 'success';
+            mainMessage = 'Clocked out';
+            mainTimestamp = data.clockOut?.timestamp;
+            mainSeverity = 'success';
           } else if (data.status === 'on_break') {
             const lastBreak = data.breaks?.[data.breaks.length - 1];
             const type = lastBreak?.type === 'lunch' ? 'lunch' : 'a break';
-            message = `Started ${type}`;
-            timestamp = lastBreak?.start;
-            severity = 'warning';
+            mainMessage = `Started ${type}`;
+            mainTimestamp = lastBreak?.start;
+            mainSeverity = 'warning';
           } else if (data.status === 'active' && data.breaks?.length > 0) {
             const lastBreak = data.breaks[data.breaks.length - 1];
             if (lastBreak.end) {
-              message = `Returned from ${lastBreak.type === 'lunch' ? 'lunch' : 'break'}`;
-              timestamp = lastBreak.end;
-              severity = 'success';
+              mainMessage = `Returned from ${lastBreak.type === 'lunch' ? 'lunch' : 'break'}`;
+              mainTimestamp = lastBreak.end;
+              mainSeverity = 'success';
             }
           }
 
-          return {
-            id: doc.id,
-            type: 'time_session' as const,
-            title,
-            message,
-            timestamp,
-            severity,
-            author: data.userName,
-          };
+          if (mainTimestamp) {
+            items.push({
+              id: `${doc.id}_main`,
+              type: 'time_session' as const,
+              title: 'Timeclock Event',
+              message: mainMessage,
+              timestamp: mainTimestamp,
+              severity: mainSeverity,
+              author: data.userName,
+            });
+          }
+
+          // 2. Add individual task work sessions
+          if (data.jobs && Array.isArray(data.jobs)) {
+            data.jobs.forEach((seg: any, index: number) => {
+              const startDate = seg.start?.toMillis ? new Date(seg.start.toMillis()) : new Date(seg.start);
+              const endDate = seg.end ? (seg.end.toMillis ? new Date(seg.end.toMillis()) : new Date(seg.end)) : null;
+              
+              const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              const dateText = `${startDate.getMonth() + 1}/${startDate.getDate()}/${startDate.getFullYear()}`;
+              const timeRangeText = endDate 
+                ? `${formatTime(startDate)} - ${formatTime(endDate)}`
+                : `${formatTime(startDate)} - Active Now`;
+              
+              let durationMs = endDate ? endDate.getTime() - startDate.getTime() : new Date().getTime() - startDate.getTime();
+              const hours = Math.floor(durationMs / 3600000);
+              const minutes = Math.floor((durationMs % 3600000) / 60000);
+              const durationText = endDate ? `${hours}h ${minutes}m` : 'In Progress';
+
+              items.push({
+                id: `${doc.id}_seg_${index}`,
+                type: 'time_session' as const,
+                title: 'Task Work Session',
+                message: `worked on ${seg.taskName || seg.name || 'General Labor'}`,
+                timestamp: seg.start,
+                severity: endDate ? 'success' : 'info',
+                author: data.userName,
+                metadata: {
+                  start: seg.start,
+                  end: seg.end,
+                  timeRangeText,
+                  dateText,
+                  durationText,
+                  isActive: !endDate,
+                  jobId: seg.id,
+                  taskId: seg.taskId
+                }
+              });
+            });
+          }
+
+          return items;
         }
       },
       {
@@ -233,8 +349,13 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
 
       return onSnapshot(q, (snap) => {
         setActivities(prev => {
-          const others = prev.filter(a => !snap.docs.map(d => d.id).includes(a.id));
-          const updated = snap.docs.map(doc => config.transform(doc));
+          const snapIds = snap.docs.map(d => d.id);
+          // Filter out existing entries that start with any of the snapshot doc IDs (handles both document IDs and segment IDs)
+          const others = prev.filter(a => !snapIds.some(sid => a.id.startsWith(sid)));
+          const updated = snap.docs.flatMap(doc => {
+            const res = config.transform(doc);
+            return Array.isArray(res) ? res : [res];
+          });
           const merged = [...others, ...updated]
             .filter(a => a.timestamp)
             .sort((a, b) => {
@@ -242,7 +363,7 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
               const tsB = b.timestamp?.toMillis ? b.timestamp.toMillis() : new Date(b.timestamp).getTime();
               return tsB - tsA;
             })
-            .slice(0, 30);
+            .slice(0, 50); // Increased slice to 50 to accommodate more task session items gracefully
           return merged as any[];
         });
         setIsLoading(false);
@@ -257,6 +378,7 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
     if (title === 'Vehicle Intake') return <Car className="w-4 h-4" />;
     if (title === 'Package Inbound') return <Package className="w-4 h-4" />;
     if (title === 'Clock Correction') return <MessageSquare className="w-4 h-4" />;
+    if (title === 'Task Work Session') return <Clock className="w-4 h-4 animate-pulse" />;
     
     switch (type) {
       case 'qbwc_sync': return <RefreshCw className="w-4 h-4" />;
@@ -347,6 +469,26 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
                   <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                     {activity.message}
                   </p>
+                  {activity.type === 'time_session' && activity.metadata?.start && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold">
+                      <span className="bg-zinc-55 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
+                        {activity.metadata.timeRangeText}
+                      </span>
+                      <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                      <span className="bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-200/50 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400">
+                        {activity.metadata.dateText}
+                      </span>
+                      <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded font-bold uppercase text-[9px] border",
+                        activity.metadata.isActive 
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 animate-pulse" 
+                          : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                      )}>
+                        {activity.metadata.durationText}
+                      </span>
+                    </div>
+                  )}
                   {activity.metadata?.vin && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-[9px] font-mono font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded">

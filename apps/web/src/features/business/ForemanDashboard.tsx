@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
-  AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse, ListChecks,
+  AlertTriangle, Package, MapPin, Clock, ChevronRight, Filter, AlertCircle, Car, Warehouse,
   Maximize, Minimize
 } from 'lucide-react';
 import { collection, onSnapshot, doc, updateDoc, serverTimestamp, addDoc } from 'firebase/firestore';
@@ -216,106 +216,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
 
   // Pending Tasks section removed as it's no longer used in the UI
 
-  // Automated To-Do List Generator
-  const automatedTodos: {
-    id: string;
-    type: 'blocker' | 'part_needed' | 'stale_bay' | 'overdue_job' | 'missing_info';
-    priority: 'high' | 'medium' | 'low';
-    title: string;
-    description: string;
-    zoneId?: string;
-    timestamp?: any;
-    jobId?: string;
-  }[] = [];
 
-  // 1. Blockers (High)
-  activeBlockers.forEach(job => {
-    const zone = zones.find(z => z.currentJobId === job.id);
-    const blockerMsg = (job.blockers?.find((b: any) => b.status === 'active')?.message) || job.blocker || 'Blocked';
-    automatedTodos.push({
-      id: `blocker-${job.id}`,
-      type: 'blocker',
-      priority: 'high',
-      title: `Blocked: ${job.title}`,
-      description: blockerMsg,
-      zoneId: zone?.id,
-      timestamp: job.updatedAt,
-      jobId: job.id
-    });
-  });
-
-  // 2. Overdue Jobs (High)
-  allJobs.forEach(job => {
-    if (['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status)) return;
-    const zone = zones.find(z => z.currentJobId === job.id);
-    const etaRaw = zone?.eta || job.expectedFinishTime || job.eta;
-    if (!etaRaw) return;
-    const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
-    if (etaDate.getTime() < now) {
-      automatedTodos.push({
-        id: `overdue-${job.id}`,
-        type: 'overdue_job',
-        priority: 'high',
-        title: `Overdue: ${job.title}`,
-        description: `Passed ETA. Needs status check.`,
-        zoneId: zone?.id,
-        timestamp: etaRaw,
-        jobId: job.id
-      });
-    }
-  });
-
-  // 3. Stale Bays & Missing Info
-  occupiedBays.forEach(bay => {
-    const ts = bay.updatedAt || bay.lastAssignedAt;
-    if (ts) {
-      const time = ts.seconds ? ts.seconds * 1000 : new Date(ts).getTime();
-      if (now - time > 14400000) { // 4 hours
-        automatedTodos.push({
-          id: `stale-${bay.id}`,
-          type: 'stale_bay',
-          priority: 'medium',
-          title: `Check Bay: ${bay.name}`,
-          description: `No updates in over 4 hours.`,
-          zoneId: bay.id,
-          timestamp: ts,
-          jobId: bay.currentJobId
-        });
-      }
-    }
-    
-    // Missing Job/Customer
-    if (!bay.currentJobId) {
-      automatedTodos.push({
-        id: `missing-job-${bay.id}`,
-        type: 'missing_info',
-        priority: 'low',
-        title: `Missing Info: ${bay.name}`,
-        description: `Vehicle is in bay without an assigned job.`,
-        zoneId: bay.id,
-        timestamp: ts
-      });
-    }
-  });
-
-  // 4. Pending Parts (Medium/High)
-  pendingParts.forEach(part => {
-    const job = allJobs.find(j => j.id === part.jobId);
-    automatedTodos.push({
-      id: `part-${part.id}`,
-      type: 'part_needed',
-      priority: part.status === 'pending' ? 'high' : 'medium',
-      title: part.status === 'pending' ? `Order Part: ${part.partName}` : `Awaiting Part: ${part.partName}`,
-      description: job ? `Job: ${job.title}` : `Requested by ${part.requestedBy || 'Staff'}`,
-      zoneId: part.zoneId,
-      timestamp: part.createdAt,
-      jobId: part.jobId
-    });
-  });
-
-  // Sort: High -> Medium -> Low
-  const priorityWeight = { high: 3, medium: 2, low: 1 };
-  automatedTodos.sort((a, b) => priorityWeight[b.priority] - priorityWeight[a.priority]);
 
   const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
@@ -365,6 +266,17 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           lastAssignedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
+      }
+
+      // Automatically link the vehicle to the job if both are present and not already linked
+      if (actionType === 'assign' && trimmedVin && jobId) {
+        const job = allJobs.find((j: any) => j.id === jobId);
+        if (job && job.vehicleVin !== trimmedVin) {
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+            vehicleVin: trimmedVin,
+            updatedAt: serverTimestamp()
+          });
+        }
       }
 
       await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
@@ -464,16 +376,21 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
             )}
           </div>
           {(() => {
-            if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+            const activeSessionStart = bay.type === 'bay'
+              ? (job?.currentBaySessionStart || bay.lastAssignedAt)
+              : (job?.currentParkingSessionStart || bay.lastAssignedAt);
+            const sessionStartTs = activeSessionStart || timestamp;
+
+            if (!sessionStartTs) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
             
             // Arrival time for duration calculation
-            const arrivalTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+            const arrivalTime = sessionStartTs.seconds ? sessionStartTs.seconds * 1000 : new Date(sessionStartTs).getTime();
             const arrivalHours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
             const colorClass = arrivalHours >= 48 ? 'text-red-500' : arrivalHours >= 24 ? 'text-amber-500' : 'text-emerald-500';
             
             // Last activity time for the label (always use updatedAt if available)
             const activityTs = bay.updatedAt || timestamp;
-            const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
+            const activityTime = activityTs?.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
             const updateHours = (Date.now() - activityTime) / (1000 * 60 * 60);
             const updColorClass = updateHours >= 4 ? 'text-red-500' : updateHours >= 2 ? 'text-amber-500' : 'text-emerald-500';
             
@@ -481,15 +398,15 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
               <div className="flex flex-col items-end shrink-0">
                 <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
                   <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
-                  {calculateDuration(timestamp)}
+                  {calculateDuration(sessionStartTs)}
                 </span>
-                {job && (calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, bay.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart)) && (
+                {job && (calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, activeSessionStart)) && (
                   <span className={cn(
                     "font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5",
                     bay.type === 'bay' ? "text-indigo-500" : "text-zinc-500"
                   )}>
                     <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL {bay.type === 'bay' ? 'BAY' : 'LOT'}:</span>
-                    {calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, bay.type === 'bay' ? job.currentBaySessionStart : job.currentParkingSessionStart)}
+                    {calculateTotalDuration(bay.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, activeSessionStart)}
                   </span>
                 )}
                 {(() => {
@@ -647,77 +564,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         
-        {/* Priority 1: Automated To-Do List */}
-        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-bold flex items-center gap-2">
-              <ListChecks className="w-5 h-5 text-indigo-500" /> 
-              Automated To-Do List
-            </h2>
-            <span className="px-2 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-full">{automatedTodos.length} Items</span>
-          </div>
-          <div className="flex-1 space-y-3">
-            {automatedTodos.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-zinc-500 italic p-8">
-                <ListChecks className="w-8 h-8 mb-2 opacity-20" />
-                <p>All clear! No automated items.</p>
-              </div>
-            ) : (
-              automatedTodos.map(todo => {
-                let icon;
-                let bgClass = "bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-zinc-300";
-                let textClass = "text-zinc-600 dark:text-zinc-400";
-                
-                if (todo.priority === 'high') {
-                  bgClass = "bg-red-500/5 border-red-500/20 hover:bg-red-500/10";
-                  textClass = "text-red-600 dark:text-red-400";
-                } else if (todo.priority === 'medium') {
-                  bgClass = "bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10";
-                  textClass = "text-amber-600 dark:text-amber-400";
-                }
-
-                switch (todo.type) {
-                  case 'blocker': icon = <AlertTriangle className="w-3.5 h-3.5 shrink-0" />; break;
-                  case 'part_needed': icon = <Package className="w-3.5 h-3.5 shrink-0" />; break;
-                  case 'overdue_job': icon = <AlertCircle className="w-3.5 h-3.5 shrink-0" />; break;
-                  case 'stale_bay': icon = <Clock className="w-3.5 h-3.5 shrink-0" />; break;
-                  case 'missing_info': icon = <MapPin className="w-3.5 h-3.5 shrink-0" />; break;
-                }
-
-                return (
-                  <div 
-                    key={todo.id} 
-                    onClick={() => {
-                      if (todo.jobId) {
-                        navigate(`/business/${tenantId}/job/${todo.jobId}`);
-                      } else if (todo.zoneId) {
-                        setSelectedZoneId(todo.zoneId);
-                      }
-                    }} 
-                    className={cn("p-4 border rounded-xl transition-all", (todo.zoneId || todo.jobId) && "cursor-pointer hover:shadow-md", bgClass)}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-1.5">
-                        <span className={textClass}>{icon}</span>
-                        {todo.title}
-                      </h4>
-                      {todo.priority === 'high' && <span className="text-[9px] font-black uppercase bg-red-500/10 text-red-600 px-1.5 py-0.5 rounded">High</span>}
-                    </div>
-                    <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{todo.description}</p>
-                    {todo.timestamp && (
-                      <div className="mt-3 text-[10px] text-zinc-500 font-mono">
-                        {calculateDuration(todo.timestamp)} ago
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-
         {/* Priority 2: Bays Needing Updates */}
         <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm flex flex-col">
           <div className="flex items-center justify-between mb-6">
@@ -794,7 +644,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                         {job && <p className="text-[10px] font-bold text-zinc-500 uppercase truncate max-w-[150px]">Job: {job.title}</p>}
                         {zone && <p className="text-[10px] font-bold text-indigo-500 uppercase">{zone.name}</p>}
                       </div>
-                      <p className="text-[10px] text-zinc-400">By {(part.requestedBy || 'Staff').split(' ')[0]}</p>
+                      <div className="text-right shrink-0">
+                        <p className="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-wider mb-0.5">Qty: {part.quantity || 1}</p>
+                        <p className="text-[10px] text-zinc-400">By {(part.requestedBy || 'Staff').split(' ')[0]}</p>
+                      </div>
                     </div>
                   </div>
                 );

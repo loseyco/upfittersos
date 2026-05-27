@@ -18,9 +18,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
+import { getFunctions } from "firebase/functions";
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 export const analyticsPromise = isSupported().then(yes => yes ? getAnalytics(app) : null);
 export const messagingPromise = isMessagingSupported().then(yes => yes ? getMessaging(app) : null);

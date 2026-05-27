@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, type ChangeEvent } from 'react';
 import { Result, BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { BrowserMultiFormatReader, BrowserCodeReader } from '@zxing/browser';
-import { X, Camera, ImagePlus, Loader2, Package, MapPin, Search, ChevronRight, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { X, Camera, ImagePlus, Loader2, Package, MapPin, Search, ChevronRight, CheckCircle, AlertCircle, Trash2, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { db, storage } from '../../lib/firebase/config';
 import { collection, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
@@ -15,16 +15,31 @@ interface PackageIntakeModalProps {
   zones: { id: string; name: string; type: string }[];
 }
 
+function getUniqueTimestamp() {
+  return Date.now();
+}
+
+function detectIntakeCarrier(tracking: string) {
+  const t = (tracking || '').toUpperCase().replace(/\s/g, '');
+  if (t.startsWith('1Z')) return 'UPS';
+  if (t.length === 12 || t.length === 15 || t.length === 20) return 'FedEx';
+  if (t.startsWith('TBA')) return 'Amazon';
+  if (t.length >= 22) return 'USPS';
+  return 'Other';
+}
+
 export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: PackageIntakeModalProps) {
   const { tenantId, user } = useAuthStore();
-  const [step, setStep] = useState<'scan' | 'details'>('scan');
-  const [isScanning, setIsScanning] = useState(true);
+  const [step, setStep] = useState<'details' | 'scan' | 'camera'>('details');
+  const [isScanning, setIsScanning] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [currentCameraIndex, setCurrentCameraIndex] = useState(0);
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isManualScanning, setIsManualScanning] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [isFlashing, setIsFlashing] = useState(false);
   const isSecure = typeof window !== 'undefined' && window.isSecureContext;
 
   // Form State
@@ -37,7 +52,18 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
-  const controlsRef = useRef<any>(null);
+  const controlsRef = useRef<{ stop: () => void } | null>(null);
+
+  const handleScanSuccess = useCallback((text: string) => {
+    setScannedId(text);
+    setIsScanning(false);
+    if (controlsRef.current) {
+      controlsRef.current.stop();
+      controlsRef.current = null;
+    }
+    setStep('details');
+    toast.success("Package scanned successfully!");
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -135,17 +161,99 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
         controlsRef.current = null;
       }
     };
-  }, [isOpen, step, isScanning, cameras, currentCameraIndex]);
+  }, [isOpen, step, isScanning, cameras, currentCameraIndex, handleScanSuccess]);
 
-  const handleScanSuccess = (text: string) => {
-    setScannedId(text);
-    setIsScanning(false);
-    if (controlsRef.current) {
-      controlsRef.current.stop();
-      controlsRef.current = null;
+  // Camera stream for step === 'camera' (photo capture mode)
+  useEffect(() => {
+    if (!isOpen || step !== 'camera' || cameras.length === 0 || !videoRef.current) {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        setCameraStream(null);
+      }
+      return;
     }
-    setStep('details');
-    toast.success("Package scanned successfully!");
+
+    const device = cameras[currentCameraIndex];
+    if (!device) return;
+    const deviceId = device.deviceId;
+
+    const constraints: MediaStreamConstraints = {
+      video: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        width: { min: 640, ideal: 1280, max: 1920 },
+        height: { min: 480, ideal: 720, max: 1080 },
+        facingMode: 'environment'
+      }
+    };
+
+    let activeStream: MediaStream | null = null;
+
+    navigator.mediaDevices.getUserMedia(constraints)
+      .then((stream) => {
+        activeStream = stream;
+        setCameraStream(stream);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(err => console.error("Video play failed", err));
+        }
+      })
+      .catch((err) => {
+        console.error("Camera stream start failed, retrying with simple constraints", err);
+        navigator.mediaDevices.getUserMedia({ video: { deviceId } })
+          .then((stream) => {
+            activeStream = stream;
+            setCameraStream(stream);
+            if (videoRef.current) {
+              videoRef.current.srcObject = stream;
+              videoRef.current.play().catch(err => console.error("Video play fallback failed", err));
+            }
+          })
+          .catch(e => {
+            console.error("Total camera failure for photo capture", e);
+            setCameraError("Could not access camera for photo capture.");
+          });
+      });
+
+    return () => {
+      if (activeStream) {
+        activeStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isOpen, step, cameras, currentCameraIndex]);
+
+  const handleCapturePhoto = () => {
+    if (!videoRef.current) return;
+    
+    // Set flash animation
+    setIsFlashing(true);
+    setTimeout(() => setIsFlashing(false), 150);
+
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          toast.error("Failed to capture image frame.");
+          return;
+        }
+        
+        const file = new File([blob], `captured_photo_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        const preview = URL.createObjectURL(blob);
+        
+        setImages(prev => [...prev, { file, preview }]);
+        toast.success("Photo captured!");
+      }, 'image/jpeg', 0.9);
+    } catch (err) {
+      console.error("Failed to capture photo from video stream", err);
+      toast.error("Failed to capture photo.");
+    }
   };
 
   const handleManualFrameCapture = async () => {
@@ -174,15 +282,17 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
   };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-    // Add to images gallery
-    const preview = URL.createObjectURL(file);
-    setImages(prev => [...prev, { file, preview }]);
+    const newImages: { file: File; preview: string }[] = [];
 
-    // Only attempt barcode decode if we are still in scan mode
-    if (step === 'scan' && codeReaderRef.current) {
+    // Only attempt barcode decode if we are in scan mode
+    if (step === 'scan' && codeReaderRef.current && files.length > 0) {
+      const file = files[0];
+      const preview = URL.createObjectURL(file);
+      newImages.push({ file, preview });
+
       setIsProcessingImage(true);
       if (controlsRef.current) {
         controlsRef.current.stop();
@@ -220,15 +330,18 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
         handleScanSuccess(result.getText().trim());
       } catch (err) {
         console.error("Image decode failed", err);
-        // We don't toast error here because they might just be taking a content photo
       } finally {
         setIsProcessingImage(false);
       }
     } else {
-      // If we are already in details mode, just switch to it (though we should already be there)
-      if (step === 'scan') setStep('details');
+      // In details mode, add all selected files
+      for (const file of files) {
+        const preview = URL.createObjectURL(file);
+        newImages.push({ file, preview });
+      }
     }
     
+    setImages(prev => [...prev, ...newImages]);
     e.target.value = '';
   };
 
@@ -252,7 +365,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
       // 1. Create the shipment document first to get an ID
       const shipmentRef = await addDoc(collection(db, `businesses/${tenantId}/shipments`), {
         trackingNumber: finalId,
-        carrier: detectCarrier(finalId),
+        carrier: detectIntakeCarrier(finalId),
         description: description.trim(),
         location: location.trim(),
         notes: notes.trim(),
@@ -273,7 +386,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
         const imageUrls: string[] = [];
         
         for (const imgItem of images) {
-          const storageRef = ref(storage, `businesses/${tenantId}/shipments/${shipmentRef.id}/${Date.now()}_${imgItem.file.name}`);
+          const storageRef = ref(storage, `businesses/${tenantId}/shipments/${shipmentRef.id}/${getUniqueTimestamp()}_${imgItem.file.name}`);
           const snapshot = await uploadBytes(storageRef, imgItem.file);
           const url = await getDownloadURL(snapshot.ref);
           imageUrls.push(url);
@@ -286,27 +399,19 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
       toast.success("Package intake complete!");
       onSuccess();
       handleClose();
-    } catch (err: any) {
+    } catch (err) {
+      const errMessage = err instanceof Error ? err.message : String(err);
       console.error("Submit failed:", err);
-      toast.error(`Failed to log package intake: ${err.message || 'Unknown error'}`);
+      toast.error(`Failed to log package intake: ${errMessage}`);
     } finally {
       setIsSubmitting(false);
       setIsUploadingImages(false);
     }
   };
 
-  const detectCarrier = (tracking: string) => {
-    const t = (tracking || '').toUpperCase().replace(/\s/g, '');
-    if (t.startsWith('1Z')) return 'UPS';
-    if (t.length === 12 || t.length === 15 || t.length === 20) return 'FedEx';
-    if (t.startsWith('TBA')) return 'Amazon';
-    if (t.length >= 22) return 'USPS';
-    return 'Other';
-  };
-
   const handleClose = () => {
-    setStep('scan');
-    setIsScanning(true);
+    setStep('details');
+    setIsScanning(false);
     setScannedId('');
     setDescription('');
     setLocation('');
@@ -314,6 +419,10 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
     // Clear image previews
     images.forEach(img => URL.revokeObjectURL(img.preview));
     setImages([]);
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
     onClose();
   };
 
@@ -351,7 +460,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
 
         <div className="p-8">
           {step === 'scan' ? (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-in fade-in duration-300">
               {/* Scanner Viewport */}
               <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner group">
                 {isProcessingImage ? (
@@ -370,14 +479,6 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                         Camera access requires <span className="text-amber-500 font-mono">HTTPS</span>. 
                         Please use a secure tunnel (like ngrok) or access via localhost.
                       </p>
-                    </div>
-                    <div className="pt-4 w-full">
-                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-3">Use fallback instead:</p>
-                      <label className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white text-xs font-bold cursor-pointer hover:bg-white/10 transition-all">
-                        <ImagePlus className="w-4 h-4 text-emerald-500" />
-                        Take Photo (System Camera)
-                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
-                      </label>
                     </div>
                   </div>
                 ) : cameraError ? (
@@ -432,28 +533,140 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
               <div className="grid grid-cols-2 gap-4">
                 <label className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all cursor-pointer">
                   <ImagePlus className="w-6 h-6 text-emerald-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Take Photo</span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Upload Image</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
                 </label>
                 <button 
-                  onClick={() => setStep('details')}
+                  type="button"
+                  onClick={() => {
+                    setIsScanning(false);
+                    if (controlsRef.current) {
+                      controlsRef.current.stop();
+                      controlsRef.current = null;
+                    }
+                    setStep('details');
+                  }}
                   className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all"
                 >
-                  <Search className="w-6 h-6 text-amber-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Manual Entry</span>
+                  <X className="w-6 h-6 text-rose-500" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Cancel Scan</span>
                 </button>
               </div>
 
-              <button 
-                onClick={() => cameras.length > 1 && setCurrentCameraIndex((prev) => (prev + 1) % cameras.length)}
-                className="w-full py-4 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-400 hover:text-indigo-500 hover:border-indigo-500/50 transition-all flex items-center justify-center gap-2"
-              >
-                <Camera className="w-5 h-5" />
-                <span className="text-xs font-bold uppercase tracking-widest">Switch Camera Lens</span>
-              </button>
+              {cameras.length > 1 && (
+                <button 
+                  type="button"
+                  onClick={() => setCurrentCameraIndex((prev) => (prev + 1) % cameras.length)}
+                  className="w-full py-4 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-400 hover:text-indigo-500 hover:border-indigo-500/50 transition-all flex items-center justify-center gap-2"
+                >
+                  <Camera className="w-5 h-5" />
+                  <span className="text-xs font-bold uppercase tracking-widest">Switch Camera Lens</span>
+                </button>
+              )}
+            </div>
+          ) : step === 'camera' ? (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* Camera Viewport */}
+              <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner group">
+                <video 
+                  ref={videoRef} 
+                  className="w-full h-full object-cover" 
+                  playsInline 
+                  muted 
+                />
+                
+                {/* Visual Flash Feedback */}
+                {isFlashing && (
+                  <div className="absolute inset-0 bg-white/90 z-30 animate-flash" />
+                )}
+
+                {/* Picture Counter Badge */}
+                <div className="absolute top-4 left-4 bg-zinc-950/80 backdrop-blur-md border border-white/15 px-3.5 py-1.5 rounded-full flex items-center gap-2 z-20 shadow-lg">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">{images.length} Captured</span>
+                </div>
+
+                {/* Shutter Overlay Button */}
+                <div className="absolute bottom-6 inset-x-0 flex justify-center items-center gap-6 z-20">
+                  <button
+                    type="button"
+                    onClick={handleCapturePhoto}
+                    className="w-16 h-16 rounded-full border-4 border-white bg-white/10 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center shadow-2xl relative"
+                  >
+                    <div className="w-11 h-11 rounded-full bg-rose-500" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Horizontal Thumbnail Strip */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center px-1">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Captured Gallery</span>
+                  {images.length > 0 && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        images.forEach(img => URL.revokeObjectURL(img.preview));
+                        setImages([]);
+                      }}
+                      className="text-[9px] font-bold text-rose-500 uppercase tracking-wider hover:underline"
+                    >
+                      Clear All
+                    </button>
+                  )}
+                </div>
+                
+                <div className="flex gap-2.5 overflow-x-auto pb-2 custom-scrollbar min-h-[5.5rem]">
+                  {images.map((img, idx) => (
+                    <div key={idx} className="shrink-0 w-20 h-20 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group animate-in zoom-in-90 duration-200">
+                      <img src={img.preview} className="w-full h-full object-cover" />
+                      <button 
+                        type="button"
+                        onClick={() => removeImage(idx)}
+                        className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {images.length === 0 && (
+                    <div className="flex-1 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center py-6 bg-zinc-50/20 dark:bg-zinc-950/20">
+                      <p className="text-[10px] text-zinc-400 italic">No photos snapped yet.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-4">
+                {cameras.length > 1 && (
+                  <button 
+                    type="button"
+                    onClick={() => setCurrentCameraIndex((prev) => (prev + 1) % cameras.length)}
+                    className="flex-1 py-4 border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-bold rounded-2xl hover:border-indigo-500/50 hover:text-indigo-500 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Camera className="w-5 h-5" />
+                    <span className="text-xs uppercase tracking-wider">Switch Lens</span>
+                  </button>
+                )}
+                <button 
+                  type="button"
+                  onClick={() => {
+                    if (cameraStream) {
+                      cameraStream.getTracks().forEach(track => track.stop());
+                      setCameraStream(null);
+                    }
+                    setStep('details');
+                  }}
+                  className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all text-center flex items-center justify-center gap-1.5"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="text-xs uppercase tracking-widest">Done Capturing</span>
+                </button>
+              </div>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-300">
               <div className="space-y-4">
                 {/* Scanned ID Field */}
                 <div className="space-y-1.5">
@@ -467,8 +680,22 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                       value={scannedId}
                       onChange={(e) => setScannedId(e.target.value)}
                       placeholder="Enter ID or auto-generated..."
-                      className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
+                      className="w-full pl-11 pr-24 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
                     />
+                    <div className="absolute inset-y-1 right-1 py-1 pr-1 flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('scan');
+                          setIsScanning(true);
+                        }}
+                        className="h-full px-3.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 hover:text-indigo-600 rounded-xl transition-all flex items-center gap-1.5"
+                        title="Scan Tracking Barcode"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase tracking-wider">Scan</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -522,21 +749,37 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                   </div>
 
                   <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                    {/* Add Photo Trigger */}
+                    {/* Take Photo Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setStep('camera')}
+                      className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all bg-zinc-50/50 dark:bg-zinc-900/50"
+                    >
+                      <Camera className="w-6 h-6 text-indigo-500" />
+                      <span className="text-[8px] font-bold uppercase tracking-wider">Take Photo</span>
+                    </button>
+
+                    {/* Upload Files Trigger (supports multiple files) */}
                     <label className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/50">
-                      <ImagePlus className="w-6 h-6" />
-                      <span className="text-[8px] font-bold uppercase tracking-wider">Add Photo</span>
-                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFileUpload} />
+                      <ImagePlus className="w-6 h-6 text-emerald-500" />
+                      <span className="text-[8px] font-bold uppercase tracking-wider">Upload Files</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        multiple 
+                        className="hidden" 
+                        onChange={handleFileUpload} 
+                      />
                     </label>
 
                     {/* Previews */}
                     {images.map((img, idx) => (
-                      <div key={idx} className="shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group">
+                      <div key={idx} className="shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group animate-in zoom-in-95 duration-200">
                         <img src={img.preview} className="w-full h-full object-cover" />
                         <button 
                           type="button"
                           onClick={() => removeImage(idx)}
-                          className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                          className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -546,7 +789,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                     {images.length === 0 && (
                       <div className="flex-1 flex items-center gap-3 px-4 border border-zinc-100 dark:border-zinc-800 rounded-2xl bg-zinc-50/30 dark:bg-zinc-950/30">
                         <Camera className="w-5 h-5 text-zinc-300" />
-                        <p className="text-[10px] text-zinc-400 italic">No photos taken yet. Document the package and its contents.</p>
+                        <p className="text-[10px] text-zinc-400 italic">No photos taken yet. Use the camera or upload files.</p>
                       </div>
                     )}
                   </div>
@@ -555,16 +798,9 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
 
               <div className="flex gap-4 pt-4">
                 <button 
-                  type="button"
-                  onClick={() => setStep('scan')}
-                  className="flex-1 py-4 px-6 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-2xl transition-all"
-                >
-                  Back
-                </button>
-                <button 
                   type="submit"
                   disabled={isSubmitting || isUploadingImages || !description.trim() || !location.trim()}
-                  className="flex-[2] py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
+                  className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
                 >
                   {isSubmitting || isUploadingImages ? (
                     <>
@@ -587,7 +823,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
   );
 }
 
-function LocationSelector({ value, onChange, zones }: { value: string; onChange: (v: string) => void; zones: any[] }) {
+function LocationSelector({ value, onChange, zones }: { value: string; onChange: (v: string) => void; zones: { id: string; name: string; type: string }[] }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState(value);
   const dropdownRef = useRef<HTMLDivElement>(null);

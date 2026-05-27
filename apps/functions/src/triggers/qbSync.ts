@@ -243,6 +243,8 @@ export const onQbEmployeeWrite = functions.firestore
       }
     }
 
+    const isQbActive = data.isActive === true || data.isActive === 'true' || data.IsActive === 'true' || data.IsActive === true;
+
     const staffMappedData = {
       firstName: data.firstName || data.FirstName || '',
       lastName: data.lastName || data.LastName || '',
@@ -255,6 +257,7 @@ export const onQbEmployeeWrite = functions.firestore
       source: 'QuickBooks',
       tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
       notes: admin.firestore.FieldValue.arrayUnion('Imported via QBWC.'),
+      isArchived: !isQbActive,
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
@@ -265,5 +268,170 @@ export const onQbEmployeeWrite = functions.firestore
       console.error(`Failed to promote employee ${employeeId}`, err);
     }
     
+    return null;
+  });
+
+/**
+ * Helper to parse QB duration
+ */
+function parseQBDuration(dur: string): number {
+  if (!dur) return 0;
+  let hours = 0, minutes = 0, seconds = 0;
+  const hMatch = dur.match(/(\d+)H/);
+  const mMatch = dur.match(/(\d+)M/);
+  const sMatch = dur.match(/(\d+)S/);
+  if (hMatch) hours = parseInt(hMatch[1], 10);
+  if (mMatch) minutes = parseInt(mMatch[1], 10);
+  if (sMatch) seconds = parseInt(sMatch[1], 10);
+  
+  if (dur.includes(':')) {
+     const parts = dur.split(':');
+     hours = parseInt(parts[0], 10) || 0;
+     minutes = parseInt(parts[1], 10) || 0;
+     seconds = parseInt(parts[2], 10) || 0;
+  }
+  return (hours * 3600000) + (minutes * 60000) + (seconds * 1000);
+}
+
+/**
+ * Trigger: When a document in qb_time_tracking is created or updated.
+ * Goal: Promote to native 'time_sessions' collection.
+ */
+export const onQbTimeTrackingWrite = functions.firestore
+  .document('businesses/{tenantId}/qb_time_tracking/{timeId}')
+  .onWrite(async (change, context) => {
+    const { tenantId, timeId } = context.params;
+    
+    if (!change.after.exists) {
+      // If deleted in QB, delete the corresponding native session to keep it clean.
+      try {
+        await admin.firestore().collection('businesses').doc(tenantId).collection('time_sessions').doc('qb_time_' + timeId).delete();
+      } catch (e) {}
+      return null;
+    }
+
+    const data = change.after.data();
+    if (!data || !data.duration || !data.txnDate) return null;
+
+    const durationMs = parseQBDuration(data.duration);
+    if (durationMs === 0) return null;
+
+    // 1. Resolve User (Technician) Schedule
+    let startTimeStr = '08:00'; // Default fallback
+    let uName = data.entityName || 'Unknown QB Staff';
+    let resolvedUserId = data.entityRef || uName;
+
+    try {
+      // Try to find native staff member by name or ListID
+      const staffRef = admin.firestore().collection('businesses').doc(tenantId).collection('staff');
+      let staffSnap = await staffRef.where('quickbooksId', '==', data.entityRef).limit(1).get();
+      
+      if (staffSnap.empty && data.entityName) {
+         // Fallback to name search
+         const nameParts = data.entityName.split(' ');
+         if (nameParts.length >= 2) {
+           staffSnap = await staffRef
+            .where('firstName', '==', nameParts[0])
+            .where('lastName', '==', nameParts.slice(1).join(' '))
+            .limit(1).get();
+         }
+      }
+
+      if (!staffSnap.empty) {
+        const staffData = staffSnap.docs[0].data();
+        resolvedUserId = staffSnap.docs[0].id;
+        uName = (staffData.firstName + ' ' + staffData.lastName).trim();
+
+        // Resolve Schedule
+        if (staffData.individualSchedule?.startTime) {
+          startTimeStr = staffData.individualSchedule.startTime;
+        } else if (staffData.departmentId) {
+          const deptSnap = await admin.firestore().collection('businesses').doc(tenantId).collection('departments').doc(staffData.departmentId).get();
+          if (deptSnap.exists) {
+            const deptData = deptSnap.data();
+            if (deptData?.defaultSchedule?.startTime) {
+              startTimeStr = deptData.defaultSchedule.startTime;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to resolve staff schedule for ' + uName, e);
+    }
+
+    // 2. Resolve Job (CustomerRef)
+    let jId = data.customerRef || data.customerName || 'qb_general';
+    let jTitle = data.customerName || 'QB Job';
+
+    try {
+      // Find native job
+      const jobsSnap = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
+        .where('quickbooksId', '==', data.customerRef)
+        .limit(1).get();
+      
+      if (!jobsSnap.empty) {
+        jId = jobsSnap.docs[0].id;
+        jTitle = jobsSnap.docs[0].data().title || jTitle;
+      } else {
+        // Try finding by name
+        const jobsNameSnap = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
+          .where('title', '==', jTitle)
+          .limit(1).get();
+        if (!jobsNameSnap.empty) {
+          jId = jobsNameSnap.docs[0].id;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to resolve job for ' + jTitle, e);
+    }
+
+    // 3. Construct Simulated Timestamps
+    const [startHourStr, startMinStr] = startTimeStr.split(':');
+    const startHour = parseInt(startHourStr, 10);
+    const startMin = parseInt(startMinStr, 10);
+    
+    // Parse YYYY-MM-DD
+    const [yearStr, monthStr, dayStr] = data.txnDate.split('-');
+    
+    const clockInTime = new Date(parseInt(yearStr), parseInt(monthStr) - 1, parseInt(dayStr));
+    clockInTime.setHours(startHour || 8, startMin || 0, 0, 0);
+    
+    const clockOutTime = new Date(clockInTime.getTime() + durationMs);
+
+    // 4. Upsert Time Session
+    const sessionPayload = {
+      userId: resolvedUserId,
+      userName: uName,
+      clockIn: { timestamp: admin.firestore.Timestamp.fromDate(clockInTime), location: 'QuickBooks Import' },
+      clockOut: { timestamp: admin.firestore.Timestamp.fromDate(clockOutTime), location: 'QuickBooks Import' },
+      jobs: [
+        {
+          id: jId,
+          name: jTitle,
+          taskId: data.itemServiceRef || null,
+          taskName: data.itemServiceName || null,
+          start: admin.firestore.Timestamp.fromDate(clockInTime),
+          end: admin.firestore.Timestamp.fromDate(clockOutTime)
+        }
+      ],
+      jobIds: [jId],
+      source: 'QuickBooks',
+      notes: 'Imported via QBWC.',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    try {
+      await admin.firestore()
+        .collection('businesses')
+        .doc(tenantId)
+        .collection('time_sessions')
+        .doc('qb_time_' + timeId)
+        .set(sessionPayload, { merge: true });
+        
+      console.log('Successfully mapped QB time ' + timeId + ' to native session for ' + uName);
+    } catch (e) {
+      console.error('Failed to map QB time ' + timeId, e);
+    }
+
     return null;
   });

@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, query, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
-import { Plus, Building2, ExternalLink, AlertCircle } from 'lucide-react';
+import { Plus, Building2, ExternalLink, AlertCircle, Activity, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
+import { toast } from 'sonner';
+import { resolvePermissions } from '../../lib/auth/permissions';
 
 interface Business {
   id: string;
@@ -21,6 +23,254 @@ interface FeedbackStats {
   totalOpen: number;
 }
 
+function BusinessAnalyticsRow({ business, onImpersonate }: { business: Business; onImpersonate: (user: any) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Fetch active staff
+  const { data: staff, isLoading: isStaffLoading } = useQuery({
+    queryKey: ['staff-analytics', business.id],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${business.id}/staff`));
+      return snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(s => !s.isArchived);
+    },
+    enabled: isOpen
+  });
+
+  // Fetch recent audit logs
+  const { data: auditLogs } = useQuery({
+    queryKey: ['audit-logs-analytics', business.id],
+    queryFn: async () => {
+      const snap = await getDocs(query(
+        collection(db, `businesses/${business.id}/audit_logs`),
+        orderBy('timestamp', 'desc'),
+        limit(150)
+      ));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    },
+    enabled: isOpen
+  });
+
+  // Fetch recent time sessions
+  const { data: timeSessions } = useQuery({
+    queryKey: ['time-sessions-analytics', business.id],
+    queryFn: async () => {
+      const snap = await getDocs(query(
+        collection(db, `businesses/${business.id}/time_sessions`),
+        orderBy('clockIn.timestamp', 'desc'),
+        limit(50)
+      ));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    },
+    enabled: isOpen
+  });
+
+  // Compute metrics per active user
+  const userStats = staff?.map(member => {
+    const memberLogs = auditLogs?.filter(log => 
+      (member.userId && log.userId === member.userId) || 
+      (log.userId === member.email) ||
+      (log.details?.email === member.email)
+    ) || [];
+
+    const memberSessions = timeSessions?.filter(s => 
+      (member.userId && s.userId === member.userId) || 
+      (s.userName?.toLowerCase() === `${member.firstName} ${member.lastName}`.toLowerCase())
+    ) || [];
+
+    let lastActiveTime: Date | null = null;
+    let lastAction = 'No recorded activity';
+    let userAgent = '';
+
+    if (memberLogs.length > 0) {
+      const latestLog = memberLogs[0];
+      const ts = latestLog.timestamp?.toMillis ? latestLog.timestamp.toMillis() : new Date(latestLog.timestamp).getTime();
+      lastActiveTime = new Date(ts);
+      lastAction = `${latestLog.actionType}${latestLog.details?.action ? `: ${latestLog.details.action}` : ''}`;
+      userAgent = latestLog.userAgent || '';
+    }
+
+    const isClockedIn = memberSessions.some(s => s.status === 'active');
+    if (isClockedIn && memberSessions.length > 0) {
+      const activeSession = memberSessions.find(s => s.status === 'active');
+      const clockInTs = activeSession.clockIn?.timestamp?.toMillis ? activeSession.clockIn.timestamp.toMillis() : new Date(activeSession.clockIn?.timestamp).getTime();
+      const clockInDate = new Date(clockInTs);
+      if (!lastActiveTime || clockInDate > lastActiveTime) {
+        lastActiveTime = clockInDate;
+        lastAction = 'Clocked In';
+      }
+    }
+
+    let status: 'now' | 'today' | 'idle' | 'inactive' = 'inactive';
+    if (lastActiveTime) {
+      const diffMin = (Date.now() - lastActiveTime.getTime()) / 60000;
+      if (diffMin <= 15) {
+        status = 'now';
+      } else if (diffMin <= 1440) {
+        status = 'today';
+      } else if (diffMin <= 10080) {
+        status = 'idle';
+      }
+    }
+
+    return {
+      ...member,
+      isClockedIn,
+      lastActiveTime,
+      lastAction,
+      userAgent,
+      actionCount: memberLogs.length,
+      status
+    };
+  }) || [];
+
+  const activeNowCount = userStats.filter(u => u.status === 'now').length;
+
+  return (
+    <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900 shadow-sm overflow-hidden mb-4 transition-all">
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className="p-6 flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center shadow-sm">
+            <Building2 className="w-6 h-6 text-indigo-500" />
+          </div>
+          <div>
+            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-lg">{business.name}</h4>
+            <p className="text-xs text-zinc-400 mt-1">Tenant ID: {business.id}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-6 text-sm font-medium">
+            <div className="text-right">
+              <span className="block text-zinc-500 dark:text-zinc-400 text-xs">Total Staff</span>
+              <span className="font-semibold text-zinc-800 dark:text-zinc-200">{staff?.length !== undefined ? staff.length : '--'}</span>
+            </div>
+            <div className="text-right">
+              <span className="block text-emerald-500 text-xs">Active Now</span>
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400">{isOpen ? activeNowCount : '--'}</span>
+            </div>
+          </div>
+
+          <div className="text-zinc-400">
+            {isOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+          </div>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/20 p-6 space-y-6">
+          {isStaffLoading ? (
+            <div className="text-center py-8 text-zinc-500 flex items-center justify-center gap-3">
+              <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              Loading analytics details...
+            </div>
+          ) : userStats.length === 0 ? (
+            <div className="text-center py-8 text-zinc-400 italic">No registered staff found for this business.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold uppercase tracking-wider text-[10px]">
+                    <th className="p-4">User</th>
+                    <th className="p-4">Status</th>
+                    <th className="p-4">Timeclock</th>
+                    <th className="p-4">Last Activity / Event</th>
+                    <th className="p-4">Client Agent</th>
+                    <th className="p-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  {userStats.map((user) => {
+                    const statusKey = (user.status || 'inactive') as 'now' | 'today' | 'idle' | 'inactive';
+                    const statusConfig = {
+                      now: { label: 'Active Now', bg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20', dot: 'bg-emerald-500 animate-pulse' },
+                      today: { label: 'Active Today', bg: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20', dot: 'bg-teal-500' },
+                      idle: { label: 'Idle (This Week)', bg: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20', dot: 'bg-amber-500' },
+                      inactive: { label: 'Inactive', bg: 'bg-zinc-500/10 text-zinc-500 border border-zinc-500/20', dot: 'bg-zinc-400' }
+                    }[statusKey];
+
+                    const clientBrowser = user.userAgent 
+                      ? user.userAgent.includes('Chrome') ? 'Chrome' 
+                        : user.userAgent.includes('Safari') ? 'Safari' 
+                        : user.userAgent.includes('Firefox') ? 'Firefox' 
+                        : 'Mobile/App' 
+                      : 'Unknown';
+
+                    const clientOS = user.userAgent 
+                      ? user.userAgent.includes('Windows') ? 'Windows' 
+                        : user.userAgent.includes('Macintosh') ? 'MacOS' 
+                        : user.userAgent.includes('Android') ? 'Android' 
+                        : user.userAgent.includes('iPhone') ? 'iOS' 
+                        : 'Linux'
+                      : 'Unknown';
+
+                    return (
+                      <tr key={user.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
+                        <td className="p-4">
+                          <div className="font-semibold text-zinc-900 dark:text-white">{user.firstName} {user.lastName}</div>
+                          <div className="text-xs text-zinc-400 font-mono mt-0.5">{user.email}</div>
+                          <div className="text-[10px] text-indigo-500 uppercase font-black mt-1 tracking-tight">
+                            {user.role || 'Staff'} {user.techNumber ? `• Tech #${user.techNumber}` : ''}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${statusConfig.bg}`}>
+                            <span className={`w-2 h-2 rounded-full ${statusConfig.dot}`} />
+                            {statusConfig.label}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {user.isClockedIn ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-black text-emerald-600 uppercase">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                              Clocked In
+                            </span>
+                          ) : (
+                            <span className="text-xs text-zinc-400 italic font-medium">Clocked Out</span>
+                          )}
+                        </td>
+                        <td className="p-4 max-w-xs">
+                          <div className="text-xs text-zinc-700 dark:text-zinc-300 font-medium truncate">{user.lastAction}</div>
+                          <div className="text-[10px] text-zinc-400 font-mono mt-1">
+                            {user.lastActiveTime ? user.lastActiveTime.toLocaleString() : 'Never'}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          {user.userAgent ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-xs text-zinc-700 dark:text-zinc-300 font-semibold">{clientBrowser}</span>
+                              <span className="text-[10px] text-zinc-400 font-medium">{clientOS}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-zinc-400 italic">--</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => onImpersonate(user)}
+                            className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-xs font-bold transition-colors border border-emerald-500/10 flex items-center gap-1 ml-auto"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Impersonate
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BusinessManager() {
   usePageTitle('Platform Administration');
   const { user } = useAuthStore();
@@ -28,6 +278,7 @@ export function BusinessManager() {
   const queryClient = useQueryClient();
   const [newBusinessName, setNewBusinessName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tenants' | 'analytics'>('tenants');
 
   const { data: businesses, isLoading } = useQuery({
     queryKey: ['businesses'],
@@ -62,7 +313,6 @@ export function BusinessManager() {
         createdAt: serverTimestamp(),
       });
       
-      // Rule 14 Telemetry
       await submitAuditLog('GLOBAL', {
         userId: user.uid,
         actionType: 'DATA_MUTATION',
@@ -72,10 +322,37 @@ export function BusinessManager() {
       
       setNewBusinessName('');
       queryClient.invalidateQueries({ queryKey: ['businesses'] });
+      toast.success('Business provisioned successfully.');
     } catch (err) {
       console.error('Failed to create business:', err);
+      toast.error('Failed to provision business.');
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const handleImpersonate = async (businessId: string, staffMember: any) => {
+    try {
+      let departmentPermissions = {};
+      if (staffMember.departmentId) {
+        const deptSnap = await getDoc(doc(db, `businesses/${businessId}/departments`, staffMember.departmentId));
+        if (deptSnap.exists()) {
+          departmentPermissions = deptSnap.data().permissions || {};
+        }
+      }
+      
+      const resolved = resolvePermissions(departmentPermissions, staffMember.individualPermissions);
+      useAuthStore.getState().impersonate({
+        id: staffMember.id,
+        name: `${staffMember.firstName} ${staffMember.lastName}`,
+        permissions: resolved,
+        type: 'staff'
+      });
+      toast.success(`Viewing platform as ${staffMember.firstName}`);
+      navigate(`/business/${businessId}`);
+    } catch (err) {
+      console.error('Failed to impersonate:', err);
+      toast.error('Failed to impersonate user.');
     }
   };
 
@@ -85,8 +362,8 @@ export function BusinessManager() {
       <div className="p-8 flex-1 max-w-6xl mx-auto w-full">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">Businesses</h1>
-            <p className="text-zinc-500 dark:text-zinc-400 mt-1">Manage global tenant instances.</p>
+            <h1 className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">Platform Hub</h1>
+            <p className="text-zinc-500 dark:text-zinc-400 mt-1">Manage global tenant instances and monitor activity.</p>
           </div>
           <button
             onClick={() => navigate('/super-admin/feedback')}
@@ -132,78 +409,128 @@ export function BusinessManager() {
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-4 gap-8">
-          {/* Create Business Form */}
-          <div className="lg:col-span-1 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 bg-white dark:bg-zinc-900 h-fit shadow-sm">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-blue-500" />
-              New Tenant
-            </h2>
-            <form onSubmit={handleAddBusiness} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">Business Name</label>
-                <input
-                  type="text"
-                  value={newBusinessName}
-                  onChange={(e) => setNewBusinessName(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all dark:text-white"
-                  placeholder="e.g. SAE Customs"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={isAdding}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
-              >
-                <Plus className="w-4 h-4" />
-                {isAdding ? 'Provisioning...' : 'Provision Business'}
-              </button>
-            </form>
-          </div>
+        {/* Tab Navigation */}
+        <div className="flex border-b border-zinc-200 dark:border-zinc-800 mb-8 gap-6">
+          <button
+            onClick={() => setActiveTab('tenants')}
+            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 flex items-center gap-2 ${
+              activeTab === 'tenants' 
+                ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' 
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            Tenants
+          </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 flex items-center gap-2 ${
+              activeTab === 'analytics' 
+                ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' 
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            User Analytics
+          </button>
+        </div>
 
-          {/* Business List */}
-          <div className="lg:col-span-3">
-            <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-sm overflow-hidden">
-              {isLoading ? (
-                <div className="p-8 text-center text-zinc-500">Loading tenants...</div>
-              ) : businesses?.length === 0 ? (
-                <div className="p-12 text-center flex flex-col items-center">
-                  <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
-                    <Building2 className="w-8 h-8 text-blue-500" />
-                  </div>
-                  <h3 className="text-lg font-medium text-zinc-900 dark:text-white">No active tenants</h3>
-                  <p className="text-zinc-500 dark:text-zinc-400 mt-2">Provision your first business entity to begin.</p>
+        {activeTab === 'tenants' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            {/* Create Business Form */}
+            <div className="lg:col-span-1 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 bg-white dark:bg-zinc-900 h-fit shadow-sm">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-500" />
+                New Tenant
+              </h2>
+              <form onSubmit={handleAddBusiness} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2">Business Name</label>
+                  <input
+                    type="text"
+                    value={newBusinessName}
+                    onChange={(e) => setNewBusinessName(e.target.value)}
+                    className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all dark:text-white"
+                    placeholder="e.g. SAE Customs"
+                    required
+                  />
                 </div>
-              ) : (
-                <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {businesses?.map((b) => (
-                    <div key={b.id} className="p-6 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center shadow-sm">
-                          <Building2 className="w-6 h-6 text-indigo-500" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-lg">{b.name}</h4>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/business/${b.id}`)}
-                          className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-medium rounded-lg transition-colors border border-zinc-200 dark:border-zinc-700"
-                        >
-                          Access OS
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                <button
+                  type="submit"
+                  disabled={isAdding}
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  {isAdding ? 'Provisioning...' : 'Provision Business'}
+                </button>
+              </form>
+            </div>
+
+            {/* Business List */}
+            <div className="lg:col-span-3">
+              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-sm overflow-hidden">
+                {isLoading ? (
+                  <div className="p-8 text-center text-zinc-500">Loading tenants...</div>
+                ) : businesses?.length === 0 ? (
+                  <div className="p-12 text-center flex flex-col items-center">
+                    <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+                      <Building2 className="w-8 h-8 text-blue-500" />
                     </div>
-                  ))}
-                </div>
-              )}
+                    <h3 className="text-lg font-medium text-zinc-900 dark:text-white">No active tenants</h3>
+                    <p className="text-zinc-500 dark:text-zinc-400 mt-2">Provision your first business entity to begin.</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {businesses?.map((b) => (
+                      <div key={b.id} className="p-6 flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center shadow-sm">
+                            <Building2 className="w-6 h-6 text-indigo-500" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-lg">{b.name}</h4>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/business/${b.id}`)}
+                            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-sm font-medium rounded-lg transition-colors border border-zinc-200 dark:border-zinc-700"
+                          >
+                            Access OS
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm mb-6">
+              <h3 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Activity className="w-5 h-5 text-indigo-500 animate-pulse" />
+                Global User Presence & Activity
+              </h3>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                Monitor real-time adoption, user presence states, timeclock sessions, and platform event logs across all business instances.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {businesses?.map((b) => (
+                <BusinessAnalyticsRow 
+                  key={b.id} 
+                  business={b} 
+                  onImpersonate={(staffMember) => handleImpersonate(b.id, staffMember)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

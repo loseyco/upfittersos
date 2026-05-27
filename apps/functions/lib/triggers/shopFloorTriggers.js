@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onActivityFeedCreated = exports.checkStaleBays = exports.onJobUpdated = exports.onZoneUpdated = void 0;
+exports.onJobActivityWritten = exports.onJobChatMessageWritten = exports.onJobTaskWritten = exports.onActivityFeedCreated = exports.checkStaleBays = exports.onJobUpdated = exports.onZoneUpdated = void 0;
 const functions = __importStar(require("firebase-functions/v2"));
 const admin = __importStar(require("firebase-admin"));
 // Helper to fetch tokens for staff in a tenant based on a specific preference
@@ -304,6 +304,48 @@ exports.onActivityFeedCreated = functions.firestore.onDocumentCreated('businesse
             };
             await admin.messaging().sendEachForMulticast(payload);
         }
+    }
+});
+// Triggered when a job's task is created, updated, or deleted
+exports.onJobTaskWritten = functions.firestore.onDocumentWritten('businesses/{tenantId}/jobs/{jobId}/tasks/{taskId}', async (event) => {
+    const { tenantId, jobId } = event.params;
+    const db = admin.firestore();
+    try {
+        await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`Updated job ${jobId} updatedAt due to task write`);
+    }
+    catch (e) {
+        console.error(`Error updating job ${jobId} updatedAt on task write:`, e);
+    }
+});
+// Triggered when a job's chat message is created, updated, or deleted
+exports.onJobChatMessageWritten = functions.firestore.onDocumentWritten('businesses/{tenantId}/jobs/{jobId}/chat_messages/{messageId}', async (event) => {
+    const { tenantId, jobId } = event.params;
+    const db = admin.firestore();
+    try {
+        await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`Updated job ${jobId} updatedAt due to chat message write`);
+    }
+    catch (e) {
+        console.error(`Error updating job ${jobId} updatedAt on chat message write:`, e);
+    }
+});
+// Triggered when a job's activity is created, updated, or deleted
+exports.onJobActivityWritten = functions.firestore.onDocumentWritten('businesses/{tenantId}/jobs/{jobId}/activity/{activityId}', async (event) => {
+    const { tenantId, jobId } = event.params;
+    const db = admin.firestore();
+    try {
+        await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        console.log(`Updated job ${jobId} updatedAt due to activity write`);
+    }
+    catch (e) {
+        console.error(`Error updating job ${jobId} updatedAt on activity write:`, e);
     }
 });
 //# sourceMappingURL=shopFloorTriggers.js.map

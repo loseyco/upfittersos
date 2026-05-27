@@ -67,7 +67,7 @@ export function PrintedPartsMissionControl() {
   const [isQueueModalOpen, setIsQueueModalOpen] = useState(false);
   const [jobs, setJobs] = useState<PrintJob[]>([]);
 
-  const canManage = isSuperAdmin || permissions['parts.manage'];
+  const canManage = isSuperAdmin || permissions['printed_parts.manage'] || permissions['parts.manage'];
 
   useEffect(() => {
     if (!tenantId || tenantId === 'GLOBAL') return;

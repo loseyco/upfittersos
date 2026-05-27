@@ -27,6 +27,7 @@ import { ScheduleBoard } from './ScheduleBoard';
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
 import { VehiclesManager } from './VehiclesManager';
+import { QRManager } from './QRManager';
 import { StaffManager, DepartmentsPage } from './StaffManager';
 import { ReportsManager } from './ReportsManager';
 import { StaffPerformance } from './StaffPerformance';
@@ -45,6 +46,12 @@ import { JobEditPage } from './JobEditPage';
 import { TaskDetailPage } from './TaskDetailPage';
 import { VendorsManager } from './VendorsManager';
 import { FeedbackReports } from '../super-admin/FeedbackReports';
+import { QuickDesk } from './QuickDesk';
+import { MorningMeetingBoard } from './MorningMeetingBoard';
+import { CanvasGalleryTab } from './CanvasGalleryTab';
+import { WorkflowCanvasTab } from './WorkflowCanvasTab';
+import { StaffWorksheet } from './StaffWorksheet';
+import { BayWorksheet } from './BayWorksheet';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -57,8 +64,10 @@ export function TenantDashboard() {
 
   const titleMap: Record<string, string> = {
     overview: 'My Dashboard',
+    quickdesk: 'QuickDesk (Classic)',
     mission_control: 'Mission Control',
     upfitters: 'Upfitters',
+    morning_meeting: 'Morning Meeting Board',
     settings: 'Settings',
     staff: 'Staff',
     reports: 'Reports',
@@ -74,11 +83,15 @@ export function TenantDashboard() {
     customers: 'Customers',
     jobs: 'Jobs',
     vehicles: 'Vehicles',
+    qr_hub: 'QR Label Hub',
     zones: 'Zones',
     bay_monitor: 'Bay Monitor',
     job: 'Job Detail',
+    tasks: 'Todos',
     vendors: 'Vendors & Services',
-    feedback: 'Feedback & Bugs'
+    feedback: 'Feedback & Bugs',
+    staff_worksheet: 'Staff Worksheet',
+    bay_worksheet: 'Bay Worksheet'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -87,7 +100,10 @@ export function TenantDashboard() {
 
   const { tenantId: storeTenantId, impersonatedStaff, stopImpersonating, isSuperAdmin } = useAuthStore();
   const urlTenantId = params.tenantId;
-  const tenantId = (isSuperAdmin && urlTenantId) ? urlTenantId : storeTenantId;
+  let tenantId = (isSuperAdmin && urlTenantId) ? urlTenantId : storeTenantId;
+  if (urlTenantId && storeTenantId && urlTenantId.toLowerCase() === storeTenantId.toLowerCase()) {
+    tenantId = storeTenantId;
+  }
 
   const navigate = useNavigate();
   
@@ -154,7 +170,7 @@ export function TenantDashboard() {
   });
 
   return (
-    <div className="flex min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
+    <div className="flex h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
       <PullToRefresh onRefresh={() => window.location.reload()} />
       {activeTab !== 'bay_monitor' && (
         <BusinessSidebar 
@@ -209,7 +225,7 @@ export function TenantDashboard() {
               </button>
             </div>
           )}
-          {!isLoading && activeTab !== 'bay_monitor' && activeTab !== 'job_schedule' && (
+          {!isLoading && activeTab !== 'bay_monitor' && activeTab !== 'job_schedule' && activeTab !== 'staff_worksheet' && activeTab !== 'bay_worksheet' && (
             <div className="flex items-center justify-between mb-4 md:mb-8">
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex w-14 h-14 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl items-center justify-center shadow-sm">
@@ -254,6 +270,12 @@ export function TenantDashboard() {
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
               <UserMissionControl tenantId={tenantId!} />
+            )}
+
+            {activeTab === 'quickdesk' && (
+              <PermissionGate permission="quickdesk.view">
+                <QuickDesk tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'mission_control' && (
@@ -408,6 +430,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'qr_hub' && (
+              <PermissionGate permission="vehicles.view">
+                <QRManager tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'zones' && (
               <PermissionGate permission="zones.view">
                 <ZonesManager tenantId={tenantId!} />
@@ -417,6 +445,24 @@ export function TenantDashboard() {
             {activeTab === 'bay_monitor' && (
               <PermissionGate permission="facility.view">
                 <BayMonitor tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'morning_meeting' && (
+              <PermissionGate permission="foreman.view">
+                <MorningMeetingBoard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'staff_worksheet' && (
+              <PermissionGate permission="staff_worksheet.view">
+                <StaffWorksheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'bay_worksheet' && (
+              <PermissionGate permission="bay_worksheet.view">
+                <BayWorksheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 
@@ -433,8 +479,19 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'canvases' && (
-              <PermissionGate permission="facility.view">
-                <GenericDataGrid collectionPath={`businesses/${tenantId}/canvases`} title="Canvases" />
+              <PermissionGate permission="whiteboards.view">
+                {pathParts[1] ? (
+                  <WorkflowCanvasTab 
+                    tenantId={tenantId!} 
+                    canvasId={pathParts[1]} 
+                    onBack={() => navigate(`/business/${tenantId}/canvases`)} 
+                  />
+                ) : (
+                  <CanvasGalleryTab 
+                    tenantId={tenantId!} 
+                    onOpenCanvas={(canvasId) => navigate(`/business/${tenantId}/canvases/${canvasId}`)} 
+                  />
+                )}
               </PermissionGate>
             )}
 

@@ -30,6 +30,9 @@ interface TimeSession {
     name: string;
     start: any;
     end?: any;
+    taskId?: string | null;
+    taskName?: string | null;
+    bookTime?: number;
   }>;
   status: string;
 }
@@ -268,37 +271,61 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             </div>
             
             <div className="space-y-3">
-              {jobs.map((j, i) => (
-                <div key={`job-${i}`} className="flex flex-col sm:flex-row gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Start</label>
-                    <input 
-                      type="datetime-local"
-                      value={formatDatetimeLocal(j.start)}
-                      onChange={(e) => updateJob(i, 'start', e.target.value)}
-                      className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
-                    />
+              {jobs.map((j: any, i) => (
+                <div key={`job-${i}`} className="flex flex-col gap-3 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl relative">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Start Time</label>
+                      <input 
+                        type="datetime-local"
+                        value={formatDatetimeLocal(j.start)}
+                        onChange={(e) => updateJob(i, 'start', e.target.value)}
+                        className="w-full bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">End Time</label>
+                      <input 
+                        type="datetime-local"
+                        value={formatDatetimeLocal(j.end)}
+                        onChange={(e) => updateJob(i, 'end', e.target.value)}
+                        className="w-full bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
                   </div>
-                  <div className="flex-1 space-y-1 border-l border-zinc-200 dark:border-zinc-800 pl-3">
-                    <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">End</label>
-                    <input 
-                      type="datetime-local"
-                      value={formatDatetimeLocal(j.end)}
-                      onChange={(e) => updateJob(i, 'end', e.target.value)}
-                      className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold text-zinc-900 dark:text-white"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <input
-                      type="text"
-                      value={j.name}
-                      onChange={(e) => updateJob(i, 'name', e.target.value)}
-                      placeholder="Job Name"
-                      className="w-32 bg-zinc-100 dark:bg-zinc-800 border-none rounded-lg text-xs font-bold px-3 py-1.5 focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white"
-                    />
+                  
+                  <div className="flex flex-col sm:flex-row items-center gap-3 mt-1 pt-3 border-t border-zinc-100 dark:border-zinc-900">
+                    <div className="flex-1 w-full space-y-1">
+                      <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Job / Task Name</label>
+                      <input
+                        type="text"
+                        value={j.name}
+                        onChange={(e) => updateJob(i, 'name', e.target.value)}
+                        placeholder="Job Name"
+                        className="w-full bg-zinc-100 dark:bg-zinc-800 border-none rounded-lg text-xs font-bold px-3 py-1.5 focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white"
+                      />
+                      {j.taskName && (
+                        <p className="text-[10px] text-zinc-400 font-medium ml-1">Task: <span className="font-bold text-indigo-500">{j.taskName}</span></p>
+                      )}
+                    </div>
+                    
+                    <div className="w-full sm:w-24 space-y-1">
+                      <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Book Time (h)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={j.bookTime ?? 0}
+                        onChange={(e) => updateJob(i, 'bookTime', parseFloat(e.target.value) || 0)}
+                        placeholder="0.0"
+                        className="w-full bg-zinc-100 dark:bg-zinc-800 border-none rounded-lg text-xs font-bold px-3 py-1.5 focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white"
+                      />
+                    </div>
+
                     <button 
                       onClick={() => removeJob(i)}
-                      className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors"
+                      className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors mt-4 self-end shrink-0"
+                      title="Remove job segment"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

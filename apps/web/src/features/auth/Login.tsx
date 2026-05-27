@@ -18,7 +18,11 @@ export function Login() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      if (isSuperAdmin) {
+      const pendingRedirect = localStorage.getItem('pendingQrRedirect');
+      if (pendingRedirect) {
+        localStorage.removeItem('pendingQrRedirect');
+        navigate(pendingRedirect);
+      } else if (isSuperAdmin) {
         navigate('/super-admin');
       } else if (tenantId) {
         navigate(`/business/${tenantId}`);

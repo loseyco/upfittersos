@@ -1,17 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc, getDoc, limit } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, 
+  Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, XCircle,
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
   AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight,
-  Search, Users, X, ShieldAlert
+  Search, Users, X, ShieldAlert, Printer
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
-import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useJobClock } from '../timeclock/useJobClock';
 import { JobChat } from './components/JobChat';
 import { PartsRequestModal } from './PartsRequestModal';
@@ -25,8 +24,52 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const jobId = pathParts[1];
   
   const navigate = useNavigate();
-  const { user, permissions, isSuperAdmin } = useAuthStore();
-  const { activeSessionId } = useTimeclockStore();
+  const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
+  const effectiveUserId = impersonatedStaff?.id || user?.uid;
+  
+  const canClockOthers = isSuperAdmin || permissions['tasks.clock_others'] === true;
+  
+  const [staffMember, setStaffMember] = useState<any>(null);
+  const [allStaff, setAllStaff] = useState<any[]>([]);
+  
+  // Track technician staff member record
+  useEffect(() => {
+    if (!tenantId || !effectiveUserId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/staff`),
+      where('userId', '==', effectiveUserId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setStaffMember({ 
+          id: snap.docs[0].id, 
+          ...data,
+          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+        });
+      } else {
+        setStaffMember(null);
+      }
+    });
+    return () => unsub();
+  }, [tenantId, effectiveUserId]);
+
+  // Track all staff members for clock-others mapping
+  useEffect(() => {
+    if (!tenantId || !canClockOthers) return;
+    const unsub = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
+      setAllStaff(snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          ...data,
+          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+        };
+      }));
+    });
+    return () => unsub();
+  }, [tenantId, canClockOthers]);
+
   const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
   
   const [job, setJob] = useState<any>(null);
@@ -38,6 +81,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const [isETAOpen, setIsETAOpen] = useState(false);
   const [parts, setParts] = useState<any[]>([]);
   const [selectedTaskForPart, setSelectedTaskForPart] = useState<any>(null);
+  const [selectedPartForEdit, setSelectedPartForEdit] = useState<any>(null);
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [selectedStaffFilter, setSelectedStaffFilter] = useState('all');
   
@@ -105,6 +149,152 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [jobId, tenantId]);
 
+  const isUserClockedIntoTask = (userId: string, taskId: string, staffName?: string) => {
+    return timeLogs.some(session => {
+      const matchesUid = session.userId === userId;
+      const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
+      const targetName = (staffName || '').toLowerCase().trim();
+      const matchesName = targetName && sessionName && (sessionName === targetName);
+      
+      return (matchesUid || matchesName) && 
+        (session.jobs || []).some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+    });
+  };
+
+  const handleClockOther = async (targetUid: string, targetName: string, taskId: string, taskTitle: string, action: 'in' | 'out') => {
+    try {
+      const q = query(
+        collection(db, `businesses/${tenantId}/time_sessions`),
+        where('userId', '==', targetUid),
+        where('status', '==', 'active'),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      const activeSession = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() as any };
+
+      if (action === 'in') {
+        let bookTime = 0;
+        try {
+          const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
+          if (taskSnap.exists()) {
+            bookTime = parseFloat(taskSnap.data().bookTime) || 0;
+          }
+        } catch (err) {
+          console.warn('Could not fetch task bookTime', err);
+        }
+
+        if (activeSession) {
+          const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
+          const jobs = [...(activeSession.jobs || [])];
+          
+          const isAlreadyClockedIn = jobs.some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+          if (isAlreadyClockedIn) {
+            toast.info(`${targetName} is already clocked into this task.`);
+            return;
+          }
+
+          jobs.push({
+            id: jobId,
+            name: job.title,
+            taskId: taskId || null,
+            taskName: taskTitle || null,
+            bookTime,
+            start: new Date(),
+            clockedByUid: user?.uid,
+            clockedByName: user?.displayName || user?.email || 'Manager'
+          });
+
+          await updateDoc(sessionRef, {
+            jobs,
+            jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
+            updatedAt: serverTimestamp()
+          });
+          
+          await logActivity(
+            'status_changed', 
+            `Manager ${user?.displayName || user?.email} clocked ${targetName} into task: ${taskTitle}`,
+            { targetUid, targetName, taskId, taskTitle }
+          );
+          
+          toast.success(`Clocked ${targetName} into ${taskTitle}`);
+        } else {
+          await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
+            userId: targetUid,
+            userName: targetName,
+            clockIn: {
+              timestamp: serverTimestamp(),
+              location: 'Shop Floor (Auto)'
+            },
+            status: 'active',
+            tenantId,
+            jobs: [
+              {
+                id: jobId,
+                name: job.title,
+                taskId: taskId || null,
+                taskName: taskTitle || null,
+                bookTime,
+                start: new Date(),
+                clockedByUid: user?.uid,
+                clockedByName: user?.displayName || user?.email || 'Manager'
+              }
+            ],
+            jobIds: [jobId],
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          
+          await logActivity(
+            'status_changed', 
+            `Manager ${user?.displayName || user?.email} clocked ${targetName} in for the day and into task: ${taskTitle}`,
+            { targetUid, targetName, taskId, taskTitle }
+          );
+
+          toast.success(`Clocked ${targetName} in for the day and into ${taskTitle}`);
+        }
+      } else {
+        if (!activeSession) {
+          toast.error(`${targetName} has no active clock session.`);
+          return;
+        }
+
+        const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
+        const jobs = [...(activeSession.jobs || [])];
+        let closedCount = 0;
+
+        jobs.forEach((j: any) => {
+          if (!j.end && j.id === jobId && j.taskId === taskId) {
+            j.end = new Date();
+            j.clockedOutByUid = user?.uid;
+            j.clockedOutByName = user?.displayName || user?.email || 'Manager';
+            closedCount++;
+          }
+        });
+
+        if (closedCount > 0) {
+          await updateDoc(sessionRef, {
+            jobs,
+            jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
+            updatedAt: serverTimestamp()
+          });
+          
+          await logActivity(
+            'status_changed', 
+            `Manager ${user?.displayName || user?.email} clocked ${targetName} out of task: ${taskTitle}`,
+            { targetUid, targetName, taskId, taskTitle }
+          );
+
+          toast.success(`Clocked ${targetName} out of ${taskTitle}`);
+        } else {
+          toast.info(`${targetName} was not clocked into this task.`);
+        }
+      }
+    } catch (err) {
+      console.error('Error clocking other staff:', err);
+      toast.error('Failed to update staff clock status.');
+    }
+  };
+
   const [tasksLoaded, setTasksLoaded] = useState(false);
   const addingGeneralRef = useRef(false);
 
@@ -117,15 +307,22 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       addingGeneralRef.current = true;
       const addGeneralTask = async () => {
         try {
-          await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
-            title: 'General',
-            description: 'General shop work and cleanup',
-            bookTime: 0,
-            status: 'pending',
-            tenantId: tenantId,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          });
+          const q = query(
+            collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`),
+            where('title', '==', 'General')
+          );
+          const snap = await getDocs(q);
+          if (snap.empty) {
+            await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
+              title: 'General',
+              description: 'General shop work and cleanup',
+              bookTime: 0,
+              status: 'pending',
+              tenantId: tenantId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+          }
         } catch (e) {
           console.error("Error adding general task:", e);
           addingGeneralRef.current = false;
@@ -162,26 +359,43 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [tenantId]);
 
-  // Sync Active Job/Task from current session
+  // Sync Active Job/Task from current session of the effective user (self or impersonated)
   useEffect(() => {
-    if (!tenantId || !activeSessionId) {
+    if (!tenantId || !effectiveUserId) {
       setActiveTasks([]);
       return;
     }
-    const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        const jobs = data.jobs || [];
+    
+    // We listen to all active sessions to see if one matches effectiveUserId or staffMember?.name
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('status', '==', 'active')
+    );
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const activeSession = snap.docs.find(d => {
+        const data = d.data();
+        const matchesUid = data.userId === effectiveUserId;
+        const sessionName = (data.userName || data.staffName || '').toLowerCase().trim();
+        const targetName = (staffMember?.name || '').toLowerCase().trim();
+        const matchesName = targetName && sessionName && (sessionName === targetName);
+        return matchesUid || matchesName;
+      });
+      
+      if (activeSession) {
+        const jobs = activeSession.data().jobs || [];
         const activeSegments = jobs.filter((j: any) => !j.end);
         
         // Track all active segments
         setActiveTasks(activeSegments.map((j: any) => ({ jobId: j.id, taskId: j.taskId || null })));
+      } else {
+        setActiveTasks([]);
       }
     }, (err) => {
       console.error("Session sync listener error:", err);
     });
     return () => unsub();
-  }, [tenantId, activeSessionId]);
+  }, [tenantId, effectiveUserId, staffMember?.name]);
 
   // Fetch Zones
   useEffect(() => {
@@ -250,28 +464,46 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
 
-  const handleTaskStatusChange = async (taskId: string, currentStatus: string) => {
+  const handleTaskStatusChange = async (taskId: string, currentStatus: string, action?: 'pass' | 'fail') => {
     let nextStatus = '';
-    if (currentStatus === 'pending' || currentStatus === 'in_progress') {
+    if (currentStatus === 'pending' || currentStatus === 'in_progress' || currentStatus === 'Rework') {
       nextStatus = 'QC'; // Mark complete -> Needs QC
     } else if (currentStatus === 'QC') {
-      nextStatus = 'QC Complete';
+      if (action === 'fail') {
+        nextStatus = 'Rework';
+      } else {
+        nextStatus = 'QC Complete';
+      }
     } else {
       return;
     }
 
     try {
-      // 1. Update the task
-      await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), {
+      const task = tasks.find(t => t.id === taskId);
+      const updateData: any = {
         status: nextStatus,
-        updatedAt: new Date().toISOString(),
-        [nextStatus === 'QC' ? 'completedAt' : 'qcCompletedAt']: new Date().toISOString(),
-        [nextStatus === 'QC' ? 'completedBy' : 'qcCompletedBy']: user?.displayName || user?.email
-      });
+        updatedAt: new Date().toISOString()
+      };
+
+      if (nextStatus === 'QC') {
+        if (!task?.completedAt) {
+          updateData.completedAt = new Date().toISOString();
+        }
+        updateData.completedBy = user?.displayName || user?.email;
+      } else if (nextStatus === 'QC Complete') {
+        updateData.qcCompletedAt = new Date().toISOString();
+        updateData.qcCompletedBy = user?.displayName || user?.email;
+      } else if (nextStatus === 'Rework') {
+        updateData.qcFailedAt = new Date().toISOString();
+        updateData.qcFailedBy = user?.displayName || user?.email;
+      }
+
+      // 1. Update the task
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateData);
       toast.success(`Task marked as ${nextStatus}`);
 
-      // Auto clock out anyone clocked into this task since it is complete/ready for QC
-      if (nextStatus === 'QC' || nextStatus === 'QC Complete') {
+      // Auto clock out anyone clocked into this task since it is complete/ready for QC/rework
+      if (nextStatus === 'QC' || nextStatus === 'QC Complete' || nextStatus === 'Rework') {
         await clockOutOfJob(jobId, taskId);
         // Also clock out any other tech clocked in
         const q = query(
@@ -510,6 +742,10 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   };
 
   const handleNoChange = async () => {
+    if (!isSuperAdmin && !permissions['jobs.manage']) {
+      toast.error('You do not have permission to perform this action');
+      return;
+    }
     try {
       await logActivity('patrol_check', 'Patrol Check: Confirmed no changes needed at this time.');
       
@@ -616,9 +852,14 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   // Progress Calculation Logic
   const canViewAll = isSuperAdmin || permissions['jobs.view'] || permissions['tasks.view'];
   const visibleTasks = canViewAll ? tasks : tasks.filter(task => {
-    return task.title === 'General' || 
-      task.assignedStaffIds?.includes(user?.uid) || 
-      task.assignedStaff?.some((s: any) => (s.uid || s.id) === user?.uid);
+    const isAssigned = 
+      task.assignedStaffIds?.includes(effectiveUserId) || 
+      task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
+      (staffMember?.id && (
+        task.assignedStaffIds?.includes(staffMember.id) || 
+        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
+      ));
+    return task.title === 'General' || isAssigned;
   });
 
   const nonGeneralTasks = visibleTasks.filter(t => t.title !== 'General');
@@ -801,8 +1042,12 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   );
 
   const hasAccess = isSuperAdmin || permissions['jobs.view'] || tasks.some(task => {
-    const isAssigned = task.assignedStaffIds?.includes(user?.uid) || 
-      task.assignedStaff?.some((s: any) => (s.uid || s.id) === user?.uid);
+    const isAssigned = task.assignedStaffIds?.includes(effectiveUserId) || 
+      task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
+      (staffMember?.id && (
+        task.assignedStaffIds?.includes(staffMember.id) || 
+        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
+      ));
     return !!isAssigned;
   });
 
@@ -821,6 +1066,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   }
 
   const scheduledBay = zones.find(z => z.id === job.bayId || z.name === job.bayId)?.name || job.bayId || 'Not Set';
+  const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
 
   const etaComparison = (() => {
     if (!dynamicETA || !job.scheduledEndDate) return null;
@@ -867,21 +1113,30 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <button 
-            onClick={handleNoChange}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 transition-all"
-          >
-            <Sparkles className="w-4 h-4" />
-            No Change
-          </button>
-          {permissions['jobs.manage'] && (
-            <button 
-              onClick={() => navigate(`/business/${tenantId}/job/${jobId}/edit`)}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm font-bold shadow-sm transition-all"
-            >
-              <Edit3 className="w-4 h-4" />
-              Edit Job
-            </button>
+          {(isSuperAdmin || permissions['jobs.manage']) && (
+            <>
+              <button 
+                onClick={handleNoChange}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 transition-all"
+              >
+                <Sparkles className="w-4 h-4" />
+                No Change
+              </button>
+              <button 
+                onClick={() => navigate(`/business/${tenantId}/qr_hub?search=${job.jobNumber || job.id}`)}
+                className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-850 dark:hover:bg-zinc-800 border border-zinc-800 text-white rounded-xl text-sm font-bold shadow-sm transition-all"
+              >
+                <Printer className="w-4 h-4 text-indigo-400" />
+                Print QR
+              </button>
+              <button 
+                onClick={() => navigate(`/business/${tenantId}/job/${jobId}/edit`)}
+                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm font-bold shadow-sm transition-all"
+              >
+                <Edit3 className="w-4 h-4" />
+                Edit Job
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1082,13 +1337,17 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                     const loggedMs = getTaskLoggedMs(task.id);
                                     const isAssigned = task.title === 'General' || 
                                                       isSuperAdmin || 
-                                                      task.assignedStaffIds?.includes(user?.uid) || 
-                                                      task.assignedStaff?.some((s: any) => s.uid === user?.uid || s.id === user?.uid);
+                                                      task.assignedStaffIds?.includes(effectiveUserId) || 
+                                                      task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
+                                                      (staffMember?.id && (
+                                                        task.assignedStaffIds?.includes(staffMember.id) || 
+                                                        task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
+                                                      ));
                                     const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
-                                    const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id);
+                                    const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
+                                                          isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
 
                                     const taskParts = parts.filter(p => p.taskId === task.id);
-                                    const totalParts = taskParts.length;
                                     const receivedParts = taskParts.filter(p => p.status === 'received' || p.status === 'delivered').length;
                                     const orderedParts = taskParts.filter(p => p.status === 'ordered').length;
                                     const pendingParts = taskParts.filter(p => p.status === 'pending' || p.status === 'requested').length;
@@ -1136,10 +1395,21 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 task.status === 'QC' ? "bg-amber-500/10 text-amber-600" :
                                                 task.status === 'QC Complete' ? "bg-emerald-500/10 text-emerald-600" :
                                                 task.status === 'Blocked' ? "bg-rose-500/10 text-rose-600" :
+                                                task.status === 'Rework' || task.isRework ? "bg-rose-500/10 text-rose-600 border border-rose-500/20" :
                                                 "bg-indigo-500/10 text-indigo-600"
                                               )}>
                                                 {task.status || 'Pending'}
                                               </span>
+                                              {task.isDiagnostic && (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:bg-purple-500/25 dark:text-purple-300 border border-purple-500/20">
+                                                  Diagnostic
+                                                </span>
+                                              )}
+                                              {task.isRework && task.status !== 'Rework' && (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:bg-rose-500/25 dark:text-rose-300 border border-rose-500/20">
+                                                  Rework
+                                                </span>
+                                              )}
                                               {isUnassigned && (
                                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:bg-amber-500/25 dark:text-amber-300 border border-amber-500/20 flex items-center gap-1 animate-pulse">
                                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
@@ -1188,7 +1458,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                               </div>
                                               
                                               {/* Parts Status Tag */}
-                                              {totalParts > 0 && (
+                                              {(pendingParts > 0 || orderedParts > 0 || receivedParts > 0) && (
                                                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-[10px] font-black uppercase tracking-widest w-fit">
                                                   <Wrench className="w-3 h-3 text-amber-500" />
                                                   <span className="text-zinc-500">Parts:</span>
@@ -1218,20 +1488,36 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                           </div>
 
                                           <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0 w-full md:w-auto">
-                                            {isAssigned && (
+                                            {(isAssigned || canClockOthers) && (
                                               <>
                                                 {isCurrentTask ? (
                                                   <button 
-                                                    onClick={(e) => { e.stopPropagation(); clockOutOfJob(jobId, task.id); }}
+                                                    onClick={async (e) => { 
+                                                      e.stopPropagation(); 
+                                                      if (effectiveUserId && effectiveUserId !== user?.uid) {
+                                                        const resolvedStaffName = staffMember?.name || allStaff.find(s => s.userId === effectiveUserId || s.id === effectiveUserId)?.name || 'Technician';
+                                                        await handleClockOther(effectiveUserId, resolvedStaffName, task.id, task.title, 'out');
+                                                      } else {
+                                                        await clockOutOfJob(jobId, task.id); 
+                                                      }
+                                                    }}
                                                     className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
                                                   >
                                                     <Timer className="w-4 h-4 animate-pulse" />
                                                     Clock Out
                                                   </button>
                                                 ) : (
-                                                   task.status !== 'QC Complete' && !['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '') && (
+                                                   task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '') && (
                                                     <button 
-                                                      onClick={(e) => { e.stopPropagation(); clockIntoJob(jobId, job.title, task.id, task.title); }}
+                                                      onClick={async (e) => { 
+                                                        e.stopPropagation(); 
+                                                        if (effectiveUserId && effectiveUserId !== user?.uid) {
+                                                          const resolvedStaffName = staffMember?.name || allStaff.find(s => s.userId === effectiveUserId || s.id === effectiveUserId)?.name || 'Technician';
+                                                          await handleClockOther(effectiveUserId, resolvedStaffName, task.id, task.title, 'in');
+                                                        } else {
+                                                          await clockIntoJob(jobId, job.title, task.id, task.title); 
+                                                        }
+                                                      }}
                                                       disabled={isClockingIn}
                                                       className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
                                                     >
@@ -1242,18 +1528,40 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 )}
                                                 
                                                 {task.status !== 'QC Complete' && task.title !== 'General' && (
-                                                  <button 
-                                                    onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(task.id, task.status || 'pending'); }}
-                                                    className={cn(
-                                                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg",
-                                                      task.status === 'QC' 
-                                                        ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20" 
-                                                        : "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 shadow-sm"
-                                                    )}
-                                                  >
-                                                    <CheckCircle2 className="w-4 h-4" />
-                                                    {task.status === 'QC' ? 'QC Complete' : 'Mark Complete'}
-                                                  </button>
+                                                  task.status === 'QC' ? (
+                                                    <div className="flex items-center gap-2">
+                                                      {canPerformQC ? (
+                                                        <>
+                                                          <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(task.id, task.status || 'pending', 'pass'); }}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white hover:bg-emerald-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20"
+                                                          >
+                                                            <CheckCircle2 className="w-4 h-4" />
+                                                            Pass QC
+                                                          </button>
+                                                          <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(task.id, task.status || 'pending', 'fail'); }}
+                                                            className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white hover:bg-rose-600 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-500/20"
+                                                          >
+                                                            <XCircle className="w-4 h-4" />
+                                                            Fail QC
+                                                          </button>
+                                                        </>
+                                                      ) : (
+                                                        <span className="text-[10px] font-black text-amber-500 bg-amber-500/5 px-3 py-2 rounded-xl border border-amber-550/20 uppercase tracking-widest">
+                                                          Awaiting QA Approval
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  ) : (
+                                                    <button 
+                                                      onClick={(e) => { e.stopPropagation(); handleTaskStatusChange(task.id, task.status || 'pending'); }}
+                                                      className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm"
+                                                    >
+                                                      <CheckCircle2 className="w-4 h-4" />
+                                                      {task.status === 'Rework' ? 'Mark Fixed' : 'Mark Complete'}
+                                                    </button>
+                                                  )
                                                 )}
                                               </>
                                             )}
@@ -1270,6 +1578,53 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                             </button>
                                           </div>
                                         </div>
+                                        {/* Clock Staff (For Managers / Admins) */}
+                                        {canClockOthers && task.assignedStaff && task.assignedStaff.length > 0 && (
+                                          <div 
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-3 w-full"
+                                          >
+                                            <span className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mr-1">Clock Staff:</span>
+                                            <div className="flex flex-wrap gap-2">
+                                              {task.assignedStaff.map((staff: any) => {
+                                                const staffUid = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.userId || staff.id || staff.uid;
+                                                const resolvedStaffName = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.name || staff.name;
+
+                                                const isClockedIn = isUserClockedIntoTask(staffUid, task.id, resolvedStaffName);
+
+                                                return (
+                                                  <div 
+                                                    key={staff.id || staff.uid} 
+                                                    className="flex items-center gap-2 bg-zinc-100 dark:bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm"
+                                                  >
+                                                    <span className="flex items-center gap-1.5 text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                                                      <span className={cn(
+                                                        "w-1.5 h-1.5 rounded-full shrink-0",
+                                                        isClockedIn ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
+                                                      )} />
+                                                      {staff.name}
+                                                    </span>
+                                                    {isClockedIn ? (
+                                                      <button
+                                                        onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'out')}
+                                                        className="px-2 py-1 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm shadow-rose-500/10"
+                                                      >
+                                                        Clock Out
+                                                      </button>
+                                                    ) : (
+                                                      <button
+                                                        onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'in')}
+                                                        className="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm shadow-indigo-500/10"
+                                                      >
+                                                        Clock In
+                                                      </button>
+                                                    )}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -1676,7 +2031,6 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
               </div>
               <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">{parts.length} Total</span>
             </div>
-            
             <div className="space-y-3">
               {parts.length === 0 ? (
                 <p className="text-xs text-zinc-500 italic text-center py-4">No parts requested for this job.</p>
@@ -1687,7 +2041,10 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     <div 
                       key={part.id} 
                       onClick={() => {
-                        if (targetTaskId) {
+                        const canManageParts = isSuperAdmin || permissions['parts.manage'];
+                        if (canManageParts) {
+                          setSelectedPartForEdit(part);
+                        } else if (targetTaskId) {
                           navigate(`/business/${tenantId}/task/${jobId}/${targetTaskId}`);
                         }
                       }}
@@ -1707,7 +2064,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                           </span>
                         </div>
                         <p className="text-[10px] text-zinc-500 truncate">
-                          {part.taskTitle ? `Task: ${part.taskTitle}` : 'General Part'}
+                          Qty: {part.quantity || 1} • {part.taskTitle ? `Task: ${part.taskTitle}` : 'General Part'}
                           {part.location && ` • Location: ${part.location}`}
                         </p>
                       </div>
@@ -1740,6 +2097,14 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                   );
                 })
               )}
+
+              <button 
+                onClick={() => setIsPartRequestOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 border border-amber-500 text-amber-600 dark:text-amber-500 rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-amber-500/5 transition-all mt-2"
+              >
+                <Wrench className="w-4 h-4" />
+                Request Parts
+              </button>
             </div>
           </div>
 
@@ -1861,21 +2226,24 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      {isPartRequestOpen && (
+      {(isPartRequestOpen || selectedPartForEdit) && (
         <PartsRequestModal 
           tenantId={tenantId}
           user={user}
           jobId={jobId}
           jobTitle={job.title}
-          taskId={selectedTaskForPart?.id}
-          taskTitle={selectedTaskForPart?.title}
+          taskId={selectedTaskForPart?.id || selectedPartForEdit?.taskId}
+          taskTitle={selectedTaskForPart?.title || selectedPartForEdit?.taskTitle}
+          part={selectedPartForEdit}
           onClose={() => {
             setIsPartRequestOpen(false);
             setSelectedTaskForPart(null);
+            setSelectedPartForEdit(null);
           }}
           onSuccess={() => {
             setIsPartRequestOpen(false);
             setSelectedTaskForPart(null);
+            setSelectedPartForEdit(null);
           }}
         />
       )}

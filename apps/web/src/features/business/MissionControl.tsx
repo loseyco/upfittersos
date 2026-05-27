@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
-  Clock, AlertCircle, ArrowRight, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X,
+  Clock, AlertCircle, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X,
   Maximize, Minimize, ShoppingCart
 } from 'lucide-react';
 import { 
@@ -87,7 +87,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   });
 
   // Recent activity fetching
-  const { data: recentJobs, isLoading: jobsLoading } = useQuery({
+  const { data: recentJobs } = useQuery({
     queryKey: ['mission-control-recent-jobs', tenantId],
     queryFn: async () => {
       const q = query(
@@ -240,6 +240,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
             jobUpdate.currentParkingSessionStart = null;
           }
 
+          if (trimmedVin && job && job.vehicleVin !== trimmedVin) {
+            jobUpdate.vehicleVin = trimmedVin;
+          }
+
           await updateDoc(doc(db, `businesses/${tenantId}/jobs`, targetJobId), jobUpdate);
         }
 
@@ -300,10 +304,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     };
   }, [tenantId]);
 
-  const zonesLoading = zones.length === 0 && !tenantId;
+
 
   // Shipments Fetching
-  const { data: shipments, isLoading: shipmentsLoading } = useQuery({
+  const { data: shipments } = useQuery({
     queryKey: ['mission-control-shipments', tenantId],
     queryFn: async () => {
       const q = query(
@@ -817,11 +821,15 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         if (etaDate.getTime() - Date.now() < 0) isOverdue = true;
                       }
 
+                      const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed'].includes(job?.status || '');
+
                       let customStyle = "hover:bg-zinc-50 dark:hover:bg-zinc-800/30 border-transparent";
-                      if (isBlocked) {
-                        customStyle = "bg-red-500/20 border-red-500 hover:bg-red-500/30 dark:bg-red-900/40";
+                      if (isFinished) {
+                        customStyle = "bg-emerald-500/10 border-emerald-500/50 hover:bg-emerald-500/20 dark:bg-emerald-900/20 dark:border-emerald-500/30";
+                      } else if (isBlocked) {
+                        customStyle = "bg-red-500/10 border-red-500/50 hover:bg-red-500/20 dark:bg-red-900/20 dark:border-red-500/30";
                       } else if (isPartsMissing) {
-                        customStyle = "bg-amber-500/20 border-amber-500 hover:bg-amber-500/30 dark:bg-amber-900/40";
+                        customStyle = "bg-amber-500/10 border-amber-500/50 hover:bg-amber-500/20 dark:bg-amber-900/20 dark:border-amber-500/30";
                       } else if (isOverdue) {
                         customStyle = "border-red-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30";
                       } else if (isPartsOrderedOrReceived) {
@@ -855,9 +863,19 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-xs text-zinc-400 truncate">
                                 {job ? (
-                                  <span className="text-emerald-500 font-bold uppercase tracking-tight">
-                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
-                                  </span>
+                                  <>
+                                    <span className="text-emerald-500 font-bold uppercase tracking-tight">
+                                      {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                    </span>
+                                    {isFinished && (
+                                      <>
+                                        <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                        <span className="text-emerald-500 font-black uppercase tracking-[0.1em] text-[10px]">
+                                          READY FOR QA
+                                        </span>
+                                      </>
+                                    )}
+                                  </>
                                 ) : (
                                   <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                     Missing Job
@@ -914,14 +932,17 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               </div>
                             </div>
                             {(() => {
-                              if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+                              const activeSessionStart = job?.currentBaySessionStart || bay.lastAssignedAt;
+                              const sessionStartTs = activeSessionStart || timestamp;
+
+                              if (!sessionStartTs) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
                               
                               // Arrival time for duration calculation
-                              const arrivalTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+                              const arrivalTime = sessionStartTs.seconds ? sessionStartTs.seconds * 1000 : new Date(sessionStartTs).getTime();
                               
                               // Last activity time for the label (always use updatedAt if available)
                               const activityTs = bay.updatedAt || timestamp;
-                              const activityTime = activityTs.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
+                              const activityTime = activityTs?.seconds ? activityTs.seconds * 1000 : new Date(activityTs).getTime();
                               
                               const hours = (Date.now() - arrivalTime) / (1000 * 60 * 60);
                               const colorClass = hours >= 48 ? 'text-red-500' : hours >= 24 ? 'text-amber-500' : 'text-emerald-500';
@@ -930,12 +951,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                 <div className="flex flex-col items-end shrink-0">
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
                                     <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
-                                    {calculateDuration(timestamp)}
+                                    {calculateDuration(sessionStartTs)}
                                   </span>
-                                  {job && (calculateTotalDuration(job.totalBayTimeSeconds, job.currentBaySessionStart)) && (
+                                  {job && (calculateTotalDuration(job.totalBayTimeSeconds, activeSessionStart)) && (
                                     <span className="text-indigo-500 font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5">
                                       <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL BAY:</span>
-                                      {calculateTotalDuration(job.totalBayTimeSeconds, job.currentBaySessionStart)}
+                                      {calculateTotalDuration(job.totalBayTimeSeconds, activeSessionStart)}
                                     </span>
                                   )}
                                   {(() => {
@@ -1027,6 +1048,48 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         const timestamp = zone.lastAssignedAt || zone.updatedAt;
                         const itemKey = `${zone.id}-${vin}-${index}`;
 
+                        const etaRaw = job?.expectedFinishTime || job?.eta || zone.eta;
+                        let isOverdue = false;
+                        if (etaRaw) {
+                          const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+                          if (etaDate.getTime() - Date.now() < 0) isOverdue = true;
+                        }
+
+                        const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed'].includes(job?.status || '');
+                        
+                        // We duplicate parts/blockers logic lightly here for consistent styling
+                        const target = job || zone;
+                        const legacyBlocker = target?.blocker ? [{ message: target.blocker, status: 'active' }] : [];
+                        const activeBlockers = (target?.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+                        const isBlocked = activeBlockers.length > 0 || target?.status === 'Blocked' || job?.status === 'Blocked' || zone?.status === 'Blocked';
+                        
+                        const currentVin = job?.vehicleVin || vin;
+                        const relevantParts = partsRequests.filter((pr: any) => {
+                          const prStatus = (pr.status || '').toLowerCase();
+                          if (!['pending', 'received', 'ordered'].includes(prStatus)) return false;
+                          if (job?.id && pr.jobId === job.id) return true;
+                          if (currentVin && pr.vin === currentVin) return true;
+                          return false;
+                        });
+                        const reqCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'pending').length;
+                        const ordCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'ordered').length;
+                        const recCount = relevantParts.filter(pr => (pr.status || '').toLowerCase() === 'received').length;
+                        const isPartsMissing = reqCount > 0;
+                        const isPartsOrderedOrReceived = ordCount > 0 || recCount > 0;
+
+                        let customStyle = "hover:bg-zinc-50 dark:hover:bg-zinc-800/30 border-transparent";
+                        if (isFinished) {
+                          customStyle = "bg-emerald-500/10 border-emerald-500/50 hover:bg-emerald-500/20 dark:bg-emerald-900/20 dark:border-emerald-500/30";
+                        } else if (isBlocked) {
+                          customStyle = "bg-red-500/10 border-red-500/50 hover:bg-red-500/20 dark:bg-red-900/20 dark:border-red-500/30";
+                        } else if (isPartsMissing) {
+                          customStyle = "bg-amber-500/10 border-amber-500/50 hover:bg-amber-500/20 dark:bg-amber-900/20 dark:border-amber-500/30";
+                        } else if (isOverdue) {
+                          customStyle = "border-red-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30";
+                        } else if (isPartsOrderedOrReceived) {
+                          customStyle = "border-amber-500/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30";
+                        }
+
                         return (
                           <div 
                             key={itemKey} 
@@ -1039,7 +1102,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                 setSelectedZoneId(zone.id);
                               }
                             }}
-                            className="relative group/item cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30 transition-colors rounded-xl px-2 -mx-2 pointer-events-auto"
+                            className={cn(
+                              "relative group/item cursor-pointer transition-colors rounded-xl px-2 -mx-2 pointer-events-auto border",
+                              customStyle
+                            )}
                           >
                           <div className="flex items-center justify-between py-1 border-b border-zinc-50/50 dark:border-zinc-800/50 last:border-0 group-hover/item:border-transparent">
                             <div className="flex flex-col min-w-0 flex-1 mr-2 text-left">
@@ -1051,9 +1117,19 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               </div>
                               <div className="flex flex-wrap items-center gap-1.5 pl-[104px] text-sm sm:text-base text-zinc-400 truncate">
                                 {job ? (
-                                  <span className="text-emerald-500 font-black uppercase tracking-tight">
-                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
-                                  </span>
+                                  <>
+                                    <span className="text-emerald-500 font-black uppercase tracking-tight">
+                                      {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                    </span>
+                                    {isFinished && (
+                                      <>
+                                        <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                                        <span className="text-emerald-500 font-black uppercase tracking-[0.1em] text-[10px]">
+                                          READY FOR QA
+                                        </span>
+                                      </>
+                                    )}
+                                  </>
                                 ) : (
                                   <span className="text-red-500 font-black uppercase tracking-[0.1em] text-[10px]">
                                     Missing Job
@@ -1135,8 +1211,11 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                               </div>
                             </div>
                             {(() => {
-                              if (!timestamp) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
-                              const assignedTime = timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime();
+                              const activeSessionStart = job?.currentParkingSessionStart || zone.lastAssignedAt;
+                              const sessionStartTs = activeSessionStart || timestamp;
+
+                              if (!sessionStartTs) return <span className="text-zinc-400 font-mono font-bold whitespace-nowrap text-sm">---</span>;
+                              const assignedTime = sessionStartTs.seconds ? sessionStartTs.seconds * 1000 : new Date(sessionStartTs).getTime();
                               const hours = (Date.now() - assignedTime) / (1000 * 60 * 60);
                               // Parking rules: 1 week (168h), 2 weeks (336h)
                               const colorClass = hours >= 336 ? 'text-red-500' : hours >= 168 ? 'text-amber-500' : 'text-emerald-500';
@@ -1144,12 +1223,12 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                 <div className="flex flex-col items-end shrink-0">
                                   <span className={`${colorClass} font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none`}>
                                     <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">SESSION:</span>
-                                    {calculateDuration(timestamp)}
+                                    {calculateDuration(sessionStartTs)}
                                   </span>
-                                  {job && (calculateTotalDuration(job.totalParkingTimeSeconds, job.currentParkingSessionStart)) && (
+                                  {job && (calculateTotalDuration(job.totalParkingTimeSeconds, activeSessionStart)) && (
                                     <span className="text-zinc-500 font-mono font-bold whitespace-nowrap text-[10px] sm:text-xs leading-none mt-0.5">
                                       <span className="text-[9px] uppercase tracking-tighter opacity-70 mr-1">TOTAL LOT:</span>
-                                      {calculateTotalDuration(job.totalParkingTimeSeconds, job.currentParkingSessionStart)}
+                                      {calculateTotalDuration(job.totalParkingTimeSeconds, activeSessionStart)}
                                     </span>
                                   )}
                                   <span className={`text-[10px] font-medium uppercase tracking-tighter mt-0.5 ${hours >= 168 ? 'text-amber-500' : 'text-zinc-400'}`}>

@@ -26,6 +26,7 @@ export interface UserProfile {
   jobTitle?: string;
   department?: string;
   role?: string;
+  techNumber?: string;
   payRate?: string | number;
   payType?: string;
   startDate?: string;
@@ -108,6 +109,7 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
             jobTitle: rawStaff.jobTitle,
             department: rawStaff.departmentId, // We'll need to resolve name later or just use ID
             role: rawStaff.role,
+            techNumber: rawStaff.techNumber,
             payRate: rawStaff.payRate,
             payType: rawStaff.payType,
             startDate: rawStaff.hireDate,
@@ -161,6 +163,7 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
           // Only sync employment fields if user is admin
           if (canManageStaff) {
             staffUpdate.jobTitle = newData.jobTitle;
+            staffUpdate.techNumber = newData.techNumber;
             staffUpdate.hireDate = newData.startDate;
             staffUpdate.payRate = newData.payRate;
             staffUpdate.payType = newData.payType;
@@ -284,9 +287,10 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
           <FormInput label="Job Title" disabled={!permissions['staff.manage']} value={formData.jobTitle} onChange={(v: string) => updateField('jobTitle', v)} />
           <FormInput label="Department" disabled={!permissions['staff.manage']} value={formData.department} onChange={(v: string) => updateField('department', v)} />
           <FormInput label="Primary Role" disabled={!permissions['staff.manage']} value={formData.role} onChange={(v: string) => updateField('role', v)} />
+          <FormInput label="Tech Number" disabled={!permissions['staff.manage']} value={formData.techNumber} onChange={(v: string) => updateField('techNumber', v)} placeholder="e.g. 11, 13" />
           <FormInput label="Start Date" disabled={!permissions['staff.manage']} type="date" value={formData.startDate} onChange={(v: string) => updateField('startDate', v)} />
           <FormInput label="Pay Rate" disabled={!permissions['staff.manage']} type="number" value={formData.payRate} onChange={(v: string) => updateField('payRate', v)} placeholder="e.g. 32" />
-          <FormInput label="Pay Type" disabled={!permissions['staff.manage']} value={formData.payType} onChange={(v: string) => updateField('payType', v)} placeholder="hourly / salary" />
+          <FormInput label="Pay Type" disabled={!permissions['staff.manage']} value={formData.payType} onChange={(v: string) => updateField('payType', v)} placeholder="hourly / salary / flat_rate" />
         </div>
         <div>
           <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Administrative Notes</label>

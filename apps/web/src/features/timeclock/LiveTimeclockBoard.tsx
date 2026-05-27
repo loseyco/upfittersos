@@ -1,9 +1,85 @@
-import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { collection, query, orderBy, getDocs, limit, doc, getDoc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Search, Activity } from 'lucide-react';
+import { Search, Activity, Maximize, Minimize, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { cn } from '../../lib/utils';
+import { useWakeLock } from '../../hooks/useWakeLock';
+import { toast, Toaster } from 'sonner';
+import { useAuthStore } from '../../lib/auth/store';
+
+const getJobColor = (jobId: string) => {
+  const colors = [
+    { bg: 'bg-teal-500', text: 'text-teal-950 dark:text-teal-900', border: 'border-teal-400/30' },
+    { bg: 'bg-emerald-500', text: 'text-emerald-950 dark:text-emerald-900', border: 'border-emerald-400/30' },
+    { bg: 'bg-cyan-500', text: 'text-cyan-950 dark:text-cyan-900', border: 'border-cyan-400/30' },
+    { bg: 'bg-sky-500', text: 'text-sky-950 dark:text-sky-900', border: 'border-sky-400/30' },
+    { bg: 'bg-purple-500', text: 'text-purple-950 dark:text-purple-900', border: 'border-purple-400/30' },
+    { bg: 'bg-fuchsia-500', text: 'text-fuchsia-950 dark:text-fuchsia-900', border: 'border-fuchsia-400/30' },
+    { bg: 'bg-pink-500', text: 'text-pink-950 dark:text-pink-900', border: 'border-pink-400/30' },
+    { bg: 'bg-rose-500', text: 'text-rose-950 dark:text-rose-900', border: 'border-rose-400/30' },
+    { bg: 'bg-violet-500', text: 'text-violet-950 dark:text-violet-900', border: 'border-violet-400/30' },
+  ];
+  let hash = 0;
+  const str = jobId || '';
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % colors.length;
+  return colors[index];
+};
+
+interface LayoutJob {
+  id: string;
+  name: string;
+  start: any;
+  end?: any;
+  startTime: number;
+  endTime: number;
+  trackIndex: number;
+}
+
+const layoutSessionJobs = (jobs: Array<{ id: string; name: string; start: any; end?: any; }> | undefined, now: number) => {
+  if (!jobs || jobs.length === 0) return { assignedJobs: [] as LayoutJob[], totalTracks: 0 };
+
+  const parsedJobs = jobs.map((j) => {
+    const startTime = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+    const endTime = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : now;
+    return {
+      ...j,
+      startTime,
+      endTime,
+    };
+  });
+
+  const sorted = [...parsedJobs].sort((a, b) => a.startTime - b.startTime);
+  const tracks: number[] = [];
+
+  const assignedJobs = sorted.map((job) => {
+    let trackIndex = -1;
+    for (let i = 0; i < tracks.length; i++) {
+      if (job.startTime >= tracks[i]) {
+        trackIndex = i;
+        break;
+      }
+    }
+
+    if (trackIndex === -1) {
+      tracks.push(job.endTime);
+      trackIndex = tracks.length - 1;
+    } else {
+      tracks[trackIndex] = job.endTime;
+    }
+
+    return {
+      ...job,
+      trackIndex,
+    } as LayoutJob;
+  });
+
+  return { assignedJobs, totalTracks: tracks.length };
+};
 
 interface LiveTimeclockBoardProps {
   tenantId: string;
@@ -32,6 +108,7 @@ interface StaffMember {
   firstName: string;
   lastName: string;
   departmentId?: string;
+  userId?: string;
   individualSchedule?: WorkSchedule;
 }
 
@@ -43,14 +120,171 @@ interface Department {
 
 export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || permissions['timeclock.manage'];
   const [searchTerm, setSearchTerm] = useState('');
   const [now, setNow] = useState(Date.now());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState<string | null>(null);
+
+  useWakeLock(isFullscreen);
+
+  const handleAdminAction = async (session: TimeSession, action: 'clock_out' | 'lunch' | 'break' | 'resume' | 'clock_in') => {
+    setIsUpdating(session.id);
+    try {
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+      
+      if (action === 'clock_out') {
+        const sessionSnap = await getDoc(sessionRef);
+        const sessionData = sessionSnap.data();
+        const breaks = [...(sessionData?.breaks || [])];
+        if (session.status === 'on_break') {
+          const lastBreak = breaks[breaks.length - 1];
+          if (lastBreak && !lastBreak.end) {
+            lastBreak.end = new Date();
+          }
+        }
+        const jobs = [...(sessionData?.jobs || [])];
+        const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+        if (lastJob && !lastJob.end) {
+          lastJob.end = new Date();
+        }
+
+        await updateDoc(sessionRef, {
+          status: 'completed',
+          clockOut: {
+            timestamp: serverTimestamp(),
+            onSite: true,
+            lat: null,
+            lng: null
+          },
+          breaks,
+          jobs,
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Clocked out ${session.userName}`);
+      } else if (action === 'lunch' || action === 'break') {
+        const type = action === 'lunch' ? 'lunch' : 'normal';
+        const sessionSnap = await getDoc(sessionRef);
+        const sessionData = sessionSnap.data();
+        const breaks = [...(sessionData?.breaks || [])];
+        const jobs = [...(sessionData?.jobs || [])];
+        
+        const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+        let suspendedJob = null;
+        if (lastJob && !lastJob.end) {
+          lastJob.end = new Date();
+          suspendedJob = {
+            id: lastJob.id,
+            name: lastJob.name,
+            taskId: lastJob.taskId || null,
+            taskName: lastJob.taskName || null
+          };
+        }
+
+        breaks.push({
+          type,
+          start: new Date(),
+          isPaid: type === 'normal',
+          suspendedJob
+        });
+
+        await updateDoc(sessionRef, {
+          breaks,
+          jobs,
+          status: 'on_break',
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Put ${session.userName} on ${type}`);
+      } else if (action === 'resume') {
+        const sessionSnap = await getDoc(sessionRef);
+        const sessionData = sessionSnap.data();
+        const breaks = [...(sessionData?.breaks || [])];
+        const jobs = [...(sessionData?.jobs || [])];
+        
+        let suspendedJob = null;
+        if (breaks.length > 0) {
+          const lastBreak = breaks[breaks.length - 1];
+          lastBreak.end = new Date();
+          suspendedJob = lastBreak.suspendedJob;
+        }
+
+        if (suspendedJob) {
+          jobs.push({
+            id: suspendedJob.id,
+            name: suspendedJob.name,
+            taskId: suspendedJob.taskId || null,
+            taskName: suspendedJob.taskName || null,
+            start: new Date()
+          });
+        }
+
+        await updateDoc(sessionRef, {
+          breaks,
+          jobs,
+          jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
+          status: 'active',
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Resumed session for ${session.userName}`);
+      } else if (action === 'clock_in') {
+        await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
+          userId: session.userId,
+          userName: session.userName,
+          staffName: session.userName,
+          clockIn: {
+            timestamp: serverTimestamp(),
+            onSite: true,
+            lat: null,
+            lng: null
+          },
+          isRemote: false,
+          status: 'active',
+          breaks: [],
+          createdAt: serverTimestamp()
+        });
+        toast.success(`Clocked in ${session.userName}`);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['live-time-sessions', tenantId] });
+    } catch (err: any) {
+      toast.error(`Action failed: ${err.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      toast.success("Optimized Mode Active", {
+        description: "Keep Screen Awake is now active for this board.",
+        duration: 5000,
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 60000); // Update the live duration every minute
-    return () => clearInterval(interval);
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
   }, []);
 
   const { data: sessions, isLoading } = useQuery({
@@ -103,22 +337,66 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
     return `${hours}h ${minutes}m`;
   };
 
-  const filteredSessions = sessions?.filter(s => 
-    s.userName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredSessions = sessions?.filter(s => {
+    const staff = scheduleData?.staff?.find((st: any) => st.userId === s.userId || st.id === s.userId);
+    const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (s.userName || 'Technician');
+    return displayName.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   if (isLoading) return <div className="p-12 text-center text-zinc-500">Loading live data...</div>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+    <div 
+      ref={containerRef}
+      className={cn(
+        "animate-in fade-in slide-in-from-bottom-4 duration-500",
+        isFullscreen ? "p-4 bg-zinc-50 dark:bg-zinc-950 h-full w-full overflow-y-auto custom-scrollbar space-y-3" : "space-y-4"
+      )}
+    >
+      <Toaster position="top-right" richColors theme="system" closeButton />
+      <div className={cn(
+        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
+        !isFullscreen && "sm:-mt-20"
+      )}>
+        {isFullscreen && (
+          <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Timeclock Dashboard</span>
+            <span className="text-[10px] font-bold text-zinc-500">• Updated {new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          </div>
+        )}
+        <button 
+          onClick={toggleFullscreen}
+          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
+        >
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
+        </button>
+      </div>
+
+      <div className={cn(
+        "flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm",
+        isFullscreen ? "p-4" : "p-4 sm:py-5 sm:px-6"
+      )}>
         <div>
-          <h2 className="text-xl font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+          <h2 className={cn("font-bold text-zinc-900 dark:text-white flex items-center gap-2", isFullscreen ? "text-lg" : "text-xl")}>
             <Activity className="w-5 h-5 text-indigo-500" />
             Live Timeclock Board
           </h2>
-          <p className="text-sm text-zinc-500 mt-1">Real-time overview of staff clocked in today.</p>
+          {!isFullscreen && <p className="text-sm text-zinc-500 mt-1">Real-time overview of staff clocked in today.</p>}
         </div>
+
+        {/* Global Legend in Header */}
+        <div className="hidden sm:flex flex-wrap items-center gap-4 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-800/40 px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800/50">
+          <span className="text-zinc-400 dark:text-zinc-500">Timeline Legend:</span>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-indigo-500" /> Worked</div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-400" /> Break</div>
+          <div className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded bg-gradient-to-r from-teal-400 via-cyan-400 to-purple-400" />
+            <span>Job Tasks</span>
+          </div>
+        </div>
+
         <div className="relative w-full md:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
           <input 
@@ -131,7 +409,7 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
         </div>
       </div>
 
-      <div className="grid gap-4">
+      <div className={cn("grid", isFullscreen ? "gap-2" : "gap-3")}>
         {filteredSessions?.length === 0 ? (
           <div className="p-12 text-center text-zinc-500 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
             No staff clocked in today.
@@ -142,16 +420,23 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
             const breakMs = session.breaks?.reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0) || 0;
             const workMs = totalMs - breakMs;
 
+            // Calculate overlapping tracks for jobs in this session
+            const { assignedJobs, totalTracks } = layoutSessionJobs(session.jobs, now);
+
             // Define scale (e.g., standard 8 hours = 28800000 ms)
             // Let's cap the visual scale at 12 hours (43200000 ms) for the graph
             const maxMs = 43200000;
             
             const isActive = session.status !== 'completed';
 
-            const staff = scheduleData?.staff.find(s => s.id === session.userId);
+            const staff = scheduleData?.staff.find((s: any) => s.userId === session.userId || s.id === session.userId);
             const dept = scheduleData?.departments.find(d => d.id === staff?.departmentId);
             const schedule = staff?.individualSchedule || dept?.defaultSchedule;
             
+            // Resolve actual name dynamically from staff roster if available to heal/override fallback names
+            const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (session.userName || 'Technician');
+            const avatarChar = displayName[0] || 'T';
+
             const todayDayId = new Date().getDay() || 7; // 1 = Monday, 7 = Sunday
             const isScheduledToday = schedule?.days?.includes(todayDayId);
             
@@ -187,15 +472,29 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
             }
 
             return (
-              <div key={session.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+              <div 
+                key={session.id} 
+                className={cn(
+                  "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl transition-all shadow-sm hover:shadow-md",
+                  isFullscreen ? "p-3" : "p-3.5"
+                )}
+              >
+                <div className={cn(
+                  "flex flex-col md:flex-row md:items-center justify-between gap-4",
+                  isFullscreen ? "mb-2" : "mb-3"
+                )}>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-bold">
-                      {session.userName?.[0]}
+                    <div className={cn(
+                      "rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-bold shrink-0",
+                      isFullscreen ? "w-8 h-8 text-sm" : "w-9 h-9 text-base"
+                    )}>
+                      {avatarChar}
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-zinc-900 dark:text-white text-lg">{session.userName}</h3>
+                        <h3 className={cn("font-bold text-zinc-900 dark:text-white", isFullscreen ? "text-base" : "text-[17px]")}>
+                          {displayName}
+                        </h3>
                         {isActive ? (
                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -207,35 +506,93 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
                            </span>
                         )}
                       </div>
-                      <p className="text-xs text-zinc-500 font-mono">
+                      <p className={cn("text-zinc-500 font-mono", isFullscreen ? "text-[10px]" : "text-[11px]")}>
                         Started at {session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date(session.clockIn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
                   
-                  <div className="flex gap-6 items-center border-l border-zinc-100 dark:border-zinc-800 pl-6">
+                  <div className={cn(
+                    "flex items-center border-l border-zinc-100 dark:border-zinc-800",
+                    isFullscreen ? "gap-4 pl-4" : "gap-5 pl-5"
+                  )}>
                     <div className="text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Total Time</p>
-                      <p className="font-mono font-black text-indigo-600 dark:text-indigo-400">{formatDuration(workMs)}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-0.5">Total Time</p>
+                      <p className={cn("font-mono font-black text-indigo-600 dark:text-indigo-400", isFullscreen ? "text-sm" : "text-[15px]")}>{formatDuration(workMs)}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Break Time</p>
-                      <p className="font-mono font-black text-amber-600 dark:text-amber-400">{formatDuration(breakMs)}</p>
+                    <div className="text-center mr-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-0.5">Break Time</p>
+                      <p className={cn("font-mono font-black text-amber-600 dark:text-amber-400", isFullscreen ? "text-sm" : "text-[15px]")}>{formatDuration(breakMs)}</p>
                     </div>
+
+                    {/* Quick Timeclock Operations for Authorized Administrators */}
+                    {canManage && (
+                      <div className="flex items-center gap-1.5 border-l border-zinc-100 dark:border-zinc-800 pl-4 shrink-0">
+                        {isUpdating === session.id ? (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Updating...</span>
+                          </div>
+                        ) : (
+                          <>
+                            {isActive ? (
+                              <>
+                                {session.status === 'on_break' ? (
+                                  <button
+                                    onClick={() => handleAdminAction(session, 'resume')}
+                                    className="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                    title="Resume Work"
+                                  >
+                                    Resume
+                                  </button>
+                                ) : (
+                                  <>
+                                    <button
+                                      onClick={() => handleAdminAction(session, 'lunch')}
+                                      className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                      title="Start Lunch Break"
+                                    >
+                                      Lunch
+                                    </button>
+                                    <button
+                                      onClick={() => handleAdminAction(session, 'break')}
+                                      className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                      title="Start Short Break"
+                                    >
+                                      Break
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => handleAdminAction(session, 'clock_out')}
+                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                  title="Force Clock Out"
+                                >
+                                  Clock Out
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => handleAdminAction(session, 'clock_in')}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold rounded-lg transition-all active:scale-95"
+                                title="Clock In Staff"
+                              >
+                                Clock In
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Chronological Timeline */}
-                <div className="mt-4">
-                  <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-400 mb-1.5">
-                    <span>Timeline (12h scale)</span>
-                    <div className="flex gap-3">
-                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-indigo-500" /> Worked</div>
-                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-amber-400" /> Break</div>
-                      <div className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-teal-500" /> Job Segment</div>
-                    </div>
-                  </div>
-                  <div className="h-8 bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden w-full relative group border border-zinc-200 dark:border-zinc-800/50">
+                <div className={isFullscreen ? "mt-2" : "mt-2.5"}>
+                  <div className={cn(
+                    "bg-zinc-100 dark:bg-zinc-800 rounded-xl overflow-hidden w-full relative group border border-zinc-200 dark:border-zinc-800/50",
+                    isFullscreen ? "h-6" : "h-7"
+                  )}>
                     
                     {/* Scheduled Shift Background */}
                     {isScheduledToday && (
@@ -276,21 +633,44 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
                     })}
 
                     {/* Chronological Job Overlay */}
-                    {session.jobs?.map((j, i) => {
+                    {assignedJobs.map((j, i) => {
                       const jobStartOffset = calculateDuration(session.clockIn.timestamp, j.start);
                       const jDuration = calculateDuration(j.start, j.end);
                       const leftPercent = Math.min((jobStartOffset / maxMs) * 100, 100);
                       const widthPercent = Math.min((jDuration / maxMs) * 100, 100 - leftPercent);
                       
+                      const colorInfo = getJobColor(j.id);
+                      
+                      // Calculate height and top dynamically based on total overlapping tracks
+                      let heightPx = isFullscreen ? 16 : 18;
+                      let topPx = isFullscreen ? 4 : 5;
+                      if (totalTracks > 1) {
+                        const usableHeight = isFullscreen ? 20 : 24;
+                        const trackHeight = Math.floor(usableHeight / totalTracks);
+                        heightPx = Math.max(4, trackHeight - 1);
+                        topPx = 2 + (j.trackIndex * trackHeight);
+                      }
+
                       return (
                         <div 
                           key={`job-${i}`}
                           onClick={() => navigate(`/business/${tenantId}/jobs/${j.id}`)}
-                          className="absolute top-1/2 -translate-y-1/2 h-5 bg-teal-500 rounded border border-white/20 shadow-sm cursor-pointer hover:brightness-110 hover:scale-y-110 transition-all duration-300 z-20 flex items-center justify-center overflow-hidden"
-                          style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+                          className={`absolute ${colorInfo.bg} ${colorInfo.text} rounded border ${colorInfo.border} shadow-sm cursor-pointer hover:brightness-110 hover:scale-y-105 transition-all duration-300 z-20 flex items-center justify-center overflow-hidden`}
+                          style={{ 
+                            left: `${leftPercent}%`, 
+                            width: `${widthPercent}%`,
+                            top: `${topPx}px`,
+                            height: `${heightPx}px`
+                          }}
                           title={`Job: ${j.name}\n${formatDuration(jDuration)}\nClick to view job details`}
                         >
-                          <span className="text-[8px] font-black uppercase text-teal-950/70 tracking-widest whitespace-nowrap px-1 truncate">
+                          <span 
+                            className="font-black uppercase tracking-widest whitespace-nowrap px-1 truncate"
+                            style={{ 
+                              fontSize: totalTracks > 2 ? '6px' : '8px',
+                              opacity: heightPx < 10 ? 0.8 : 0.9 
+                            }}
+                          >
                             {j.name}
                           </span>
                         </div>

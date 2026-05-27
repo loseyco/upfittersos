@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
-import { collection, query, where, onSnapshot, doc, updateDoc, collectionGroup } from 'firebase/firestore';
-import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize, MapPin } from 'lucide-react';
+import { collection, query, where, onSnapshot, doc, updateDoc, collectionGroup, orderBy, limit } from 'firebase/firestore';
+import { Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, CarFront, Timer, Search, Command, Maximize, Minimize, MapPin, Coins, TrendingUp, Award, CheckSquare } from 'lucide-react';
 import { ZoneDetailsModal } from './ZoneModals';
 import { PackageIntakeModal } from './PackageIntakeModal';
 import { FeedbackModal } from '../../components/FeedbackModal';
@@ -54,7 +54,7 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   
   const [allActiveJobs, setAllActiveJobs] = useState<any[]>([]);
   const [allZones, setAllZones] = useState<any[]>([]);
@@ -64,25 +64,110 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
   // const [selectedJob, setSelectedJob] = useState<any>(null);
   const [selectedZone, setSelectedZone] = useState<any>(null);
   const [taskJobIds, setTaskJobIds] = useState<string[]>([]);
+  const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [staffMember, setStaffMember] = useState<any>(null);
+  const [myDept, setMyDept] = useState<any>(null);
+  const [todos, setTodos] = useState<any[]>([]);
 
   // Track jobs where the user is assigned to specific tasks
   useEffect(() => {
     if (!effectiveUserId || !tenantId) return;
+
+    const searchIds = [effectiveUserId];
+    if (staffMember?.id && staffMember.id !== effectiveUserId) {
+      searchIds.push(staffMember.id);
+    }
+
     const q = query(
       collectionGroup(db, 'tasks'),
       where('tenantId', '==', tenantId),
-      where('assignedStaffIds', 'array-contains', effectiveUserId)
+      where('assignedStaffIds', 'array-contains-any', searchIds)
     );
     const unsub = onSnapshot(q, (snap) => {
-      const ids = snap.docs
-        .filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`))
-        .map(doc => doc.ref.path.split('/')[3]);
+      const filteredDocs = snap.docs.filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`));
+      setMyAssignedTasks(filteredDocs.map(doc => ({ 
+        id: doc.id, 
+        jobId: doc.ref.path.split('/')[3],
+        ...doc.data() 
+      })));
+      
+      const ids = filteredDocs.map(doc => doc.ref.path.split('/')[3]);
       setTaskJobIds([...new Set(ids)]);
     }, (err) => {
       console.error("Task assignment listener error:", err);
     });
     return () => unsub();
-  }, [effectiveUserId, tenantId]);
+  }, [effectiveUserId, tenantId, staffMember?.id]);
+ 
+  // Track user's time sessions
+  useEffect(() => {
+    if (!effectiveUserId || !tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('userId', '==', effectiveUserId),
+      orderBy('clockIn.timestamp', 'desc'),
+      limit(50)
+    );
+    let unsub = onSnapshot(q, (snap) => {
+      setSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.warn("Time sessions index is missing or building, using in-memory fallback query:", err);
+      const fallbackQ = query(collection(db, `businesses/${tenantId}/time_sessions`));
+      const fallbackUnsub = onSnapshot(fallbackQ, (snap) => {
+        const filtered = snap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .filter(s => s.userId === effectiveUserId)
+          .sort((a, b) => {
+            const aTs = a.clockIn?.timestamp?.seconds ? a.clockIn.timestamp.seconds * 1000 : new Date(a.clockIn?.timestamp || 0).getTime();
+            const bTs = b.clockIn?.timestamp?.seconds ? b.clockIn.timestamp.seconds * 1000 : new Date(b.clockIn?.timestamp || 0).getTime();
+            return bTs - aTs;
+          })
+          .slice(0, 50);
+        setSessions(filtered);
+      });
+      unsub = fallbackUnsub;
+    });
+    return () => unsub();
+  }, [tenantId, effectiveUserId]);
+
+  // Track technician staff member record
+  useEffect(() => {
+    if (!tenantId || !effectiveUserId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/staff`),
+      where('userId', '==', effectiveUserId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        setStaffMember({ 
+          id: snap.docs[0].id, 
+          ...data,
+          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+        });
+      } else {
+        setStaffMember(null);
+      }
+    });
+    return () => unsub();
+  }, [tenantId, effectiveUserId]);
+
+  // Track department record for weekly credit
+  useEffect(() => {
+    if (!tenantId || !staffMember?.departmentId) {
+      setMyDept(null);
+      return;
+    }
+    const unsub = onSnapshot(doc(db, `businesses/${tenantId}/departments`, staffMember.departmentId), (snap) => {
+      if (snap.exists()) {
+        setMyDept({ id: snap.id, ...snap.data() });
+      } else {
+        setMyDept(null);
+      }
+    });
+    return () => unsub();
+  }, [tenantId, staffMember?.departmentId]);
 
   // Modal States
   const [isIntakeOpen, setIsIntakeOpen] = useState(false);
@@ -191,52 +276,272 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
       setLastUpdated(new Date());
     }, (err) => console.error("Vehicles listener error:", err));
 
+    const unsubTodos = onSnapshot(collection(db, `businesses/${tenantId}/todos`), (snap) => {
+      setTodos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Todos listener error:", err));
+
     return () => {
       unsubJobs();
       unsubZones();
       unsubVehicles();
+      unsubTodos();
     };
   }, [tenantId, effectiveUserId]);
 
   useEffect(() => {
     if (!tenantId || !activeSessionId) {
-      setActiveJobId(null);
+      setActiveJobIds([]);
       return;
     }
     const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         const jobs = data.jobs || [];
-        const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
+        const activeSegments = jobs.filter((j: any) => !j.end);
         
+        // Track all unique active job IDs
+        const activeIds = Array.from(new Set(activeSegments.map((j: any) => j.id))) as string[];
+        setActiveJobIds(activeIds);
+
         // Track all jobs worked in this session for "Recent" visibility
         const uniqueJobIds = Array.from(new Set(jobs.map((j: any) => j.id))) as string[];
         setSessionJobIds(uniqueJobIds);
-
-        if (lastJob && !lastJob.end) {
-          setActiveJobId(lastJob.id);
-        } else {
-          setActiveJobId(null);
-        }
       } else {
-        setActiveJobId(null);
+        setActiveJobIds([]);
       }
     });
     return () => unsub();
   }, [tenantId, activeSessionId]);
 
-  const myZones = allZones.filter(z => z.assignedStaffIds?.includes(effectiveUserId));
+  const myZones = allZones.filter(z => 
+    z.assignedStaffIds?.includes(effectiveUserId) || 
+    (staffMember?.id && z.assignedStaffIds?.includes(staffMember.id))
+  );
 
   // Derive my jobs: explicitly assigned OR implicitly assigned via my zones OR clocked in OR recently worked
   const myJobs = allActiveJobs.filter(job => {
-    const explicitlyAssigned = job.assignedStaffIds?.includes(effectiveUserId);
+    const explicitlyAssigned = job.assignedStaffIds?.includes(effectiveUserId) || 
+      (staffMember?.id && job.assignedStaffIds?.includes(staffMember.id));
     const implicitlyAssigned = myZones.some(z => z.currentJobId === job.id);
-    const isClockedIn = job.id === activeJobId;
+    const isClockedIn = activeJobIds.includes(job.id);
     const workedRecently = sessionJobIds.includes(job.id);
     const taskAssigned = taskJobIds.includes(job.id);
     
     return explicitlyAssigned || implicitlyAssigned || isClockedIn || workedRecently || taskAssigned;
   });
+
+  const myCurrentTodos = todos.filter(t => {
+    if (t.status === 'completed') return false;
+
+    // Check assignments
+    const isAssigned = staffMember && (
+      t.assignedStaffIds?.includes(staffMember.id) ||
+      t.assignedToAllStaff ||
+      (staffMember.departmentId && t.assignedDepartmentIds?.includes(staffMember.departmentId))
+    );
+    if (!isAssigned) return false;
+
+    // Check if it has a due date, and if it is due today or past due
+    if (!t.dueDate) return false;
+
+    // Local time today representation
+    const todayStr = new Date().toISOString().split('T')[0];
+    return t.dueDate <= todayStr;
+  });
+
+  // Calculation helpers and stats for payroll, schedule, and efficiency
+  const calculateDuration = (start: any, end: any) => {
+    if (!start) return 0;
+    const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
+    const e = end ? (end.toDate ? end.toDate().getTime() : new Date(end).getTime()) : Date.now();
+    return Math.max(0, e - s);
+  };
+
+  const calculateSessionPayMs = (session: any) => {
+    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+    const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
+    
+    if (!session.jobs || session.jobs.length === 0) {
+      return totalMs - breakMs;
+    }
+
+    const taskActualTime: Record<string, number> = {};
+    const taskBookTime: Record<string, number> = {};
+    let unpaidMs = 0;
+
+    session.jobs.forEach((j: any, idx: number) => {
+      const key = j.taskId || `manual-${idx}-${j.name}`;
+      const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+      const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+      const segMs = Math.max(0, end - start);
+
+      // Check if task is Rework or Diag to exclude it from paid actual hours
+      const lowerName = (j.taskName || j.name || '').toLowerCase();
+      const isRework = lowerName.includes('rework') || lowerName.includes('failed qc') || lowerName.includes('failed qa');
+      const isDiag = lowerName.includes('diagnostic') || lowerName.includes('diag');
+      
+      let isTaskUnpaid = isRework || isDiag;
+      if (j.taskId) {
+        const t = myAssignedTasks.find(x => x.id === j.taskId);
+        if (t) {
+          isTaskUnpaid = t.isRework || t.status === 'Rework' || t.isDiagnostic || t.title?.toLowerCase().includes('diagnostic') || t.title?.toLowerCase().includes('diag');
+        }
+      }
+
+      if (isTaskUnpaid) {
+        unpaidMs += segMs;
+      } else {
+        taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+        if (j.bookTime && j.bookTime > 0) {
+          taskBookTime[key] = j.bookTime * 3600000;
+        }
+      }
+    });
+
+    const workMs = Math.max(0, totalMs - breakMs - unpaidMs);
+
+    let adjustmentMs = 0;
+    Object.keys(taskBookTime).forEach(key => {
+      const actualMs = taskActualTime[key] || 0;
+      const bookMs = taskBookTime[key] || 0;
+      adjustmentMs += (bookMs - actualMs);
+    });
+
+    return Math.max(0, workMs + adjustmentMs);
+  };
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const weekStart = new Date(todayStart);
+  const day = weekStart.getDay(); // 0 is Sunday, 1 is Monday, etc.
+  const daysToSubtract = day === 0 ? 6 : day - 1;
+  weekStart.setDate(weekStart.getDate() - daysToSubtract);
+
+  let weekMs = 0;
+  let weekPayMs = 0;
+  let weekBreakMs = 0;
+  let weekRegularHourlyMs = 0; // Track regular hourly tasks for flat rate
+
+  let totalBookMsOnBookTasks = 0;
+  let totalSpentMsOnBookTasks = 0;
+
+  sessions?.forEach(session => {
+    const sessionDate = session.clockIn.timestamp?.toDate 
+      ? session.clockIn.timestamp.toDate() 
+      : new Date(session.clockIn.timestamp);
+    if (!sessionDate) return;
+
+    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+    const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
+    const workMs = totalMs - breakMs;
+    const payMs = calculateSessionPayMs(session);
+
+    if (sessionDate.getTime() >= weekStart.getTime()) {
+      weekMs += workMs;
+      weekPayMs += payMs;
+      weekBreakMs += breakMs;
+
+      // Accumulate regular hourly spent time (bookTime === 0, not Rework/Diag) for flat-rate employees
+      if (session.jobs && session.jobs.length > 0) {
+        session.jobs.forEach((j: any) => {
+          const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+          const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+          const segMs = Math.max(0, end - start);
+          
+          const bookTime = Number(j.bookTime || 0);
+          if (bookTime === 0) {
+            const lowerName = (j.taskName || j.name || '').toLowerCase();
+            const isRework = lowerName.includes('rework') || lowerName.includes('failed qc') || lowerName.includes('failed qa');
+            const isDiag = lowerName.includes('diagnostic') || lowerName.includes('diag');
+            
+            let isTaskUnpaid = isRework || isDiag;
+            if (j.taskId) {
+              const t = myAssignedTasks.find(x => x.id === j.taskId);
+              if (t) {
+                isTaskUnpaid = t.isRework || t.status === 'Rework' || t.isDiagnostic || t.title?.toLowerCase().includes('diagnostic') || t.title?.toLowerCase().includes('diag');
+              }
+            }
+            
+            if (!isTaskUnpaid) {
+              weekRegularHourlyMs += segMs;
+            }
+          }
+        });
+      }
+
+      // Accumulate spent and book time for efficiency calculations for the current period
+      if (session.jobs && session.jobs.length > 0) {
+        const taskActualTime: Record<string, number> = {};
+        const taskBookTime: Record<string, number> = {};
+
+        session.jobs.forEach((j: any, idx: number) => {
+          const key = j.taskId || `manual-${idx}-${j.name}`;
+          const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+          const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+          const segMs = Math.max(0, end - start);
+
+          taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+          if (j.bookTime && j.bookTime > 0) {
+            taskBookTime[key] = j.bookTime * 3600000;
+          }
+        });
+
+        Object.keys(taskBookTime).forEach(key => {
+          totalBookMsOnBookTasks += taskBookTime[key];
+          totalSpentMsOnBookTasks += taskActualTime[key];
+        });
+      }
+    }
+  });
+
+  // Calculate Credit allowance matching TimeClockHistory
+  let activeCreditMs = 0;
+  let creditSource = '';
+  if (staffMember?.payPeriodBookTimeCredit && staffMember.payPeriodBookTimeCredit > 0) {
+    activeCreditMs = staffMember.payPeriodBookTimeCredit * 3600000;
+    creditSource = `${staffMember.payPeriodBookTimeCredit}h Override`;
+  } else if (myDept?.weeklyBookTimeCredit && myDept.weeklyBookTimeCredit > 0) {
+    activeCreditMs = myDept.weeklyBookTimeCredit * 3600000;
+    creditSource = `${myDept.weeklyBookTimeCredit}h Dept Default`;
+  }
+
+  if (weekMs > 0 && activeCreditMs > 0) {
+    weekPayMs += activeCreditMs;
+  }
+
+  let doneBookHours = 0;
+  let scheduledBookHours = 0;
+
+  myAssignedTasks.forEach(t => {
+    const bookTime = Number(t.bookTime || 0);
+    const isCompleted = t.status === 'QC Complete' || t.status === 'QC' || t.status === 'completed';
+    
+    if (isCompleted) {
+      const compDateVal = t.completedAt || t.qcCompletedAt || t.updatedAt;
+      
+      const compTime = compDateVal 
+        ? (compDateVal.seconds ? compDateVal.seconds * 1000 : new Date(compDateVal).getTime()) 
+        : 0;
+      
+      if (compTime >= weekStart.getTime()) {
+        doneBookHours += bookTime;
+      }
+    } else {
+      scheduledBookHours += bookTime;
+    }
+  });
+
+  const totalBookHoursAvailable = doneBookHours + scheduledBookHours;
+
+  const payType = staffMember?.payType || 'hourly';
+  const displayPayHours = payType === 'flat_rate'
+    ? doneBookHours + (activeCreditMs / 3600000) + (weekRegularHourlyMs / 3600000)
+    : (weekPayMs / 3600000);
+
+  const efficiency = weekMs > 0 
+    ? (doneBookHours / (weekMs / 3600000)) * 100 
+    : null;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -344,7 +649,273 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
         </button>
       </div>
 
-      <div className="max-w-4xl">
+      {/* Performance & Payroll Metrics Dashboard */}
+      <div className="max-w-4xl grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Payroll Card */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-bl-full pointer-events-none group-hover:scale-110 transition-transform" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 bg-indigo-500/10 rounded-xl">
+              <Coins className="w-5 h-5 text-indigo-500" />
+            </div>
+            {activeCreditMs > 0 && weekMs > 0 && (
+              <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full" title={creditSource}>
+                +{(activeCreditMs / 3600000).toFixed(1)}h Credit
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Period Pay Hours</span>
+          <span className="font-mono text-2xl font-black text-zinc-900 dark:text-white mt-1 block">
+            {displayPayHours.toFixed(2)}h
+          </span>
+          <div className="text-xs font-semibold text-zinc-400 mt-2">
+            {payType === 'flat_rate' ? (
+              <div className="flex flex-col gap-1">
+                <span>Earned book hours (Flat-Rate)</span>
+                <span className="inline-flex items-center text-[9px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md w-max animate-pulse">
+                  🧪 Experimental Math
+                </span>
+              </div>
+            ) : (
+              "Estimated payroll hours"
+            )}
+          </div>
+        </div>
+
+        {/* Clocked Card */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-bl-full pointer-events-none group-hover:scale-110 transition-transform" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 bg-emerald-500/10 rounded-xl">
+              <Clock className="w-5 h-5 text-emerald-500" />
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              {activeSessionId && (
+                <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full animate-pulse">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Clocked In
+                </span>
+              )}
+              {weekBreakMs > 0 && (
+                <span className="text-[9px] font-black uppercase tracking-widest bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 px-2 py-0.5 rounded-full" title="Total time card duration before break deduction">
+                  {((weekMs + weekBreakMs) / 3600000).toFixed(1)}h Gross Clocked
+                </span>
+              )}
+            </div>
+          </div>
+          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Actual On Clock</span>
+          <span className="font-mono text-2xl font-black text-zinc-900 dark:text-white mt-1 block">
+            {(weekMs / 3600000).toFixed(2)}h
+          </span>
+          <p className="text-xs font-semibold text-zinc-400 mt-2">
+            {payType === 'flat_rate' ? (
+              "Clocked time (For attendance & efficiency tracking only)"
+            ) : weekBreakMs > 0 ? (
+              <span>
+                Net worked hours (excludes <span className="font-bold text-zinc-600 dark:text-zinc-300">{(weekBreakMs / 3600000).toFixed(2)}h breaks</span>)
+              </span>
+            ) : (
+              "Net worked hours (no breaks logged)"
+            )}
+          </p>
+        </div>
+
+        {/* Task Book hours progress Card */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-bl-full pointer-events-none group-hover:scale-110 transition-transform" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 bg-amber-500/10 rounded-xl">
+              <Award className="w-5 h-5 text-amber-500" />
+            </div>
+            <span className="text-[9px] font-black uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">
+              Tasks Done
+            </span>
+          </div>
+          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Book Time Completed</span>
+          <span className="font-mono text-2xl font-black text-zinc-900 dark:text-white mt-1 block">
+            {doneBookHours.toFixed(1)}h <span className="text-sm font-semibold text-zinc-400">/ {totalBookHoursAvailable.toFixed(1)}h</span>
+          </span>
+          
+          {/* Visual Progress Bar */}
+          <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-1.5 mt-3 overflow-hidden">
+            <div 
+              className="bg-amber-500 h-full rounded-full transition-all duration-500" 
+              style={{ width: `${totalBookHoursAvailable > 0 ? Math.min(100, (doneBookHours / totalBookHoursAvailable) * 100) : 0}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Efficiency Card */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-bl-full pointer-events-none group-hover:scale-110 transition-transform" />
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 bg-indigo-500/10 rounded-xl">
+              <TrendingUp className="w-5 h-5 text-indigo-500" />
+            </div>
+            {efficiency !== null && (
+              <span className={cn(
+                "text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full",
+                efficiency >= 100 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
+                efficiency >= 90 ? "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400" :
+                "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+              )}>
+                {efficiency >= 100 ? 'High Pace' : efficiency >= 90 ? 'On Pace' : 'Slow Pace'}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Efficiency Rating</span>
+          <span className="font-mono text-2xl font-black text-zinc-900 dark:text-white mt-1 block">
+            {efficiency !== null ? `${efficiency.toFixed(0)}%` : '--'}
+          </span>
+          <p className="text-xs font-semibold text-zinc-400 mt-2">
+            Completed Book vs Clock Hours
+          </p>
+        </div>
+      </div>
+
+      {/* Task Book Scheduled Details info row */}
+      <div className="max-w-4xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-lg">
+            <Briefcase className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200">Scheduled Task Backlog</p>
+            <p className="text-[10px] text-zinc-500">Book-time load waiting for completion in your roster queue</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-black text-zinc-400 uppercase tracking-wider">Book Time Scheduled:</span>
+          <span className="px-3 py-1 bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 rounded-xl font-mono text-sm font-black text-zinc-800 dark:text-zinc-200">
+            {scheduledBookHours.toFixed(1)}h Booked
+          </span>
+        </div>
+      </div>
+
+      <div className="max-w-4xl space-y-6">
+        {/* My Todos */}
+        {myCurrentTodos.length > 0 && (
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm border-t-rose-500/30 dark:border-t-rose-500/20 border-t-4">
+            <div className="flex items-center justify-between mb-4 md:mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 md:p-2.5 bg-rose-500/10 rounded-xl">
+                  <CheckSquare className="w-5 h-5 md:w-6 md:h-6 text-rose-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-zinc-900 dark:text-white">My Todos</h2>
+                  <p className="text-xs text-zinc-500 font-medium">Todos assigned to you that are due today or overdue</p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-black animate-pulse">
+                {myCurrentTodos.length} Due / Overdue
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {myCurrentTodos.map(todo => {
+                const isOverdue = todo.dueDate && todo.dueDate < new Date().toISOString().split('T')[0];
+                const totalChecklist = todo.checklist?.length || 0;
+                const completedChecklist = todo.checklist?.filter((i: any) => i.done).length || 0;
+                
+                return (
+                  <div 
+                    key={todo.id}
+                    className="p-4 bg-zinc-55 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-850 rounded-2xl space-y-3 relative hover:shadow-sm transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-zinc-900 dark:text-white leading-snug">{todo.title}</h3>
+                        {todo.description && (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-relaxed">{todo.description}</p>
+                        )}
+                      </div>
+                      
+                      {/* Check off directly from Dashboard */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await updateDoc(doc(db, `businesses/${tenantId}/todos`, todo.id), {
+                              status: 'completed',
+                              updatedAt: new Date()
+                            });
+                            toast.success('Todo completed!');
+                          } catch (err) {
+                            console.error(err);
+                            toast.error('Failed to complete todo');
+                          }
+                        }}
+                        className="p-1.5 bg-indigo-500/10 hover:bg-indigo-500 text-indigo-500 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shrink-0"
+                        title="Mark Complete"
+                      >
+                        ✓ Complete
+                      </button>
+                    </div>
+
+                    {/* Checklist inline items with checkbox toggles right on Dashboard */}
+                    {totalChecklist > 0 && (
+                      <div className="space-y-1.5 pt-2 border-t border-zinc-200/50 dark:border-zinc-850">
+                        <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Checklist ({completedChecklist}/{totalChecklist})</p>
+                        <div className="space-y-1">
+                          {todo.checklist.map((item: any) => (
+                            <label 
+                              key={item.id} 
+                              className="flex items-center gap-2 text-xs text-zinc-650 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white cursor-pointer select-none"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={item.done}
+                                onChange={async (e) => {
+                                  const updatedChecklist = todo.checklist.map((c: any) => 
+                                    c.id === item.id ? { ...c, done: e.target.checked } : c
+                                  );
+                                  try {
+                                    await updateDoc(doc(db, `businesses/${tenantId}/todos`, todo.id), {
+                                      checklist: updatedChecklist,
+                                      updatedAt: new Date()
+                                    });
+                                  } catch (err) {
+                                    console.error(err);
+                                    toast.error('Failed to update item');
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 text-indigo-650 rounded border-zinc-305 dark:border-zinc-700 bg-zinc-150 dark:bg-zinc-800 cursor-pointer appearance-none checked:bg-indigo-500 checked:border-indigo-500 flex items-center justify-center after:content-['✓'] after:text-[10px] after:text-white after:hidden checked:after:block transition-all"
+                              />
+                              <span className={item.done ? 'line-through text-zinc-400 dark:text-zinc-600' : 'font-medium'}>
+                                {item.text}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-200/50 dark:border-zinc-850 text-[10px] font-bold">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-lg uppercase tracking-wider text-[9px]",
+                        todo.priority === 'urgent' ? 'bg-rose-500/10 text-rose-500 animate-pulse font-black' :
+                        todo.priority === 'high' ? 'bg-amber-55/10 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400' :
+                        todo.priority === 'medium' ? 'bg-blue-55/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400' :
+                        'bg-zinc-100 text-zinc-650 dark:bg-zinc-800 dark:text-zinc-400'
+                      )}>
+                        {todo.priority} Priority
+                      </span>
+                      
+                      <span className={cn(
+                        "flex items-center gap-1 uppercase tracking-wider text-[9px]",
+                        isOverdue ? "text-rose-500 animate-pulse font-black" : "text-zinc-450"
+                      )}>
+                        <Clock className="w-3 h-3" />
+                        {isOverdue ? 'Overdue: ' : 'Due Today: '}
+                        {new Date(todo.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* My Jobs */}
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm">
           <div className="flex items-center gap-3 mb-4 md:mb-6">
@@ -364,87 +935,149 @@ export function UserMissionControl({ tenantId }: { tenantId: string }) {
                 <p className="text-sm font-bold text-zinc-500">You have no active job assignments.</p>
               </div>
             ) : (
-              myJobs.map(job => (
-                <div 
-                  key={job.id}
-                  onClick={() => {
-                    const zone = allZones.find(z => z.currentJobId === job.id);
-                    const vehicle = vehicles.find(v => v.vin === zone?.currentVehicleVin);
-                    const jobId = job.id || zone?.currentJobId || vehicle?.jobId;
-                    if (jobId) {
-                      navigate(`/business/${tenantId}/job/${jobId}`);
-                    }
-                  }}
-                  className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
-                >
-                  <div className="flex-1 min-w-0 pr-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
-                        {job.status}
-                      </span>
-                      {activeJobId === job.id && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse">
-                          Clocked In
+              myJobs.map(job => {
+                // Find tasks assigned to me on this job
+                const jobTasks = myAssignedTasks.filter(t => t.jobId === job.id);
+                
+                let jobTotalBookHours = 0;
+                let jobDoneBookHours = 0;
+                jobTasks.forEach(t => {
+                  const bt = Number(t.bookTime || 0);
+                  jobTotalBookHours += bt;
+                  if (t.status === 'QC Complete' || t.status === 'QC' || t.status === 'completed') {
+                    jobDoneBookHours += bt;
+                  }
+                });
+
+                // Calculate efficiency specifically for this job's tasks from the current pay period
+                let jobBookMsEarned = 0;
+                let jobSpentMsOnBookTasks = 0;
+
+                sessions?.forEach(session => {
+                  if (session.jobs && session.jobs.length > 0) {
+                    session.jobs.forEach((j: any) => {
+                      if (j.id === job.id && j.bookTime && j.bookTime > 0) {
+                        const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+                        const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : null;
+                        if (end) {
+                          const duration = Math.max(0, end - start);
+                          jobSpentMsOnBookTasks += duration;
+                          jobBookMsEarned += j.bookTime * 3600000;
+                        }
+                      }
+                    });
+                  }
+                });
+
+                // Safeguard against near-zero task logged times (e.g. instant clock-ins/outs)
+                const jobEfficiency = jobSpentMsOnBookTasks >= 10 * 60 * 1000
+                  ? (jobBookMsEarned / jobSpentMsOnBookTasks) * 100
+                  : null;
+
+                return (
+                  <div 
+                    key={job.id}
+                    onClick={() => {
+                      const zone = allZones.find(z => z.currentJobId === job.id);
+                      const vehicle = vehicles.find(v => v.vin === zone?.currentVehicleVin);
+                      const jobId = job.id || zone?.currentJobId || vehicle?.jobId;
+                      if (jobId) {
+                        navigate(`/business/${tenantId}/job/${jobId}`);
+                      }
+                    }}
+                    className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-950 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
+                  >
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
+                          {job.status}
                         </span>
-                      )}
-                      {(!job.assignedStaffIds?.includes(effectiveUserId) && !allZones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && activeJobId !== job.id) && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
-                          Recent Activity
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-black text-zinc-900 dark:text-white text-lg leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
-                    {job.customerName && (
-                      <p className="text-sm font-bold text-zinc-500 mt-1">{job.customerName}</p>
-                    )}
-                    {job.scheduledArrivalTime && (
-                      <p className="text-[10px] font-bold text-indigo-500 mt-1.5 flex items-center gap-1 uppercase tracking-widest">
-                        <Clock className="w-3 h-3" />
-                        ETA: {(() => {
-                          const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
-                            ? job.scheduledArrivalTime.toDate() 
-                            : new Date(job.scheduledArrivalTime);
-                          return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-                        })()}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="flex flex-col items-end gap-1.5">
-                      {activeJobId === job.id && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); clockOutOfJob(); }}
-                          disabled={isProcessing}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                        >
-                          <Timer className="w-3.5 h-3.5" />
-                          Clock Out
-                        </button>
+                        {activeJobIds.includes(job.id) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse">
+                            Clocked In
+                          </span>
+                        )}
+                        {(!job.assignedStaffIds?.includes(effectiveUserId) && !allZones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && !activeJobIds.includes(job.id)) && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                            Recent Activity
+                          </span>
+                        )}
+                      </div>
+                      <h3 className="font-black text-zinc-900 dark:text-white text-lg leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
+                      {job.customerName && (
+                        <p className="text-sm font-bold text-zinc-500 mt-1">{job.customerName}</p>
                       )}
                       
-                      {(() => {
-                        const zone = allZones.find(z => z.currentJobId === job.id);
-                        const vehicle = (job.vehicleId && job.vehicleId !== 'N/A') 
-                          ? vehicles.find(v => v.id === job.vehicleId || v.vin === job.vehicleId)
-                          : null;
-                        
-                        const locationLabel = zone?.name || job.location || job.department || (vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : null);
-                        
-                        if (!locationLabel) return null;
-                        
-                        return (
-                          <span className="text-[9px] font-black uppercase tracking-tighter text-zinc-400 flex items-center gap-1">
-                            {zone ? <MapPin className="w-2.5 h-2.5" /> : (vehicle ? <CarFront className="w-2.5 h-2.5" /> : <Briefcase className="w-2.5 h-2.5" />)}
-                            {locationLabel}
+                      {jobTotalBookHours > 0 && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-xl border border-amber-500/20 shadow-sm">
+                            <Award className="w-3.5 h-3.5 text-amber-500" />
+                            {jobDoneBookHours.toFixed(1)}/{jobTotalBookHours.toFixed(1)}hr Completed
                           </span>
-                        );
-                      })()}
+                          
+                          {jobEfficiency !== null && (
+                            <span className={cn(
+                              "inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-xl border shadow-sm",
+                              jobEfficiency >= 100 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
+                              jobEfficiency >= 90 ? "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 border-zinc-500/20" :
+                              "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                            )}>
+                              <TrendingUp className="w-3.5 h-3.5" />
+                              {jobEfficiency.toFixed(0)}% Eff
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {job.scheduledArrivalTime && (
+                        <p className="text-[10px] font-bold text-indigo-500 mt-2.5 flex items-center gap-1 uppercase tracking-widest">
+                          <Clock className="w-3 h-3" />
+                          ETA: {(() => {
+                            const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
+                              ? job.scheduledArrivalTime.toDate() 
+                              : new Date(job.scheduledArrivalTime);
+                            return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                          })()}
+                        </p>
+                      )}
                     </div>
-                    <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex flex-col items-end gap-1.5">
+                        {activeJobIds.includes(job.id) && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); clockOutOfJob(job.id); }}
+                            disabled={isProcessing}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                          >
+                            <Timer className="w-3.5 h-3.5" />
+                            Clock Out
+                          </button>
+                        )}
+                        
+                        {(() => {
+                          const zone = allZones.find(z => z.currentJobId === job.id);
+                          const vehicle = (job.vehicleId && job.vehicleId !== 'N/A') 
+                            ? vehicles.find(v => v.id === job.vehicleId || v.vin === job.vehicleId)
+                            : null;
+                          
+                          const locationLabel = zone?.name || job.location || job.department || (vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : null);
+                          
+                          if (!locationLabel) return null;
+                          
+                          return (
+                            <span className="text-[9px] font-black uppercase tracking-tighter text-zinc-400 flex items-center gap-1">
+                              {zone ? <MapPin className="w-2.5 h-2.5" /> : (vehicle ? <CarFront className="w-2.5 h-2.5" /> : <Briefcase className="w-2.5 h-2.5" />)}
+                              {locationLabel}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

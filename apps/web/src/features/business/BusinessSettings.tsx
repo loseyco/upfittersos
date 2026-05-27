@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase/config';
+import { db, storage } from '../../lib/firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useQueryClient } from '@tanstack/react-query';
 import { submitAuditLog } from '../../lib/logging/audit';
-import { Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map, Monitor, Palette, AlertTriangle, BellRing } from 'lucide-react';
+import { 
+  Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map, Monitor, 
+  Palette, AlertTriangle, BellRing, Upload, Trash2, Loader2 
+} from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '../../lib/utils';
 
 export function BusinessSettings({ tenantId, initialData }: { tenantId: string; initialData?: any }) {
-  const { user } = useAuthStore();
+  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || permissions['settings.manage'];
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
     name: initialData?.name || '',
@@ -29,6 +38,7 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     siteLat: initialData?.siteLat || '',
     siteLng: initialData?.siteLng || '',
     siteRadius: initialData?.siteRadius || 500,
+    logoUrl: initialData?.logoUrl || '',
     // Monitor Settings
     monitorUrgentThreshold: initialData?.monitorUrgentThreshold || 4,
     monitorStaleThreshold: initialData?.monitorStaleThreshold || 24,
@@ -68,6 +78,7 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         siteLat: initialData.siteLat || '',
         siteLng: initialData.siteLng || '',
         siteRadius: initialData.siteRadius || 500,
+        logoUrl: initialData.logoUrl || '',
         monitorUrgentThreshold: initialData.monitorUrgentThreshold || 4,
         monitorStaleThreshold: initialData.monitorStaleThreshold || 24,
         monitorColorBlocked: initialData.monitorColorBlocked || '#b91c1c',
@@ -102,6 +113,95 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     }, (err) => {
       toast.error("Failed to get location: " + err.message);
     });
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !tenantId || tenantId === 'GLOBAL') return;
+    
+    setIsUploading(true);
+    const uploadPromise = (async () => {
+      const fileExt = file.name.split('.').pop() || 'png';
+      const storageRef = ref(storage, `businesses/${tenantId}/logo_${Date.now()}.${fileExt}`);
+      
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      
+      setFormData(prev => ({ ...prev, logoUrl: downloadUrl }));
+      
+      await updateDoc(doc(db, 'businesses', tenantId), {
+        logoUrl: downloadUrl,
+        updatedAt: new Date()
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ['tenant-dashboard-business', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['business', tenantId] });
+      
+      if (user) {
+        await submitAuditLog(tenantId, {
+          userId: user.uid,
+          actionType: 'DATA_MUTATION',
+          targetEntityId: tenantId,
+          details: { action: 'UPLOADED_BUSINESS_LOGO', logoUrl: downloadUrl }
+        });
+      }
+      
+      return downloadUrl;
+    })();
+
+    toast.promise(uploadPromise, {
+      loading: 'Uploading logo...',
+      success: 'Logo uploaded successfully!',
+      error: 'Failed to upload logo'
+    });
+
+    try {
+      await uploadPromise;
+    } catch (err) {
+      console.error('Failed to upload logo:', err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleLogoRemove = async () => {
+    if (!tenantId || tenantId === 'GLOBAL') return;
+    
+    setIsUploading(true);
+    const removePromise = (async () => {
+      setFormData(prev => ({ ...prev, logoUrl: '' }));
+      
+      await updateDoc(doc(db, 'businesses', tenantId), {
+        logoUrl: '',
+        updatedAt: new Date()
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ['tenant-dashboard-business', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['business', tenantId] });
+      
+      if (user) {
+        await submitAuditLog(tenantId, {
+          userId: user.uid,
+          actionType: 'DATA_MUTATION',
+          targetEntityId: tenantId,
+          details: { action: 'REMOVED_BUSINESS_LOGO' }
+        });
+      }
+    })();
+
+    toast.promise(removePromise, {
+      loading: 'Removing logo...',
+      success: 'Logo removed successfully',
+      error: 'Failed to remove logo'
+    });
+
+    try {
+      await removePromise;
+    } catch (err) {
+      console.error('Failed to remove logo:', err);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -152,6 +252,7 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     <div className="max-w-4xl space-y-8 pb-12">
 
       <form onSubmit={handleSave} className="space-y-8">
+        <fieldset disabled={!canManage} className="space-y-8 border-0 p-0 m-0 min-w-0">
         
         {/* Basic Information */}
         <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
@@ -165,6 +266,56 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
             </div>
           </div>
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Logo Upload Section */}
+            <div className="md:col-span-2 flex flex-col sm:flex-row gap-6 items-center p-4 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800/80 mb-2">
+              <div className="relative w-28 h-28 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex items-center justify-center overflow-hidden shrink-0 shadow-sm group">
+                {formData.logoUrl ? (
+                  <img src={formData.logoUrl} alt="Business Logo Preview" className="w-full h-full object-contain p-2" />
+                ) : (
+                  <div className="text-center p-2 flex flex-col items-center justify-center">
+                    <Building2 className="w-8 h-8 text-zinc-400 dark:text-zinc-600 mb-1" />
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">No Logo</span>
+                  </div>
+                )}
+                
+                {isUploading && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center">
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex-1 space-y-2 text-center sm:text-left">
+                <h4 className="text-sm font-bold text-zinc-900 dark:text-white">Business Logo</h4>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-md">
+                  Upload a high-quality logo (PNG, JPG, SVG or WebP). This logo will represent your company across the site, customized printed QR codes, and device icons.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+                  <label className={cn(
+                    "px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg cursor-pointer transition-colors shadow-sm flex items-center gap-1.5 active:scale-95",
+                    isUploading && "opacity-50 pointer-events-none"
+                  )}>
+                    <Upload className="w-3.5 h-3.5" />
+                    {formData.logoUrl ? 'Change Logo' : 'Upload Logo'}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} disabled={isUploading} />
+                  </label>
+                  
+                  {formData.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={handleLogoRemove}
+                      disabled={isUploading}
+                      className="px-4 py-2 bg-rose-600/10 hover:bg-rose-600 text-rose-600 hover:text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 active:scale-95 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">Business Name</label>
               <input type="text" name="name" value={formData.name} onChange={handleChange} className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white" required />
@@ -482,17 +633,20 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         </section>
 
 
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-sm shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50"
-          >
-            <Save className="w-5 h-5" />
-            {isSaving ? 'Saving Changes...' : 'Save Settings'}
-          </button>
-        </div>
+        </fieldset>
 
+        {canManage && (
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-sm shadow-indigo-500/20 transition-all active:scale-95 disabled:opacity-50"
+            >
+              <Save className="w-5 h-5" />
+              {isSaving ? 'Saving Changes...' : 'Save Settings'}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

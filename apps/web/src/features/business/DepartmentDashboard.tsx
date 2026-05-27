@@ -299,7 +299,7 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
                 }}
                 className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl cursor-pointer hover:border-amber-500/50 transition-colors"
               >
-                <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Part Awaiting</p>
+                <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Part Awaiting • Qty: {part.quantity || 1}</p>
                 <h4 className="font-bold text-sm text-zinc-900 dark:text-white mb-1">{part.partName}</h4>
                 <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500 uppercase">
                   <span>Job: {allJobs.find(j => j.id === part.jobId)?.title}</span>

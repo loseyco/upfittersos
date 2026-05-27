@@ -1,9 +1,76 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, getCountFromServer } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle, Play, Database } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle, Play, Database, Users, UserCircle, Truck, Package, FileText, ShoppingCart } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
+
+function QbCollectionStats({ tenantId }: { tenantId: string }) {
+  const navigate = useNavigate();
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  const collections = [
+    { id: 'qb_customers', path: 'qb_jobs', name: 'Customers & Jobs', icon: Users },
+    { id: 'qb_employees', path: 'qb_employees', name: 'Employees', icon: UserCircle },
+    { id: 'qb_vendors', path: 'qb_vendors', name: 'Vendors', icon: Truck },
+    { id: 'qb_items', path: 'qb_items', name: 'Items & Services', icon: Package },
+    { id: 'qb_invoices', path: 'qb_invoices', name: 'Invoices', icon: FileText },
+    { id: 'qb_pos', path: 'qb_purchase_orders', name: 'Purchase Orders', icon: ShoppingCart },
+    { id: 'qb_time_tracking', path: 'qb_time_tracking', name: 'Time Tracking', icon: Clock }
+  ];
+
+  useEffect(() => {
+    async function fetchCounts() {
+      setLoading(true);
+      const newCounts: Record<string, number> = {};
+      try {
+        await Promise.all(collections.map(async (col) => {
+          const collRef = collection(db, `businesses/${tenantId}/${col.path}`);
+          const snapshot = await getCountFromServer(collRef);
+          newCounts[col.id] = snapshot.data().count;
+        }));
+        setCounts(newCounts);
+      } catch (err) {
+        console.error('Error fetching counts', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchCounts();
+  }, [tenantId]);
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      {collections.map(col => (
+        <button
+          key={col.id}
+          onClick={() => navigate(`/business/${tenantId}/${col.id}`)}
+          className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col items-start hover:border-indigo-500 hover:shadow-md transition-all text-left group"
+        >
+          <div className="flex items-center justify-between w-full mb-2">
+            <div className="flex items-center gap-2 text-indigo-500 group-hover:text-indigo-600 transition-colors">
+              <col.icon className="w-5 h-5" />
+              <h3 className="font-bold text-sm text-zinc-700 dark:text-zinc-300 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors">{col.name}</h3>
+            </div>
+            <div className="w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all -mr-1">
+              <Database className="w-3 h-3 text-zinc-500" />
+            </div>
+          </div>
+          {loading ? (
+            <div className="w-16 h-8 bg-zinc-100 dark:bg-zinc-800 animate-pulse rounded mt-1" />
+          ) : (
+            <p className="text-2xl font-black text-zinc-900 dark:text-white mt-1">
+              {counts[col.id]?.toLocaleString() || 0}
+            </p>
+          )}
+          <p className="text-[10px] text-zinc-400 font-medium uppercase tracking-widest mt-1">Raw Records</p>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
   const [isForceSyncing, setIsForceSyncing] = useState(false);
@@ -129,6 +196,8 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
           Force Full Sync
         </button>
       </div>
+
+      <QbCollectionStats tenantId={tenantId} />
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col relative overflow-hidden">

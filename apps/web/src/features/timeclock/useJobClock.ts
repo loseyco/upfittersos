@@ -26,24 +26,34 @@ export function useJobClock(tenantId: string) {
       const sessionData = sessionSnap.data();
       const jobs = [...(sessionData.jobs || [])];
 
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-      if (lastJob && !lastJob.end && lastJob.id === jobId && lastJob.taskId === taskId) {
+      // Check if already clocked into this specific task
+      const isAlreadyClockedIn = jobs.some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+      if (isAlreadyClockedIn) {
         toast.info('Already clocked into this task.');
         setIsProcessing(false);
         return;
       }
 
-      // Close previous job if open
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
+      // Fetch book time of task if available
+      let bookTime = 0;
+      if (taskId) {
+        try {
+          const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
+          if (taskSnap.exists()) {
+            bookTime = parseFloat(taskSnap.data().bookTime) || 0;
+          }
+        } catch (err) {
+          console.warn('Could not fetch task bookTime', err);
+        }
       }
 
-      // Start new job segment
+      // Start new job segment (without auto-closing others)
       jobs.push({
         id: jobId,
         name: jobName,
         taskId: taskId || null,
         taskName: taskName || null,
+        bookTime,
         start: new Date()
       });
 
@@ -67,7 +77,7 @@ export function useJobClock(tenantId: string) {
     }
   };
 
-  const clockOutOfJob = async () => {
+  const clockOutOfJob = async (jobId?: string, taskId?: string) => {
     if (!activeSessionId) return;
     setIsProcessing(true);
     try {
@@ -78,15 +88,33 @@ export function useJobClock(tenantId: string) {
       const sessionData = sessionSnap.data();
       const jobs = [...(sessionData.jobs || [])];
       
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
+      let closedCount = 0;
+      let closedName = '';
+
+      jobs.forEach((j: any) => {
+        if (!j.end) {
+          // Flexible match logic:
+          // 1. Close all active segments if no target specified
+          // 2. Close all tasks for a specific job if only jobId is specified
+          // 3. Close a specific task if both jobId and taskId are specified
+          const isMatch = (!jobId && !taskId) || 
+                          (jobId && !taskId && j.id === jobId) || 
+                          (jobId && taskId && j.id === jobId && j.taskId === taskId);
+          if (isMatch) {
+            j.end = new Date();
+            closedCount++;
+            closedName = j.taskName || j.name || 'task';
+          }
+        }
+      });
+
+      if (closedCount > 0) {
         await updateDoc(sessionRef, {
           jobs,
           jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
           updatedAt: serverTimestamp()
         });
-        toast.success(`Clocked out of ${lastJob.name}`);
+        toast.success(closedCount === 1 ? `Clocked out of ${closedName}` : `Clocked out of ${closedCount} active tasks`);
       }
     } catch (e) {
       console.error(e);

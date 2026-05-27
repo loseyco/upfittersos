@@ -33,6 +33,15 @@ interface TimeSession {
     end?: any;
     isPaid: boolean;
   }>;
+  jobs?: Array<{
+    id: string;
+    name: string;
+    start: any;
+    end?: any;
+    taskId?: string | null;
+    taskName?: string | null;
+    bookTime?: number;
+  }>;
   status: string;
 }
 
@@ -76,6 +85,22 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
     }
   });
 
+  const { data: departments } = useQuery({
+    queryKey: ['admin-departments', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/departments`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    }
+  });
+
+  const { data: staffList } = useQuery({
+    queryKey: ['admin-staff-list', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    }
+  });
+
   const formatTime = (ts: any) => {
     if (!ts) return '--:--';
     const date = ts.toDate ? ts.toDate() : new Date(ts);
@@ -103,10 +128,50 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
     return `${isNegative ? '-' : ''}${hours}h ${minutes}m`;
   };
 
-  const filteredSessions = sessions?.filter(s => 
-    s.userName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.userId?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const calculateSessionPayMs = (session: TimeSession, payType?: string) => {
+    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+    const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
+    const workMs = totalMs - breakMs;
+
+    if (!session.jobs || session.jobs.length === 0) {
+      return payType === 'flat_rate' ? 0 : workMs;
+    }
+
+    const taskActualTime: Record<string, number> = {};
+    const taskBookTime: Record<string, number> = {};
+
+    session.jobs.forEach((j: any, idx: number) => {
+      const key = j.taskId || `manual-${idx}-${j.name}`;
+      const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+      const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+      const segMs = Math.max(0, end - start);
+
+      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+      if (j.bookTime && j.bookTime > 0) {
+        taskBookTime[key] = j.bookTime * 3600000;
+      }
+    });
+
+    if (payType === 'flat_rate') {
+      return Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
+    }
+
+    let adjustmentMs = 0;
+    Object.keys(taskBookTime).forEach(key => {
+      const actualMs = taskActualTime[key] || 0;
+      const bookMs = taskBookTime[key] || 0;
+      adjustmentMs += (bookMs - actualMs);
+    });
+
+    return Math.max(0, workMs + adjustmentMs);
+  };
+
+  const filteredSessions = sessions?.filter(s => {
+    const staff = staffList?.find((st: any) => st.userId === s.userId || st.id === s.userId);
+    const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (s.userName || 'Technician');
+    return displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.userId?.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   const handleReviewEdit = (req: any) => {
     const session = sessions?.find(s => s.id === req.sessionId);
@@ -209,26 +274,57 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                 <th className="px-6 py-4">Date</th>
                 <th className="px-6 py-4">Shift</th>
                 <th className="px-6 py-4">Breaks</th>
-                <th className="px-6 py-4 text-right">Total Hours</th>
+                <th className="px-6 py-4 text-right">Actual Hours</th>
+                <th className="px-6 py-4 text-right">Pay Hours</th>
                 <th className="px-6 py-4"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {filteredSessions?.map((session: TimeSession) => {
                 const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
-                const breakMs = session.breaks.reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
+                const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
                 const workMs = totalMs - breakMs;
+
+                const staff = staffList?.find((s: any) => s.userId === session.userId || s.id === session.userId);
+                const dept = departments?.find((d: any) => d.id === staff?.departmentId);
+                const isFlatRate = staff?.payType === 'flat_rate';
+
+                // Resolve actual name dynamically from staff roster if available to heal/override fallback names
+                const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (session.userName || 'Technician');
+                const avatarChar = displayName[0] || 'T';
+
+                const payMs = calculateSessionPayMs(session, staff?.payType);
+                const diffMs = payMs - workMs;
+
+                let creditText = '';
+                if (staff?.payPeriodBookTimeCredit && staff.payPeriodBookTimeCredit > 0) {
+                  creditText = `+${staff.payPeriodBookTimeCredit}h Credit Override`;
+                } else if (dept?.weeklyBookTimeCredit && dept.weeklyBookTimeCredit > 0) {
+                  creditText = `+${dept.weeklyBookTimeCredit}h Weekly Default`;
+                }
 
                 return (
                   <tr key={session.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/20 transition-colors cursor-pointer group" onClick={() => setEditingSession(session)}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-bold text-xs">
-                          {session.userName?.[0]}
+                          {avatarChar}
                         </div>
                         <div>
-                          <p className="font-bold text-zinc-900 dark:text-white">{session.userName}</p>
-                          <p className="text-[10px] text-zinc-400 font-mono">{session.userId?.slice(0, 8)}</p>
+                          <p className="font-bold text-zinc-900 dark:text-white">{displayName}</p>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            <p className="text-[10px] text-zinc-400 font-mono">{session.userId?.slice(0, 8)}</p>
+                            {isFlatRate && (
+                              <span className="text-[9px] font-extrabold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded leading-none">
+                                Flat-Rate
+                              </span>
+                            )}
+                            {creditText && (
+                              <span className="text-[9px] font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded leading-none" title="Book Time Credit Allowance">
+                                {creditText}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -264,7 +360,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <div className="flex -space-x-1">
-                          {session.breaks.map((b: any, i: number) => (
+                          {(session.breaks || []).map((b: any, i: number) => (
                             <div key={i} className="p-1 bg-zinc-100 dark:bg-zinc-800 rounded-full border border-white dark:border-zinc-900" title={`${b.type} break`}>
                               {b.type === 'lunch' ? <Pizza className="w-3 h-3 text-zinc-500" /> : <Coffee className="w-3 h-3 text-zinc-500" />}
                             </div>
@@ -274,9 +370,34 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                      <p className="text-sm font-bold text-zinc-500 dark:text-zinc-400 font-mono">
                         {formatDuration(workMs)}
                       </p>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                          {formatDuration(payMs)}
+                        </p>
+                        {isFlatRate ? (
+                          <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-black uppercase mt-0.5 whitespace-nowrap">
+                            Flat-Rate ({((payMs) / 3600000).toFixed(1)}h)
+                          </span>
+                        ) : (
+                          <>
+                            {diffMs > 0 && (
+                              <span className="text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded font-black uppercase mt-0.5 whitespace-nowrap">
+                                +{((diffMs) / 3600000).toFixed(1)}h Bonus
+                              </span>
+                            )}
+                            {diffMs < 0 && (
+                              <span className="text-[9px] bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-black uppercase mt-0.5 whitespace-nowrap">
+                                {((diffMs) / 3600000).toFixed(1)}h Flat-Rate
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Edit2 className="w-4 h-4 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />

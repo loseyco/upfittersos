@@ -26,6 +26,15 @@ interface TimeSession {
     end?: any;
     isPaid: boolean;
   }>;
+  jobs?: Array<{
+    id: string;
+    name: string;
+    start: any;
+    end?: any;
+    taskId?: string | null;
+    taskName?: string | null;
+    bookTime?: number;
+  }>;
   status: string;
 }
 
@@ -73,6 +82,28 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     enabled: !!user?.uid && !!tenantId
   });
 
+  const { data: staffMember } = useQuery({
+    queryKey: ['my-staff-record', tenantId, user?.uid],
+    queryFn: async () => {
+      if (!user?.uid) return null;
+      const snap = await getDocs(query(collection(db, `businesses/${tenantId}/staff`), where('userId', '==', user.uid)));
+      if (snap.empty) return null;
+      return { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+    },
+    enabled: !!user?.uid && !!tenantId
+  });
+
+  const { data: myDepartment } = useQuery({
+    queryKey: ['my-department', tenantId, staffMember?.departmentId],
+    queryFn: async () => {
+      if (!staffMember?.departmentId) return null;
+      const snap = await getDocs(query(collection(db, `businesses/${tenantId}/departments`)));
+      const deptDoc = snap.docs.find(d => d.id === staffMember.departmentId);
+      return deptDoc ? { id: deptDoc.id, ...deptDoc.data() } as any : null;
+    },
+    enabled: !!staffMember?.departmentId
+  });
+
   const getRequestForSession = (sessionId: string) => {
     return requests?.find((r: any) => r.sessionId === sessionId);
   };
@@ -102,6 +133,44 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     return `${hours}h ${minutes}m`;
   };
 
+  const calculateSessionPayMs = (session: TimeSession, payType?: string) => {
+    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+    const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
+    const workMs = totalMs - breakMs;
+
+    if (!session.jobs || session.jobs.length === 0) {
+      return payType === 'flat_rate' ? 0 : workMs;
+    }
+
+    const taskActualTime: Record<string, number> = {};
+    const taskBookTime: Record<string, number> = {};
+
+    session.jobs.forEach((j: any, idx: number) => {
+      const key = j.taskId || `manual-${idx}-${j.name}`;
+      const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+      const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : now;
+      const segMs = Math.max(0, end - start);
+
+      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+      if (j.bookTime && j.bookTime > 0) {
+        taskBookTime[key] = j.bookTime * 3600000;
+      }
+    });
+
+    if (payType === 'flat_rate') {
+      return Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
+    }
+
+    let adjustmentMs = 0;
+    Object.keys(taskBookTime).forEach(key => {
+      const actualMs = taskActualTime[key] || 0;
+      const bookMs = taskBookTime[key] || 0;
+      adjustmentMs += (bookMs - actualMs);
+    });
+
+    return Math.max(0, workMs + adjustmentMs);
+  };
+
   if (isLoading) return (
     <div className="flex items-center justify-center p-12">
       <div className="w-8 h-8 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
@@ -112,10 +181,24 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   todayStart.setHours(0, 0, 0, 0);
 
   const weekStart = new Date(todayStart);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  const day = weekStart.getDay(); // 0 is Sunday, 1 is Monday, etc.
+  const daysToSubtract = day === 0 ? 6 : day - 1;
+  weekStart.setDate(weekStart.getDate() - daysToSubtract);
 
   let todayMs = 0;
   let weekMs = 0;
+  let todayPayMs = 0;
+  let weekPayMs = 0;
+
+  let activeCreditMs = 0;
+  let creditSource = '';
+  if (staffMember?.payPeriodBookTimeCredit && staffMember.payPeriodBookTimeCredit > 0) {
+    activeCreditMs = staffMember.payPeriodBookTimeCredit * 3600000;
+    creditSource = `${staffMember.payPeriodBookTimeCredit}h Pay Period Override`;
+  } else if (myDepartment?.weeklyBookTimeCredit && myDepartment.weeklyBookTimeCredit > 0) {
+    activeCreditMs = myDepartment.weeklyBookTimeCredit * 3600000;
+    creditSource = `${myDepartment.weeklyBookTimeCredit}h Weekly Credit`;
+  }
 
   sessions?.forEach(session => {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
@@ -124,31 +207,63 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
     const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
     const workMs = totalMs - breakMs;
+    const payMs = calculateSessionPayMs(session, staffMember?.payType);
 
     if (sessionDate.getTime() >= weekStart.getTime()) {
       weekMs += workMs;
+      weekPayMs += payMs;
     }
     if (sessionDate.getTime() >= todayStart.getTime()) {
       todayMs += workMs;
+      todayPayMs += payMs;
     }
   });
+
+  if (weekMs > 0 && activeCreditMs > 0) {
+    weekPayMs += activeCreditMs;
+  }
+
+  const isFlatRate = staffMember?.payType === 'flat_rate';
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-500/20 flex flex-col justify-center">
-          <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">Today</p>
+        <div className="bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-500/20 flex flex-col justify-center animate-in slide-in-from-left duration-300">
+          <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">
+            {isFlatRate ? "Today's Flat-Rate Pay" : "Today's Pay Hours"}
+          </p>
           <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-2">
             <Timer className="w-5 h-5" />
-            {formatDuration(todayMs)}
+            {formatDuration(todayPayMs)}
+          </p>
+          <p className="text-[10px] font-bold text-zinc-400 mt-1 uppercase">
+            {isFlatRate ? "On Clock: " : "Worked: "}{formatDuration(todayMs)}
           </p>
         </div>
-        <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-500/20 flex flex-col justify-center">
-          <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">This Week</p>
+        <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-500/20 flex flex-col justify-center animate-in slide-in-from-right duration-300">
+          <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">
+            {isFlatRate ? "This Week's Flat-Rate Pay" : "This Week's Pay Hours"}
+          </p>
           <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-2">
             <Timer className="w-5 h-5" />
-            {formatDuration(weekMs)}
+            {formatDuration(weekPayMs)}
           </p>
+          <div className="flex flex-col gap-0.5 mt-1">
+            <p className="text-[10px] font-bold text-zinc-400 uppercase">
+              {isFlatRate ? "On Clock: " : "Worked: "}{formatDuration(weekMs)}
+            </p>
+            {isFlatRate && (
+              <p className="text-[9px] font-black text-amber-500 uppercase tracking-wider animate-pulse flex items-center gap-1 mt-0.5">
+                🧪 Experimental Math
+              </p>
+            )}
+            {activeCreditMs > 0 && weekMs > 0 && (
+              <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                Incl. {creditSource}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -162,6 +277,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
           const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
           const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
           const workMs = totalMs - breakMs;
+          const payMs = calculateSessionPayMs(session, staffMember?.payType);
           const request = getRequestForSession(session.id);
 
           return (
@@ -206,7 +322,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                   </div>
 
                   <div className="flex flex-col md:flex-row items-start md:items-center gap-4 flex-1">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 flex-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-6 flex-1">
                       <div className="space-y-1">
                         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Clock In</p>
                         <p className="text-sm font-black text-zinc-900 dark:text-white font-mono">{formatTime(session.clockIn.timestamp)}</p>
@@ -229,10 +345,18 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                         </div>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Total Work</p>
-                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-2">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                          {isFlatRate ? "On Clock" : "Worked"}
+                        </p>
+                        <p className="text-sm font-bold text-zinc-500 font-mono">{formatDuration(workMs)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">
+                          {isFlatRate ? "Flat-Rate Pay" : "Pay Hours"}
+                        </p>
+                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-1.5">
                           <Timer className="w-3.5 h-3.5" />
-                          {formatDuration(workMs)}
+                          {formatDuration(payMs)}
                         </p>
                       </div>
                     </div>
@@ -248,6 +372,45 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                     )}
                   </div>
                 </div>
+
+                {session.jobs && session.jobs.length > 0 && session.jobs.some((j: any) => j.bookTime > 0) && (
+                  <div className="pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-800 space-y-2 animate-in fade-in duration-300">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                      <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                        {isFlatRate ? "Flat-Rate Completed Tasks" : "Book-Time Adjustments"}
+                      </p>
+                    </div>
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      {session.jobs.filter((j: any) => j.bookTime > 0).map((j: any, i: number) => {
+                        const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+                        const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+                        const spentMs = Math.max(0, end - start);
+                        const bookMs = j.bookTime * 3600000;
+                        const diff = bookMs - spentMs;
+
+                        return (
+                          <div key={i} className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-150 dark:border-zinc-800/80 text-xs">
+                            <div className="flex flex-col space-y-0.5">
+                              <span className="font-bold text-zinc-800 dark:text-zinc-200">{j.taskName || j.name}</span>
+                              <span className="text-[10px] text-zinc-400 font-mono">Worked {formatDuration(spentMs)}</span>
+                            </div>
+                            <div className="text-right flex flex-col items-end">
+                              <span className="font-black font-mono text-indigo-500 dark:text-indigo-400">{j.bookTime}h Book</span>
+                              <span className={cn(
+                                "text-[9px] font-black uppercase mt-0.5 px-1.5 py-0.2 rounded",
+                                isFlatRate ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400" :
+                                diff >= 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                              )}>
+                                {isFlatRate ? "Flat-Rate" : diff >= 0 ? `+${formatDuration(diff)} gain` : `-${formatDuration(Math.abs(diff))} limit`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
