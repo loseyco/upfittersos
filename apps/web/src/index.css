@@ -3,6 +3,11 @@
 
 @theme {
   --breakpoint-3xl: 2000px;
+  --color-zinc-55: #f6f6f8;
+  --color-zinc-150: #ecedf0;
+  --color-zinc-850: #202024;
+  --color-zinc-855: #1c1c20;
+  --color-zinc-955: #09090b;
 }
 
 

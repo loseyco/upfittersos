@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { Users, Mail, Phone, MapPin, Edit2, Trash2, X, Car } from 'lucide-react';
-import { ConfirmModal } from '../../components/ConfirmModal';
-import { VehicleDetailsModal, EditVehicleModal } from './VehiclesManager';
 import { useAuthStore } from '../../lib/auth/store';
 import { useBetaUserCount } from '../../lib/hooks/useBetaUserCount';
 
@@ -18,32 +17,12 @@ export function CustomerDetailsModal(props: any) {
 }
 
 function BetaCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDelete }: any) {
+  const navigate = useNavigate();
   useBetaUserCount(tenantId);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
-  
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
-  const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
-  const [confirmConfig, setConfirmConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  const getSource = (row: any) => {
-    const isQB = row.tags?.includes('QuickBooks') || 
-                 row.notes?.includes('Imported via QBWC') || 
-                 !!row.ListID || !!row.qb_ListID || 
-                 !!row.quickbooksId;
-    return (
-      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
-        isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
-      }`}>
-        {isQB ? 'QuickBooks' : 'Native'}
-      </span>
-    );
-  };
+
 
   useEffect(() => {
     const fetchVehicles = async () => {
@@ -183,7 +162,10 @@ function BetaCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDelet
                 {vehicles.map(v => (
                   <div 
                     key={v.id} 
-                    onClick={() => setSelectedVehicle(v)}
+                    onClick={() => {
+                      navigate(`/business/${tenantId}/vehicle/${v.id}`);
+                      onClose();
+                    }}
                     className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center gap-3 cursor-pointer hover:border-purple-500/50 hover:bg-purple-50 dark:hover:bg-purple-500/5 transition-all"
                   >
                     <div className="p-2 bg-purple-500/10 rounded-xl">
@@ -206,72 +188,16 @@ function BetaCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDelet
           </div>
         </div>
       </div>
-      
-      {selectedVehicle && !editingVehicle && (
-        <VehicleDetailsModal 
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          onConfirmAction={setConfirmConfig}
-          onClose={() => setSelectedVehicle(null)}
-          onEdit={() => {
-            setEditingVehicle(selectedVehicle);
-            setSelectedVehicle(null);
-          }}
-          getSource={getSource}
-        />
-      )}
-
-      {editingVehicle && (
-        <EditVehicleModal
-          tenantId={tenantId}
-          vehicle={editingVehicle}
-          onClose={() => setEditingVehicle(null)}
-          onSaved={(updatedData: any) => {
-             const newVehicles = vehicles.map(v => v.id === editingVehicle.id ? { ...editingVehicle, ...updatedData } : v);
-             setVehicles(newVehicles);
-             setSelectedVehicle({ ...editingVehicle, ...updatedData });
-             setEditingVehicle(null);
-          }}
-        />
-      )}
-
-      <ConfirmModal 
-        isOpen={confirmConfig.isOpen}
-        title={confirmConfig.title}
-        message={confirmConfig.message}
-        onConfirm={confirmConfig.onConfirm}
-        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
 }
 
 function LegacyCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDelete }: any) {
+  const navigate = useNavigate();
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
-  
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
-  const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
-  const [confirmConfig, setConfirmConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  const getSource = (row: any) => {
-    const isQB = row.tags?.includes('QuickBooks') || 
-                 row.notes?.includes('Imported via QBWC') || 
-                 !!row.ListID || !!row.qb_ListID || 
-                 !!row.quickbooksId;
-    return (
-      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
-        isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
-      }`}>
-        {isQB ? 'QuickBooks' : 'Native'}
-      </span>
-    );
-  };
+
 
   useEffect(() => {
     const fetchVehicles = async () => {
@@ -405,7 +331,10 @@ function LegacyCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDel
                 {vehicles.map(v => (
                   <div 
                     key={v.id} 
-                    onClick={() => setSelectedVehicle(v)}
+                    onClick={() => {
+                      navigate(`/business/${tenantId}/vehicle/${v.id}`);
+                      onClose();
+                    }}
                     className="p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center gap-3 cursor-pointer hover:border-blue-500/50 hover:bg-blue-50 dark:hover:bg-blue-500/5 transition-all"
                   >
                     <div className="p-2 bg-blue-500/10 rounded-xl">
@@ -428,42 +357,6 @@ function LegacyCustomerDetailsModal({ tenantId, customer, onClose, onEdit, onDel
           </div>
         </div>
       </div>
-      
-      {selectedVehicle && !editingVehicle && (
-        <VehicleDetailsModal 
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          onConfirmAction={setConfirmConfig}
-          onClose={() => setSelectedVehicle(null)}
-          onEdit={() => {
-            setEditingVehicle(selectedVehicle);
-            setSelectedVehicle(null);
-          }}
-          getSource={getSource}
-        />
-      )}
-
-      {editingVehicle && (
-        <EditVehicleModal
-          tenantId={tenantId}
-          vehicle={editingVehicle}
-          onClose={() => setEditingVehicle(null)}
-          onSaved={(updatedData: any) => {
-             const newVehicles = vehicles.map(v => v.id === editingVehicle.id ? { ...editingVehicle, ...updatedData } : v);
-             setVehicles(newVehicles);
-             setSelectedVehicle({ ...editingVehicle, ...updatedData });
-             setEditingVehicle(null);
-          }}
-        />
-      )}
-
-      <ConfirmModal 
-        isOpen={confirmConfig.isOpen}
-        title={confirmConfig.title}
-        message={confirmConfig.message}
-        onConfirm={confirmConfig.onConfirm}
-        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-      />
     </div>
   );
 }

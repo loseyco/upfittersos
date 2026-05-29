@@ -623,12 +623,12 @@ function PermissionGrid({
   onOverrideChange?: (key: PermissionKey, value: boolean | undefined) => void
 }) {
   const categories = {
-    'General': ['quickdesk.view', 'mission_control.view', 'foreman.view', 'graphics.view', 'fast.view', 'fabrication.view', 'office.view', 'printed_parts.view', 'printed_parts.manage', 'performance.view'],
+    'General': ['quickdesk.view', 'mission_control.view', 'foreman.view', 'graphics.view', 'fast.view', 'fabrication.view', 'harness.view', 'office.view', 'printed_parts.view', 'printed_parts.manage', 'performance.view', 'dashboard.customize'],
     'Inventory & Vehicles': ['vehicles.view', 'vehicles.manage', 'zones.view', 'zones.manage', 'parts.view', 'parts.manage'],
     'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'jobs.qc', 'staff.view', 'staff.manage'],
     'Tasks & Timeclock': ['tasks.view', 'tasks.manage', 'timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
     'Communication & Facility': ['communication.view', 'facility.view', 'whiteboards.view', 'whiteboards.manage'],
-    'System & Data': ['settings.view', 'settings.manage', 'reports.view', 'sync.view'],
+    'System & Data': ['settings.view', 'settings.manage', 'reports.view', 'sync.view', 'sync.manage'],
     'Experimental': ['experimental.new_modals']
   };
 

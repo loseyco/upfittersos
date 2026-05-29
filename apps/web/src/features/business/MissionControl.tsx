@@ -20,7 +20,6 @@ import { useWakeLock } from '../../hooks/useWakeLock';
 import { ShopFloorActivity } from './ShopFloorActivity';
 import { ZoneDetailsModal } from './ZoneModals';
 import { QuickAddVehicleModal } from './VehicleSelector';
-import { VehicleDetailsModal } from './VehiclesManager';
 import { QuickAddJobModal } from './JobSelectionComponents';
 import { ConfirmModal } from '../../components/ConfirmModal';
 
@@ -106,7 +105,6 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const [partsRequests, setPartsRequests] = useState<any[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
   const [quickAddJob, setQuickAddJob] = useState<{zoneId: string, title: string, vin: string | null} | null>(null);
   const { user } = useAuthStore();
@@ -814,7 +812,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                       const isPartsMissing = reqCount > 0;
                       const isPartsOrderedOrReceived = ordCount > 0 || recCount > 0;
 
-                      const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
+                      const etaRaw = job 
+                        ? (job.expectedFinishTime || job.eta)
+                        : bay.eta;
                       let isOverdue = false;
                       if (etaRaw) {
                         const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
@@ -960,7 +960,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                     </span>
                                   )}
                                   {(() => {
-                                    const etaRaw = job?.expectedFinishTime || job?.eta || bay.eta;
+                                    const etaRaw = job 
+                                      ? (job.expectedFinishTime || job.eta)
+                                      : bay.eta;
                                     if (!etaRaw) return (
                                       <span className="text-[8px] font-medium uppercase tracking-tighter text-zinc-400">
                                         No ETA
@@ -1048,7 +1050,9 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         const timestamp = zone.lastAssignedAt || zone.updatedAt;
                         const itemKey = `${zone.id}-${vin}-${index}`;
 
-                        const etaRaw = job?.expectedFinishTime || job?.eta || zone.eta;
+                        const etaRaw = job 
+                          ? (job.expectedFinishTime || job.eta)
+                          : (zone.eta || zone.expectedFinishTime);
                         let isOverdue = false;
                         if (etaRaw) {
                           const etaDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
@@ -1272,21 +1276,10 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
           onQuickAddJobRequest={(title: string) => setQuickAddJob({ zoneId: selectedZone.id, title, vin: selectedZone.currentVehicleVin })}
           onOpenVehicle={(vin: string) => {
             const v = vehicles.find(veh => veh.vin === vin);
-            if (v) setSelectedVehicle(v);
-          }}
-        />
-      )}
-
-      {selectedVehicle && (
-        <VehicleDetailsModal
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          onClose={() => setSelectedVehicle(null)}
-          onConfirmAction={setConfirmConfig}
-          onEdit={() => {}} 
-          getSource={(row: any) => {
-            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
-            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+            if (v) {
+              navigate(`/business/${tenantId}/vehicle/${v.id}`);
+              setSelectedZoneId(null);
+            }
           }}
         />
       )}

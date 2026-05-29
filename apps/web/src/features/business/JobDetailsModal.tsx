@@ -110,7 +110,8 @@ import { StaffLink } from './StaffPerformance';
 
 
 
-import { useAuthStore } from '../../lib/auth/store';
+import { useAuthStore } from '../../lib/auth/store';
+import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
 
 
 
@@ -2544,7 +2545,8 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-  const [newTaskBookTime, setNewTaskBookTime] = useState('');
+  const [newTaskBookTime, setNewTaskBookTime] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
 
 
 
@@ -2825,7 +2827,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-        description: template?.description || null,
+        description: newTaskDescription.trim() || template?.description || null,
 
 
 
@@ -2913,7 +2915,8 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-      setNewTaskBookTime('');
+      setNewTaskBookTime('');
+      setNewTaskDescription('');
 
 
 
@@ -3418,7 +3421,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-      const updatedData = { 
+      const updatedData: any = { 
 
 
 
@@ -3458,7 +3461,27 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-      await updateDoc(taskRef, updatedData);
+      if (updates.status === 'QC') {
+        if (!updatedData.completedAt) {
+          updatedData.completedAt = new Date().toISOString();
+        }
+        updatedData.completedBy = user?.displayName || user?.email;
+        updatedData.completedByStaffId = user?.uid;
+        updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+      } else if (updates.status === 'QC Complete') {
+        updatedData.qcCompletedAt = new Date().toISOString();
+        updatedData.qcCompletedBy = user?.displayName || user?.email;
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        if (!existingTask?.completedByStaffId) {
+          updatedData.completedByStaffId = user?.uid;
+          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        }
+      }
+      await updateDoc(taskRef, updatedData);
+
+      if (updates.status === 'QC') {
+        await assignQCStaffToTask(tenantId, job.id, taskId);
+      }
 
 
 
@@ -4549,7 +4572,24 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                                <h4 className="font-bold text-zinc-900 dark:text-white truncate">{task.title}</h4>
+                                <h4 className="font-bold text-zinc-900 dark:text-white truncate">{task.title}</h4>
+                                 {(() => {
+                                   const bookHours = parseFloat(task.bookTime) || 0;
+                                   const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
+                                     ? task.actualTime 
+                                     : loggedHours;
+                                   const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                   const diff = clockedHours - bookHours;
+                                   if (isOverBook) {
+                                     return (
+                                       <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 shrink-0 border border-rose-500/20 flex items-center gap-0.5">
+                                         <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
+                                         Over Budget (+{diff.toFixed(1)}h)
+                                       </span>
+                                     );
+                                   }
+                                   return null;
+                                 })()}
 
 
 
@@ -5389,7 +5429,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                       {(task.description || task.partsNeeded || task.instructions) && (
+                       {task.title !== 'General' && (
 
 
 
@@ -5437,7 +5477,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                             {expandedTasks[task.id] ? 'Hide Details' : 'View Template Details'}
+                             {expandedTasks[task.id] ? 'Hide Details' : 'View Details & Notes'}
 
 
 
@@ -5477,7 +5517,21 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                               {task.description && (
+                                <div>
+                                  <h5 className="font-bold text-zinc-900 dark:text-zinc-100 mb-1">Task Notes & Description</h5>
+                                  <textarea
+                                    defaultValue={task.description || ''}
+                                    placeholder="Add specific notes or description for this task (so you don't need separate labor rows)..."
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val !== (task.description || '')) {
+                                        handleUpdateTask(task.id, { description: val });
+                                      }
+                                    }}
+                                    className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-xs resize-none focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all h-20 text-zinc-900 dark:text-white"
+                                  />
+                                </div>
+                                {false && (
 
 
 
@@ -6765,7 +6819,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{job.title}</h3>
+                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h3>
 
 
 
@@ -13376,7 +13430,8 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-  const [newTaskBookTime, setNewTaskBookTime] = useState('');
+  const [newTaskBookTime, setNewTaskBookTime] = useState('');
+  const [newTaskDescription, setNewTaskDescription] = useState('');
 
 
 
@@ -13657,7 +13712,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-        description: template?.description || null,
+        description: newTaskDescription.trim() || template?.description || null,
 
 
 
@@ -13745,7 +13800,8 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-      setNewTaskBookTime('');
+      setNewTaskBookTime('');
+      setNewTaskDescription('');
 
 
 
@@ -14250,7 +14306,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-      const updatedData = { 
+      const updatedData: any = { 
 
 
 
@@ -14290,7 +14346,27 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-      await updateDoc(taskRef, updatedData);
+      if (updates.status === 'QC') {
+        if (!updatedData.completedAt) {
+          updatedData.completedAt = new Date().toISOString();
+        }
+        updatedData.completedBy = user?.displayName || user?.email;
+        updatedData.completedByStaffId = user?.uid;
+        updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+      } else if (updates.status === 'QC Complete') {
+        updatedData.qcCompletedAt = new Date().toISOString();
+        updatedData.qcCompletedBy = user?.displayName || user?.email;
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        if (!existingTask?.completedByStaffId) {
+          updatedData.completedByStaffId = user?.uid;
+          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        }
+      }
+      await updateDoc(taskRef, updatedData);
+
+      if (updates.status === 'QC') {
+        await assignQCStaffToTask(tenantId, job.id, taskId);
+      }
 
 
 
@@ -15381,7 +15457,24 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                                <h4 className="font-bold text-zinc-900 dark:text-white truncate">{task.title}</h4>
+                                <h4 className="font-bold text-zinc-900 dark:text-white truncate">{task.title}</h4>
+                                 {(() => {
+                                   const bookHours = parseFloat(task.bookTime) || 0;
+                                   const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
+                                     ? task.actualTime 
+                                     : loggedHours;
+                                   const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                   const diff = clockedHours - bookHours;
+                                   if (isOverBook) {
+                                     return (
+                                       <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 shrink-0 border border-rose-500/20 flex items-center gap-0.5">
+                                         <AlertTriangle className="w-2.5 h-2.5 text-rose-500 shrink-0" />
+                                         Over Budget (+{diff.toFixed(1)}h)
+                                       </span>
+                                     );
+                                   }
+                                   return null;
+                                 })()}
 
 
 
@@ -16221,7 +16314,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                       {(task.description || task.partsNeeded || task.instructions) && (
+                       {task.title !== 'General' && (
 
 
 
@@ -16269,7 +16362,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                             {expandedTasks[task.id] ? 'Hide Details' : 'View Template Details'}
+                             {expandedTasks[task.id] ? 'Hide Details' : 'View Details & Notes'}
 
 
 
@@ -16306,18 +16399,22 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-
-
-
-                               {task.description && (
-
-
-
-
-
-
-
-                                 <div>
+                                 <div>
+                                  <h5 className="font-bold text-zinc-900 dark:text-zinc-100 mb-1">Task Notes & Description</h5>
+                                  <textarea
+                                    defaultValue={task.description || ''}
+                                    placeholder="Add specific notes or description for this task (so you don't need separate labor rows)..."
+                                    onBlur={(e) => {
+                                      const val = e.target.value.trim();
+                                      if (val !== (task.description || '')) {
+                                        handleUpdateTask(task.id, { description: val });
+                                      }
+                                    }}
+                                    className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-xs resize-none focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all h-20 text-zinc-900 dark:text-white"
+                                  />
+                                </div>
+                                {false && (
+                                  <div>
 
 
 
@@ -17597,7 +17694,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{job.title}</h3>
+                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h3>
 
 
 

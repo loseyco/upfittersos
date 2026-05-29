@@ -25,6 +25,8 @@ interface StaffMember {
   departmentId?: string;
   jobTitle?: string;
   dailyTags?: GenericTag[];
+  isArchived?: boolean;
+  fireDate?: any;
 }
 
 interface Department {
@@ -64,9 +66,8 @@ export function MorningMeetingBoard({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!tenantId) return;
 
-    // Staff
     const unsubStaff = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
-      setStaff(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffMember)).filter(s => !(s as any).isArchived));
+      setStaff(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffMember)).filter(s => !s.isArchived && !s.fireDate && s.departmentId));
       setLastUpdated(new Date());
       setLoading(false);
     }, (err) => {

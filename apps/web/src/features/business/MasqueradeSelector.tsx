@@ -26,6 +26,7 @@ interface StaffMember {
   departmentId?: string;
   individualPermissions?: PermissionSet;
   isArchived?: boolean;
+  fireDate?: any;
 }
 
 export function MasqueradeSelector({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -47,7 +48,9 @@ export function MasqueradeSelector({ isOpen, onClose }: { isOpen: boolean; onClo
     queryFn: async () => {
       if (!tenantId) return [];
       const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffMember));
+      return snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as StaffMember))
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId);
     },
     enabled: isOpen && !!tenantId
   });

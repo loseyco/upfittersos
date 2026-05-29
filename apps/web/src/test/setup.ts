@@ -34,6 +34,8 @@ vi.mock('firebase/messaging', () => ({
 const listeners: Record<string, any> = {}
 let mockStoreState = {
   tenantId: 'test-tenant',
+  user: { uid: 'user-123', email: 'tech@upfitters.com', displayName: 'Tech User' } as any,
+  impersonatedStaff: null as any,
   permissions: { 'tasks.manage': true } as Record<string, boolean>,
   isSuperAdmin: false,
   loading: false,
@@ -55,9 +57,10 @@ globalThis.__emitSnapshot = (path: string, data: any[]) => {
   }
 }
 
-globalThis.__setMockAuth = (permissions: Record<string, boolean>, isSuperAdmin = false) => {
+globalThis.__setMockAuth = (permissions: Record<string, boolean>, isSuperAdmin = false, user: any = { uid: 'user-123', email: 'tech@upfitters.com', displayName: 'Tech User' }) => {
   mockStoreState.permissions = permissions
   mockStoreState.isSuperAdmin = isSuperAdmin
+  mockStoreState.user = user
 }
 
 vi.mock('firebase/firestore', () => {
@@ -70,6 +73,11 @@ vi.mock('firebase/firestore', () => {
     orderBy: vi.fn((field, dir) => ({ type: 'orderBy', field, dir })),
     doc: vi.fn((db, path, id) => ({ type: 'doc', path: id ? `${path}/${id}` : path })),
     updateDoc: vi.fn(() => Promise.resolve()),
+    setDoc: vi.fn(() => Promise.resolve()),
+    addDoc: vi.fn(() => Promise.resolve({ id: 'mock-doc-id' })),
+    getDoc: vi.fn(() => Promise.resolve({ exists: () => false, data: () => null })),
+    getDocs: vi.fn(() => Promise.resolve({ empty: true, docs: [] })),
+    collectionGroup: vi.fn((db, path) => ({ type: 'collectionGroup', path })),
     serverTimestamp: vi.fn(() => 'mock-timestamp'),
     onSnapshot: vi.fn((queryOrCol, callback, errorCallback) => {
       const path = queryOrCol.path || (queryOrCol.colRef && queryOrCol.colRef.path);
@@ -113,21 +121,30 @@ vi.mock('lucide-react', () => {
     return Component;
   };
   
-  const icons = [
-    'Users', 'Clock', 'Play', 'Pause', 'CheckCircle2', 'Circle', 'AlertTriangle',
-    'Monitor', 'Maximize', 'Minimize', 'Search', 'RefreshCw', 'CheckSquare',
-    'Building2', 'ShieldCheck', 'Truck', 'Plus', 'ExternalLink', 'Box', 'User',
-    'Package', 'Calendar', 'AlertCircle', 'Trash2', 'CheckCircle', 'ShoppingCart',
-    'Hash', 'FileText', 'MapPin', 'Briefcase', 'CarFront', 'ImagePlus', 'ImageIcon',
-    'Maximize2', 'Camera', 'Edit3', 'Save', 'Loader2', 'X', 'ChevronDown', 'ChevronUp', 'Settings', 'ChevronRight', 'ChevronLeft', 'Layout', 'Printer', 'QrCode'
-  ];
-
-  const mockExports: Record<string, any> = {};
-  icons.forEach(icon => {
-    mockExports[icon] = IconMock(icon + 'Icon');
+  return new Proxy({}, {
+    get: (target, prop) => {
+      if (prop === '__esModule') return true;
+      if (prop === 'default') return undefined;
+      if (prop === 'then') return undefined;
+      if (typeof prop === 'string') {
+        return IconMock(prop);
+      }
+      return undefined;
+    },
+    has: (target, prop) => {
+      if (prop === 'then' || prop === 'default') return false;
+      return true;
+    },
+    getOwnPropertyDescriptor: (target, prop) => {
+      if (prop === 'then' || prop === 'default') return undefined;
+      return {
+        enumerable: true,
+        configurable: true,
+        writable: true,
+        value: IconMock(prop as string)
+      };
+    }
   });
-
-  return mockExports;
 })
 
 // 3. Mock framer-motion to bypass animations in JSDOM/Happy-dom

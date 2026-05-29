@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, X, Users, CarFront, Briefcase, Package, Loader2, MapPin, UserCircle2, Box } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, getDocs, limit, query, updateDoc, doc } from 'firebase/firestore';
+import { useQuery } from '@tanstack/react-query';
+import { collection, getDocs, limit, query } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { useSearchStore } from '../../lib/store/searchStore';
-import { toast } from 'sonner';
-import { VehicleDetailsModal, EditVehicleModal } from '../../features/business/VehiclesManager';
+
 import { CustomerDetailsModal } from '../../features/business/CustomerDetailsModal';
 import { ZoneDetailsModal } from '../../features/business/ZoneModals';
-import { ConfirmModal } from '../ConfirmModal';
 
 type SearchResult = {
   id: string;
@@ -25,20 +23,7 @@ export function GlobalSearchModal() {
   const navigate = useNavigate();
   const { tenantId } = useAuthStore();
   const { isOpen, open, close, searchQuery, setSearchQuery } = useSearchStore();
-  const queryClient = useQueryClient();
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
-  const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
-  const [confirmConfig, setConfirmConfig] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  }>({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: () => {}
-  });
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Context data for specialized modals
@@ -62,20 +47,6 @@ export function GlobalSearchModal() {
     enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
   });
 
-  const getSource = (row: any) => {
-    const isQB = row.tags?.includes('QuickBooks') || 
-                 row.notes?.includes('Imported via QBWC') || 
-                 !!row.ListID || !!row.qb_ListID || 
-                 !!row.quickbooksId;
-    return (
-      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
-        isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
-      }`}>
-        {isQB ? 'QuickBooks' : 'Native'}
-      </span>
-    );
-  };
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Allow Ctrl+F or Cmd+F
@@ -84,22 +55,20 @@ export function GlobalSearchModal() {
         open();
       }
       if (e.key === 'Escape') {
-        if (editingVehicle) setEditingVehicle(null);
-        else if (selectedResult) setSelectedResult(null);
+        if (selectedResult) setSelectedResult(null);
         else close();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedResult, editingVehicle]);
+  }, [selectedResult]);
 
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 100);
     } else {
       setSelectedResult(null);
-      setEditingVehicle(null);
     }
   }, [isOpen]);
 
@@ -211,6 +180,11 @@ export function GlobalSearchModal() {
       close();
       return;
     }
+    if (item.type === 'Vehicle') {
+      navigate(`/business/${tenantId}/vehicle/${item.id}`);
+      close();
+      return;
+    }
     setSelectedResult(item);
   }
 
@@ -302,33 +276,7 @@ export function GlobalSearchModal() {
         )}
       </div>
 
-      {/* Details Overlay */}
-      {selectedResult && selectedResult.type === 'Vehicle' && !editingVehicle && (
-        <VehicleDetailsModal 
-          tenantId={tenantId as string}
-          vehicle={{ id: selectedResult.id, ...selectedResult.rawData }}
-          onClose={() => setSelectedResult(null)}
-          onEdit={() => {
-            setEditingVehicle({ id: selectedResult.id, ...selectedResult.rawData });
-          }}
-          onArchive={async () => {
-            if (window.confirm("Are you sure you want to archive this vehicle?")) {
-              try {
-                await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, selectedResult.id), { isArchived: true });
-                toast.success("Vehicle archived");
-                queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
-                queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
-                setSelectedResult(null);
-                close(); // Close search to refresh state
-              } catch (e) {
-                toast.error("Failed to archive vehicle");
-              }
-            }
-          }}
-          getSource={getSource}
-          onConfirmAction={setConfirmConfig}
-        />
-      )}
+
 
       {selectedResult && selectedResult.type === 'Customer' && (
         <CustomerDetailsModal 
@@ -370,36 +318,6 @@ export function GlobalSearchModal() {
                 rawData: v
               });
             }
-          }}
-        />
-      )}
-
-      <ConfirmModal 
-        isOpen={confirmConfig.isOpen}
-        title={confirmConfig.title}
-        message={confirmConfig.message}
-        onConfirm={confirmConfig.onConfirm}
-        onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
-      />
-
-      {editingVehicle && (
-        <EditVehicleModal
-          tenantId={tenantId as string}
-          vehicle={editingVehicle}
-          onClose={() => setEditingVehicle(null)}
-          onSaved={(updatedData: any) => {
-            // Update the selected result's raw data to reflect the changes immediately
-            if (selectedResult) {
-              setSelectedResult({
-                ...selectedResult,
-                rawData: { ...selectedResult.rawData, ...updatedData },
-                title: `${updatedData.year || ''} ${updatedData.make || ''} ${updatedData.model || ''}`.trim() || 'Unknown Vehicle',
-                subtitle: `VIN: ${editingVehicle.vin || 'N/A'} • ${updatedData.customerName || 'No Customer'}`
-              });
-            }
-            queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
-            queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
-            setEditingVehicle(null);
           }}
         />
       )}

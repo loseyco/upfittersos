@@ -238,3 +238,82 @@ Integrity mode: development
 - [ ] Live ETA calculations and foreman notes display clearly for searched jobs.
 - [ ] Overall shop capacity metrics are calculated in real-time.
 
+## Follow-up — 2026-05-29T16:33:10Z
+
+An interactive, premium, and fully customizable dashboard ("Mission Control") integrated directly into the **My Dashboard** landing page in UpfittersOS (inside `UserMissionControl.tsx` under the default `overview` view mode). Users can add custom data cards, select card types and configurations (e.g., choosing which fields like vehicle, customer, or due date to show on a Job card), drag-and-drop to reorder cards, toggle card visibility, and persist their personalized layout per-user in Firestore.
+
+Working directory: c:\_Projects\upfittersos.com
+Integrity mode: development
+
+## Requirements
+
+### R1. Dashboard Integration inside My Dashboard
+- Integrate the customizable dashboard directly into the **My Dashboard** main operational view inside `UserMissionControl.tsx` (the default `overview` landing page).
+- Provide a clean, highly intuitive toggle or tab switcher at the top of the dashboard so users can easily toggle between the **Classic Dashboard** and their own **Personalized Dashboard**.
+- When entering the "Personalized Dashboard" view:
+  - If no custom layout exists yet in Firestore for the current user, automatically seed it with a beautiful set of default cards matching the classic layout components (e.g., Search Card, Quick Actions Card, Active Job Queue Card, Tasks Card, Time Clock Card).
+  - Provide a responsive layout canvas displaying the active cards. Include a dashboard sub-header containing an "Add Card" button, a "Reset to Defaults" option, and a subtle "Autosaved" status indicator.
+  - Build a beautiful "empty state" with custom graphics/illustration and clear instructions when all cards are removed.
+
+### R2. Flexible Card Templates & Dynamic Configuration
+- Implement a dialog/modal to "Add Card" and "Configure Card" directly on the dashboard.
+- Support the following highly interactive card types:
+  1. **Job Details Card**: Displays a specific selected Job. Users can toggle field visibility via checkboxes: Customer Name, Vehicle Details, Due Date, Status, Priority, and Assigned Staff.
+  2. **My Tasks Card**: Shows the logged-in staff member's active checklist/tasks, with columns for status and due date.
+  3. **Time Clock Card**: Displays real-time clocked hours, current punch status, and quick Clock In / Clock Out buttons.
+  4. **Recent Activity Card**: Renders a live timeline of recent events in the business.
+  5. **Quick Stats Card**: Shows real-time business counters (e.g., total active jobs, completed jobs this week, pending parts requests).
+  6. **Quick Links Card**: Allows the user to configure a list of internal app links (shortcuts) they access frequently.
+- Every card must support individual settings (e.g., renaming the card title, deleting the card, or changing its specific configuration fields) accessible via a clean settings popover or inline gear icon.
+
+### R3. Smooth Drag-and-Drop Reordering
+- Integrate a robust, modern React drag-and-drop mechanism (e.g., using a library like `@dnd-kit` or `@hello-pangea/dnd`) to allow the user to click a card's drag handle and reposition it in the layout.
+- The drag action must feel responsive and tactile, with smooth micro-animations, shadow offsets, drop indicators, and clear styling for the card being dragged.
+- Ensure full responsiveness: the layout should adapt from 1 column on mobile to 2 or 3 columns on larger desktop screens.
+
+### R4. Per-User Firestore Persistence
+- Store the user's custom layout config inside Firestore at:
+  `businesses/{tenantId}/staff_dashboard_configs/{userId}` (where `userId` is the current user's Firebase Auth UID).
+- The stored layout schema must include an ordered array of cards containing: `id`, `type`, `title`, `visible`, and a generic `settings` map (e.g., `{ showVehicle: true, jobId: "XYZ" }`).
+- Whenever a card is added, reordered, modified, or deleted, automatically persist the layout config to Firestore. Include a visual "Saving..." / "Saved" status indicator in the top right of the dashboard.
+- Gracefully load the saved configuration on mount, falling back to a sensible default layout if no configuration exists.
+
+## Acceptance Criteria
+
+### Integration & Setup
+- [ ] Users can toggle between **Classic** and **Personalized** views inside the `My Dashboard` tab.
+- [ ] If first-time users switch to **Personalized**, they are automatically set up with 5 default cards so their dashboard is populated immediately.
+
+### Grid Layout & Draggability
+- [ ] Users can drag and drop cards to reorder them in 1, 2, or 3-column layouts.
+- [ ] Reordering or dragging cards animate smoothly, showing clear drop-indicator positions.
+- [ ] A dedicated "drag handle" is visible on hover/focus on each card.
+
+### Card Types & Customization
+- [ ] The "Add Card" modal allows selecting from at least 6 distinct templates (Job Details, My Tasks, Time Clock, Recent Activity, Quick Stats, Quick Links).
+- [ ] A Job Details card dynamically fetches and displays the selected job's data, showing only the toggled-on fields.
+- [ ] Toggling field visibility (e.g., hiding Due Date or Vehicle Details) updates the card immediately.
+
+### Firestore Integration & Autosave
+- [ ] Adding, reordering, editing, or deleting cards automatically pushes updates to Firestore.
+- [ ] Refreshing the web browser completely preserves the user's customized card configurations, fields, and ordering.
+- [ ] A visual status indicator displays "Saved" when layout changes are persisted.
+
+### Design & Polish
+- [ ] Dashboard looks premium and is built using high-quality aesthetics: curating cohesive CSS colors, smooth CSS transitions, glassmorphic card overlays, and clean Lucide icons.
+- [ ] Cards have responsive wrapping and look gorgeous across mobile, tablet, and widescreen monitors.
+
+## Follow-up — 2026-05-29T16:33:23Z
+
+Hi team! The user has added a crucial new requirement for this task:
+
+## NEW REQUIREMENT: Authorization & Customization Permission
+- Introduce a new permission key `'dashboard.customize'` mapped to `"Customize Personal Dashboard"` inside `apps/web/src/lib/auth/permissions.ts`.
+- Integrate this new permission in `StaffManager.tsx` under the `'General'` category so admins can toggle this permission on/off for staff members or departments.
+- A user must have the `'dashboard.customize'` permission (or be a Super Admin) to access customization options (including the toggle to the personalized dashboard, the settings gear on cards, the "Add Card" button, and drag-and-drop handles). If a user does not have this permission, they must only see the Classic view without any customizability/personalized toggles or buttons.
+
+## Follow-up — 2026-05-29T17:35:37Z
+
+Brilliant! That is pure genius. I have successfully replaced the `lucide-react` mock inside `apps/web/src/test/setup.ts` with your Proxy-based dynamic mock. 
+
+It works flawlessly, and we'll never have to chase icon exports again. You're fully cleared to execute the test suite! Let's get that victory report!

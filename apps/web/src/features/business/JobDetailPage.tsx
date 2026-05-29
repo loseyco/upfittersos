@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc, getDoc, limit } from 'firebase/firestore';
-import { db } from '../../lib/firebase/config';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../../lib/firebase/config';
 import { 
   Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, XCircle,
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
   AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight,
-  Search, Users, X, ShieldAlert, Printer
+  Search, Users, X, ShieldAlert, Printer, FileText, Mail, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
+import { assignQCStaffToTask, assignQCStaffToJob } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
 import { JobChat } from './components/JobChat';
 import { PartsRequestModal } from './PartsRequestModal';
@@ -58,14 +60,16 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!tenantId || !canClockOthers) return;
     const unsub = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
-      setAllStaff(snap.docs.map(d => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
-        };
-      }));
+      setAllStaff(snap.docs
+        .map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          } as any;
+        })
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId));
     });
     return () => unsub();
   }, [tenantId, canClockOthers]);
@@ -90,6 +94,39 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const [zones, setZones] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
+
+  // Job Status Report states
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [emailRecipients, setEmailRecipients] = useState('');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  // Fetch Customer details for report emailing defaults
+  useEffect(() => {
+    if (showReportModal && job?.customerId && tenantId) {
+      const fetchCustomer = async () => {
+        try {
+          const snap = await getDoc(doc(db, `businesses/${tenantId}/customers`, job.customerId));
+          if (snap.exists()) {
+            const email = snap.data()?.email || '';
+            setCustomerEmail(email);
+            setEmailRecipients(email); // Default the recipient to the customer's email!
+          }
+        } catch (e) {
+          console.error("Error fetching customer email:", e);
+        }
+      };
+      fetchCustomer();
+    }
+  }, [showReportModal, job?.customerId, tenantId]);
+
+  // Set default subject once job loads
+  useEffect(() => {
+    if (job) {
+      setEmailSubject(`Job Status Report: ${job.title} ${job.jobNumber ? `#${job.jobNumber}` : ''}`);
+    }
+  }, [job]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -151,6 +188,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
 
   const isUserClockedIntoTask = (userId: string, taskId: string, staffName?: string) => {
     return timeLogs.some(session => {
+      const isSessionActive = session.status === 'active' || session.status === 'on_break';
+      if (!isSessionActive) return false;
+
       const matchesUid = session.userId === userId;
       const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
       const targetName = (staffName || '').toLowerCase().trim();
@@ -165,12 +205,16 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     try {
       const q = query(
         collection(db, `businesses/${tenantId}/time_sessions`),
-        where('userId', '==', targetUid),
-        where('status', '==', 'active'),
-        limit(1)
+        where('status', 'in', ['active', 'on_break'])
       );
       const snap = await getDocs(q);
-      const activeSession = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() as any };
+      const activeSession = snap.empty ? null : snap.docs.map(d => ({ id: d.id, ...d.data() as any })).find(session => {
+        const matchesUid = session.userId === targetUid;
+        const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
+        const targetLower = (targetName || '').toLowerCase().trim();
+        const matchesName = targetLower && sessionName && (sessionName === targetLower);
+        return matchesUid || matchesName;
+      }) || null;
 
       if (action === 'in') {
         let bookTime = 0;
@@ -426,8 +470,21 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === taskId);
       const segMs = taskSegments.reduce((segAcc: number, seg: any) => {
         const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
-        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
-        return segAcc + Math.max(0, end - start);
+        
+        let endMs = now;
+        if (seg.end) {
+          endMs = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+        } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+          const clockOutVal = session.clockOut?.timestamp;
+          if (clockOutVal) {
+            endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+          } else {
+            const updatedVal = session.updatedAt || session.createdAt;
+            endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+          }
+        }
+
+        return segAcc + Math.max(0, endMs - start);
       }, 0);
       return acc + segMs;
     }, 0);
@@ -490,9 +547,15 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           updateData.completedAt = new Date().toISOString();
         }
         updateData.completedBy = user?.displayName || user?.email;
+        updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
       } else if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email;
+        if (!task?.completedByStaffId) {
+          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        }
       } else if (nextStatus === 'Rework') {
         updateData.qcFailedAt = new Date().toISOString();
         updateData.qcFailedBy = user?.displayName || user?.email;
@@ -501,6 +564,11 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       // 1. Update the task
       await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateData);
       toast.success(`Task marked as ${nextStatus}`);
+
+      // Automatically assign task to QC staff if status is QC
+      if (nextStatus === 'QC') {
+        await assignQCStaffToTask(tenantId, jobId, taskId);
+      }
 
       // Auto clock out anyone clocked into this task since it is complete/ready for QC/rework
       if (nextStatus === 'QC' || nextStatus === 'QC Complete' || nextStatus === 'Rework') {
@@ -773,13 +841,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   };
 
 
-  // Progression Logic Hook
+  // Progression & Regression Logic Hook
   useEffect(() => {
     if (!tasks.length || !job || !tenantId || !jobId) return;
-    
-    // Only auto-progress if status is Active, Open, Ready for QA
-    const autoProgressable = ['Active', 'Open', 'Ready for QA'].includes(job.status);
-    if (!autoProgressable) return;
 
     const nonGeneralTasks = tasks.filter(t => t.title !== 'General');
     if (nonGeneralTasks.length === 0) return;
@@ -787,23 +851,46 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
     const allQCComplete = nonGeneralTasks.every(t => t.status === 'QC Complete');
 
-    const updateJobStatus = async (newStatus: string, msg: string) => {
+    const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
       try {
         await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
           status: newStatus,
           updatedAt: new Date()
         });
-        toast.success(msg);
+        if (isReversion) {
+          toast.error(msg);
+        } else {
+          toast.success(msg);
+        }
+
+        // Automatically assign job to QC staff if status is Ready for QA
+        if (newStatus === 'Ready for QA') {
+          await assignQCStaffToJob(tenantId, jobId);
+        }
       } catch (e) {
-        console.error("Auto-progression error:", e);
+        console.error("Auto-progression/regression error:", e);
       }
     };
 
-    if (allQCComplete) {
-      updateJobStatus('Ready for Customer', 'Job ready for customer!');
-    } else if (allQCReady) {
-      updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+    // Progression: If Active/Open/Ready for QA, progress forward if all tasks are ready
+    if (['Active', 'Open', 'Ready for QA'].includes(job.status)) {
+      if (allQCComplete) {
+        updateJobStatus('Ready for Customer', 'Job ready for customer!');
+      } else if (allQCReady) {
+        updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+      }
+    }
+
+    // Regression: If currently Ready for Customer or Ready for QA, but tasks were reopened or added
+    if (['Ready for Customer', 'Ready for QA'].includes(job.status)) {
+      if (!allQCReady) {
+        // There are unfinished tasks, so job must go back to Active
+        updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
+      } else if (job.status === 'Ready for Customer' && !allQCComplete) {
+        // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to Ready for QA
+        updateJobStatus('Ready for QA', 'QC tasks pending: Job status reverted to Ready for QA', true);
+      }
     }
   }, [tasks, job?.status, tenantId, jobId]);
 
@@ -859,7 +946,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         task.assignedStaffIds?.includes(staffMember.id) || 
         task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
       ));
-    return task.title === 'General' || isAssigned;
+    return task.title === 'General' || isAssigned || (permissions['jobs.qc'] && task.status === 'QC');
   });
 
   const nonGeneralTasks = visibleTasks.filter(t => t.title !== 'General');
@@ -1017,6 +1104,11 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       const d = t.departmentId || 'unassigned';
       deptHours[d] = (deptHours[d] || 0) + (parseFloat(t.bookTime) || 0);
     });
+
+    const totalHours = Object.values(deptHours).reduce((sum, h) => sum + h, 0);
+    if (totalHours <= 0) {
+      return null;
+    }
     
     const nowTime = new Date();
     let maxETA = nowTime;
@@ -1041,7 +1133,8 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     </div>
   );
 
-  const hasAccess = isSuperAdmin || permissions['jobs.view'] || tasks.some(task => {
+  const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
+  const hasAccess = isSuperAdmin || permissions['jobs.view'] || canPerformQC || tasks.some(task => {
     const isAssigned = task.assignedStaffIds?.includes(effectiveUserId) || 
       task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
       (staffMember?.id && (
@@ -1066,7 +1159,6 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   }
 
   const scheduledBay = zones.find(z => z.id === job.bayId || z.name === job.bayId)?.name || job.bayId || 'Not Set';
-  const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
 
   const etaComparison = (() => {
     if (!dynamicETA || !job.scheduledEndDate) return null;
@@ -1077,13 +1169,302 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     if (Math.abs(diffHours) < 0.1) {
       return { status: 'on-time', text: 'On Track / On Time' };
     } else if (diffHours > 0) {
-      const durationText = formatSmartDuration(Math.floor(diffMs / 1000));
-      return { status: 'early', text: `Projected Early by ${durationText}` };
-    } else {
-      const durationText = formatSmartDuration(Math.floor(Math.abs(diffMs) / 1000));
-      return { status: 'late', text: `Projected Late by ${durationText}` };
     }
   })();
+
+  const jobEfficiencyStats = (() => {
+    let totalBook = 0;
+    let totalActual = 0;
+
+    tasks.forEach(task => {
+      if (task.isAccidental) return;
+      
+      const bookHours = parseFloat(task.bookTime) || 0;
+      const loggedMs = getTaskLoggedMs(task.id);
+      const actualHours = task.actualTime !== undefined && task.actualTime > 0 
+        ? task.actualTime 
+        : (loggedMs / 3600000);
+
+      if (task.title !== 'General') {
+        totalBook += bookHours;
+      }
+      totalActual += actualHours;
+    });
+
+    const efficiency = totalActual > 0 ? (totalBook / totalActual) * 100 : null;
+    const variance = totalActual - totalBook;
+
+    return {
+      totalBook,
+      totalActual,
+      efficiency,
+      variance
+    };
+  })();
+
+  const generateEmailHtml = () => {
+    // Generate tasks lists
+    const completedTasksList = tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete');
+    const incompleteTasksList = tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete');
+    const missingPartsList = parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled');
+
+    const doneHtml = completedTasksList.length === 0 
+      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">No tasks completed yet.</td></tr>'
+      : completedTasksList.map(t => {
+          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+          const loggedMs = getTaskLoggedMs(t.id);
+          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+          const bookHours = parseFloat(t.bookTime) || 0;
+          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+          const diff = clockedHours - bookHours;
+
+          return `
+            <tr style="border-bottom: 1px solid #e4e4e7;">
+              <td style="padding: 12px 10px;">
+                <div style="font-weight: bold; color: #18181b;">${t.title}</div>
+                ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
+                <div style="font-size: 11px; color: #10b981; font-weight: 600; margin-top: 4px;">Completed by: ${staffNames}</div>
+                ${t.title !== 'General' && bookHours > 0 ? `
+                  <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
+                    Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
+                    ${isOverBook ? `
+                      <span style="color: #ef4444; background: #fee2e2; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
+                        +${diff.toFixed(1)}h Over
+                      </span>
+                    ` : `
+                      <span style="color: #10b981; background: #dcfce7; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
+                        Under Budget
+                      </span>
+                    `}
+                  </div>
+                ` : ''}
+              </td>
+              <td style="padding: 12px 10px; font-family: monospace; font-weight: bold; text-align: right; color: #10b981;">
+                ${clockedHours.toFixed(1)}h
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+    const needDoneHtml = incompleteTasksList.length === 0
+      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">All tasks are complete!</td></tr>'
+      : incompleteTasksList.map(t => {
+          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+          const loggedMs = getTaskLoggedMs(t.id);
+          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+          const bookHours = parseFloat(t.bookTime) || 0;
+          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+          const diff = clockedHours - bookHours;
+
+          return `
+            <tr style="border-bottom: 1px solid #e4e4e7;">
+              <td style="padding: 12px 10px;">
+                <div style="font-weight: bold; color: #18181b;">${t.title}</div>
+                ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
+                <div style="font-size: 11px; color: #6366f1; font-weight: 600; margin-top: 4px;">Assigned: ${staffNames}</div>
+                ${t.title !== 'General' && bookHours > 0 ? `
+                  <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
+                    Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
+                    ${isOverBook ? `
+                      <span style="color: #ef4444; background: #fee2e2; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
+                        +${diff.toFixed(1)}h Over
+                      </span>
+                    ` : ''}
+                  </div>
+                ` : ''}
+              </td>
+              <td style="padding: 12px 10px; font-family: monospace; text-align: right; color: #4f46e5; font-weight: bold;">
+                ${clockedHours.toFixed(1)}h
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+    const partsHtml = missingPartsList.length === 0
+      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">No pending parts.</td></tr>'
+      : missingPartsList.map(p => `
+        <tr style="border-bottom: 1px solid #e4e4e7;">
+          <td style="padding: 12px 10px;">
+            <div style="font-weight: bold; color: #18181b;">${p.partName}</div>
+            <div style="font-size: 11px; color: #71717a; margin-top: 2px;">
+              Qty: ${p.quantity || 1} &bull; ${p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
+            </div>
+          </td>
+          <td style="padding: 12px 10px; text-align: right;">
+            <span style="background: #fef3c7; color: #d97706; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; text-transform: uppercase;">
+              ${p.status || 'requested'}
+            </span>
+          </td>
+        </tr>
+      `).join('');
+
+    const staffWorkloadHtml = staffStats.length === 0
+      ? '<p style="color: #71717a; font-style: italic; font-size: 13px;">No staff allocated.</p>'
+      : `
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #e4e4e7; text-align: left; color: #71717a; font-weight: 800; font-size: 11px; text-transform: uppercase;">
+              <th style="padding: 8px 10px;">Staff Member</th>
+              <th style="padding: 8px 10px; text-align: center;">Tasks (Done / Total)</th>
+              <th style="padding: 8px 10px; text-align: right;">Hours (Done / Total)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${staffStats.map(s => `
+              <tr style="border-bottom: 1px solid #e4e4e7;">
+                <td style="padding: 10px; font-weight: bold; color: #18181b;">${s.name}</td>
+                <td style="padding: 10px; text-align: center; color: #4b5563;">${s.completedTasks} / ${s.totalTasks}</td>
+                <td style="padding: 10px; text-align: right; font-family: monospace; font-weight: bold; color: #18181b;">
+                  ${s.completedHours.toFixed(1)} / ${s.totalHours.toFixed(1)}h
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+    const efficiencyHtml = jobEfficiencyStats.totalActual > 0 ? `
+      <div style="margin-bottom: 24px;">
+        <h2 style="font-size: 14px; font-weight: 900; color: #1e1b4b; border-bottom: 2px solid #1e1b4b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+          📈 JOB EFFICIENCY REPORT
+        </h2>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px; width: 45%;">Total Book Allotment</td>
+              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0f172a; font-size: 14px;">${jobEfficiencyStats.totalBook.toFixed(1)}h</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Total Clocked Hours</td>
+              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0f172a; font-size: 14px;">${jobEfficiencyStats.totalActual.toFixed(1)}h</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Variance</td>
+              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: ${jobEfficiencyStats.variance > 0.1 ? '#ef4444' : '#10b981'}; font-size: 14px;">
+                ${jobEfficiencyStats.variance > 0 ? `+${jobEfficiencyStats.variance.toFixed(1)}h` : `${jobEfficiencyStats.variance.toFixed(1)}h`}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Overall Efficiency</td>
+              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; font-size: 15px;">
+                <span style="background: ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? '#dcfce7' : '#fee2e2'}; color: ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? '#15803d' : '#b91c1c'}; padding: 2px 8px; border-radius: 6px;">
+                  ${jobEfficiencyStats.efficiency ? `${jobEfficiencyStats.efficiency.toFixed(0)}%` : 'N/A'}
+                </span>
+              </td>
+            </tr>
+          </table>
+          <div style="font-size: 12px; color: #475569; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
+            ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? `
+              🎉 The team completed this job <strong>${(jobEfficiencyStats.efficiency - 100).toFixed(0)}% more efficiently</strong> than the allotted book time budget.
+            ` : jobEfficiencyStats.efficiency ? `
+              ⚠️ The job ran <strong>${(100 - jobEfficiencyStats.efficiency).toFixed(0)}% over</strong> the budgeted book time allotment.
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    ` : '';
+
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; padding: 30px 15px; color: #18181b;">
+        <div style="max-width: 650px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 1px solid #e4e4e7;">
+          
+          <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; padding: 30px 24px;">
+            <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">JOB STATUS REPORT</h1>
+            <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+              ${job.customerName || 'Walk-in Customer'} &bull; Job ${job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
+            </p>
+          </div>
+
+          <div style="padding: 24px;">
+            <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px; width: 35%;">Job Title</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #1e1b4b; font-size: 14px;">${job.title}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Status</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${job.status}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Vehicle ID</td>
+                  <td style="padding: 6px 0; font-weight: bold; font-family: monospace; color: #18181b;">${job.vehicleId || 'N/A'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Scheduled Bay</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${scheduledBay}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Scheduled Start</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${formatJobDate(job.scheduledStartDate)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Deadline / Expected End</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${formatJobDate(job.scheduledEndDate)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Dynamic ETA</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #6366f1;">${dynamicETA ? formatJobDate(dynamicETA) : 'Completed / N/A'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Total Job Progress</td>
+                  <td style="padding: 10px 0 6px 0;">
+                    <div style="font-weight: 800; font-size: 15px; color: #4f46e5; margin-bottom: 4px;">${jobProgress}% Complete</div>
+                    <div style="background: #e4e4e7; border-radius: 99px; height: 10px; width: 100%; overflow: hidden;">
+                      <div style="background: #6366f1; height: 100%; border-radius: 99px; width: ${jobProgress}%;"></div>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+              <h2 style="font-size: 14px; font-weight: 900; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ✔ WHAT'S DONE
+              </h2>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                ${doneHtml}
+              </table>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+              <h2 style="font-size: 14px; font-weight: 900; color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚙ WHAT NEEDS TO BE DONE
+              </h2>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                ${needDoneHtml}
+              </table>
+            </div>
+
+            <div style="margin-bottom: 24px;">
+              <h2 style="font-size: 14px; font-weight: 900; color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚠ MISSING / PENDING PARTS
+              </h2>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                ${partsHtml}
+              </table>
+            </div>
+
+            ${efficiencyHtml}
+
+            <div style="margin-bottom: 12px;">
+              <h2 style="font-size: 14px; font-weight: 900; color: #1f2937; border-bottom: 2px solid #1f2937; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                👤 STAFF ALLOCATION OVERVIEW
+              </h2>
+              ${staffWorkloadHtml}
+            </div>
+
+          </div>
+
+          <div style="background: #f4f4f5; border-top: 1px solid #e4e4e7; padding: 20px; text-align: center; font-size: 11px; color: #71717a;">
+            <p style="margin: 0 0 4px 0; font-weight: bold; color: #4b5563;">UpfittersOS &bull; SAE Group Operational Engine</p>
+            <p style="margin: 0;">This report is a real-time snapshot generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}.</p>
+          </div>
+
+        </div>
+      </div>
+    `;
+  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-24">
@@ -1098,7 +1479,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           </button>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 dark:text-white tracking-tight">{job.title}</h1>
+              <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 dark:text-white tracking-tight">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h1>
               <span className={cn(
                 "px-2 py-1 rounded text-xs font-black uppercase tracking-tighter",
                 job.source === 'QuickBooks' ? "bg-blue-600 text-white" : "bg-zinc-900 text-white dark:bg-white dark:text-black"
@@ -1130,6 +1511,13 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 Print QR
               </button>
               <button 
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-750 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 border border-indigo-500/30 transition-all"
+              >
+                <FileText className="w-4 h-4 text-indigo-200" />
+                Job Report
+              </button>
+              <button 
                 onClick={() => navigate(`/business/${tenantId}/job/${jobId}/edit`)}
                 className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white rounded-xl text-sm font-bold shadow-sm transition-all"
               >
@@ -1144,7 +1532,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content - Tasks */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
+          <div id="tasks-section" className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-500/10 rounded-xl">
@@ -1400,6 +1788,23 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                               )}>
                                                 {task.status || 'Pending'}
                                               </span>
+                                              {(() => {
+                                                const bookHours = parseFloat(task.bookTime) || 0;
+                                                const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
+                                                  ? task.actualTime 
+                                                  : (loggedMs / 3600000);
+                                                const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                                const diff = clockedHours - bookHours;
+                                                if (isOverBook) {
+                                                  return (
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-600 dark:bg-rose-500/25 dark:text-rose-350 border border-rose-500/20 flex items-center gap-1">
+                                                      <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                                      Over Budget (+{diff.toFixed(1)}h)
+                                                    </span>
+                                                  );
+                                                }
+                                                return null;
+                                              })()}
                                               {task.isDiagnostic && (
                                                 <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-600 dark:bg-purple-500/25 dark:text-purple-300 border border-purple-500/20">
                                                   Diagnostic
@@ -1425,7 +1830,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                             {task.description && <p className="text-xs text-zinc-500 mb-2">{task.description}</p>}
                                             
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-                                              {task.title !== 'General' && (
+                                              {task.title !== 'General' && task.status !== 'QC' && (
                                                 <div className="flex flex-col">
                                                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Allotted Time</span>
                                                   <span className="font-mono text-sm font-bold text-zinc-900 dark:text-white">{task.bookTime || 0}h</span>
@@ -1565,7 +1970,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 )}
                                               </>
                                             )}
-                                            {!isAssigned && task.status !== 'QC Complete' && (
+                                            {!isAssigned && task.status !== 'QC' && task.status !== 'QC Complete' && (
                                               <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl">
                                                 Assigned to {task.assignedStaff?.[0]?.name || 'Technician'}
                                               </span>
@@ -1639,7 +2044,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                   return (
                     <div className="space-y-8">
                       {renderGroupedTasks(activeTasksList)}
-                      {renderGroupedTasks(completedTasksList, "Ready for QA & Completed")}
+                      <div id="qc-tasks-section">
+                        {renderGroupedTasks(completedTasksList, "Ready for QA & Completed")}
+                      </div>
                     </div>
                   );
                 })()
@@ -1651,7 +2058,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         {/* Sidebar - Context & Quick Actions */}
         <div className="space-y-6 lg:row-span-2">
           {/* Quick Stats */}
-          <div className="bg-indigo-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-500/20">
+          <div id="overview-section" className="bg-indigo-600 rounded-3xl p-6 text-white shadow-xl shadow-indigo-500/20">
             <h3 className="text-sm font-black uppercase tracking-[0.2em] mb-4 opacity-80 flex items-center justify-between">
               Job Overview
               <Clock className="w-4 h-4" />
@@ -2256,6 +2663,565 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           onClose={() => setIsETAOpen(false)}
           onSuccess={() => setIsETAOpen(false)}
         />
+      )}
+
+      {showReportModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm animate-in fade-in duration-200 job-report-modal-wrapper">
+          {/* Print Style Injector */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: letter portrait;
+                margin: 0.4in;
+              }
+
+              /* 1. Hide everything under body that isn't the modal wrapper */
+              body > *:not(.job-report-modal-wrapper) {
+                display: none !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+
+              /* 2. Hide any headers/buttons/sidebars marked no-print inside the modal */
+              .no-print,
+              .no-print * {
+                display: none !important;
+                height: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+
+              /* 3. Reset the modal wrapper and ALL intermediate layout containers to simple block containers with auto-height and no animation/transform offsets */
+              .job-report-modal-wrapper,
+              .job-report-modal-container,
+              .job-report-modal-container > div,
+              .job-report-modal-container > div > div {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                float: none !important;
+                flex: none !important;
+                animation: none !important;
+                transition: none !important;
+                transform: none !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+              }
+
+              /* 4. Style the print card itself to take full width naturally starting at the top of Page 1 */
+              #job-report-print-area {
+                width: 100% !important;
+                max-width: 100% !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                display: block !important;
+                position: static !important;
+                animation: none !important;
+                transition: none !important;
+                transform: none !important;
+              }
+
+              /* 5. Prevent splitting cards in half */
+              .print-no-break {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+            }
+          ` }} />
+
+          <div className="w-full max-w-5xl h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 job-report-modal-container">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 no-print">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Job Status Report</h3>
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Preview, Print, or Email</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* Left Side: Report Preview */}
+              <div className="flex-1 overflow-y-auto p-6 bg-zinc-100 dark:bg-zinc-950/40 border-r border-zinc-200 dark:border-zinc-800">
+                <div className="mb-3 flex justify-between items-center no-print">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Document Preview</span>
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-indigo-500" />
+                    Print Document
+                  </button>
+                </div>
+
+                {/* Printable Area Wrapper */}
+                <div 
+                  id="job-report-print-area" 
+                  className="bg-white text-zinc-900 p-8 rounded-2xl border border-zinc-200 shadow-md font-sans mx-auto max-w-[800px]"
+                >
+                  {/* Print Header */}
+                  <div className="border-b-2 border-indigo-900 pb-4 mb-6 flex justify-between items-start">
+                    <div>
+                      <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">JOB STATUS REPORT</h1>
+                      <p className="text-sm font-bold text-zinc-500 mt-1 uppercase tracking-wider">
+                        {job.customerName || 'Walk-in Customer'} &bull; Job {job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
+                      <div className="text-xs font-bold font-mono">{new Date().toLocaleDateString()}</div>
+                    </div>
+                  </div>
+
+                  {/* Overview Stats */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mb-6 text-xs print-no-break">
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Job Title</span>
+                      <span className="font-bold text-zinc-800">{job.title}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Vehicle Link</span>
+                      <span className="font-mono font-bold text-zinc-800 truncate block">{job.vehicleId || 'Not Linked'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Scheduled Bay</span>
+                      <span className="font-bold text-zinc-800">{scheduledBay}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Scheduled Start</span>
+                      <span className="font-bold text-zinc-800">{formatJobDate(job.scheduledStartDate)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Deadline</span>
+                      <span className="font-bold text-zinc-800">{formatJobDate(job.scheduledEndDate)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Dynamic ETA</span>
+                      <span className="font-bold text-indigo-650">{dynamicETA ? formatJobDate(dynamicETA) : 'Completed / N/A'}</span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-3 mt-2 pt-2 border-t border-indigo-100 flex items-center justify-between">
+                      <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Total Job Progress</span>
+                      <div className="flex items-center gap-3 w-4/5">
+                        <div className="flex-1 h-2 bg-zinc-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${jobProgress}%` }} />
+                        </div>
+                        <span className="font-bold font-mono text-zinc-800">{jobProgress}%</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Efficiency Report Summary */}
+                  {jobEfficiencyStats.totalActual > 0 && (
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 mb-6 text-xs print-no-break">
+                      <h3 className="text-xs font-black text-indigo-950 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                        <Timer className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                        Job Efficiency Metrics
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Book Allotment</span>
+                          <span className="font-mono font-bold text-zinc-800 text-sm">{jobEfficiencyStats.totalBook.toFixed(1)}h</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Clocked Hours</span>
+                          <span className="font-mono font-bold text-zinc-800 text-sm">{jobEfficiencyStats.totalActual.toFixed(1)}h</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Variance</span>
+                          <span className={cn(
+                            "font-mono font-bold text-sm",
+                            jobEfficiencyStats.variance > 0.1 ? "text-rose-650" : "text-emerald-650"
+                          )}>
+                            {jobEfficiencyStats.variance > 0 ? `+${jobEfficiencyStats.variance.toFixed(1)}h` : `${jobEfficiencyStats.variance.toFixed(1)}h`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Overall Efficiency</span>
+                          <span className={cn(
+                            "font-mono font-bold text-sm px-1.5 py-0.5 rounded",
+                            jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                          )}>
+                            {jobEfficiencyStats.efficiency ? `${jobEfficiencyStats.efficiency.toFixed(0)}%` : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-zinc-500 mt-3 pt-2.5 border-t border-zinc-200">
+                        {jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? (
+                          <span>🎉 The team completed this job <strong className="text-emerald-750">{(jobEfficiencyStats.efficiency - 100).toFixed(0)}% more efficiently</strong> than the allotted book time budget.</span>
+                        ) : jobEfficiencyStats.efficiency ? (
+                          <span>⚠️ The job ran <strong className="text-rose-750">{(100 - jobEfficiencyStats.efficiency).toFixed(0)}% over</strong> the budgeted book time allotment.</span>
+                        ) : null}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Tasks Done Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-emerald-600 border-b border-emerald-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      What's Done
+                    </h2>
+                    {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks completed yet.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
+                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+                          const loggedMs = getTaskLoggedMs(t.id);
+                          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                          const diff = clockedHours - bookHours;
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
+                                {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">Completed by: {staffNames}</span>
+                                  {t.title !== 'General' && bookHours > 0 && (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
+                                      {isOverBook ? (
+                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
+                                          <AlertTriangle className="w-2.5 h-2.5" />
+                                          +{diff.toFixed(1)}h Over
+                                        </span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100">
+                                          Under Budget
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-emerald-600">{clockedHours.toFixed(1)}h</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Tasks Pending Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-600 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      What Needs to be Done
+                    </h2>
+                    {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">All tasks completed successfully!</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete').map(t => {
+                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+                          const loggedMs = getTaskLoggedMs(t.id);
+                          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                          const diff = clockedHours - bookHours;
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
+                                {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Assigned: {staffNames}</span>
+                                  {t.title !== 'General' && bookHours > 0 && (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
+                                      {isOverBook && (
+                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
+                                          <AlertTriangle className="w-2.5 h-2.5" />
+                                          +{diff.toFixed(1)}h Over
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-indigo-600">{clockedHours.toFixed(1)}h</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Missing Parts Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5" />
+                      Missing / Pending Parts
+                    </h2>
+                    {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No parts pending requests.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').map(p => (
+                          <div key={p.id} className="py-2.5 flex justify-between items-center gap-4">
+                            <div>
+                              <h4 className="text-xs font-bold text-zinc-800">{p.partName}</h4>
+                              <p className="text-[10px] text-zinc-400 mt-0.5">
+                                Qty: {p.quantity || 1} &bull; {p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
+                              </p>
+                            </div>
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
+                              {p.status || 'requested'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Staff Workload Section */}
+                  <div className="print-no-break">
+                    <h2 className="text-xs font-black text-zinc-700 border-b border-zinc-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" />
+                      Staff Workload Allocation
+                    </h2>
+                    {staffStats.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No staff assigned.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-zinc-200 text-zinc-400 font-bold uppercase tracking-wider text-[9px]">
+                              <th className="py-1">Technician</th>
+                              <th className="py-1 text-center">Tasks (Done / Total)</th>
+                              <th className="py-1 text-right">Hours (Done / Total)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100">
+                            {staffStats.map(s => (
+                              <tr key={s.id}>
+                                <td className="py-2 font-bold text-zinc-700">{s.name}</td>
+                                <td className="py-2 text-center text-zinc-500">{s.completedTasks} / {s.totalTasks}</td>
+                                <td className="py-2 text-right font-mono font-bold text-zinc-700">
+                                  {s.completedHours.toFixed(1)} / {s.totalHours.toFixed(1)}h
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Side: Email Dispatch Panel */}
+              <div className="w-full md:w-96 p-6 flex flex-col bg-zinc-50 dark:bg-zinc-900 border-t md:border-t-0 border-zinc-200 dark:border-zinc-800 no-print">
+                <div className="flex-1 space-y-5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-indigo-500/10 text-indigo-500 rounded-lg">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-sm font-bold text-zinc-900 dark:text-white">Email Status Report</h4>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Recipients (Comma-separated)</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. customer@domain.com, foreman@saegrp.com"
+                      value={emailRecipients}
+                      onChange={(e) => setEmailRecipients(e.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400"
+                    />
+                    {customerEmail && (
+                      <button 
+                        onClick={() => setEmailRecipients(customerEmail)}
+                        className="mt-1 text-[10px] font-black text-indigo-500 hover:text-indigo-650 uppercase tracking-widest transition-colors block text-left"
+                      >
+                        Reset to Linked Customer: {customerEmail}
+                      </button>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Subject Line</label>
+                    <input 
+                      type="text"
+                      placeholder="Email Subject"
+                      value={emailSubject}
+                      onChange={(e) => setEmailSubject(e.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+
+                  <div className="p-4 bg-zinc-100 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-500 space-y-2">
+                    <p className="font-bold text-zinc-650 dark:text-zinc-350 uppercase tracking-wider text-[10px]">🔒 Domain Security Settings</p>
+                    <p>The email will be dispatched using Google Workspace impersonation matching your user context. This ensures a clean delivery directly from your personal inbox.</p>
+                  </div>
+                </div>
+
+                {/* Send Button */}
+                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 mt-6 bg-zinc-50 dark:bg-zinc-900">
+                  <button 
+                    onClick={async () => {
+                      if (!emailRecipients.trim()) {
+                        toast.error("Please specify at least one recipient email address.");
+                        return;
+                      }
+                      
+                      setIsSendingEmail(true);
+                      try {
+                        const token = await auth.currentUser?.getIdToken();
+                        const emails = emailRecipients.split(',').map(e => e.trim()).filter(Boolean);
+                        
+                        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                        const apiBase = isLocal 
+                          ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
+                          : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+                        
+                        const res = await fetch(`${apiBase}/jobs/${jobId}/report-email`, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                          },
+                          body: JSON.stringify({
+                            recipients: emails,
+                            subject: emailSubject,
+                            html: generateEmailHtml()
+                          })
+                        });
+                        
+                        if (!res.ok) {
+                          const errData = await res.json().catch(() => ({}));
+                          throw new Error(errData.error || `Server returned ${res.status}`);
+                        }
+                        
+                        toast.success("Job status report sent successfully!");
+                        setShowReportModal(false);
+                      } catch (e: any) {
+                        console.error(e);
+                        toast.error(`Failed to send report: ${e.message}`);
+                      } finally {
+                        setIsSendingEmail(false);
+                      }
+                    }}
+                    disabled={isSendingEmail}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-750 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
+                  >
+                    {isSendingEmail ? (
+                      <>
+                        <Clock className="w-5 h-5 animate-spin" />
+                        Sending Report...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        Send Email Report
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Floating Action Navigation Dock at the Bottom */}
+      {job && (
+        <div 
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 max-w-[95vw] md:max-w-2xl overflow-x-auto transition-all duration-300 hover:shadow-indigo-500/10 hover:border-indigo-500/30 scale-100 hover:scale-[1.02] no-print"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          <button
+            onClick={() => {
+              const el = document.getElementById('tasks-section');
+              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-[11px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-all shrink-0 hover:text-indigo-500 dark:hover:text-indigo-400"
+          >
+            <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
+            Tasks
+          </button>
+          
+          <button
+            onClick={() => {
+              const el = document.getElementById('qc-tasks-section');
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              } else {
+                const tasksEl = document.getElementById('tasks-section');
+                tasksEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-[11px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-all shrink-0 hover:text-emerald-500 dark:hover:text-emerald-400"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            QC Tasks
+          </button>
+          
+          <button
+            onClick={() => {
+              const el = document.getElementById('overview-section');
+              el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-[11px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-all shrink-0 hover:text-indigo-500 dark:hover:text-indigo-400"
+          >
+            <Clock className="w-3.5 h-3.5 text-indigo-500" />
+            Overview
+          </button>
+
+          {(isSuperAdmin || permissions['jobs.manage']) && (
+            <>
+              <div className="w-px h-5 bg-zinc-200 dark:bg-zinc-800 shrink-0 self-center mx-1" />
+              
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-[11px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-all shrink-0 hover:text-purple-500 dark:hover:text-purple-400"
+              >
+                <FileText className="w-3.5 h-3.5 text-purple-500" />
+                Job Report
+              </button>
+              
+              <button
+                onClick={() => navigate(`/business/${tenantId}/job/${jobId}/edit`)}
+                className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-[11px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 transition-all shrink-0 hover:text-rose-500 dark:hover:text-rose-400"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-rose-500" />
+                Edit Job
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

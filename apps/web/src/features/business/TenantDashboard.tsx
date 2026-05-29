@@ -8,25 +8,32 @@ import { Building2, Menu, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import type { PermissionKey } from '../../lib/auth/permissions';
 import { useState, useEffect } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
-import { ForemanDashboard } from './ForemanDashboard';
 import { BusinessEvents } from './BusinessEvents';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BusinessSidebar } from './BusinessSidebar';
 import { OfficeDashboard } from './OfficeDashboard';
 import { GlobalJobModal } from './GlobalJobModal';
+import { DepartmentOverview } from './DepartmentOverview';
 
 import { MissionControl } from './MissionControl';
 import { UserMissionControl } from './UserMissionControl';
+import { PackageIntakeModal } from './PackageIntakeModal';
+import { VehicleIntakeModal } from './VehicleIntakeModal';
+import { PartFormModal } from './PartFormModal';
+import { FeedbackModal } from '../../components/FeedbackModal';
+import { HarnessMissionControl } from './HarnessMissionControl';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { PartsMissionControl } from './PartsMissionControl';
 import { PrintedPartsMissionControl } from './PrintedPartsMissionControl';
 import { PartsManager } from './PartsManager';
 import { TasksManager } from './TasksManager';
 import { ScheduleBoard } from './ScheduleBoard';
+import { ControlBoard } from './ControlBoard';
 
 import { BusinessSettings } from './BusinessSettings';
 import { ZonesManager } from './ZonesManager';
 import { VehiclesManager } from './VehiclesManager';
+import { VehicleDetailPage } from './VehicleDetailPage';
 import { QRManager } from './QRManager';
 import { StaffManager, DepartmentsPage } from './StaffManager';
 import { ReportsManager } from './ReportsManager';
@@ -36,10 +43,12 @@ import { CustomersManager } from './CustomersManager';
 import { TimeClockBar } from '../timeclock/TimeClockBar';
 import { TimeclockAdmin } from '../timeclock/TimeclockAdmin';
 import { LiveTimeclockBoard } from '../timeclock/LiveTimeclockBoard';
+import { TimeclockLoginMonitor } from '../timeclock/TimeclockLoginMonitor';
 import { StaffRoster } from './StaffRoster';
 import { PullToRefresh } from '../../components/layout/PullToRefresh';
 import { DepartmentDashboard } from './DepartmentDashboard';
 import { BayMonitor } from './BayMonitor';
+import { ParkingMonitor } from './ParkingMonitor';
 import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
@@ -52,6 +61,7 @@ import { CanvasGalleryTab } from './CanvasGalleryTab';
 import { WorkflowCanvasTab } from './WorkflowCanvasTab';
 import { StaffWorksheet } from './StaffWorksheet';
 import { BayWorksheet } from './BayWorksheet';
+import { PartsWorksheet } from './PartsWorksheet';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -63,7 +73,9 @@ export function TenantDashboard() {
   const eventId = pathParts[1] || null;
 
   const titleMap: Record<string, string> = {
-    overview: 'My Dashboard',
+    overview: 'My Jobs & Todos',
+    time_details: 'Time Clock',
+    device_settings: 'Device Settings',
     quickdesk: 'QuickDesk (Classic)',
     mission_control: 'Mission Control',
     upfitters: 'Upfitters',
@@ -74,31 +86,41 @@ export function TenantDashboard() {
     performance: 'Performance',
     schedule: 'Staff Roster',
     job_schedule: 'Schedule',
+    control_board: 'Control Board',
     timeclock: 'Timeclock',
     live_timeclock: 'Live Timeclock',
     parts: 'Parts Dept',
     printed_parts: 'Print Farm',
+    harness: 'Harness Dept',
     items: 'Parts Library',
     office: 'Office',
     customers: 'Customers',
     jobs: 'Jobs',
     vehicles: 'Vehicles',
+    vehicle: 'Vehicle Detail',
     qr_hub: 'QR Label Hub',
     zones: 'Zones',
     bay_monitor: 'Bay Monitor',
+    parking_monitor: 'Parking Key Monitor',
+    timeclock_monitor: 'Timeclock Station',
     job: 'Job Detail',
     tasks: 'Todos',
     vendors: 'Vendors & Services',
     feedback: 'Feedback & Bugs',
     staff_worksheet: 'Staff Worksheet',
-    bay_worksheet: 'Bay Worksheet'
+    bay_worksheet: 'Bay Worksheet',
+    parts_worksheet: 'Parts Worksheet',
+    package_intake: 'Package Intake',
+    part_request: 'Add Part / Request',
+    vehicle_intake: 'Vehicle Intake',
+    log_issue: 'Log Feedback & Incidents'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   
   usePageTitle(pageTitle);
 
-  const { tenantId: storeTenantId, impersonatedStaff, stopImpersonating, isSuperAdmin } = useAuthStore();
+  const { tenantId: storeTenantId, impersonatedStaff, stopImpersonating, isSuperAdmin, user } = useAuthStore();
   const urlTenantId = params.tenantId;
   let tenantId = (isSuperAdmin && urlTenantId) ? urlTenantId : storeTenantId;
   if (urlTenantId && storeTenantId && urlTenantId.toLowerCase() === storeTenantId.toLowerCase()) {
@@ -169,10 +191,26 @@ export function TenantDashboard() {
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
 
+  const TABS_WITH_SHELL_HEADER = [
+    'overview',
+    'mission_control',
+    'settings',
+    'staff',
+    'departments',
+    'device_settings',
+    'package_intake',
+    'part_request',
+    'vehicle_intake',
+    'log_issue',
+    'quickdesk',
+    'qr_hub',
+    'zones'
+  ];
+
   return (
     <div className="flex h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
       <PullToRefresh onRefresh={() => window.location.reload()} />
-      {activeTab !== 'bay_monitor' && (
+      {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && (
         <BusinessSidebar 
           activeTab={activeTab} 
           setActiveTab={handleTabClick} 
@@ -186,8 +224,8 @@ export function TenantDashboard() {
       <GlobalJobModal tenantId={tenantId!} />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {activeTab !== 'bay_monitor' && <TimeClockBar />}
-        {activeTab !== 'bay_monitor' && <TopNav />}
+        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && <TimeClockBar />}
+        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && <TopNav />}
         
         {/* Mobile Header */}
         <div className="lg:hidden flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 sticky top-0 z-30">
@@ -204,7 +242,7 @@ export function TenantDashboard() {
           </div>
         </div>
 
-        <main className={`flex-1 overflow-y-auto ${activeTab === 'bay_monitor' ? 'p-0' : 'p-4 md:p-8'} no-scrollbar`}>
+        <main className={`flex-1 overflow-y-auto ${(activeTab === 'bay_monitor' || activeTab === 'timeclock_monitor' || activeTab === 'parking_monitor') ? 'p-0' : 'p-4 md:p-8'} no-scrollbar`}>
           {impersonatedStaff && (
             <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300">
               <div className="flex items-center gap-4">
@@ -225,7 +263,7 @@ export function TenantDashboard() {
               </button>
             </div>
           )}
-          {!isLoading && activeTab !== 'bay_monitor' && activeTab !== 'job_schedule' && activeTab !== 'staff_worksheet' && activeTab !== 'bay_worksheet' && (
+          {!isLoading && TABS_WITH_SHELL_HEADER.includes(activeTab) && (
             <div className="flex items-center justify-between mb-4 md:mb-8">
               <div className="flex items-center gap-4">
                 <div className="hidden md:flex w-14 h-14 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl items-center justify-center shadow-sm">
@@ -269,7 +307,39 @@ export function TenantDashboard() {
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
-              <UserMissionControl tenantId={tenantId!} />
+              <UserMissionControl tenantId={tenantId!} viewMode="jobs" />
+            )}
+
+            {activeTab === 'time_details' && (
+              <UserMissionControl tenantId={tenantId!} viewMode="time" />
+            )}
+
+            {activeTab === 'device_settings' && (
+              <UserMissionControl tenantId={tenantId!} viewMode="device" />
+            )}
+
+            {activeTab === 'package_intake' && (
+              <PermissionGate permission="package_intake.use">
+                <PackageIntakeModal isPage={true} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'part_request' && (
+              <PermissionGate permission="part_request.use">
+                <PartFormModal isPage={true} tenantId={tenantId!} user={user} onClose={() => navigate(-1)} onSuccess={() => navigate(-1)} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'vehicle_intake' && (
+              <PermissionGate permission="vehicle_intake.use">
+                <VehicleIntakeModal isPage={true} tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'log_issue' && (
+              <PermissionGate permission="incident_log.use">
+                <FeedbackModal isPage={true} />
+              </PermissionGate>
             )}
 
             {activeTab === 'quickdesk' && (
@@ -286,7 +356,7 @@ export function TenantDashboard() {
 
             {activeTab === 'upfitters' && (
               <PermissionGate permission="foreman.view">
-                <ForemanDashboard tenantId={tenantId!} onTabChange={handleTabClick} />
+                <DepartmentOverview tenantId={tenantId!} departmentName="Upfitting" />
               </PermissionGate>
             )}
 
@@ -332,6 +402,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'control_board' && (
+              <PermissionGate permission="jobs.view">
+                <ControlBoard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'timeclock' && (
               <PermissionGate permission="timeclock.manage">
                 <TimeclockAdmin tenantId={tenantId!} />
@@ -353,6 +429,12 @@ export function TenantDashboard() {
             {activeTab === 'printed_parts' && (
               <PermissionGate permission="printed_parts.view">
                 <PrintedPartsMissionControl />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'harness' && (
+              <PermissionGate permission="harness.view">
+                <HarnessMissionControl tenantId={tenantId!} />
               </PermissionGate>
             )}
 
@@ -378,11 +460,7 @@ export function TenantDashboard() {
 
             {activeTab === 'fabrication' && (
               <PermissionGate permission="fabrication.view">
-                <DepartmentDashboard 
-                  tenantId={tenantId!} 
-                  departmentName="Fabrication" 
-                  tagFilter="Fabrication" 
-                />
+                <DepartmentOverview tenantId={tenantId!} departmentName="Fabrication" />
               </PermissionGate>
             )}
 
@@ -430,6 +508,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'vehicle' && pathParts[1] && (
+              <PermissionGate permission="vehicles.view">
+                <VehicleDetailPage tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'qr_hub' && (
               <PermissionGate permission="vehicles.view">
                 <QRManager tenantId={tenantId!} />
@@ -448,6 +532,18 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'parking_monitor' && (
+              <PermissionGate permission="facility.view">
+                <ParkingMonitor tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'timeclock_monitor' && (
+              <PermissionGate permission="timeclock.view">
+                <TimeclockLoginMonitor tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'morning_meeting' && (
               <PermissionGate permission="foreman.view">
                 <MorningMeetingBoard tenantId={tenantId!} />
@@ -463,6 +559,12 @@ export function TenantDashboard() {
             {activeTab === 'bay_worksheet' && (
               <PermissionGate permission="bay_worksheet.view">
                 <BayWorksheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'parts_worksheet' && (
+              <PermissionGate permission="parts_worksheet.view">
+                <PartsWorksheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 

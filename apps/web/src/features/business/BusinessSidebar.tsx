@@ -1,68 +1,117 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Home, Users, Briefcase, CheckSquare, Layers, Map, 
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  Clock, Trophy, ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck, BarChart3,
-  Handshake, Monitor, FileSpreadsheet, QrCode
+  Home, Users, Briefcase, Layers, Map, 
+  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package, PackagePlus,
+  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck,
+  Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';
+import { useQuery } from '@tanstack/react-query';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase/config';
 
 export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  group: 'boards' | 'data' | 'facility' | 'comm' | 'sync' | 'config';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings';
+  groupLabel?: string;
   permission?: PermissionKey;
 };
 
 const ITEMS: NavItem[] = [
-  { id: 'overview', label: 'My Dashboard', icon: Home, group: 'boards' },
-  { id: 'quickdesk', label: 'QuickDesk (Classic)', icon: Monitor, group: 'boards', permission: 'quickdesk.view' },
-  { id: 'mission_control', label: 'Mission Control', icon: Layout, group: 'boards', permission: 'mission_control.view' },
-  { id: 'upfitters', label: 'Upfitters', icon: ClipboardList, group: 'boards', permission: 'foreman.view' },
-  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, group: 'boards', permission: 'foreman.view' },
-  { id: 'parts', label: 'Parts Dept', icon: Package, group: 'boards', permission: 'parts.view' },
-  { id: 'printed_parts', label: 'Print Farm', icon: Printer, group: 'boards', permission: 'printed_parts.view' },
-  { id: 'graphics', label: 'Graphics', icon: PenTool, group: 'boards', permission: 'graphics.view' },
-  { id: 'fast', label: 'F.A.S.T', icon: Wrench, group: 'boards', permission: 'fast.view' },
-  { id: 'fabrication', label: 'Fabrication', icon: Wrench, group: 'boards', permission: 'fabrication.view' },
-  { id: 'office', label: 'Office', icon: Building2, group: 'boards', permission: 'office.view' },
-  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, group: 'boards', permission: 'timeclock.view' },
-  { id: 'performance', label: 'Leaderboard', icon: Trophy, group: 'boards', permission: 'performance.view' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, group: 'boards', permission: 'reports.view' },
-  { id: 'job_schedule', label: 'Schedule', icon: Calendar, group: 'boards', permission: 'jobs.view' },
+  // Dashboard Hub
+  { id: 'overview', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'dashboard' },
+  { id: 'time_details', label: 'Time Clock', icon: Clock, hub: 'dashboard' },
+  { id: 'device_settings', label: 'Device Settings', icon: Settings, hub: 'dashboard' },
+
   
-  { id: 'jobs', label: 'Jobs', icon: Briefcase, group: 'data', permission: 'jobs.view' },
-  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, group: 'data', permission: 'staff_worksheet.view' },
-  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, group: 'data', permission: 'bay_worksheet.view' },
-  { id: 'tasks', label: 'Todos', icon: CheckSquare, group: 'data', permission: 'tasks.view' },
-  { id: 'vendors', label: 'Vendors & Services', icon: Handshake, group: 'data', permission: 'vendors.view' },
-  { id: 'timeclock', label: 'Timeclock', icon: Clock, group: 'data', permission: 'timeclock.manage' },
-  { id: 'schedule', label: 'Staff Roster', icon: Calendar, group: 'data', permission: 'reports.view' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, group: 'data', permission: 'vehicles.view' },
-  { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, group: 'data', permission: 'vehicles.view' },
-  { id: 'customers', label: 'Customers', icon: Users, group: 'data', permission: 'customers.view' },
-  { id: 'items', label: 'Parts Library', icon: PackageOpen, group: 'data', permission: 'parts.view' },
-  
-  { id: 'zones', label: 'Zones', icon: Layers, group: 'facility', permission: 'facility.view' },
-  { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, group: 'facility', permission: 'facility.view' },
-  { id: 'facility_maps', label: 'Facility Maps', icon: Map, group: 'facility', permission: 'facility.view' },
-  { id: 'canvases', label: 'Canvases', icon: Layout, group: 'facility', permission: 'whiteboards.view' },
-  { id: 'feedback', label: 'Feedback & Bugs', icon: MessageSquare, group: 'facility', permission: 'facility.view' },
-  { id: 'messages', label: 'Messages', icon: MessageSquare, group: 'comm', permission: 'communication.view' },
-  { id: 'announcements', label: 'Announcements', icon: Megaphone, group: 'comm', permission: 'communication.view' },
-  { id: 'events', label: 'Events', icon: Calendar, group: 'comm', permission: 'communication.view' },
-  { id: 'staff', label: 'Staff', icon: UserCog, group: 'config', permission: 'staff.view' },
-  { id: 'departments', label: 'Departments', icon: Building2, group: 'config', permission: 'staff.view' },
-  { id: 'settings', label: 'Settings', icon: Settings, group: 'config', permission: 'settings.view' },
-  { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, group: 'sync', permission: 'sync.view' },
-  { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
-  { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
-  { id: 'qb_items', label: 'QB Items', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
-  { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
-  { id: 'qb_pos', label: 'QB POs', icon: RefreshCw, group: 'sync', permission: 'sync.view' },
+  // Upfitters Dept
+  { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
+
+  // Parts Dept
+  { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
+  { id: 'items', label: 'Parts Library', icon: PackageOpen, hub: 'parts', permission: 'parts.view' },
+  { id: 'parts_worksheet', label: 'Parts Worksheet', icon: FileSpreadsheet, hub: 'parts', permission: 'parts_worksheet.view' },
+  { id: 'package_intake', label: 'Package Intake', icon: Package, hub: 'parts', permission: 'package_intake.use' },
+  { id: 'part_request', label: 'Add Part / Request', icon: PackagePlus, hub: 'parts', permission: 'part_request.use' },
+
+  // Print Farm Dept
+  { id: 'printed_parts', label: 'Overview', icon: Printer, hub: 'printed_parts', permission: 'printed_parts.view' },
+
+  // Graphics Dept
+  { id: 'graphics', label: 'Overview', icon: PenTool, hub: 'graphics', permission: 'graphics.view' },
+
+  // F.A.S.T Dept
+  { id: 'fast', label: 'Overview', icon: Activity, hub: 'fast', permission: 'fast.view' },
+
+  // Fabrication Dept
+  { id: 'fabrication', label: 'Overview', icon: Wrench, hub: 'fabrication', permission: 'fabrication.view' },
+
+  // Harness Dept
+  { id: 'harness', label: 'Overview', icon: Layers, hub: 'harness', permission: 'harness.view' },
+
+  // Office Dept (Main Office)
+  { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
+  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
+  { id: 'jobs', label: 'Jobs', icon: Briefcase, hub: 'office', permission: 'jobs.view' },
+  { id: 'customers', label: 'Customers', icon: Users, hub: 'office', permission: 'customers.view' },
+  { id: 'vehicles', label: 'Vehicles', icon: Car, hub: 'office', permission: 'vehicles.view' },
+  { id: 'vendors', label: 'Vendors', icon: Handshake, hub: 'office', permission: 'vendors.view' },
+  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'office', permission: 'foreman.view' },
+  { id: 'control_board', label: 'Control Board', icon: ClipboardList, hub: 'office', permission: 'jobs.view' },
+  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },
+  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'bay_worksheet.view' },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
+  { id: 'timeclock', label: 'Timeclock Logs', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
+  // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
+  { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'office', permission: 'vehicles.view' },
+  // { id: 'vehicle_intake', label: 'Vehicle Intake', icon: Car, hub: 'office', permission: 'vehicle_intake.use' },
+
+  // Facility & Comm
+  { id: 'zones', label: 'Zones Config', icon: Layers, hub: 'facility', permission: 'facility.view' },
+  { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
+  { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
+  { id: 'timeclock_monitor', label: 'Timeclock Station (TV)', icon: QrCode, hub: 'facility', permission: 'timeclock.view' },
+  { id: 'facility_maps', label: 'Facility Maps', icon: Map, hub: 'facility', permission: 'facility.view' },
+  { id: 'canvases', label: 'Canvases Gallery', icon: Layout, hub: 'facility', permission: 'whiteboards.view' },
+  { id: 'messages', label: 'Messages Feed', icon: MessageSquare, hub: 'facility', permission: 'communication.view' },
+  { id: 'announcements', label: 'Announcements', icon: Megaphone, hub: 'facility', permission: 'communication.view' },
+  { id: 'events', label: 'Events Calendar', icon: Calendar, hub: 'facility', permission: 'communication.view' },
+  { id: 'feedback', label: 'Feedback & Bugs', icon: MessageSquare, hub: 'facility', permission: 'facility.view' },
+
+  // Admin & Sync
+  { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'settings', permission: 'staff.view' },
+  { id: 'departments', label: 'Departments Config', icon: Building2, hub: 'settings', permission: 'staff.view' },
+  { id: 'settings', label: 'System Settings', icon: Settings, hub: 'settings', permission: 'settings.view' },
+  { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_items', label: 'QB Items', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+];
+
+export type HubType = {
+  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings';
+  label: string;
+  icon: React.ElementType;
+};
+
+const HUBS: HubType[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: Home },
+  { id: 'office', label: 'Main Office', icon: Building2 },
+  { id: 'upfitters', label: 'Upfitters', icon: ClipboardList },
+  { id: 'parts', label: 'Parts Dept', icon: Package },
+  { id: 'printed_parts', label: 'Print Farm', icon: Printer },
+  { id: 'graphics', label: 'Graphics', icon: PenTool },
+  { id: 'fast', label: 'F.A.S.T', icon: Activity },
+  { id: 'fabrication', label: 'Fabrication', icon: Wrench },
+  { id: 'harness', label: 'Harness Dept', icon: Layers },
+  { id: 'facility', label: 'Facility', icon: Map },
+  { id: 'settings', label: 'Admin & Sync', icon: Settings },
 ];
 
 export function BusinessSidebar({ 
@@ -80,129 +129,339 @@ export function BusinessSidebar({
   lastSync?: any;
   activeSync?: any;
 }) {
-  const groups = {
-    boards: 'Control Boards',
-    data: 'Data Management',
-    facility: 'Facility',
-    comm: 'Communication',
-    config: 'Configuration',
-    sync: 'Sync Data (Raw)'
-  };
-
   const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
   const navigate = useNavigate();
+  const params = useParams();
+  
+  let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : useAuthStore.getState().tenantId;
+
+  // Retrieve custom white-label business logo
+  const { data: business } = useQuery({
+    queryKey: ['business', tenantId],
+    queryFn: async () => {
+      if (!tenantId || tenantId === 'GLOBAL') return null;
+      const snap = await getDoc(doc(db, 'businesses', tenantId as string));
+      return snap.exists() ? { id: snap.id, ...snap.data() } as { id: string; name: string; logoUrl?: string } : null;
+    },
+    enabled: !!tenantId && tenantId !== 'GLOBAL'
+  });
 
   const SUPER_ADMIN_EMAILS = ['p.losey@saegrp.com', 'loseyp@gmail.com'];
   const canAccessGlobalAdmin = !impersonatedStaff && (isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email)));
 
-  const NavContent = () => (
-    <div className="flex flex-col h-full py-6 px-4 space-y-8 overflow-y-auto no-scrollbar">
-      {Object.entries(groups).map(([groupId, groupLabel]) => {
-        const visibleItems = ITEMS.filter(i => {
-          if (i.group !== groupId) return false;
-          if (isSuperAdmin) return true;
-          if (!i.permission) return true;
-          return permissions[i.permission];
-        });
+  // Sidebar Pinned (expanded) state
+  const [isPinned, setIsPinned] = useState<boolean>(() => {
+    const saved = localStorage.getItem('upfitters_sidebar_pinned');
+    return saved !== null ? saved === 'true' : true;
+  });
 
-        if (visibleItems.length === 0) return null;
+  // Track the selected Hub (Tier 1)
+  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings'>(() => {
+    const activeItem = ITEMS.find(item => item.id === activeTab);
+    return activeItem ? activeItem.hub : 'dashboard';
+  });
 
-        return (
-          <div key={groupId} className="space-y-2">
-            <div className="px-4 flex items-center justify-between mb-4">
-              <h3 className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.2em]">
-                {groupLabel}
-              </h3>
-              {groupId === 'sync' && (
-                <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-500/80 uppercase tracking-wider" title="Last successful sync">
-                  {activeSync ? (
-                    <>
-                      <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                      <span>Syncing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className={`w-2.5 h-2.5 ${!lastSync ? 'animate-spin opacity-50' : ''}`} />
-                      {(() => {
-                        if (!lastSync) return 'Pending...';
-                        const ts = lastSync.timestamp;
-                        const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
-                        // Just show time if today, else date
-                        return date.toLocaleDateString() === new Date().toLocaleDateString()
-                          ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                          : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-                      })()}
-                    </>
-                  )}
-                </div>
+  // Keep Tier 1 active hub synchronized when activeTab changes
+  useEffect(() => {
+    const activeItem = ITEMS.find(item => item.id === activeTab);
+    if (activeItem) {
+      setActiveHub(activeItem.hub);
+    }
+  }, [activeTab]);
+
+  // Manage hover flyout menus when unpinned (collapsed)
+  const [hoveredHub, setHoveredHub] = useState<string | null>(null);
+  const hoverTimeoutRef = useRef<number | null>(null);
+
+  const handleMouseEnterHub = (hubId: string) => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setHoveredHub(hubId);
+  };
+
+  const handleMouseLeaveHub = () => {
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      setHoveredHub(null);
+    }, 150) as unknown as number;
+  };
+
+  const handleMouseEnterFlyout = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  };
+
+  const handleMouseLeaveFlyout = () => {
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      setHoveredHub(null);
+    }, 150) as unknown as number;
+  };
+
+  const togglePin = () => {
+    const newVal = !isPinned;
+    setIsPinned(newVal);
+    localStorage.setItem('upfitters_sidebar_pinned', String(newVal));
+  };
+
+  // Filter items based on active role permissions
+  const visibleItems = ITEMS.filter(item => {
+    if (isSuperAdmin) return true;
+    if (!item.permission) return true;
+    return permissions[item.permission];
+  });
+
+  // Filter hubs so we only show them if they contain at least one visible item
+  const visibleHubs = HUBS.filter(hub => {
+    return visibleItems.some(item => item.hub === hub.id);
+  });
+
+  const getSubmenuItemsForHub = (hubId: string) => {
+    return visibleItems.filter(item => item.hub === hubId);
+  };
+
+  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings', isOverlay = false) => {
+    const hubItems = getSubmenuItemsForHub(hubId);
+    
+    // Extract unique groups
+    const groups = Array.from(new Set(hubItems.map(item => item.groupLabel || 'Pages')));
+
+    return (
+      <div className="flex-1 overflow-y-auto no-scrollbar py-6 px-4">
+        {/* Submenu Title */}
+        <div className="px-3 mb-6 flex items-center justify-between">
+          <h2 className="text-xs font-black text-white uppercase tracking-[0.25em]">
+            {HUBS.find(h => h.id === hubId)?.label}
+          </h2>
+          {hubId === 'settings' && (
+            <div className="flex items-center gap-1 text-[9px] font-bold text-emerald-500/80 uppercase tracking-wider" title="Last successful sync">
+              {activeSync ? (
+                <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+              ) : (
+                <RefreshCw className={`w-2.5 h-2.5 ${!lastSync ? 'animate-spin opacity-50' : ''}`} />
               )}
+              {(() => {
+                if (!lastSync) return '';
+                const ts = lastSync.timestamp;
+                const date = ts instanceof Date ? ts : ts?.toDate ? ts.toDate() : ts?.seconds ? new Date(ts.seconds * 1000) : lastSync.createdAt ? new Date(lastSync.createdAt) : new Date();
+                return date.toLocaleDateString() === new Date().toLocaleDateString()
+                  ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+              })()}
             </div>
-            <div className="space-y-1">
-              {visibleItems.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-200 active:scale-95 ${
-                    activeTab === item.id
-                      ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"
-                      : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
-                  }`}
-                >
-                  <item.icon className={`w-5 h-5 ${activeTab === item.id ? "text-white" : "text-zinc-400"}`} />
-                  <span className="text-sm font-semibold tracking-tight">{item.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+          )}
+        </div>
 
-      {/* Super Admin Section */}
-      {canAccessGlobalAdmin && (
-        <div className="pt-4 mt-4 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
-          <h3 className="px-4 text-[10px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-[0.2em] mb-4">
-            Super Admin
-          </h3>
-          <div className="space-y-1">
+        {/* Grouped Links */}
+        <div className="space-y-6">
+          {groups.map(group => {
+            const groupItems = hubItems.filter(item => (item.groupLabel || 'Pages') === group);
+            if (groupItems.length === 0) return null;
+
+            return (
+              <div key={group} className="space-y-1.5">
+                {group !== 'Pages' && (
+                  <h3 className="px-3 text-[9px] font-extrabold text-zinc-500 uppercase tracking-[0.18em] mb-2">
+                    {group}
+                  </h3>
+                )}
+                {groupItems.map(item => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveTab(item.id);
+                        if (isOverlay) {
+                          setIsOpen(false);
+                        }
+                      }}
+                      className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-95 text-left ${
+                        isActive
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                          : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
+                      }`}
+                    >
+                      <item.icon className={`w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-white" : "text-zinc-500"}`} />
+                      <span className="text-xs font-semibold tracking-wide truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Super Admin Section */}
+        {hubId === 'settings' && canAccessGlobalAdmin && (
+          <div className="pt-5 mt-5 border-t border-zinc-800/80 space-y-2">
+            <h3 className="px-3 text-[9px] font-extrabold text-rose-500 dark:text-rose-400 uppercase tracking-[0.18em] mb-2">
+              Super Admin
+            </h3>
             <button
-              onClick={() => navigate('/super-admin')}
-              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all duration-200 active:scale-95"
+              onClick={() => {
+                navigate('/super-admin');
+                if (isOverlay) setIsOpen(false);
+              }}
+              className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-rose-400 hover:text-rose-200 hover:bg-rose-950/20 transition-all duration-200 active:scale-95 text-left"
             >
-              <ShieldCheck className="w-5 h-5" />
-              <span className="text-sm font-semibold tracking-tight">Platform Manager</span>
+              <ShieldCheck className="w-4 h-4 text-rose-500" />
+              <span className="text-xs font-semibold tracking-wide">Platform Manager</span>
             </button>
           </div>
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
-      {/* Mobile Backdrop */}
+      {/* ========================================================================= */}
+      {/* 📱 MOBILE SIDEBAR DRAWER (SPLIT DOUBLE COLUMN)                          */}
+      {/* ========================================================================= */}
       {isOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-zinc-950/60 backdrop-blur-sm lg:hidden transition-opacity duration-300"
+          className="fixed inset-0 z-[100] bg-zinc-950/80 backdrop-blur-sm lg:hidden transition-opacity duration-300 animate-in fade-in"
           onClick={() => setIsOpen(false)}
         />
       )}
 
-      {/* Sidebar Container */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-white dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 
-        transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:sticky lg:top-0 lg:h-screen lg:block
+        fixed inset-y-0 left-0 z-[100] w-[296px] bg-zinc-950 border-r border-zinc-800/60
+        transform transition-transform duration-300 ease-in-out lg:hidden flex
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
-        <div className="flex items-center justify-between px-8 py-6 lg:hidden border-b border-zinc-100 dark:border-zinc-900">
-          <span className="text-lg font-bold tracking-tight dark:text-white">Menu</span>
-          <button onClick={() => setIsOpen(false)} className="p-2 -mr-2 text-zinc-500">
-            <X className="w-6 h-6" />
-          </button>
+        {/* Tier 1 - Primary Mobile Hubs */}
+        <div className="w-[72px] bg-zinc-950 border-r border-zinc-800/40 flex flex-col items-center py-6 gap-6 h-full select-none">
+          {/* Custom Brand Logo */}
+          <div className="w-10 h-10 flex items-center justify-center bg-zinc-900 rounded-xl border border-zinc-800 shadow-sm relative overflow-hidden group shrink-0">
+            {business?.logoUrl ? (
+              <img src={business.logoUrl} className="w-6 h-6 object-contain" alt="Logo" />
+            ) : (
+              <span className="text-xs font-black text-indigo-400 tracking-tighter">UF</span>
+            )}
+          </div>
+
+          <div className="flex-1 flex flex-col items-center gap-2.5 w-full px-2 overflow-y-auto no-scrollbar">
+            {visibleHubs.map(hub => {
+              const isActive = activeHub === hub.id;
+              return (
+                <button
+                  key={hub.id}
+                  onClick={() => setActiveHub(hub.id)}
+                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 relative group shrink-0 active:scale-90 ${
+                    isActive 
+                      ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" 
+                      : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/60"
+                  }`}
+                  title={hub.label}
+                >
+                  <hub.icon className="w-5 h-5 shrink-0" />
+                  {isActive && <div className="absolute left-0 top-1/4 bottom-1/4 w-[2px] bg-indigo-500 rounded-full" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <NavContent />
+
+        {/* Tier 2 - Mobile Subpages Column */}
+        <div className="flex-1 bg-zinc-900 flex flex-col h-full relative">
+          <button 
+            onClick={() => setIsOpen(false)}
+            className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          {renderSubmenuContent(activeHub, true)}
+        </div>
+      </aside>
+
+      {/* ========================================================================= */}
+      {/* 💻 DESKTOP DUAL SIDEBAR                                                   */}
+      {/* ========================================================================= */}
+      <aside className={`
+        hidden lg:flex h-screen sticky top-0 z-40 select-none shrink-0 border-r border-zinc-900 bg-zinc-950 transition-all duration-300
+        ${isPinned ? "w-[316px]" : "w-[76px]"}
+      `}>
+        {/* Tier 1 Column (Slim Persistent Icons) */}
+        <div className="w-[76px] h-full flex flex-col items-center py-6 border-r border-zinc-900 bg-zinc-950 relative">
+          {/* Custom Brand Logo */}
+          <div className="w-10 h-10 flex items-center justify-center bg-zinc-900/80 rounded-xl border border-zinc-800 shadow-sm relative overflow-hidden group mb-8 shrink-0">
+            {business?.logoUrl ? (
+              <img src={business.logoUrl} className="w-6 h-6 object-contain" alt="Logo" />
+            ) : (
+              <span className="text-xs font-black text-indigo-400 tracking-tighter">UF</span>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          </div>
+
+          {/* Primary Hub Icons */}
+          <div className="flex-1 flex flex-col items-center gap-3 w-full px-2 overflow-y-auto no-scrollbar">
+            {visibleHubs.map(hub => {
+              const isActive = activeHub === hub.id;
+              return (
+                <div
+                  key={hub.id}
+                  className="relative w-full flex justify-center shrink-0"
+                  onMouseEnter={() => handleMouseEnterHub(hub.id)}
+                  onMouseLeave={handleMouseLeaveHub}
+                >
+                  <button
+                    onClick={() => {
+                      setActiveHub(hub.id);
+                      if (!isPinned) {
+                        togglePin(); // auto expand when clicking an icon if collapsed
+                      }
+                    }}
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 relative group active:scale-[0.93] ${
+                      isActive 
+                        ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner" 
+                        : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/50"
+                    }`}
+                  >
+                    <hub.icon className={`w-[22px] h-[22px] shrink-0 transition-transform duration-300 group-hover:scale-105 ${isActive ? 'text-indigo-400' : 'text-zinc-400 group-hover:text-zinc-100'}`} />
+                    {isActive && <div className="absolute left-0 top-1/4 bottom-1/4 w-[3px] bg-indigo-500 rounded-full" />}
+                  </button>
+
+                  {/* Absolute Flyout Hover Menu (Only visible when unpinned/collapsed) */}
+                  {!isPinned && hoveredHub === hub.id && (
+                    <div
+                      onMouseEnter={handleMouseEnterFlyout}
+                      onMouseLeave={handleMouseLeaveFlyout}
+                      className="absolute left-[72px] top-0 w-[240px] bg-zinc-900 border border-zinc-800 shadow-2xl rounded-2xl overflow-hidden py-1 z-[60] animate-in fade-in slide-in-from-left-3 duration-200"
+                    >
+                      {renderSubmenuContent(hub.id, false)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pin/Collapse toggle button in Slim Column if collapsed */}
+          {!isPinned && (
+            <button
+              onClick={togglePin}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/50 transition-all shrink-0 duration-200 mt-auto"
+              title="Expand Navigation"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Tier 2 Column (Collapsible Details Pane) */}
+        {isPinned && (
+          <div className="flex-1 h-full bg-zinc-900/95 backdrop-blur-md flex flex-col relative animate-in fade-in slide-in-from-left-3 duration-300">
+            {/* Collapse pin button inside Tier 2 top bar */}
+            <button
+              onClick={togglePin}
+              className="absolute top-5 right-4 p-2 text-zinc-500 hover:text-zinc-300 rounded-lg hover:bg-zinc-800/40 transition-all duration-200"
+              title="Collapse Navigation"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            {/* Sidebar Active Hub Content */}
+            {renderSubmenuContent(activeHub, false)}
+          </div>
+        )}
       </aside>
     </>
   );

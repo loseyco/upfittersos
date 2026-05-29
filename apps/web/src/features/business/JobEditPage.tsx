@@ -5,10 +5,11 @@ import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Save, ArrowLeft, User, Car, MapPin, 
   Sparkles, AlertCircle, Trash2, Copy, Plus, CheckSquare,
-  Wrench, Package
+  Wrench, Package, FileText
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
+import { assignQCStaffToTask, assignQCStaffToJob } from '../../lib/auth/qcAssignment';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
 import { StaffSelector } from './StaffSelectionComponents';
@@ -258,34 +259,56 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   }, [jobTasks, jobId, tenantId, job, tasksLoaded, isNew]);
 
-  // Progression Logic Hook
+  // Progression & Regression Logic Hook
   useEffect(() => {
     if (!jobTasks.length || !job || !tenantId || !jobId) return;
-    
-    // Only auto-progress if status is Active, Open, Ready for QA
-    const autoProgressable = ['Active', 'Open', 'Ready for QA'].includes(job.status);
-    if (!autoProgressable) return;
 
-    const allQCReady = jobTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
-    const allQCComplete = jobTasks.every(t => t.status === 'QC Complete');
+    const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+    if (nonGeneralTasks.length === 0) return;
 
-    const updateJobStatus = async (newStatus: string, msg: string) => {
+    const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
+    const allQCComplete = nonGeneralTasks.every(t => t.status === 'QC Complete');
+
+    const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
       try {
         await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
           status: newStatus,
           updatedAt: new Date()
         });
-        toast.success(msg);
+        if (isReversion) {
+          toast.error(msg);
+        } else {
+          toast.success(msg);
+        }
+
+        // Automatically assign job to QC staff if status is Ready for QA
+        if (newStatus === 'Ready for QA') {
+          await assignQCStaffToJob(tenantId, jobId);
+        }
       } catch (e) {
-        console.error("Auto-progression error:", e);
+        console.error("Auto-progression/regression error:", e);
       }
     };
 
-    if (allQCComplete) {
-      updateJobStatus('Ready for Customer', 'Job ready for customer!');
-    } else if (allQCReady) {
-      updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+    // Progression: If Active/Open/Ready for QA, progress forward if all tasks are ready
+    if (['Active', 'Open', 'Ready for QA'].includes(job.status)) {
+      if (allQCComplete) {
+        updateJobStatus('Ready for Customer', 'Job ready for customer!');
+      } else if (allQCReady) {
+        updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+      }
+    }
+
+    // Regression: If currently Ready for Customer or Ready for QA, but tasks were reopened or added
+    if (['Ready for Customer', 'Ready for QA'].includes(job.status)) {
+      if (!allQCReady) {
+        // There are unfinished tasks, so job must go back to Active
+        updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
+      } else if (job.status === 'Ready for Customer' && !allQCComplete) {
+        // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to Ready for QA
+        updateJobStatus('Ready for QA', 'QC tasks pending: Job status reverted to Ready for QA', true);
+      }
     }
   }, [jobTasks, job?.status, tenantId, jobId]);
 
@@ -614,12 +637,22 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value } : t));
         }
       } else if (field === 'completedAt') {
-        setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, completedAt: value, status: value ? 'QC' : 'pending' } : t));
+        setJobTasks(prev => prev.map(t => t.id === taskId ? { 
+          ...t, 
+          completedAt: value, 
+          status: value ? 'QC' : 'pending',
+          completedBy: value ? (user?.displayName || user?.email) : null,
+          completedByStaffId: value ? user?.uid : null,
+          completedByStaffName: value ? (user?.displayName || user?.email || 'Staff') : null
+        } : t));
       } else if (field === 'status') {
         setJobTasks(prev => prev.map(t => t.id === taskId ? {
           ...t,
           status: value,
-          completedAt: value === 'QC' ? (t.completedAt || new Date().toISOString()) : (value === 'pending' ? null : t.completedAt)
+          completedAt: value === 'QC' ? (t.completedAt || new Date().toISOString()) : (value === 'pending' ? null : t.completedAt),
+          completedBy: value === 'QC' ? (user?.displayName || user?.email) : (value === 'pending' ? null : t.completedBy),
+          completedByStaffId: value === 'QC' ? user?.uid : (value === 'pending' ? null : t.completedByStaffId),
+          completedByStaffName: value === 'QC' ? (user?.displayName || user?.email || 'Staff') : (value === 'pending' ? null : t.completedByStaffName)
         } : t));
       } else {
         setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
@@ -659,18 +692,47 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
         if (field === 'completedAt') {
           updateObj.status = value ? 'QC' : 'pending';
+          if (value) {
+            updateObj.completedBy = user?.displayName || user?.email;
+            updateObj.completedByStaffId = user?.uid;
+            updateObj.completedByStaffName = user?.displayName || user?.email || 'Staff';
+          } else {
+            updateObj.completedBy = null;
+            updateObj.completedByStaffId = null;
+            updateObj.completedByStaffName = null;
+          }
         }
 
         if (field === 'status') {
           const task = jobTasks.find(t => t.id === taskId);
-          if (value === 'QC' && !task?.completedAt) {
-            updateObj.completedAt = new Date().toISOString();
+          if (value === 'QC') {
+            if (!task?.completedAt) {
+              updateObj.completedAt = new Date().toISOString();
+            }
+            updateObj.completedBy = user?.displayName || user?.email;
+            updateObj.completedByStaffId = user?.uid;
+            updateObj.completedByStaffName = user?.displayName || user?.email || 'Staff';
+          } else if (value === 'QC Complete') {
+            updateObj.qcCompletedAt = new Date().toISOString();
+            updateObj.qcCompletedBy = user?.displayName || user?.email;
+            if (!task?.completedByStaffId) {
+              updateObj.completedByStaffId = user?.uid;
+              updateObj.completedByStaffName = user?.displayName || user?.email || 'Staff';
+            }
           } else if (value === 'pending') {
             updateObj.completedAt = null;
+            updateObj.completedBy = null;
+            updateObj.completedByStaffId = null;
+            updateObj.completedByStaffName = null;
           }
         }
 
         await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateObj);
+
+        // Automatically assign task to QC staff if status is QC
+        if (updateObj.status === 'QC') {
+          await assignQCStaffToTask(tenantId, jobId, taskId);
+        }
         
         const task = jobTasks.find(t => t.id === taskId);
         
@@ -1135,11 +1197,28 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                       <span className="line-through opacity-50 font-normal">{(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h</span>
                                       <span>0.0h</span>
                                     </span>
-                                  ) : (
-                                    <span className="text-zinc-500 dark:text-zinc-400 font-mono">
-                                      {(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h
-                                    </span>
-                                  )}
+                                  ) : (() => {
+                                    const loggedMs = getTaskLoggedMs(task.id);
+                                    const bookHours = parseFloat(task.bookTime) || 0;
+                                    const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
+                                      ? task.actualTime 
+                                      : (loggedMs / 3600000);
+                                    const isOver = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                    const diff = clockedHours - bookHours;
+                                    
+                                    return (
+                                      <span className={`font-mono flex items-center gap-1 shrink-0 ${
+                                        isOver ? "text-rose-500 font-bold" : "text-zinc-550 dark:text-zinc-400"
+                                      }`}>
+                                        {(loggedMs / 3600000).toFixed(1)}h
+                                        {isOver && (
+                                          <span className="text-[8px] font-black bg-rose-500/10 text-rose-550 border border-rose-500/20 px-1 rounded shrink-0 animate-pulse" title={`Over Budget by ${diff.toFixed(1)}h`}>
+                                            +{diff.toFixed(1)}h
+                                          </span>
+                                        )}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             ) : <div/>}
@@ -1231,6 +1310,21 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                               <Trash2 className="w-4 h-4" /> Delete Task
                             </button>
                           </div>
+
+                          {task.title !== 'General' && (
+                            <div className="col-span-full lg:col-span-7 lg:col-start-2 mt-1 mb-2 relative">
+                              <div className="absolute left-3 top-2.5 text-zinc-400 dark:text-zinc-600">
+                                <FileText className="w-3.5 h-3.5" />
+                              </div>
+                              <input 
+                                type="text" 
+                                value={task.description || ''}
+                                onChange={e => updateTaskField(task.id, 'description', e.target.value)}
+                                placeholder="Add specific notes or description for this task (so you don't need separate labor rows)..."
+                                className="w-full pl-9 pr-4 py-1.5 bg-zinc-50/50 dark:bg-zinc-950/30 border border-zinc-200/60 dark:border-zinc-800/60 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder-zinc-400 text-zinc-900 dark:text-white"
+                              />
+                            </div>
+                          )}
                           
                         </div>
                       ))}

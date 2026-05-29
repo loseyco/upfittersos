@@ -3,12 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Clock, MapPin, Pizza, Coffee, Calendar, Timer, MessageSquare, Send, X, AlertCircle } from 'lucide-react';
+import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
+import { TimeSessionEditorModal } from './TimeSessionEditorModal';
 
 interface TimeSession {
   id: string;
+  userId: string;
+  userName?: string;
   clockIn: {
     timestamp: any;
     location?: string;
@@ -36,6 +39,7 @@ interface TimeSession {
     bookTime?: number;
   }>;
   status: string;
+  verificationStatus?: string;
 }
 
 export function TimeClockHistory({ tenantId }: { tenantId: string }) {
@@ -44,6 +48,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const [editNote, setEditNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -52,7 +57,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  const { data: sessions, isLoading } = useQuery({
+  const { data: sessions, isLoading, refetch } = useQuery({
     queryKey: ['time-sessions', tenantId, user?.uid],
     queryFn: async () => {
       if (!user?.uid) return [];
@@ -106,12 +111,6 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
 
   const getRequestForSession = (sessionId: string) => {
     return requests?.find((r: any) => r.sessionId === sessionId);
-  };
-
-  const formatTime = (ts: any) => {
-    if (!ts) return '--:--';
-    const date = ts.toDate ? ts.toDate() : new Date(ts);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   const formatDate = (ts: any) => {
@@ -191,13 +190,10 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   let weekPayMs = 0;
 
   let activeCreditMs = 0;
-  let creditSource = '';
   if (staffMember?.payPeriodBookTimeCredit && staffMember.payPeriodBookTimeCredit > 0) {
     activeCreditMs = staffMember.payPeriodBookTimeCredit * 3600000;
-    creditSource = `${staffMember.payPeriodBookTimeCredit}h Pay Period Override`;
   } else if (myDepartment?.weeklyBookTimeCredit && myDepartment.weeklyBookTimeCredit > 0) {
     activeCreditMs = myDepartment.weeklyBookTimeCredit * 3600000;
-    creditSource = `${myDepartment.weeklyBookTimeCredit}h Weekly Credit`;
   }
 
   sessions?.forEach(session => {
@@ -223,50 +219,8 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     weekPayMs += activeCreditMs;
   }
 
-  const isFlatRate = staffMember?.payType === 'flat_rate';
-
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl p-4 border border-indigo-100 dark:border-indigo-500/20 flex flex-col justify-center animate-in slide-in-from-left duration-300">
-          <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">
-            {isFlatRate ? "Today's Flat-Rate Pay" : "Today's Pay Hours"}
-          </p>
-          <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-2">
-            <Timer className="w-5 h-5" />
-            {formatDuration(todayPayMs)}
-          </p>
-          <p className="text-[10px] font-bold text-zinc-400 mt-1 uppercase">
-            {isFlatRate ? "On Clock: " : "Worked: "}{formatDuration(todayMs)}
-          </p>
-        </div>
-        <div className="bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl p-4 border border-emerald-100 dark:border-emerald-500/20 flex flex-col justify-center animate-in slide-in-from-right duration-300">
-          <p className="text-xs font-bold text-emerald-500 uppercase tracking-widest mb-1">
-            {isFlatRate ? "This Week's Flat-Rate Pay" : "This Week's Pay Hours"}
-          </p>
-          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono flex items-center gap-2">
-            <Timer className="w-5 h-5" />
-            {formatDuration(weekPayMs)}
-          </p>
-          <div className="flex flex-col gap-0.5 mt-1">
-            <p className="text-[10px] font-bold text-zinc-400 uppercase">
-              {isFlatRate ? "On Clock: " : "Worked: "}{formatDuration(weekMs)}
-            </p>
-            {isFlatRate && (
-              <p className="text-[9px] font-black text-amber-500 uppercase tracking-wider animate-pulse flex items-center gap-1 mt-0.5">
-                🧪 Experimental Math
-              </p>
-            )}
-            {activeCreditMs > 0 && weekMs > 0 && (
-              <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
-                Incl. {creditSource}
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Activity Log</h3>
         <span className="text-xs font-medium text-zinc-500 uppercase tracking-widest">Recent Sessions</span>
@@ -281,136 +235,75 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
           const request = getRequestForSession(session.id);
 
           return (
-            <div key={session.id} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/30 transition-all group">
-              <div className="flex flex-col gap-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl text-zinc-400 group-hover:bg-indigo-500/10 group-hover:text-indigo-500 transition-colors">
-                      <Calendar className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
-                        {formatDate(session.clockIn.timestamp)}
-                      </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight",
-                          session.status === 'completed' ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600"
-                        )}>
-                          {session.status}
-                        </span>
-                        {request && (
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ring-1 ring-inset",
-                            (request as any).status === 'pending' ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                          )}>
-                            Edit {(request as any).status}
-                          </span>
-                        )}
-                        {session.isRemote && (
-                          <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-tight">
-                            <MapPin className="w-2.5 h-2.5" /> Remote
-                          </span>
-                        )}
-                        {!session.isRemote && session.clockIn.onSite === false && (
-                          <span className="flex items-center gap-1 text-[10px] font-bold text-rose-500 uppercase">
-                            <MapPin className="w-3 h-3" /> Off-site
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4 flex-1">
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-6 flex-1">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Clock In</p>
-                        <p className="text-sm font-black text-zinc-900 dark:text-white font-mono">{formatTime(session.clockIn.timestamp)}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Clock Out</p>
-                        <p className="text-sm font-black text-zinc-900 dark:text-white font-mono">{formatTime(session.clockOut?.timestamp)}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Breaks</p>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black text-zinc-900 dark:text-white font-mono">{formatDuration(breakMs)}</span>
-                          <div className="flex -space-x-1">
-                            {(session.breaks || []).map((b, i) => (
-                              <div key={i} className="p-1 bg-zinc-100 dark:bg-zinc-800 rounded-full border border-white dark:border-zinc-900" title={`${b.type} break`}>
-                                {b.type === 'lunch' ? <Pizza className="w-2.5 h-2.5 text-zinc-500" /> : <Coffee className="w-2.5 h-2.5 text-zinc-500" />}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-                          {isFlatRate ? "On Clock" : "Worked"}
-                        </p>
-                        <p className="text-sm font-bold text-zinc-500 font-mono">{formatDuration(workMs)}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">
-                          {isFlatRate ? "Flat-Rate Pay" : "Pay Hours"}
-                        </p>
-                        <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono flex items-center gap-1.5">
-                          <Timer className="w-3.5 h-3.5" />
-                          {formatDuration(payMs)}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {!request && (
-                      <button 
-                        onClick={() => setRequestingEdit(session.id)}
-                        className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all"
-                        title="Request Correction"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
+            <div 
+              key={session.id} 
+              onClick={() => setEditingSession(session)}
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/30 hover:bg-zinc-50/50 dark:hover:bg-zinc-950/40 transition-all group flex items-center justify-between gap-4 cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-zinc-50 dark:bg-zinc-800 rounded-xl text-zinc-400 group-hover:bg-indigo-500/10 group-hover:text-indigo-500 transition-colors">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
+                    {formatDate(session.clockIn.timestamp)}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className={cn(
+                      "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight",
+                      session.status === 'completed' ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600"
+                    )}>
+                      {session.status}
+                    </span>
+                    {session.verificationStatus === 'pending' && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-amber-500 text-white animate-pulse">
+                        Needs Verification
+                      </span>
+                    )}
+                    {session.verificationStatus === 'verified' && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                        Verified
+                      </span>
+                    )}
+                    {request && !session.verificationStatus && (
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ring-1 ring-inset",
+                        (request as any).status === 'pending' ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                      )}>
+                        Edit {(request as any).status}
+                      </span>
+                    )}
+                    {session.isRemote && (
+                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-tight">
+                        <MapPin className="w-2.5 h-2.5" /> Remote
+                      </span>
+                    )}
+                    {!session.isRemote && session.clockIn.onSite === false && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-rose-500 uppercase">
+                        <MapPin className="w-3 h-3" /> Off-site
+                      </span>
                     )}
                   </div>
                 </div>
+              </div>
 
-                {session.jobs && session.jobs.length > 0 && session.jobs.some((j: any) => j.bookTime > 0) && (
-                  <div className="pt-4 border-t border-dashed border-zinc-200 dark:border-zinc-800 space-y-2 animate-in fade-in duration-300">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                      <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                        {isFlatRate ? "Flat-Rate Completed Tasks" : "Book-Time Adjustments"}
-                      </p>
-                    </div>
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      {session.jobs.filter((j: any) => j.bookTime > 0).map((j: any, i: number) => {
-                        const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-                        const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-                        const spentMs = Math.max(0, end - start);
-                        const bookMs = j.bookTime * 3600000;
-                        const diff = bookMs - spentMs;
-
-                        return (
-                          <div key={i} className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-150 dark:border-zinc-800/80 text-xs">
-                            <div className="flex flex-col space-y-0.5">
-                              <span className="font-bold text-zinc-800 dark:text-zinc-200">{j.taskName || j.name}</span>
-                              <span className="text-[10px] text-zinc-400 font-mono">Worked {formatDuration(spentMs)}</span>
-                            </div>
-                            <div className="text-right flex flex-col items-end">
-                              <span className="font-black font-mono text-indigo-500 dark:text-indigo-400">{j.bookTime}h Book</span>
-                              <span className={cn(
-                                "text-[9px] font-black uppercase mt-0.5 px-1.5 py-0.2 rounded",
-                                isFlatRate ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400" :
-                                diff >= 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                              )}>
-                                {isFlatRate ? "Flat-Rate" : diff >= 0 ? `+${formatDuration(diff)} gain` : `-${formatDuration(Math.abs(diff))} limit`}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+              <div className="flex items-center gap-6">
+                <div className="text-right sm:text-left">
+                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Hourly Time</span>
+                  <span className="font-mono font-black text-sm text-zinc-900 dark:text-white">{formatDuration(workMs)}</span>
+                </div>
+                <div className="text-right sm:text-left">
+                  <span className="text-[10px] uppercase font-bold text-indigo-500 block tracking-wider">Book Time</span>
+                  <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">{formatDuration(payMs)}</span>
+                </div>
+                
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setEditingSession(session); }}
+                  className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all cursor-pointer md:opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Edit Time Entry"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                </button>
               </div>
             </div>
           );
@@ -483,6 +376,16 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
           </div>
         )}
       </div>
+
+      {/* Inline Session Editor Modal */}
+      {editingSession && (
+        <TimeSessionEditorModal 
+          tenantId={tenantId}
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSaved={refetch}
+        />
+      )}
     </div>
   );
 }

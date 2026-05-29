@@ -366,20 +366,54 @@ exports.qbwcRoutes.get('/test-timestamp', async (req, res) => {
     res.json({ lastQbSyncTime: (_a = doc.data()) === null || _a === void 0 ? void 0 : _a.lastQbSyncTime });
 });
 // Endpoint to generate .qwc file
-exports.qbwcRoutes.get('/config', (req, res) => {
-    var _a, _b;
-    const tenantId = req.query.tenantId;
-    if (!tenantId)
-        return res.status(400).send('tenantId required');
-    const appName = "SAE Group OS - Tenant " + tenantId;
-    // Dynamically build the AppURL whether running locally or on the live Firebase cloud
-    const protocol = ((_a = req.get('host')) === null || _a === void 0 ? void 0 : _a.includes('localhost')) || ((_b = req.get('host')) === null || _b === void 0 ? void 0 : _b.includes('127.0.0.1')) ? 'http' : 'https';
-    const host = req.get('host');
-    const basePath = req.originalUrl.split('?')[0].replace('/config', '');
-    const appUrl = `${protocol}://${host}${basePath}`;
-    const fileId = "{90A44FB7-33D9-4815-AC85-BC87A7E7D1EB}"; // random GUID
-    const ownerId = "{57F3B9B1-86F1-4FCE-B1AD-E1CEE344DE3E}"; // random GUID
-    const qwc = `<?xml version="1.0"?>
+exports.qbwcRoutes.get('/config', async (req, res) => {
+    try {
+        const tenantId = req.query.tenantId;
+        if (!tenantId)
+            return res.status(400).send('tenantId required');
+        // Cryptographic session authentication layer
+        const token = req.query.token;
+        if (!token) {
+            console.error('QWC Generation Failed - Missing Firebase ID Token');
+            return res.status(401).send('Authentication required');
+        }
+        try {
+            const decodedToken = await admin.auth().verifyIdToken(token);
+            // Check if superAdmin OR matching verified email bypass
+            const isSuperAdmin = decodedToken.superAdmin === true || decodedToken.email === 'p.losey@saegrp.com';
+            // If not a super admin, block access if their account does not belong to the requested tenantId
+            if (!isSuperAdmin && decodedToken.tenantId !== tenantId) {
+                console.error(`QWC Generation Unauthorized - Token Tenant: ${decodedToken.tenantId}, Request Tenant: ${tenantId}`);
+                return res.status(403).send('Forbidden: Tenant access mismatch');
+            }
+        }
+        catch (authErr) {
+            console.error('QWC Generation Failed - Invalid Firebase ID Token', authErr.message);
+            return res.status(401).send('Forbidden: Invalid or expired session');
+        }
+        const customName = req.query.customName;
+        const appName = customName
+            ? `SAE Group OS - ${customName}`
+            : `SAE Group OS - Tenant ${tenantId}`;
+        // Dynamically build the AppURL whether running locally or on the live Firebase cloud
+        const host = req.get('host') || '';
+        const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https';
+        // In Firebase Cloud Functions, the "/api" prefix is stripped from req.originalUrl by rewrites.
+        // Explicitly defining the path guarantees QWC files point to the correct "/api/qbwc" SOAP endpoint.
+        const appUrl = host.includes('localhost') || host.includes('127.0.0.1')
+            ? `${protocol}://${host}/api/qbwc`
+            : `https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc`;
+        // Dynamically generate unique UUIDs to prevent "App Name / App ID already exists" errors in QBWC
+        const generateGuid = () => {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16).toUpperCase();
+            });
+        };
+        const fileId = `{${generateGuid()}}`;
+        const ownerId = `{${generateGuid()}}`;
+        const qwc = `<?xml version="1.0"?>
 <QBWCXML>
    <AppName>${appName}</AppName>
    <AppID></AppID>
@@ -395,9 +429,23 @@ exports.qbwcRoutes.get('/config', (req, res) => {
    </Scheduler>
    <IsReadOnly>false</IsReadOnly>
 </QBWCXML>`;
-    res.set('Content-Type', 'application/x-qwc');
-    res.set('Content-Disposition', `attachment; filename=sae_qbwc_${tenantId}.qwc`);
-    res.send(qwc);
+        let filename = '';
+        if (customName) {
+            // Match user's specific naming convention: "sae_[customName].qwc" (e.g. sae_v002.qwc)
+            const safeSuffix = customName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').replace(/__+/g, '_').replace(/^_+|_+$/g, '');
+            filename = `sae_${safeSuffix}.qwc`;
+        }
+        else {
+            filename = `sae_qbwc_${tenantId}.qwc`;
+        }
+        res.set('Content-Type', 'application/x-qwc');
+        res.set('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(qwc);
+    }
+    catch (e) {
+        console.error('QWC Generation Handler Error:', e);
+        return res.status(500).send('Internal Server Error: QWC Generation Failed');
+    }
 });
 // Temp Debug
 exports.qbwcRoutes.get('/debug', async (req, res) => {

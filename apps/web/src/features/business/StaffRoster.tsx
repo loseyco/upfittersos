@@ -20,6 +20,8 @@ interface StaffMember {
   departmentId?: string;
   individualSchedule?: WorkSchedule;
   jobTitle?: string;
+  isArchived?: boolean;
+  fireDate?: any;
 }
 
 interface Department {
@@ -48,7 +50,7 @@ export function StaffRoster({ tenantId }: { tenantId: string }) {
       const deptSnap = await getDocs(query(collection(db, `businesses/${tenantId}/departments`)));
       
       return {
-        staff: staffSnap.docs.map(d => ({ id: d.id, ...d.data() } as StaffMember)).filter(s => !(s as any).isArchived),
+        staff: staffSnap.docs.map(d => ({ id: d.id, ...d.data() } as StaffMember)).filter(s => !s.isArchived && !s.fireDate && s.departmentId),
         departments: deptSnap.docs.map(d => ({ id: d.id, ...d.data() } as Department))
       };
     }

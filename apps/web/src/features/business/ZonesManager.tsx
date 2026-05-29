@@ -7,7 +7,6 @@ import { Plus, MapPin, Warehouse, Briefcase, LayoutDashboard, AlertTriangle, Clo
 
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
-import { VehicleDetailsModal } from './VehiclesManager';
 // VinScanner import removed as it is unused
 import { ConfirmModal } from '../../components/ConfirmModal';
 import { QuickAddVehicleModal } from './VehicleSelector';
@@ -48,7 +47,6 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
   const [filterOccupancy, setFilterOccupancy] = useState<string>(initialOccupancy);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(initialZoneId);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) || null : null;
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [quickAddVin, setQuickAddVin] = useState<{zoneId: string, vin: string} | null>(null);
   const [quickAddJob, setQuickAddJob] = useState<{zoneId: string, title: string, vin: string | null} | null>(null);
   const { user, permissions, isSuperAdmin } = useAuthStore();
@@ -608,7 +606,7 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
         )}
       </div>
 
-      {selectedZone && !selectedVehicle && (
+      {selectedZone && (
         <ZoneDetailsModal 
           zone={selectedZone} 
           tenantId={tenantId}
@@ -628,22 +626,10 @@ export function ZonesManager({ tenantId }: { tenantId: string }) {
           onQuickAddJobRequest={(title: string) => setQuickAddJob({ zoneId: selectedZone.id, title, vin: selectedZone.currentVehicleVin })}
           onOpenVehicle={(vin: string) => {
             const v = vehicles.find(veh => veh.vin === vin);
-            if (v) setSelectedVehicle(v);
-          }}
-        />
-      )}
-
-      {selectedVehicle && (
-        <VehicleDetailsModal
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          onClose={() => setSelectedVehicle(null)}
-          onConfirmAction={setConfirmConfig}
-          onEdit={() => {}} // Could wire this up to edit if needed, but view-only is fine for now
-
-          getSource={(row: any) => {
-            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
-            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+            if (v) {
+              navigate(`/business/${tenantId}/vehicle/${v.id}`);
+              setSelectedZoneId(null);
+            }
           }}
         />
       )}
@@ -892,7 +878,7 @@ function ZoneCard({
                 <div className="p-1 bg-emerald-500/10 rounded">
                   <Briefcase className="w-3 h-3 text-emerald-500" />
                 </div>
-                <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{job.title}</p>
+                 <p className="text-xs font-bold text-zinc-900 dark:text-white truncate">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</p>
               </div>
             )}
             <div className="flex justify-between items-start mb-1">

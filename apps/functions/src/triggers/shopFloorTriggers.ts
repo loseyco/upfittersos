@@ -305,8 +305,55 @@ export const onJobTaskWritten = functions.firestore.onDocumentWritten(
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             console.log(`Updated job ${jobId} updatedAt due to task write`);
+
+            // Proactive Server-Side Progression & Regression Sync
+            const jobRef = db.collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
+            const jobSnap = await jobRef.get();
+            if (!jobSnap.exists) return;
+
+            const jobData = jobSnap.data();
+            const currentJobStatus = jobData?.status;
+            if (!currentJobStatus) return;
+
+            // Fetch all tasks for this job
+            const tasksSnap = await jobRef.collection('tasks').get();
+            const tasks = tasksSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            const nonGeneralTasks = tasks.filter((t: any) => t.title !== 'General');
+            if (nonGeneralTasks.length === 0) return;
+
+            const allQCReady = nonGeneralTasks.every((t: any) => t.status === 'QC' || t.status === 'QC Complete');
+            const allQCComplete = nonGeneralTasks.every((t: any) => t.status === 'QC Complete');
+
+            let newStatus: string | null = null;
+
+            // 1. Forward progression (Active, Open, Ready for QA)
+            if (['Active', 'Open', 'Ready for QA'].includes(currentJobStatus)) {
+                if (allQCComplete) {
+                    newStatus = 'Ready for Customer';
+                } else if (allQCReady) {
+                    newStatus = 'Ready for QA';
+                }
+            }
+
+            // 2. Backward regression (Ready for Customer, Ready for QA)
+            if (['Ready for Customer', 'Ready for QA'].includes(currentJobStatus)) {
+                if (!allQCReady) {
+                    newStatus = 'Active';
+                } else if (currentJobStatus === 'Ready for Customer' && !allQCComplete) {
+                    newStatus = 'Ready for QA';
+                }
+            }
+
+            if (newStatus && newStatus !== currentJobStatus) {
+                await jobRef.update({
+                    status: newStatus,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log(`Auto-synced job ${jobId} status from ${currentJobStatus} to ${newStatus} on task write`);
+            }
         } catch (e) {
-            console.error(`Error updating job ${jobId} updatedAt on task write:`, e);
+            console.error(`Error updating job ${jobId} updatedAt or syncing status on task write:`, e);
         }
     }
 );

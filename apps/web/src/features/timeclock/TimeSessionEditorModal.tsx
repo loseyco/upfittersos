@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, writeBatch, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
+import { useAuthStore } from '../../lib/auth/store';
 import { X, Save, Trash2, AlertCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -46,6 +47,9 @@ interface TimeSessionEditorModalProps {
 }
 
 export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, requestId }: TimeSessionEditorModalProps) {
+  const { user, permissions = {}, isSuperAdmin } = useAuthStore();
+  const isAdmin = isSuperAdmin || !!permissions['timeclock.manage'];
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clockIn, setClockIn] = useState('');
   const [clockOut, setClockOut] = useState('');
@@ -151,19 +155,51 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       updates.jobs = jobs;
       updates.jobIds = Array.from(new Set(jobs.map((j: any) => j.id)));
 
+      // Admin edits are verified live; technician edits are live but marked pending verification
+      if (isAdmin) {
+        updates.verificationStatus = 'verified';
+      } else {
+        updates.verificationStatus = 'pending';
+      }
+
       await updateDoc(sessionRef, updates);
 
-      // If there's an associated request, mark it as approved
-      if (requestId) {
+      // Create a pending request automatically if saved by regular staff member
+      if (!isAdmin) {
+        const q = query(
+          collection(db, `businesses/${tenantId}/time_edit_requests`),
+          where('sessionId', '==', session.id),
+          where('status', '==', 'pending')
+        );
+        const snap = await getDocs(q);
+        
+        const requestData = {
+          sessionId: session.id,
+          userId: user!.uid,
+          userName: user!.displayName || user!.email,
+          note: 'Staff updated session details directly (needs verification)',
+          status: 'pending',
+          updatedAt: serverTimestamp()
+        };
+
+        if (snap.empty) {
+          await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+            ...requestData,
+            createdAt: serverTimestamp()
+          });
+        } else {
+          await updateDoc(snap.docs[0].ref, requestData);
+        }
+      } else if (requestId) {
         const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, requestId);
         await updateDoc(requestRef, {
           status: 'approved',
           resolvedAt: serverTimestamp(),
-          resolvedBy: 'admin' // Could get actual admin name
+          resolvedBy: user!.displayName || user!.email || 'admin'
         });
       }
 
-      toast.success("Time session updated");
+      toast.success(isAdmin ? "Time session updated and verified" : "Time session updated (needs verification)");
       onSaved();
       onClose();
     } catch (e) {
@@ -432,14 +468,16 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             >
               {isSubmitting ? 'Saving...' : <><Save className="w-4 h-4" /> Save Changes</>}
             </button>
-            <button 
-              disabled={isSubmitting}
-              onClick={handleDelete}
-              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50"
-              title="Delete Entry"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {isAdmin && (
+              <button 
+                disabled={isSubmitting}
+                onClick={handleDelete}
+                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50"
+                title="Delete Entry"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

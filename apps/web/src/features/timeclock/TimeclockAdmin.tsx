@@ -97,7 +97,9 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
     queryKey: ['admin-staff-list', tenantId],
     queryFn: async () => {
       const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      return snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId);
     }
   });
 
@@ -168,7 +170,8 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
 
   const filteredSessions = sessions?.filter(s => {
     const staff = staffList?.find((st: any) => st.userId === s.userId || st.id === s.userId);
-    const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (s.userName || 'Technician');
+    if (!staff) return false;
+    const displayName = `${staff.firstName} ${staff.lastName}`.trim();
     return displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       s.userId?.toLowerCase().includes(searchTerm.toLowerCase());
   });

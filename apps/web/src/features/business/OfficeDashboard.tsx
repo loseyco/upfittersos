@@ -4,9 +4,9 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Search, Car, Clock, Calendar, AlertCircle, ArrowRight, User,
+  Search, Car, Clock, ArrowRight, User,
   Package, CheckCircle, MapPin, FileText, ShoppingCart,
-  Maximize, Minimize
+  Maximize, Minimize, CheckSquare
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useNavigate } from 'react-router-dom';
@@ -66,7 +66,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   
   // Filtering & Pagination
   const [activeFilter, setActiveFilter] = useState<'all' | 'arriving' | 'received' | 'delivered'>('received');
-  const [jobStatusFilter, setJobStatusFilter] = useState<'all' | 'Almost Ready' | 'Ready for QA' | 'Ready for Customer'>('all');
+  const [packageSearchQuery, setPackageSearchQuery] = useState('');
   const [displayLimit, setDisplayLimit] = useState(10);
 
   useEffect(() => {
@@ -132,47 +132,42 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     return zone?.eta || job.expectedFinishTime || job.eta;
   };
 
-  // 1. Incoming Vehicles
-  // Jobs that are 'Open' or 'Scheduled' and not yet in 'Active', 'Completed', etc.
-  const incomingJobs = jobs.filter(job => 
-    ['Open', 'Scheduled'].includes(job.status) &&
-    !['Closed', 'Completed', 'Ready for Customer', 'Ready for QA', 'Blocked'].includes(job.status)
+  // 1. Jobs Flagged as Ready for QC
+  const readyForQcJobs = jobs.filter(job => 
+    job.status === 'Ready for QA'
   ).filter(job => {
     const vehicle = vehicles.find(v => v.vin === job.vehicleId);
-    
-    // If vehicle has arrived or is assigned to a zone, it's not "incoming"
-    if (vehicle?.arrivedAt) return false;
-    const inZone = zones.some(z => 
-      (job.id && z.currentJobId === job.id) || 
-      (job.vehicleId && z.currentVehicleVin === job.vehicleId) || 
-      (job.vehicleId && z.currentVehicleVins?.includes(job.vehicleId))
-    );
-    if (inZone) return false;
-
     return matchesSearch(job, vehicle);
   }).sort((a, b) => {
-    const timeA = (a.createdAt?.seconds || 0);
-    const timeB = (b.createdAt?.seconds || 0);
-    return timeB - timeA; // Newest first
+    // Sort by expectedFinishTime/due date ascending, then updatedAt descending
+    const timeA = a.expectedFinishTime ? (typeof a.expectedFinishTime.toDate === 'function' ? a.expectedFinishTime.toDate().getTime() : new Date(a.expectedFinishTime).getTime()) : 0;
+    const timeB = b.expectedFinishTime ? (typeof b.expectedFinishTime.toDate === 'function' ? b.expectedFinishTime.toDate().getTime() : new Date(b.expectedFinishTime).getTime()) : 0;
+    if (timeA && timeB) return timeA - timeB;
+    if (timeA) return -1;
+    if (timeB) return 1;
+
+    const updateA = (a.updatedAt?.seconds || a.createdAt?.seconds || 0);
+    const updateB = (b.updatedAt?.seconds || b.createdAt?.seconds || 0);
+    return updateB - updateA; // Newest update first if no due date
   });
 
-  // 2. Vehicles Expected Done Next
-  // Jobs that are active/in progress with an ETA, sorted by ETA ascending
-  const activeJobs = jobs.filter(job => {
-    if (jobStatusFilter === 'all') {
-      return !['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status);
-    }
-    return job.status === jobStatusFilter;
-  }).map(job => ({
-    ...job,
-    etaRaw: getJobEta(job)
-  })).filter(job => job.etaRaw).filter(job => {
+  // 2. Jobs Marked as Ready for Customer
+  const readyForCustomerJobs = jobs.filter(job => 
+    job.status === 'Ready for Customer'
+  ).filter(job => {
     const vehicle = vehicles.find(v => v.vin === job.vehicleId);
     return matchesSearch(job, vehicle);
   }).sort((a, b) => {
-    const timeA = typeof a.etaRaw.toDate === 'function' ? a.etaRaw.toDate().getTime() : new Date(a.etaRaw).getTime();
-    const timeB = typeof b.etaRaw.toDate === 'function' ? b.etaRaw.toDate().getTime() : new Date(b.etaRaw).getTime();
-    return timeA - timeB; // Earliest first
+    // Sort by expectedFinishTime/due date ascending, then updatedAt descending
+    const timeA = a.expectedFinishTime ? (typeof a.expectedFinishTime.toDate === 'function' ? a.expectedFinishTime.toDate().getTime() : new Date(a.expectedFinishTime).getTime()) : 0;
+    const timeB = b.expectedFinishTime ? (typeof b.expectedFinishTime.toDate === 'function' ? b.expectedFinishTime.toDate().getTime() : new Date(b.expectedFinishTime).getTime()) : 0;
+    if (timeA && timeB) return timeA - timeB;
+    if (timeA) return -1;
+    if (timeB) return 1;
+
+    const updateA = (a.updatedAt?.seconds || a.createdAt?.seconds || 0);
+    const updateB = (b.updatedAt?.seconds || b.createdAt?.seconds || 0);
+    return updateB - updateA;
   });
 
   // Merged Recently Received (Shipments + Received Parts Requests)
@@ -180,9 +175,24 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
     ...shipments.map(s => ({ ...s, type: 'shipment' })),
     ...receivedParts.map(p => ({ ...p, type: 'part', description: p.partName }))
   ].filter(item => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = packageSearchQuery.toLowerCase().trim();
     if (!q) return true;
-    const fields = [item.trackingNumber, item.description, item.partName, item.location, item.notes].map(f => String(f || '').toLowerCase());
+    const fields = [
+      item.trackingNumber,
+      item.description,
+      item.partName,
+      item.location,
+      item.notes,
+      item.jobTitle,
+      item.jobId,
+      item.receivedBy,
+      item.requestedBy,
+      item.carrier,
+      item.shipper,
+      item.vendorName,
+      item.status,
+      item.id
+    ].map(f => String(f || '').toLowerCase());
     return fields.some(f => f.includes(q));
   });
 
@@ -207,7 +217,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const displayItems = allReceived.slice(0, displayLimit);
   const hasMore = allReceived.length > displayLimit;
 
-  const renderJobCard = (job: any, isNextUp = false) => {
+  const renderJobCard = (job: any, type: 'qc' | 'customer') => {
     const vehicle = vehicles.find(v => v.vin === job.vehicleId);
     const vehicleDisplay = vehicle 
       ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${job.vehicleId}`) 
@@ -254,9 +264,9 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
           <div className="flex items-center gap-3">
             <div className={cn(
               "p-2.5 rounded-xl shrink-0",
-              isNextUp ? "bg-amber-500/10 text-amber-500" : "bg-indigo-500/10 text-indigo-500"
+              type === 'customer' ? "bg-emerald-500/10 text-emerald-500" : "bg-indigo-500/10 text-indigo-500"
             )}>
-              {isNextUp ? <Clock className="w-5 h-5" /> : <Calendar className="w-5 h-5" />}
+              {type === 'customer' ? <CheckCircle className="w-5 h-5" /> : <CheckSquare className="w-5 h-5" />}
             </div>
             <div>
               <h3 className="font-black text-zinc-900 dark:text-white text-base sm:text-lg line-clamp-1">
@@ -269,8 +279,10 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
                 </span>
                 <span className="text-zinc-300 dark:text-zinc-700">•</span>
                 <span className={cn(
-                  "uppercase tracking-wider",
-                  job.status === 'Active' ? 'text-emerald-500' : 'text-zinc-500'
+                  "uppercase tracking-wider text-xs font-black px-2 py-0.5 rounded",
+                  type === 'customer' 
+                    ? 'text-emerald-500 bg-emerald-500/10' 
+                    : 'text-indigo-500 bg-indigo-500/10'
                 )}>{job.status}</span>
               </div>
             </div>
@@ -440,6 +452,28 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
             </span>
           </div>
 
+          {/* Package Search Box */}
+          <div className="relative mb-4">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <Search className="w-4 h-4 text-zinc-400" />
+            </div>
+            <input
+              type="text"
+              value={packageSearchQuery}
+              onChange={(e) => setPackageSearchQuery(e.target.value)}
+              placeholder="Search packages (tracking, notes, location)..."
+              className="w-full pl-9 pr-8 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-medium shadow-sm hover:border-emerald-500/50 focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all text-zinc-900 dark:text-white placeholder:text-zinc-400"
+            />
+            {packageSearchQuery && (
+              <button 
+                onClick={() => setPackageSearchQuery('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 text-xs font-bold"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           {/* Filters */}
           <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl mb-4">
             {(['arriving', 'received', 'delivered'] as const).map(f => (
@@ -587,71 +621,53 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
           </div>
         </section>
         
-        {/* Expected Incoming Vehicles */}
+        {/* Jobs Flagged as Ready for QC */}
         <section className="flex flex-col">
           <div className="flex items-center justify-between mb-4 px-1">
             <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
-              <Calendar className="w-5 h-5 text-indigo-500" />
-              Expected Incoming
+              <CheckSquare className="w-5 h-5 text-indigo-500" />
+              Ready for QC
             </h2>
             <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
-              {incomingJobs.length} Jobs
+              {readyForQcJobs.length} Jobs
             </span>
           </div>
           
           <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
-            {incomingJobs.length === 0 ? (
+            {readyForQcJobs.length === 0 ? (
               <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
-                <Car className="w-8 h-8 mb-3 opacity-20" />
-                <p>No incoming vehicles expected.</p>
+                <CheckSquare className="w-8 h-8 mb-3 opacity-20 text-indigo-500" />
+                <p>No jobs flagged as ready for QC.</p>
               </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
-                {incomingJobs.map(job => renderJobCard(job, false))}
+                {readyForQcJobs.map(job => renderJobCard(job, 'qc'))}
               </div>
             )}
           </div>
         </section>
 
-        {/* Vehicles Done Next */}
+        {/* Jobs Marked as Ready for Customer */}
         <section className="flex flex-col">
           <div className="flex items-center justify-between mb-4 px-1">
             <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
-              <Clock className="w-5 h-5 text-amber-500" />
-              Finishing Soon
+              <CheckCircle className="w-5 h-5 text-emerald-500" />
+              Ready for Customer
             </h2>
-            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
-              {activeJobs.length} Jobs
+            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+              {readyForCustomerJobs.length} Jobs
             </span>
-          </div>
-
-          {/* Job Status Filters */}
-          <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-xl mb-4">
-            {(['all', 'Almost Ready', 'Ready for QA', 'Ready for Customer'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => setJobStatusFilter(f)}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-2 py-1.5 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                  jobStatusFilter === f 
-                    ? "bg-white dark:bg-zinc-700 text-amber-600 dark:text-amber-400 shadow-sm" 
-                    : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                )}
-              >
-                {f === 'all' ? 'All normally' : f}
-              </button>
-            ))}
           </div>
           
           <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
-            {activeJobs.length === 0 ? (
+            {readyForCustomerJobs.length === 0 ? (
               <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
-                <AlertCircle className="w-8 h-8 mb-3 opacity-20" />
-                <p>No active jobs with ETAs set.</p>
+                <CheckCircle className="w-8 h-8 mb-3 opacity-20 text-emerald-500" />
+                <p>No jobs marked as ready for customer.</p>
               </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
-                {activeJobs.map(job => renderJobCard(job, true))}
+                {readyForCustomerJobs.map(job => renderJobCard(job, 'customer'))}
               </div>
             )}
           </div>

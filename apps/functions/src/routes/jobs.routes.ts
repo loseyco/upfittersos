@@ -653,3 +653,44 @@ jobsRoutes.delete('/:id/media/:mediaId', authenticate, async (req: Request, res:
         return res.status(500).json({ error: error.message || 'Failed to delete' });
     }
 });
+
+// POST /jobs/:id/report-email - Send a job status report email
+jobsRoutes.post('/:id/report-email', authenticate, async (req: Request, res: Response): Promise<Response> => {
+    try {
+        const caller = (req as any).user;
+        const jobId = req.params.id;
+
+        const jobRef = getDb().collection('jobs').doc(jobId);
+        const jobDoc = await jobRef.get();
+
+        if (!jobDoc.exists) {
+            return res.status(404).json({ error: 'Job not found' });
+        }
+
+        const jobData = jobDoc.data()!;
+        const tenantId = jobData.tenantId;
+
+        if (!isMemberOfTenant(caller, tenantId)) {
+            return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });
+        }
+
+        const { recipients, subject, html } = req.body;
+        if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+            return res.status(400).json({ error: 'recipients array is required' });
+        }
+        if (!html) {
+            return res.status(400).json({ error: 'html body is required' });
+        }
+
+        const callerEmail = caller.email || 'p.losey@saegrp.com';
+        const emailSubject = subject || `Job Status Report - ${jobData.title}`;
+
+        const { sendEmailAsUser } = require('../reports/mailer');
+        await sendEmailAsUser(callerEmail, recipients, emailSubject, html);
+
+        return res.json({ message: 'Job status report email sent successfully.' });
+    } catch (error: any) {
+        console.error("Error sending job report email:", error);
+        return res.status(500).json({ error: error.message || 'Failed to send email' });
+    }
+});

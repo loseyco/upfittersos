@@ -8,6 +8,8 @@ import { BusinessManager } from './features/super-admin/BusinessManager';
 import { TenantDashboard } from './features/business/TenantDashboard';
 import { UserProfilePage } from './features/users/UserProfilePage';
 import { BayMonitorAuthWrapper } from './features/business/BayMonitorAuthWrapper';
+import { ParkingMonitorAuthWrapper } from './features/business/ParkingMonitorAuthWrapper';
+import { TimeclockMonitorAuthWrapper } from './features/business/TimeclockMonitorAuthWrapper';
 import { TvSetupScreen } from './features/business/TvSetupScreen';
 import { TvPairingApprove } from './features/business/TvPairingApprove';
 import { QRRedirector } from './features/business/QRRedirector';
@@ -15,6 +17,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ReloadPrompt } from './components/ReloadPrompt';
 import { FeedbackWidget } from './components/FeedbackWidget';
+import { DebugPortal } from './components/super-admin/DebugPortal';
 import { FeedbackReports } from './features/super-admin/FeedbackReports';
 import { GlobalWakeLock } from './components/telemetry/GlobalWakeLock';
 import { FCMListener } from './components/FCMListener';
@@ -41,6 +44,8 @@ function App() {
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/tv" element={<BayMonitorAuthWrapper />} />
+            <Route path="/parking-tv" element={<ParkingMonitorAuthWrapper />} />
+            <Route path="/timeclock-tv" element={<TimeclockMonitorAuthWrapper />} />
             <Route path="/tv-setup" element={<TvSetupScreen />} />
             <Route path="/pair" element={<TvPairingApprove />} />
             <Route path="/qr" element={<QRRedirector />} />
@@ -59,6 +64,7 @@ function App() {
             </Route>
             </Routes>
             <FeedbackWidget />
+            <DebugPortal />
           </AnalyticsProvider>
         </Router>
       </AuthProvider>

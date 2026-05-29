@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import type { ClockStatus } from '../../lib/store/timeclockStore';
@@ -17,6 +18,7 @@ import { toast } from 'sonner';
 import { calculateDistance, cn } from '../../lib/utils';
 
 export function TimeClockBar() {
+  const navigate = useNavigate();
   const { user, tenantId, permissions } = useAuthStore();
   const { status, startTime, activeSessionId, setStatus, reset } = useTimeclockStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -80,6 +82,83 @@ export function TimeClockBar() {
 
     syncStatus();
   }, [user?.uid, tenantId]);
+
+  // Extract and securely store qr_code parameter from URL search params on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const qrCode = params.get('qr_code');
+    if (qrCode) {
+      sessionStorage.setItem('timeclock_qr_code', qrCode);
+      sessionStorage.setItem('timeclock_qr_timestamp', String(Date.now()));
+      
+      // Clean up the URL to prevent bookmarking/sharing the URL with the active QR token!
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+    }
+  }, []);
+
+  // Securely verify rotating QR code token against Firestore active token
+  const verifyQrToken = async (): Promise<boolean> => {
+    if (!settings?.timeclockRequireQR) return true;
+
+    const savedCode = sessionStorage.getItem('timeclock_qr_code');
+    const savedTimestamp = sessionStorage.getItem('timeclock_qr_timestamp');
+
+    if (!savedCode || !savedTimestamp) {
+      toast.error("QR Code Scan Required", {
+        description: "You must scan the live rotating QR code on the shop floor tablet monitor to perform timeclock operations."
+      });
+      return false;
+    }
+
+    // Check if the scan happened within the last 60 seconds
+    const scanAgeMs = Date.now() - Number(savedTimestamp);
+    if (scanAgeMs > 60 * 1000) {
+      toast.error("QR Code Expired", {
+        description: "Your scanned QR code has expired. Please scan the live QR code on the shop monitor."
+      });
+      return false;
+    }
+
+    try {
+      // Fetch the active security token from Firestore
+      const tokenSnap = await getDoc(doc(db, `businesses/${tenantId}/timeclock_token`, 'active'));
+      if (!tokenSnap.exists()) {
+        toast.error("Verification Error", {
+          description: "Could not retrieve the active security token from server."
+        });
+        return false;
+      }
+
+      const activeToken = tokenSnap.data();
+
+      // Check if code matches exactly
+      if (activeToken.code !== savedCode) {
+        toast.error("Expired QR Code", {
+          description: "This QR code has rotated. Please scan the live QR code on the shop monitor screen."
+        });
+        return false;
+      }
+
+      // Check if the active token's updatedAt in Firestore is fresh (less than 90 seconds old)
+      const liveUpdatedAt = activeToken.updatedAt?.toDate ? activeToken.updatedAt.toDate().getTime() : new Date(activeToken.updatedAt).getTime();
+      const liveAgeMs = Date.now() - liveUpdatedAt;
+      if (liveAgeMs > 90 * 1000) {
+        toast.error("Stale Security Token", {
+          description: "The shop monitor appears to be offline. Please verify it is showing the live rotating QR code."
+        });
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      console.error("Token verification failed:", e);
+      toast.error("Verification System Offline", {
+        description: "Failed to connect to the security server. Please try again."
+      });
+      return false;
+    }
+  };
 
   // Timer update
   useEffect(() => {
@@ -154,6 +233,11 @@ export function TimeClockBar() {
 
   const handleClockIn = async () => {
     setIsProcessing(true);
+    const isQrValid = await verifyQrToken();
+    if (!isQrValid) {
+      setIsProcessing(false);
+      return;
+    }
     const loc = await validateLocation();
     if (!loc) {
       setIsProcessing(false);
@@ -201,6 +285,11 @@ export function TimeClockBar() {
   const handleClockOut = async () => {
     if (!activeSessionId) return;
     setIsProcessing(true);
+    const isQrValid = await verifyQrToken();
+    if (!isQrValid) {
+      setIsProcessing(false);
+      return;
+    }
     const loc = await validateLocation();
     if (!loc) {
       setIsProcessing(false);
@@ -251,6 +340,11 @@ export function TimeClockBar() {
   const handleStartBreak = async (type: 'lunch' | 'normal') => {
     if (!activeSessionId) return;
     setIsProcessing(true);
+    const isQrValid = await verifyQrToken();
+    if (!isQrValid) {
+      setIsProcessing(false);
+      return;
+    }
     try {
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
       const sessionSnap = await getDoc(sessionRef);
@@ -298,6 +392,11 @@ export function TimeClockBar() {
   const handleEndBreak = async () => {
     if (!activeSessionId) return;
     setIsProcessing(true);
+    const isQrValid = await verifyQrToken();
+    if (!isQrValid) {
+      setIsProcessing(false);
+      return;
+    }
     try {
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
       const sessionSnap = await getDoc(sessionRef);
@@ -349,7 +448,10 @@ export function TimeClockBar() {
   return (
     <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 sm:px-6 py-2 flex items-center justify-between gap-2 sm:gap-4 shadow-sm animate-in slide-in-from-top duration-500 z-40 overflow-x-auto no-scrollbar">
       {/* Left: Status */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+      <div 
+        onClick={() => tenantId && navigate(`/business/${tenantId}/time_details`)}
+        className="flex items-center gap-2 sm:gap-3 shrink-0 cursor-pointer hover:opacity-85 active:scale-95 transition-all select-none"
+      >
         <div 
           className={cn(
             "p-2 rounded-lg transition-colors",
@@ -429,7 +531,10 @@ export function TimeClockBar() {
 
       {/* Right: Timer */}
       {status !== 'clocked_out' && startTime && (
-        <div className="flex items-center gap-4 pl-3 sm:pl-6 border-l border-zinc-200 dark:border-zinc-800 shrink-0">
+        <div 
+          onClick={() => tenantId && navigate(`/business/${tenantId}/time_details`)}
+          className="flex items-center gap-4 pl-3 sm:pl-6 border-l border-zinc-200 dark:border-zinc-800 shrink-0 cursor-pointer hover:opacity-85 active:scale-95 transition-all select-none"
+        >
           <div className="flex flex-col items-end">
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none mb-1 hidden sm:block">
               {status === 'clocked_in' ? 'Work Timer' : `${status.replace('on_', '').toUpperCase()} TIMER`}

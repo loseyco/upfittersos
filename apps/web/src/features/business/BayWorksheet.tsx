@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Search, Building2, ExternalLink, ChevronDown
+  Search, Building2, ExternalLink, ChevronDown, Clock, MapPin, X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -17,6 +17,9 @@ interface StaffMember {
   lastName: string;
   userId?: string;
   techNumber?: string;
+  isArchived?: boolean;
+  fireDate?: any;
+  departmentId?: string;
 }
 
 interface TimeSession {
@@ -35,6 +38,7 @@ interface Zone {
   name: string;
   type: string;
   currentJobId?: string;
+  currentVehicleVin?: string;
   lastAssignedAt?: any;
   isArchived?: boolean;
 }
@@ -53,6 +57,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
   const [jobsList, setJobsList] = useState<any[]>([]);
   const [sessions, setSessions] = useState<TimeSession[]>([]);
   const [zonesList, setZonesList] = useState<Zone[]>([]);
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
   
   // Excel Column Resizing State
@@ -61,7 +66,8 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     activeJob: 240,
     crew: 240,
     activeTask: 200,
-    hours: 100
+    hours: 100,
+    timeInBay: 110
   });
 
   const startColResizing = (e: React.PointerEvent, colKey: string) => {
@@ -104,7 +110,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     const unsubStaff = onSnapshot(query(collection(db, `businesses/${tenantId}/staff`)), (snap) => {
       const activeStaff = snap.docs
         .map(d => ({ id: d.id, ...d.data() } as StaffMember))
-        .filter(s => !(s as any).isArchived);
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId);
       setStaffList(activeStaff);
     });
 
@@ -128,9 +134,14 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       const todaySessions = allSessions.filter(s => {
         if (!s.clockIn?.timestamp) return false;
         const date = s.clockIn.timestamp.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
-        return date >= today;
+        return date >= today || s.status !== 'completed';
       });
       setSessions(todaySessions);
+    });
+
+    // 5. Listen to vehicles
+    const unsubVehicles = onSnapshot(query(collection(db, `businesses/${tenantId}/vehicles`), limit(1000)), (snap) => {
+      setVehiclesList(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
     return () => {
@@ -138,6 +149,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       unsubJobs();
       unsubSessions();
       unsubZones();
+      unsubVehicles();
     };
   }, [tenantId]);
 
@@ -145,7 +157,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
   const activeJobIds = useMemo(() => {
     const ids = new Set<string>();
     zonesList.forEach(z => {
-      if (z.type === 'bay' && !z.isArchived) {
+      if ((z.type === 'bay' || z.type === 'parking' || z.type === 'lot') && !z.isArchived) {
         const activeJob = jobsList.find(j => 
           j.id === z.currentJobId || 
           (j.bayId && (j.bayId === z.id || j.bayId === z.name))
@@ -203,6 +215,25 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     return `${hours}h ${minutes}m`;
   };
 
+  const formatBayDuration = (ms: number) => {
+    if (ms <= 0) return '';
+    const totalMinutes = Math.floor(ms / 60000);
+    const totalHours = Math.floor(totalMinutes / 60);
+    const days = Math.floor(totalHours / 24);
+    
+    if (days > 0) {
+      const remainingHours = totalHours % 24;
+      return `${days}d ${remainingHours}h`;
+    }
+    
+    const minutes = totalMinutes % 60;
+    if (totalHours > 0) {
+      return `${totalHours}h ${minutes}m`;
+    }
+    
+    return `${minutes}m`;
+  };
+
   // Filtered and naturally sorted Bays list
   const filteredBays = useMemo(() => {
     return zonesList.filter(z => {
@@ -217,11 +248,51 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       );
       const jobTitle = activeJobDoc ? (activeJobDoc.jobNumber ? `#${activeJobDoc.jobNumber} - ${activeJobDoc.title}` : activeJobDoc.title).toLowerCase() : '';
       
-      return bayName.includes(searchTerm.toLowerCase()) || jobTitle.includes(searchTerm.toLowerCase());
+      const isBayEmpty = !activeJobDoc;
+      const matchesEmptySearch = isBayEmpty && 'empty'.includes(searchTerm.toLowerCase());
+      
+      // Vehicle details matching
+      const vehicleDoc = vehiclesList.find(v => v.vin === z.currentVehicleVin);
+      const vehicleStr = vehicleDoc ? `${vehicleDoc.year || ''} ${vehicleDoc.make || ''} ${vehicleDoc.model || ''} ${vehicleDoc.vin || ''}`.toLowerCase() : '';
+      
+      return bayName.includes(searchTerm.toLowerCase()) || 
+             jobTitle.includes(searchTerm.toLowerCase()) ||
+             vehicleStr.includes(searchTerm.toLowerCase()) ||
+             matchesEmptySearch;
     }).sort((a, b) => 
       (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [zonesList, jobsList, searchTerm]);
+  }, [zonesList, jobsList, vehiclesList, searchTerm]);
+
+  // Filtered and naturally sorted Parking Spots list
+  const filteredParking = useMemo(() => {
+    return zonesList.filter(z => {
+      if (z.isArchived || (z.type !== 'parking' && z.type !== 'lot')) return false;
+      
+      const spotName = (z.name || '').toLowerCase();
+      
+      // Find active job if any
+      const activeJobDoc = jobsList.find(j => 
+        j.id === z.currentJobId || 
+        (j.bayId && (j.bayId === z.id || j.bayId === z.name))
+      );
+      const jobTitle = activeJobDoc ? (activeJobDoc.jobNumber ? `#${activeJobDoc.jobNumber} - ${activeJobDoc.title}` : activeJobDoc.title).toLowerCase() : '';
+      
+      const isSpotEmpty = !activeJobDoc;
+      const matchesEmptySearch = isSpotEmpty && 'empty'.includes(searchTerm.toLowerCase());
+      
+      // Vehicle details matching
+      const vehicleDoc = vehiclesList.find(v => v.vin === z.currentVehicleVin);
+      const vehicleStr = vehicleDoc ? `${vehicleDoc.year || ''} ${vehicleDoc.make || ''} ${vehicleDoc.model || ''} ${vehicleDoc.vin || ''}`.toLowerCase() : '';
+      
+      return spotName.includes(searchTerm.toLowerCase()) || 
+             jobTitle.includes(searchTerm.toLowerCase()) ||
+             vehicleStr.includes(searchTerm.toLowerCase()) ||
+             matchesEmptySearch;
+    }).sort((a, b) => 
+      (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
+    );
+  }, [zonesList, jobsList, vehiclesList, searchTerm]);
 
   // Zero-Save Live Database Updates for Bay Job Assignments
   const handleBayJobChange = async (zoneId: string, newJobId: string) => {
@@ -229,7 +300,8 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     setIsUpdating(zoneId);
     try {
       const zoneRef = doc(db, `businesses/${tenantId}/zones`, zoneId);
-      const previousJobId = zonesList.find(z => z.id === zoneId)?.currentJobId;
+      const zoneDoc = zonesList.find(z => z.id === zoneId);
+      const zoneName = zoneDoc?.name;
 
       // 1. Update the zone document
       await updateDoc(zoneRef, {
@@ -238,14 +310,21 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
         updatedAt: serverTimestamp()
       });
 
-      // 2. Clear bayId from the previous job document
-      if (previousJobId && previousJobId !== newJobId) {
-        const prevJobRef = doc(db, `businesses/${tenantId}/jobs`, previousJobId);
-        await updateDoc(prevJobRef, {
-          bayId: null,
-          updatedAt: serverTimestamp()
-        }).catch(err => console.warn("Failed to clear previous job bayId:", err));
-      }
+      // 2. Find and clear bayId from any jobs currently linked to this bay
+      const linkedJobs = jobsList.filter(j => 
+        j.bayId === zoneId || 
+        (zoneName && j.bayId === zoneName)
+      );
+
+      await Promise.all(linkedJobs.map(async (job) => {
+        if (job.id !== newJobId) {
+          const jobRef = doc(db, `businesses/${tenantId}/jobs`, job.id);
+          await updateDoc(jobRef, {
+            bayId: null,
+            updatedAt: serverTimestamp()
+          }).catch(err => console.warn(`Failed to clear bayId for job ${job.id}:`, err));
+        }
+      }));
 
       // 3. Set bayId on the new job document
       if (newJobId && newJobId !== 'none') {
@@ -255,9 +334,9 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
           lastWorkedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
-        toast.success('Assigned job to bay.');
+        toast.success(`Assigned job to ${zoneDoc?.type === 'parking' ? 'parking spot' : 'bay'}.`);
       } else {
-        toast.success('Cleared job from bay.');
+        toast.success(`Cleared job from ${zoneDoc?.type === 'parking' ? 'parking spot' : 'bay'}.`);
       }
     } catch (err: any) {
       toast.error(`Assignment failed: ${err.message}`);
@@ -318,6 +397,46 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const handleRemoveFromTask = async (sessionId: string, jobId: string, techName: string) => {
+    if (!canManage) return;
+    
+    const confirmRemove = window.confirm(`Are you sure you want to take ${techName} off this job/task?`);
+    if (!confirmRemove) return;
+
+    try {
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, sessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (!sessionSnap.exists()) {
+        toast.error('Time session not found.');
+        return;
+      }
+
+      const sessionData = sessionSnap.data();
+      const jobs = [...(sessionData.jobs || [])];
+      
+      let closedCount = 0;
+      jobs.forEach((j: any) => {
+        if (!j.end && j.id === jobId) {
+          j.end = new Date();
+          closedCount++;
+        }
+      });
+
+      if (closedCount > 0) {
+        await updateDoc(sessionRef, {
+          jobs,
+          jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Took ${techName} off the task.`);
+      } else {
+        toast.info(`${techName} is not active on this job.`);
+      }
+    } catch (err: any) {
+      toast.error(`Failed to remove technician: ${err.message}`);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 font-sans text-xs select-none">
       
@@ -331,7 +450,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
               <Building2 className="w-5 h-5 text-indigo-500" />
               Bay Worksheet
             </h2>
-            <p className="text-sm text-zinc-500 mt-1">Excel-style live manager worksheet. Manage jobs and crew tasks directly by bay.</p>
+            <p className="text-sm text-zinc-500 mt-1">Excel-style live manager worksheet. Manage jobs and crew tasks directly by bay or parking location.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -350,7 +469,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
             <input 
               type="text" 
-              placeholder="Search bays or jobs..."
+              placeholder="Search bays, spots, jobs, vin..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white"
@@ -374,7 +493,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
           <thead>
             <tr className="bg-zinc-150 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-extrabold uppercase select-none sticky top-0 z-40">
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.bayName }}>
-                Bay Name {renderResizeHandle('bayName')}
+                Bay / Spot Name {renderResizeHandle('bayName')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.activeJob }}>
                 Active Job Assignment {renderResizeHandle('activeJob')}
@@ -385,18 +504,32 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.activeTask }}>
                 Active Task {renderResizeHandle('activeTask')}
               </th>
-              <th className="p-2.5 relative align-middle text-center" style={{ width: colWidths.hours }}>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.hours }}>
                 Hours Today {renderResizeHandle('hours')}
+              </th>
+              <th className="p-2.5 relative align-middle text-center" style={{ width: colWidths.timeInBay }}>
+                Time in Bay/Spot {renderResizeHandle('timeInBay')}
               </th>
             </tr>
           </thead>
 
           {/* Grid Rows */}
           <tbody>
+            
+            {/* ==================== SERVICE BAYS SECTION ==================== */}
+            <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-b border-zinc-200 dark:border-zinc-800 select-none">
+              <td colSpan={6} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Service Bays ({filteredBays.length})</span>
+                </div>
+              </td>
+            </tr>
+
             {filteredBays.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-16 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
-                  No bays match the selected filter configuration.
+                <td colSpan={6} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
+                  No service bays match the selected filter configuration.
                 </td>
               </tr>
             ) : (
@@ -448,19 +581,34 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                     {/* 2. Active Job Assignment */}
                     <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
                       <div className="flex items-center gap-1 w-full">
-                        <div className="flex-1 min-w-0 h-7">
-                          <ExcelSearchableSelect
-                            options={[
-                              { id: 'none', title: 'General / Indirect Labor' },
-                              ...jobsList.filter(j => j.status !== 'Closed' && j.status !== 'Completed')
-                            ]}
-                            value={currentJobId}
-                            onChange={(val) => handleBayJobChange(zone.id, val)}
-                            getLabel={(j) => j.id === 'none' ? j.title : (j.jobNumber ? `#${j.jobNumber} - ${j.title}` : j.title)}
-                            getValue={(j) => j.id}
-                            placeholder="Choose Job..."
-                            disabled={!canManage}
-                          />
+                        <div className="flex-1 min-w-0">
+                          <div className="h-7">
+                            <ExcelSearchableSelect
+                              options={[
+                                { id: 'none', title: 'Empty' },
+                                ...jobsList.filter(j => j.status !== 'Closed' && j.status !== 'Completed')
+                              ]}
+                              value={currentJobId}
+                              onChange={(val) => handleBayJobChange(zone.id, val)}
+                              getLabel={(j) => j.id === 'none' ? j.title : (j.jobNumber ? `#${j.jobNumber} - ${j.title}` : j.title)}
+                              getValue={(j) => j.id}
+                              placeholder="Choose Job..."
+                              disabled={!canManage}
+                            />
+                          </div>
+                          {currentJobId === 'none' && zone.currentVehicleVin && (
+                            (() => {
+                              const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
+                              const label = vehicle 
+                                ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin.slice(-8)}`
+                                : `VIN: ${zone.currentVehicleVin.slice(-8)}`;
+                              return (
+                                <div className="text-[10px] text-zinc-550 dark:text-zinc-400 font-bold bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded mt-1 truncate inline-block max-w-full" title={`Full VIN: ${zone.currentVehicleVin}`}>
+                                  🚙 {label}
+                                </div>
+                              );
+                            })()
+                          )}
                         </div>
                         {currentJobId && currentJobId !== 'none' && (
                           <button
@@ -471,6 +619,21 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                             <ExternalLink className="w-3.5 h-3.5" />
                           </button>
                         )}
+                        {currentJobId === 'none' && zone.currentVehicleVin && (
+                          (() => {
+                            const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
+                            if (!vehicle) return null;
+                            return (
+                              <button
+                                onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle.id}`)}
+                                className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                                title="View Vehicle Details"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                            );
+                          })()
+                        )}
                       </div>
                     </td>
 
@@ -478,7 +641,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                     <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
                       <div className="flex flex-wrap gap-1.5 items-center px-1">
                         {activeTechs.length === 0 ? (
-                          <span className="text-[10px] text-zinc-400 dark:text-zinc-600 italic">No crew clocked in</span>
+                          <span className="text-[10px] text-zinc-400 dark:text-zinc-650 italic">No crew clocked in</span>
                         ) : (
                           activeTechs.map(session => {
                             const staff = staffList.find(s => s.userId === session.userId || s.id === session.userId);
@@ -489,16 +652,28 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                               <div 
                                 key={session.id} 
                                 className={cn(
-                                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 group/badge relative transition-all duration-200",
                                   isBreak 
-                                    ? "bg-amber-500/10 text-amber-600 border-amber-500/25 dark:text-amber-400" 
-                                    : "bg-emerald-500/10 text-emerald-600 border-emerald-500/25 dark:text-emerald-450"
+                                    ? "bg-amber-500/10 text-amber-600 border-amber-500/25 dark:text-amber-400 hover:pr-5" 
+                                    : "bg-emerald-500/10 text-emerald-600 border-emerald-500/25 dark:text-emerald-450 hover:pr-5"
                                 )}
                                 title={fullName}
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
                                 <span className="truncate max-w-[80px]">{fullName.split(' ')[0]}</span>
                                 {isBreak && <span className="text-[8px] font-black uppercase text-amber-500 ml-1 shrink-0">(Break)</span>}
+                                {canManage && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveFromTask(session.id, currentJobId, fullName.split(' ')[0]);
+                                    }}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/badge:opacity-100 transition-opacity duration-150 p-0.5 hover:bg-red-500 hover:text-white rounded-full text-zinc-450 dark:text-zinc-500 shrink-0"
+                                    title={`Remove ${fullName.split(' ')[0]} from task`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
                               </div>
                             );
                           })
@@ -509,7 +684,9 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                     {/* 4. Active Task selector for the job */}
                     <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
                       {currentJobId === 'none' ? (
-                        <span className="text-[10px] text-zinc-450 dark:text-zinc-500 px-2 italic">Shop General</span>
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-650 px-2 italic">--</span>
+                      ) : activeTechs.length === 0 ? (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-600 px-2 italic">No active task</span>
                       ) : (
                         (() => {
                           const assignedTasks = tasksMap[currentJobId] || [];
@@ -558,11 +735,296 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                     </td>
 
                     {/* 5. Labor Hours Today */}
-                    <td className="p-1.5 align-middle text-center font-mono text-xs font-bold text-zinc-650 dark:text-zinc-400">
+                    <td className="p-1.5 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center font-mono text-xs font-bold text-zinc-650 dark:text-zinc-400">
                       {totalWorkMs === 0 ? '--' : (
                         <span className="font-extrabold text-indigo-600 dark:text-indigo-400">
                           {formatDuration(totalWorkMs)}
                         </span>
+                      )}
+                    </td>
+
+                    {/* 6. Time in Bay */}
+                    <td className="p-1 align-middle text-center">
+                      {!zone.lastAssignedAt ? (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-650 italic">--</span>
+                      ) : (
+                        (() => {
+                          const durationMs = calculateDuration(zone.lastAssignedAt, null);
+                          const durationStr = formatBayDuration(durationMs);
+                          const isEmpty = currentJobId === 'none';
+                          
+                          return (
+                            <div className="flex items-center justify-center gap-1 px-2 py-1">
+                              <div className={cn(
+                                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                                isEmpty 
+                                  ? "bg-zinc-500/10 text-zinc-500 border-zinc-500/20 dark:text-zinc-400"
+                                  : "bg-indigo-500/10 text-indigo-600 border-indigo-500/20 dark:text-indigo-400"
+                              )}>
+                                <Clock className={cn("w-3.5 h-3.5 shrink-0", !isEmpty && "text-indigo-500 animate-pulse")} />
+                                <span>{durationStr}</span>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+
+            {/* ==================== PARKING SPOTS SECTION ==================== */}
+            <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-t border-b border-zinc-200 dark:border-zinc-800 select-none">
+              <td colSpan={6} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+                  <span>Parking Spots ({filteredParking.length})</span>
+                </div>
+              </td>
+            </tr>
+
+            {filteredParking.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
+                  No parking spots match the selected filter configuration.
+                </td>
+              </tr>
+            ) : (
+              filteredParking.map((zone) => {
+                // Find active job if any
+                const activeJobDoc = jobsList.find(j => 
+                  j.id === zone.currentJobId || 
+                  (j.bayId && (j.bayId === zone.id || j.bayId === zone.name))
+                );
+                const currentJobId = activeJobDoc?.id || 'none';
+
+                // Find active crew in this spot (any technician clocked into this job)
+                const activeTechs = sessions.filter(s => {
+                  if (s.status === 'completed') return false;
+                  return s.jobs?.some((j: any) => !j.end && j.id === currentJobId);
+                });
+
+                // Get first technician's active job segment for current task select representation in this spot
+                const primaryTechSession = activeTechs[0];
+                const activeJobSegment = primaryTechSession?.jobs?.find((j: any) => !j.end && j.id === currentJobId);
+                const activeTaskId = activeJobSegment?.taskId || 'none';
+                const currentTaskName = activeJobSegment?.taskName || '';
+
+                // Aggregate today's work hours on this job
+                let totalWorkMs = 0;
+                sessions.forEach(sess => {
+                  const jobSegments = sess.jobs?.filter(j => j.id === currentJobId) || [];
+                  jobSegments.forEach(seg => {
+                    totalWorkMs += calculateDuration(seg.start, seg.end);
+                  });
+                });
+
+                return (
+                  <tr 
+                    key={zone.id} 
+                    className={cn(
+                      "border-b border-zinc-200 dark:border-zinc-800/80 transition-colors font-medium text-zinc-800 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900/40",
+                      isUpdating === zone.id && "opacity-60 pointer-events-none"
+                    )}
+                  >
+                    {/* 1. Spot Name */}
+                    <td className="p-2 border-r border-zinc-200 dark:border-zinc-800 align-middle font-black text-xs uppercase tracking-wider text-zinc-900 dark:text-white bg-zinc-50/50 dark:bg-zinc-900/20 truncate">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span className="truncate">{zone.name}</span>
+                      </div>
+                    </td>
+
+                    {/* 2. Active Job Assignment */}
+                    <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                      <div className="flex items-center gap-1 w-full">
+                        <div className="flex-1 min-w-0">
+                          <div className="h-7">
+                            <ExcelSearchableSelect
+                              options={[
+                                { id: 'none', title: 'Empty' },
+                                ...jobsList.filter(j => j.status !== 'Closed' && j.status !== 'Completed')
+                              ]}
+                              value={currentJobId}
+                              onChange={(val) => handleBayJobChange(zone.id, val)}
+                              getLabel={(j) => j.id === 'none' ? j.title : (j.jobNumber ? `#${j.jobNumber} - ${j.title}` : j.title)}
+                              getValue={(j) => j.id}
+                              placeholder="Choose Job..."
+                              disabled={!canManage}
+                            />
+                          </div>
+                          {currentJobId === 'none' && zone.currentVehicleVin && (
+                            (() => {
+                              const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
+                              const label = vehicle 
+                                ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin.slice(-8)}`
+                                : `VIN: ${zone.currentVehicleVin.slice(-8)}`;
+                              return (
+                                <div className="text-[10px] text-zinc-550 dark:text-zinc-400 font-bold bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded mt-1 truncate inline-block max-w-full" title={`Full VIN: ${zone.currentVehicleVin}`}>
+                                  🚙 {label}
+                                </div>
+                              );
+                            })()
+                          )}
+                        </div>
+                        {currentJobId && currentJobId !== 'none' && (
+                          <button
+                            onClick={() => navigate(`/business/${tenantId}/job/${currentJobId}`)}
+                            className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                            title="View Job Details"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {currentJobId === 'none' && zone.currentVehicleVin && (
+                          (() => {
+                            const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
+                            if (!vehicle) return null;
+                            return (
+                              <button
+                                onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle.id}`)}
+                                className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                                title="View Vehicle Details"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                            );
+                          })()
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 3. Active Crew */}
+                    <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                      <div className="flex flex-wrap gap-1.5 items-center px-1">
+                        {activeTechs.length === 0 ? (
+                          <span className="text-[10px] text-zinc-400 dark:text-zinc-650 italic">No crew clocked in</span>
+                        ) : (
+                          activeTechs.map(session => {
+                            const staff = staffList.find(s => s.userId === session.userId || s.id === session.userId);
+                            const fullName = staff ? `${staff.firstName || ''} ${staff.lastName || ''}`.trim() : session.userName || 'Technician';
+                            const isBreak = session.status === 'on_break';
+                            
+                            return (
+                              <div 
+                                key={session.id} 
+                                className={cn(
+                                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 group/badge relative transition-all duration-200",
+                                  isBreak 
+                                    ? "bg-amber-500/10 text-amber-600 border-amber-500/25 dark:text-amber-400 hover:pr-5" 
+                                    : "bg-emerald-500/10 text-emerald-600 border-emerald-500/25 dark:text-emerald-450 hover:pr-5"
+                                )}
+                                title={fullName}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
+                                <span className="truncate max-w-[80px]">{fullName.split(' ')[0]}</span>
+                                {isBreak && <span className="text-[8px] font-black uppercase text-amber-500 ml-1 shrink-0">(Break)</span>}
+                                {canManage && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveFromTask(session.id, currentJobId, fullName.split(' ')[0]);
+                                    }}
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover/badge:opacity-100 transition-opacity duration-150 p-0.5 hover:bg-red-500 hover:text-white rounded-full text-zinc-450 dark:text-zinc-500 shrink-0"
+                                    title={`Remove ${fullName.split(' ')[0]} from task`}
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 4. Active Task selector for the job */}
+                    <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                      {currentJobId === 'none' ? (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-650 px-2 italic">--</span>
+                      ) : activeTechs.length === 0 ? (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-600 px-2 italic">No active task</span>
+                      ) : (
+                        (() => {
+                          const assignedTasks = tasksMap[currentJobId] || [];
+
+                          return (
+                            <div className="flex items-center gap-1 w-full">
+                              <select
+                                value={activeTaskId}
+                                onChange={(e) => {
+                                  const selectedId = e.target.value;
+                                  if (selectedId === 'none') {
+                                    handleBayTaskChangeSelect(currentJobId, 'none', 'General');
+                                  } else {
+                                    const selectedTask = assignedTasks.find(t => t.id === selectedId);
+                                    handleBayTaskChangeSelect(currentJobId, selectedId, selectedTask?.title || 'Task');
+                                  }
+                                }}
+                                disabled={!canManage}
+                                className="flex-1 bg-transparent border-none outline-none focus:ring-0 focus:border-0 font-bold p-1 text-xs text-zinc-850 dark:text-zinc-350 dark:bg-zinc-900 rounded cursor-pointer truncate"
+                              >
+                                <option value="none">General / Unassigned</option>
+                                {assignedTasks.map(t => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.title}
+                                  </option>
+                                ))}
+                                {activeTaskId !== 'none' && !assignedTasks.some(t => t.id === activeTaskId) && (
+                                  <option value={activeTaskId}>
+                                    {currentTaskName || 'Active Task'}
+                                  </option>
+                                )}
+                              </select>
+                              {activeTaskId && activeTaskId !== 'none' && (
+                                <button
+                                  onClick={() => navigate(`/business/${tenantId}/task/${currentJobId}/${activeTaskId}`)}
+                                  className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                                  title="View Task Details"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()
+                      )}
+                    </td>
+
+                    {/* 5. Labor Hours Today */}
+                    <td className="p-1.5 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center font-mono text-xs font-bold text-zinc-650 dark:text-zinc-400">
+                      {totalWorkMs === 0 ? '--' : (
+                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400">
+                          {formatDuration(totalWorkMs)}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* 6. Time in Spot */}
+                    <td className="p-1 align-middle text-center">
+                      {!zone.lastAssignedAt ? (
+                        <span className="text-[10px] text-zinc-400 dark:text-zinc-650 italic">--</span>
+                      ) : (
+                        (() => {
+                          const durationMs = calculateDuration(zone.lastAssignedAt, null);
+                          const durationStr = formatBayDuration(durationMs);
+                          const isEmpty = currentJobId === 'none';
+                          
+                          return (
+                            <div className="flex items-center justify-center gap-1 px-2 py-1">
+                              <div className={cn(
+                                "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0",
+                                isEmpty 
+                                  ? "bg-zinc-500/10 text-zinc-500 border-zinc-500/20 dark:text-zinc-400"
+                                  : "bg-indigo-500/10 text-indigo-600 border-indigo-500/20 dark:text-indigo-400"
+                              )}>
+                                <Clock className={cn("w-3.5 h-3.5 shrink-0", !isEmpty && "text-indigo-500 animate-pulse")} />
+                                <span>{durationStr}</span>
+                              </div>
+                            </div>
+                          );
+                        })()
                       )}
                     </td>
                   </tr>
@@ -602,7 +1064,25 @@ function ExcelSearchableSelect<T>({
   const selectedOption = options.find(o => getValue(o) === value);
   const filteredOptions = options.filter(o => {
     const label = getLabel(o);
-    return (label || '').toLowerCase().includes(search.toLowerCase());
+    if (label && label.toLowerCase().includes(search.toLowerCase())) return true;
+    
+    // Deep search for Job objects
+    if (o && typeof o === 'object') {
+      const obj = o as any;
+      const searchStr = search.toLowerCase();
+      
+      if (obj.customerName && String(obj.customerName).toLowerCase().includes(searchStr)) return true;
+      if (obj.vin && String(obj.vin).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleVin && String(obj.vehicleVin).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleName && String(obj.vehicleName).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleMake && String(obj.vehicleMake).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleModel && String(obj.vehicleModel).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleYear && String(obj.vehicleYear).toLowerCase().includes(searchStr)) return true;
+      if (obj.jobNumber && String(obj.jobNumber).toLowerCase().includes(searchStr)) return true;
+      if (obj.title && String(obj.title).toLowerCase().includes(searchStr)) return true;
+    }
+    
+    return false;
   });
 
   useEffect(() => {
@@ -647,7 +1127,10 @@ function ExcelSearchableSelect<T>({
           disabled && "cursor-not-allowed opacity-50"
         )}
       >
-        <span className="truncate pr-2 dark:text-zinc-350">
+        <span className={cn(
+          "truncate pr-2 dark:text-zinc-350",
+          value === 'none' && "text-zinc-400 dark:text-zinc-650 font-semibold italic"
+        )}>
           {selectedOption ? (getLabel(selectedOption) || '') : placeholder}
         </span>
         <ChevronDown className="w-3.5 h-3.5 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -663,7 +1146,7 @@ function ExcelSearchableSelect<T>({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search..."
+              placeholder="Search by Job, Cust, Veh, VIN..."
               className="w-full bg-transparent border-none outline-none text-xs dark:text-white placeholder-zinc-400"
             />
           </div>
@@ -682,13 +1165,31 @@ function ExcelSearchableSelect<T>({
                       setSearch('');
                     }}
                     className={cn(
-                      "w-full px-2 py-1.5 text-left text-xs font-semibold rounded-lg transition-colors flex items-center justify-between",
+                      "w-full px-2 py-1.5 text-left text-xs font-semibold rounded-lg transition-colors",
                       isSelected 
                         ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400" 
                         : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-850"
                     )}
                   >
-                    <span className="truncate">{getLabel(option) || ''}</span>
+                    <div className="flex flex-col min-w-0 text-left w-full">
+                      <span className={cn(
+                        "truncate text-xs font-bold leading-tight",
+                        optVal === 'none' && "text-zinc-400 dark:text-zinc-500 font-semibold italic"
+                      )}>{getLabel(option) || ''}</span>
+                      {option && typeof option === 'object' && ('customerName' in option || 'vehicleName' in option || 'vin' in option || 'vehicleVin' in option) && (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-medium text-zinc-400 dark:text-zinc-500 mt-1 max-w-full leading-none">
+                          {(option as any).customerName && (
+                            <span className="truncate max-w-[130px] bg-zinc-100 dark:bg-zinc-800/80 px-1 py-0.5 rounded text-[8px] font-bold">Cust: {(option as any).customerName}</span>
+                          )}
+                          {((option as any).vehicleName || (option as any).vehicleMake) && (
+                            <span className="truncate max-w-[130px]">Veh: {((option as any).vehicleName || `${(option as any).vehicleYear || ''} ${(option as any).vehicleMake || ''} ${(option as any).vehicleModel || ''}`).trim()}</span>
+                          )}
+                          {((option as any).vin || (option as any).vehicleVin) && (
+                            <span className="shrink-0 font-mono text-[8px] uppercase">VIN: {String((option as any).vin || (option as any).vehicleVin).slice(-8)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </button>
                 );
               })

@@ -143,6 +143,15 @@ export function GenericDataGrid({
       if (aVal === bVal) return 0;
       if (aVal === null || aVal === undefined) return 1; 
       if (bVal === null || bVal === undefined) return -1;
+
+      // Safe date comparison if date column
+      if (/time|date|created|updated|modified/i.test(key)) {
+        const timeA = aVal && typeof aVal.toDate === 'function' ? aVal.toDate().getTime() : new Date(aVal).getTime();
+        const timeB = bVal && typeof bVal.toDate === 'function' ? bVal.toDate().getTime() : new Date(bVal).getTime();
+        if (!isNaN(timeA) && !isNaN(timeB)) {
+          return direction === 'asc' ? timeA - timeB : timeB - timeA;
+        }
+      }
       
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         return direction === 'asc' ? aVal - bVal : bVal - aVal;
@@ -159,12 +168,25 @@ export function GenericDataGrid({
     if (sortConfig) {
       result.sort((a, b) => sortByKey(a, b, sortConfig.key, sortConfig.direction));
     } else {
-      // Default Sort check: Try to sort by 'updatedAt' or 'createdAt' if they exist in the row data,
-      // even if they are not part of the visible/discovered columns list!
-      if (result.length > 0 && ('updatedAt' in result[0] || 'createdAt' in result[0])) {
-        const defaultSortKey = 'updatedAt' in result[0] ? 'updatedAt' : 'createdAt';
+      // Prioritize standard modification and creation time keys
+      const timeKeys = [
+        'TimeModified', 'timeModified', 'updatedAt', 
+        'TimeCreated', 'timeCreated', 'createdAt'
+      ];
+      
+      let defaultSortKey = '';
+      if (result.length > 0) {
+        // Find first key from our priority list that is present in the first row
+        const foundPriorityKey = timeKeys.find(key => key in result[0]);
+        if (foundPriorityKey) {
+          defaultSortKey = foundPriorityKey;
+        }
+      }
+
+      if (defaultSortKey) {
         result.sort((a, b) => sortByKey(a, b, defaultSortKey, 'desc'));
       } else {
+        // Fallback: search discoveredColumns using regex
         const timeColumn = discoveredColumns.find(c => /time|date|created|updated|modified/i.test(c.key));
         if (timeColumn) {
           result.sort((a, b) => sortByKey(a, b, timeColumn.key, 'desc'));

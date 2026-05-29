@@ -32,6 +32,7 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     companyCamRefreshToken: initialData?.companyCamRefreshToken || '',
     easyPostApiKey: initialData?.easyPostApiKey || '',
     timeclockEnabled: initialData?.timeclockEnabled ?? false,
+    timeclockRequireQR: initialData?.timeclockRequireQR ?? false,
     allowOffsiteClockIn: initialData?.allowOffsiteClockIn ?? false,
     lunchPaid: initialData?.lunchPaid ?? false,
     breakPaid: initialData?.breakPaid ?? false,
@@ -72,6 +73,7 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         companyCamRefreshToken: initialData.companyCamRefreshToken || '',
         easyPostApiKey: initialData.easyPostApiKey || '',
         timeclockEnabled: initialData.timeclockEnabled ?? false,
+        timeclockRequireQR: initialData.timeclockRequireQR ?? false,
         allowOffsiteClockIn: initialData.allowOffsiteClockIn ?? false,
         lunchPaid: initialData.lunchPaid ?? false,
         breakPaid: initialData.breakPaid ?? false,
@@ -388,6 +390,13 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
                     <span className="text-sm font-medium">Enable Timeclock</span>
                   </div>
                   <input type="checkbox" name="timeclockEnabled" checked={formData.timeclockEnabled} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
+                </div>
+                <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Clock className="w-4 h-4 text-zinc-400" />
+                    <span className="text-sm font-medium">Require QR Code for Mobile Timeclock</span>
+                  </div>
+                  <input type="checkbox" name="timeclockRequireQR" checked={formData.timeclockRequireQR} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
                 </div>
                 <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
                   <div className="flex items-center gap-3">

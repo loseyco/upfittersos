@@ -4,15 +4,17 @@ import { BrowserMultiFormatReader, BrowserCodeReader } from '@zxing/browser';
 import { X, Camera, ImagePlus, Loader2, Package, MapPin, Search, ChevronRight, CheckCircle, AlertCircle, Trash2, QrCode } from 'lucide-react';
 import { toast } from 'sonner';
 import { db, storage } from '../../lib/firebase/config';
-import { collection, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, updateDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuthStore } from '../../lib/auth/store';
+import { useNavigate } from 'react-router-dom';
 
 interface PackageIntakeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-  zones: { id: string; name: string; type: string }[];
+  isOpen?: boolean;
+  onClose?: () => void;
+  onSuccess?: () => void;
+  zones?: { id: string; name: string; type: string }[];
+  isPage?: boolean;
 }
 
 function getUniqueTimestamp() {
@@ -28,8 +30,27 @@ function detectIntakeCarrier(tracking: string) {
   return 'Other';
 }
 
-export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: PackageIntakeModalProps) {
+export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage = false }: PackageIntakeModalProps) {
   const { tenantId, user } = useAuthStore();
+  const navigate = useNavigate();
+  const [localZones, setLocalZones] = useState<{ id: string; name: string; type: string }[]>(zones || []);
+
+  // Fetch zones if not provided
+  useEffect(() => {
+    if (zones && zones.length > 0) {
+      setLocalZones(zones);
+      return;
+    }
+    if (!tenantId) return;
+
+    const q = query(collection(db, `businesses/${tenantId}/zones`), orderBy('name'));
+    const unsub = onSnapshot(q, (snap) => {
+      setLocalZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, (err) => console.error("Error loading local zones for package page", err));
+
+    return () => unsub();
+  }, [zones, tenantId]);
+
   const [step, setStep] = useState<'details' | 'scan' | 'camera'>('details');
   const [isScanning, setIsScanning] = useState(false);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -66,7 +87,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
   }, []);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen && !isPage) return;
     
     const hints = new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [
@@ -111,7 +132,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && step === 'scan' && isScanning && cameras.length > 0 && videoRef.current && codeReaderRef.current) {
+    if ((isOpen || isPage) && step === 'scan' && isScanning && cameras.length > 0 && videoRef.current && codeReaderRef.current) {
       const device = cameras[currentCameraIndex];
       if (!device) return;
       const deviceId = device.deviceId;
@@ -165,7 +186,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
 
   // Camera stream for step === 'camera' (photo capture mode)
   useEffect(() => {
-    if (!isOpen || step !== 'camera' || cameras.length === 0 || !videoRef.current) {
+    if ((!isOpen && !isPage) || step !== 'camera' || cameras.length === 0 || !videoRef.current) {
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
         setCameraStream(null);
@@ -397,7 +418,7 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
       }
 
       toast.success("Package intake complete!");
-      onSuccess();
+      onSuccess?.();
       handleClose();
     } catch (err) {
       const errMessage = err instanceof Error ? err.message : String(err);
@@ -423,202 +444,300 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
     }
-    onClose();
+    if (onClose) {
+      onClose();
+    } else if (isPage) {
+      navigate(-1);
+    }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen && !isPage) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-      {/* Glass Backdrop */}
-      <div 
-        className="absolute inset-0 bg-zinc-950/80 backdrop-blur-xl animate-in fade-in duration-300"
-        onClick={handleClose}
-      />
-
-      {/* Modal Content */}
-      <div className="relative w-full max-w-xl bg-white dark:bg-zinc-900 rounded-[2.5rem] shadow-2xl border border-white/10 animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
-        
-        {/* Header */}
-        <div className="px-8 pt-8 pb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-indigo-500/10 rounded-2xl">
-              <Package className="w-6 h-6 text-indigo-500" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white leading-none">Package Intake</h2>
-              <p className="text-sm text-zinc-500 mt-1">Receive and locate incoming packages</p>
-            </div>
+  const content = (
+    <div className={`relative w-full ${isPage ? 'max-w-4xl border border-zinc-200 dark:border-zinc-800 shadow-md' : 'max-w-xl border border-white/10 shadow-2xl'} bg-white dark:bg-zinc-900 rounded-[2.5rem] animate-in zoom-in-95 slide-in-from-bottom-10 duration-500`}>
+      
+      {/* Header */}
+      <div className="px-8 pt-8 pb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-indigo-500/10 rounded-2xl">
+            <Package className="w-6 h-6 text-indigo-500" />
           </div>
-          <button 
-            onClick={handleClose}
-            className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-zinc-500 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          <div>
+            <h2 className="text-xl font-bold text-zinc-900 dark:text-white leading-none">Package Intake</h2>
+            <p className="text-sm text-zinc-500 mt-1">Receive and locate incoming packages</p>
+          </div>
         </div>
+        <button 
+          onClick={handleClose}
+          type="button"
+          className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-zinc-500 transition-colors"
+        >
+          <X className="w-6 h-6" />
+        </button>
+      </div>
 
-        <div className="p-8">
-          {step === 'scan' ? (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              {/* Scanner Viewport */}
-              <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner group">
-                {isProcessingImage ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-indigo-500">
-                    <Loader2 className="w-12 h-12 animate-spin" />
-                    <p className="font-bold animate-pulse uppercase tracking-widest text-xs">Processing Photo...</p>
-                  </div>
-                ) : !isSecure ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
-                    <div className="p-4 bg-amber-500/10 rounded-full">
-                      <AlertCircle className="w-8 h-8 text-amber-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-white mb-2">Insecure Context Detected</p>
-                      <p className="text-xs text-zinc-400">
-                        Camera access requires <span className="text-amber-500 font-mono">HTTPS</span>. 
-                        Please use a secure tunnel (like ngrok) or access via localhost.
-                      </p>
-                    </div>
-                  </div>
-                ) : cameraError ? (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
-                    <AlertCircle className="w-10 h-10 text-rose-500" />
-                    <p className="text-xs text-zinc-400">{cameraError}</p>
-                    <button 
-                      onClick={() => window.location.reload()}
-                      className="px-4 py-2 bg-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-white hover:bg-white/20"
-                    >
-                      Retry Connection
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <video 
-                      ref={videoRef} 
-                      className="w-full h-full object-cover" 
-                      playsInline 
-                      muted 
-                    />
-                    {/* Manual Scan Trigger Overlay */}
-                    <button 
-                      onClick={handleManualFrameCapture}
-                      disabled={isManualScanning}
-                      className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-transparent group"
-                    >
-                      <div className="w-64 h-32 border-2 border-indigo-500/50 rounded-2xl relative shadow-[0_0_50px_rgba(99,102,241,0.2)] group-active:scale-95 transition-transform">
-                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse" />
-                        
-                        {/* Corner Accents */}
-                        <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-indigo-500 rounded-tl-lg" />
-                        <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-500 rounded-tr-lg" />
-                        <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-500 rounded-bl-lg" />
-                        <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-indigo-500 rounded-br-lg" />
-                        
-                        {isManualScanning && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl animate-in fade-in duration-200">
-                            <Loader2 className="w-8 h-8 text-white animate-spin" />
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-white text-[10px] font-bold uppercase tracking-widest mt-6 opacity-70 group-hover:opacity-100 transition-opacity">
-                        {isManualScanning ? 'Decoding...' : 'Tap screen to force scan'}
-                      </p>
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Controls */}
-              <div className="grid grid-cols-2 gap-4">
-                <label className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all cursor-pointer">
-                  <ImagePlus className="w-6 h-6 text-emerald-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Upload Image</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
-                </label>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setIsScanning(false);
-                    if (controlsRef.current) {
-                      controlsRef.current.stop();
-                      controlsRef.current = null;
-                    }
-                    setStep('details');
-                  }}
-                  className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all"
-                >
-                  <X className="w-6 h-6 text-rose-500" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Cancel Scan</span>
-                </button>
-              </div>
-
-              {cameras.length > 1 && (
-                <button 
-                  type="button"
-                  onClick={() => setCurrentCameraIndex((prev) => (prev + 1) % cameras.length)}
-                  className="w-full py-4 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-400 hover:text-indigo-500 hover:border-indigo-500/50 transition-all flex items-center justify-center gap-2"
-                >
-                  <Camera className="w-5 h-5" />
-                  <span className="text-xs font-bold uppercase tracking-widest">Switch Camera Lens</span>
-                </button>
-              )}
-            </div>
-          ) : step === 'camera' ? (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              {/* Camera Viewport */}
-              <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner group">
-                <video 
-                  ref={videoRef} 
-                  className="w-full h-full object-cover" 
-                  playsInline 
-                  muted 
-                />
-                
-                {/* Visual Flash Feedback */}
-                {isFlashing && (
-                  <div className="absolute inset-0 bg-white/90 z-30 animate-flash" />
-                )}
-
-                {/* Picture Counter Badge */}
-                <div className="absolute top-4 left-4 bg-zinc-950/80 backdrop-blur-md border border-white/15 px-3.5 py-1.5 rounded-full flex items-center gap-2 z-20 shadow-lg">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] font-bold text-white uppercase tracking-wider">{images.length} Captured</span>
+      <div className="p-8">
+        {step === 'scan' ? (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Scanner Viewport */}
+            <div className="relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner group">
+              {isProcessingImage ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-indigo-500">
+                  <Loader2 className="w-12 h-12 animate-spin" />
+                  <p className="font-bold animate-pulse uppercase tracking-widest text-xs">Processing Photo...</p>
                 </div>
-
-                {/* Shutter Overlay Button */}
-                <div className="absolute bottom-6 inset-x-0 flex justify-center items-center gap-6 z-20">
-                  <button
-                    type="button"
-                    onClick={handleCapturePhoto}
-                    className="w-16 h-16 rounded-full border-4 border-white bg-white/10 hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center shadow-2xl relative"
+              ) : !isSecure ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
+                  <div className="p-4 bg-amber-500/10 rounded-full">
+                    <AlertCircle className="w-8 h-8 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-white mb-2">Insecure Context Detected</p>
+                    <p className="text-xs text-zinc-400">
+                      Camera access requires <span className="text-amber-500 font-mono">HTTPS</span>. 
+                      Please use a secure tunnel (like ngrok) or access via localhost.
+                    </p>
+                  </div>
+                </div>
+              ) : cameraError ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
+                  <AlertCircle className="w-10 h-10 text-rose-500" />
+                  <p className="text-xs text-zinc-400">{cameraError}</p>
+                  <button 
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-white hover:bg-white/20"
                   >
-                    <div className="w-11 h-11 rounded-full bg-rose-500" />
+                    Retry Connection
                   </button>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <video 
+                    ref={videoRef} 
+                    className="w-full h-full object-cover" 
+                    playsInline 
+                    muted 
+                  />
+                  {/* Manual Scan Trigger Overlay */}
+                  <button 
+                    onClick={handleManualFrameCapture}
+                    disabled={isManualScanning}
+                    type="button"
+                    className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-transparent group"
+                  >
+                    <div className="w-64 h-32 border-2 border-indigo-500/50 rounded-2xl relative shadow-[0_0_50px_rgba(99,102,241,0.2)] group-active:scale-95 transition-transform">
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse" />
+                      
+                      {/* Corner Accents */}
+                      <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-indigo-500 rounded-tl-lg" />
+                      <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-indigo-500 rounded-tr-lg" />
+                      <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-indigo-500 rounded-bl-lg" />
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-indigo-500 rounded-br-lg" />
+                      
+                      {isManualScanning && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl animate-in fade-in duration-200">
+                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-white text-[10px] font-bold uppercase tracking-widest mt-6 opacity-70 group-hover:opacity-100 transition-opacity">
+                      {isManualScanning ? 'Decoding...' : 'Tap screen to force scan'}
+                    </p>
+                  </button>
+                </>
+              )}
+            </div>
 
-              {/* Horizontal Thumbnail Strip */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Captured Gallery</span>
-                  {images.length > 0 && (
+            {/* Controls */}
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all cursor-pointer">
+                <ImagePlus className="w-6 h-6 text-emerald-500" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Upload Image</span>
+                <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+              </label>
+              <button 
+                type="button"
+                onClick={() => {
+                  setIsScanning(false);
+                  if (controlsRef.current) {
+                    controlsRef.current.stop();
+                    controlsRef.current = null;
+                  }
+                  setStep('details');
+                }}
+                className="flex flex-col items-center gap-2 p-4 rounded-3xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 transition-all"
+              >
+                <X className="w-6 h-6 text-rose-500" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Cancel Scan</span>
+              </button>
+            </div>
+          </div>
+        ) : step === 'camera' ? (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Camera Viewport */}
+            <div className={`relative aspect-[4/3] bg-zinc-100 dark:bg-black rounded-3xl overflow-hidden ring-1 ring-zinc-200 dark:ring-white/10 shadow-inner ${isFlashing ? 'bg-white' : ''}`}>
+              {cameras.length === 0 ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-8 text-center bg-zinc-900">
+                  <AlertCircle className="w-10 h-10 text-rose-500 animate-bounce" />
+                  <p className="text-sm font-bold text-white">No Camera Found</p>
+                  <p className="text-xs text-zinc-500">Please connect a camera or verify system site permissions.</p>
+                </div>
+              ) : (
+                <>
+                  <video 
+                    ref={videoRef} 
+                    className="w-full h-full object-cover" 
+                    playsInline 
+                    muted 
+                  />
+                  
+                  {/* Camera Selection Switch Overlay */}
+                  {cameras.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentCameraIndex(prev => (prev + 1) % cameras.length)}
+                      className="absolute top-4 right-4 bg-zinc-950/80 hover:bg-zinc-950 border border-white/15 px-3 py-1.5 rounded-full text-white text-[10px] font-bold uppercase tracking-widest backdrop-blur-md active:scale-95 transition-all"
+                    >
+                      Switch Camera ({currentCameraIndex + 1}/{cameras.length})
+                    </button>
+                  )}
+                  
+                  {/* Take Photo Overlay Button */}
+                  <div className="absolute bottom-6 left-0 right-0 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={handleCapturePhoto}
+                      className="w-16 h-16 rounded-full border-4 border-white bg-white/20 hover:bg-white/40 active:scale-90 transition-all shadow-[0_0_20px_rgba(0,0,0,0.5)] flex items-center justify-center"
+                    >
+                      <div className="w-10 h-10 bg-white rounded-full" />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Back to details */}
+            <div className="flex gap-4">
+              <button
+                type="button"
+                onClick={() => setStep('details')}
+                className="w-full py-4 px-6 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 font-bold rounded-2xl transition-all text-xs uppercase tracking-widest"
+              >
+                Back to Details
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-4">
+              {/* Tracking ID & Scanner trigger */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between px-1">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tracking Number / ID</label>
+                  {isSecure && cameras.length > 0 && (
                     <button 
                       type="button"
                       onClick={() => {
-                        images.forEach(img => URL.revokeObjectURL(img.preview));
-                        setImages([]);
+                        setStep('scan');
+                        setIsScanning(true);
                       }}
-                      className="text-[9px] font-bold text-rose-500 uppercase tracking-wider hover:underline"
+                      className="text-[10px] font-black text-indigo-500 hover:text-indigo-600 transition-colors uppercase tracking-widest flex items-center gap-1.5"
                     >
-                      Clear All
+                      <QrCode className="w-3.5 h-3.5" />
+                      Scan Barcode
                     </button>
                   )}
                 </div>
-                
-                <div className="flex gap-2.5 overflow-x-auto pb-2 custom-scrollbar min-h-[5.5rem]">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Search className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <input 
+                    type="text"
+                    value={scannedId}
+                    onChange={(e) => setScannedId(e.target.value)}
+                    placeholder="Enter or scan carrier tracking number..."
+                    className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Description Field */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Description</label>
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <Package className="w-4 h-4 text-zinc-400" />
+                  </div>
+                  <input 
+                    type="text"
+                    required
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="e.g. Brake Pads for Chevy Truck"
+                    className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Location Field - Custom Searchable Dropdown */}
+              <div className="space-y-1.5 relative z-50">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Where is it put?</label>
+                <LocationSelector 
+                  value={location}
+                  onChange={setLocation}
+                  zones={localZones}
+                />
+              </div>
+
+              {/* Notes Field */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Notes (Optional)</label>
+                <div className="relative group">
+                  <textarea 
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Any additional details..."
+                    rows={2}
+                    className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Multi-Image Capture Section */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between px-1">
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Package & Content Photos</label>
+                  <span className="text-[10px] font-bold text-indigo-500 bg-indigo-500/10 px-2 py-0.5 rounded-full">{images.length} Captured</span>
+                </div>
+
+                <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                  {/* Take Photo Trigger */}
+                  <button
+                    type="button"
+                    onClick={() => setStep('camera')}
+                    className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all bg-zinc-50/50 dark:bg-zinc-900/50"
+                  >
+                    <Camera className="w-6 h-6 text-indigo-500" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">Take Photo</span>
+                  </button>
+
+                  {/* Upload Files Trigger (supports multiple files) */}
+                  <label className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/50">
+                    <ImagePlus className="w-6 h-6 text-emerald-500" />
+                    <span className="text-[8px] font-bold uppercase tracking-wider">Upload Files</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      multiple 
+                      className="hidden" 
+                      onChange={handleFileUpload} 
+                    />
+                  </label>
+
+                  {/* Previews */}
                   {images.map((img, idx) => (
-                    <div key={idx} className="shrink-0 w-20 h-20 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group animate-in zoom-in-90 duration-200">
+                    <div key={idx} className="shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group animate-in zoom-in-95 duration-200">
                       <img src={img.preview} className="w-full h-full object-cover" />
                       <button 
                         type="button"
@@ -629,196 +748,58 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones }: Packag
                       </button>
                     </div>
                   ))}
+
                   {images.length === 0 && (
-                    <div className="flex-1 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl flex items-center justify-center py-6 bg-zinc-50/20 dark:bg-zinc-950/20">
-                      <p className="text-[10px] text-zinc-400 italic">No photos snapped yet.</p>
+                    <div className="flex-1 flex items-center gap-3 px-4 border border-zinc-100 dark:border-zinc-800 rounded-2xl bg-zinc-50/30 dark:bg-zinc-950/30">
+                      <Camera className="w-5 h-5 text-zinc-300" />
+                      <p className="text-[10px] text-zinc-400 italic">No photos taken yet. Use the camera or upload files.</p>
                     </div>
                   )}
                 </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-4">
-                {cameras.length > 1 && (
-                  <button 
-                    type="button"
-                    onClick={() => setCurrentCameraIndex((prev) => (prev + 1) % cameras.length)}
-                    className="flex-1 py-4 border border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-bold rounded-2xl hover:border-indigo-500/50 hover:text-indigo-500 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Camera className="w-5 h-5" />
-                    <span className="text-xs uppercase tracking-wider">Switch Lens</span>
-                  </button>
-                )}
-                <button 
-                  type="button"
-                  onClick={() => {
-                    if (cameraStream) {
-                      cameraStream.getTracks().forEach(track => track.stop());
-                      setCameraStream(null);
-                    }
-                    setStep('details');
-                  }}
-                  className="flex-[2] py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all text-center flex items-center justify-center gap-1.5"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  <span className="text-xs uppercase tracking-widest">Done Capturing</span>
-                </button>
               </div>
             </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in duration-300">
-              <div className="space-y-4">
-                {/* Scanned ID Field */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Package ID / Tracking</label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Search className="w-4 h-4 text-zinc-400" />
-                    </div>
-                    <input 
-                      type="text"
-                      value={scannedId}
-                      onChange={(e) => setScannedId(e.target.value)}
-                      placeholder="Enter ID or auto-generated..."
-                      className="w-full pl-11 pr-24 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
-                    />
-                    <div className="absolute inset-y-1 right-1 py-1 pr-1 flex items-center">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStep('scan');
-                          setIsScanning(true);
-                        }}
-                        className="h-full px-3.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 hover:text-indigo-600 rounded-xl transition-all flex items-center gap-1.5"
-                        title="Scan Tracking Barcode"
-                      >
-                        <QrCode className="w-4 h-4" />
-                        <span className="text-[10px] font-bold uppercase tracking-wider">Scan</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
 
-                {/* Description Field */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Description</label>
-                  <div className="relative group">
-                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                      <Package className="w-4 h-4 text-zinc-400" />
-                    </div>
-                    <input 
-                      type="text"
-                      required
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="e.g. Brake Pads for Chevy Truck"
-                      className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
-                    />
-                  </div>
-                </div>
-
-                {/* Location Field - Custom Searchable Dropdown */}
-                <div className="space-y-1.5 relative z-50">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Where is it put?</label>
-                  <LocationSelector 
-                    value={location}
-                    onChange={setLocation}
-                    zones={zones}
-                  />
-                </div>
-
-                {/* Notes Field */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest px-1">Notes (Optional)</label>
-                  <div className="relative group">
-                    <textarea 
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Any additional details..."
-                      rows={2}
-                      className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none text-sm"
-                    />
-                  </div>
-                </div>
-
-                {/* Multi-Image Capture Section */}
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between px-1">
-                    <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Package & Content Photos</label>
-                    <span className="text-[10px] font-bold text-indigo-500 bg-indigo-500/10 px-2 py-0.5 rounded-full">{images.length} Captured</span>
-                  </div>
-
-                  <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
-                    {/* Take Photo Trigger */}
-                    <button
-                      type="button"
-                      onClick={() => setStep('camera')}
-                      className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all bg-zinc-50/50 dark:bg-zinc-900/50"
-                    >
-                      <Camera className="w-6 h-6 text-indigo-500" />
-                      <span className="text-[8px] font-bold uppercase tracking-wider">Take Photo</span>
-                    </button>
-
-                    {/* Upload Files Trigger (supports multiple files) */}
-                    <label className="shrink-0 w-24 h-24 rounded-2xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 flex flex-col items-center justify-center gap-1.5 text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-500 transition-all cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/50">
-                      <ImagePlus className="w-6 h-6 text-emerald-500" />
-                      <span className="text-[8px] font-bold uppercase tracking-wider">Upload Files</span>
-                      <input 
-                        type="file" 
-                        accept="image/*" 
-                        multiple 
-                        className="hidden" 
-                        onChange={handleFileUpload} 
-                      />
-                    </label>
-
-                    {/* Previews */}
-                    {images.map((img, idx) => (
-                      <div key={idx} className="shrink-0 w-24 h-24 rounded-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 relative group animate-in zoom-in-95 duration-200">
-                        <img src={img.preview} className="w-full h-full object-cover" />
-                        <button 
-                          type="button"
-                          onClick={() => removeImage(idx)}
-                          className="absolute top-1 right-1 p-1 bg-rose-500 text-white rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-
-                    {images.length === 0 && (
-                      <div className="flex-1 flex items-center gap-3 px-4 border border-zinc-100 dark:border-zinc-800 rounded-2xl bg-zinc-50/30 dark:bg-zinc-950/30">
-                        <Camera className="w-5 h-5 text-zinc-300" />
-                        <p className="text-[10px] text-zinc-400 italic">No photos taken yet. Use the camera or upload files.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button 
-                  type="submit"
-                  disabled={isSubmitting || isUploadingImages || !description.trim() || !location.trim()}
-                  className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
-                >
-                  {isSubmitting || isUploadingImages ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span className="text-xs uppercase tracking-widest">{isUploadingImages ? 'Uploading Photos...' : 'Saving...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle className="w-5 h-5" />
-                      Complete Intake
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
+            <div className="flex gap-4 pt-4">
+              <button 
+                type="submit"
+                disabled={isSubmitting || isUploadingImages || !description.trim() || !location.trim()}
+                className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none"
+              >
+                {isSubmitting || isUploadingImages ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-xs uppercase tracking-widest">{isUploadingImages ? 'Uploading Photos...' : 'Saving...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-5 h-5" />
+                    Complete Intake
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
+    </div>
+  );
+
+  if (isPage) {
+    return (
+      <div className="w-full max-w-4xl mx-auto py-6 px-4">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+      {/* Glass Backdrop */}
+      <div 
+        className="absolute inset-0 bg-zinc-950/80 backdrop-blur-xl animate-in fade-in duration-300"
+        onClick={handleClose}
+      />
+      {content}
     </div>
   );
 }

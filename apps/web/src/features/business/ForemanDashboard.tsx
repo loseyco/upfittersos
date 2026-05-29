@@ -11,7 +11,6 @@ import { toast, Toaster } from 'sonner';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { ZoneDetailsModal } from './ZoneModals';
 import { useAuthStore } from '../../lib/auth/store';
-import { VehicleDetailsModal } from './VehiclesManager';
 import { ConfirmModal } from '../../components/ConfirmModal';
 
 export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, onTabChange: (tabId: string, state?: any) => void }) {
@@ -62,7 +61,6 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const selectedZone = selectedZoneId ? zones.find(z => z.id === selectedZoneId) : null;
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -641,7 +639,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
                     </div>
                     <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800/50 flex justify-between items-end">
                       <div>
-                        {job && <p className="text-[10px] font-bold text-zinc-500 uppercase truncate max-w-[150px]">Job: {job.title}</p>}
+                        {job && <p className="text-[10px] font-bold text-zinc-500 uppercase truncate max-w-[150px]">Job: {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}</p>}
                         {zone && <p className="text-[10px] font-bold text-indigo-500 uppercase">{zone.name}</p>}
                       </div>
                       <div className="text-right shrink-0">
@@ -675,21 +673,10 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
           onQuickAddJobRequest={() => {}}
           onOpenVehicle={(vin: string) => {
             const v = vehicles.find(veh => veh.vin === vin);
-            if (v) setSelectedVehicle(v);
-          }}
-        />
-      )}
-
-      {selectedVehicle && (
-        <VehicleDetailsModal
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          onClose={() => setSelectedVehicle(null)}
-          onConfirmAction={setConfirmConfig}
-          onEdit={() => {}} 
-          getSource={(row: any) => {
-            const isQB = row.tags?.includes('QuickBooks') || row.notes?.includes('Imported via QBWC') || !!row.ListID || !!row.qb_ListID || !!row.quickbooksId;
-            return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>{isQB ? 'QuickBooks' : 'Native'}</span>;
+            if (v) {
+              navigate(`/business/${tenantId}/vehicle/${v.id}`);
+              setSelectedZoneId(null);
+            }
           }}
         />
       )}

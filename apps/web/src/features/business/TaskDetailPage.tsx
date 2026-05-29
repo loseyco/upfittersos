@@ -1,17 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, setDoc, getDoc, limit, serverTimestamp, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, setDoc, getDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { db, storage } from '../../lib/firebase/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   ArrowLeft, Clock, Timer, CheckCircle2, XCircle,
   Wrench, AlertTriangle, MessageSquare, Users,
   Play, Square, ShieldAlert, X, Camera, Trash2,
-  Loader2, ImagePlus
+  Loader2, ImagePlus, Edit3, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
+import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
 import { PartsRequestModal } from './PartsRequestModal';
 
@@ -90,6 +91,8 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const [noteImages, setNoteImages] = useState<Array<{ file: File; preview: string }>>([]);
   const [isUploadingNote, setIsUploadingNote] = useState(false);
   const [selectedLightboxImage, setSelectedLightboxImage] = useState<string | null>(null);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  const [tempDescription, setTempDescription] = useState('');
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -154,6 +157,9 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
 
   const isUserClockedIntoTask = (userId: string, targetTaskId: string, staffName?: string) => {
     return timeLogs.some(session => {
+      const isSessionActive = session.status === 'active' || session.status === 'on_break';
+      if (!isSessionActive) return false;
+
       const matchesUid = session.userId === userId;
       const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
       const targetName = (staffName || '').toLowerCase().trim();
@@ -168,12 +174,16 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
     try {
       const q = query(
         collection(db, `businesses/${tenantId}/time_sessions`),
-        where('userId', '==', targetUid),
-        where('status', '==', 'active'),
-        limit(1)
+        where('status', 'in', ['active', 'on_break'])
       );
       const snap = await getDocs(q);
-      const activeSession = snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() as any };
+      const activeSession = snap.empty ? null : snap.docs.map(d => ({ id: d.id, ...d.data() as any })).find(session => {
+        const matchesUid = session.userId === targetUid;
+        const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
+        const targetLower = (targetName || '').toLowerCase().trim();
+        const matchesName = targetLower && sessionName && (sessionName === targetLower);
+        return matchesUid || matchesName;
+      }) || null;
 
       if (action === 'in') {
         let bookTime = 0;
@@ -707,9 +717,15 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
           updateData.completedAt = new Date().toISOString();
         }
         updateData.completedBy = user?.displayName || user?.email;
+        updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
       } else if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email;
+        if (!task?.completedByStaffId) {
+          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        }
       } else if (nextStatus === 'Rework') {
         updateData.qcFailedAt = new Date().toISOString();
         updateData.qcFailedBy = user?.displayName || user?.email;
@@ -718,6 +734,11 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), updateData);
       await logActivity('status_changed', `Task marked as ${nextStatus}`);
       toast.success(`Task marked as ${nextStatus}`);
+
+      // Automatically assign task to QC staff if status is QC
+      if (nextStatus === 'QC') {
+        await assignQCStaffToTask(tenantId, jobId, taskId);
+      }
 
     } catch (e) {
       console.error(e);
@@ -730,8 +751,21 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === taskId);
       const segMs = taskSegments.reduce((segAcc: number, seg: any) => {
         const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
-        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : now;
-        return segAcc + Math.max(0, end - start);
+        
+        let endMs = now;
+        if (seg.end) {
+          endMs = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+        } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+          const clockOutVal = session.clockOut?.timestamp;
+          if (clockOutVal) {
+            endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+          } else {
+            const updatedVal = session.updatedAt || session.createdAt;
+            endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+          }
+        }
+
+        return segAcc + Math.max(0, endMs - start);
       }, 0);
       return acc + segMs;
     }, 0);
@@ -750,9 +784,22 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       
       taskSegments.forEach((seg: any) => {
         const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
-        const end = seg.end ? (seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime()) : null;
+        
+        let end = null;
+        if (seg.end) {
+          end = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+        } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+          const clockOutVal = session.clockOut?.timestamp;
+          if (clockOutVal) {
+            end = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+          } else {
+            const updatedVal = session.updatedAt || session.createdAt;
+            end = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+          }
+        }
+
         const duration = (end || now) - start;
-        const isActive = !seg.end;
+        const isActive = !seg.end && (session.status === 'active' || session.status === 'on_break');
 
         segments.push({
           id: `${session.id}-${start}`,
@@ -812,7 +859,8 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                       task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
                     ));
 
-  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned;
+  const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
+  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || (canPerformQC && task.status === 'QC');
 
   if (!hasAccess) {
     return (
@@ -830,7 +878,6 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
 
   const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                         isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
-  const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
 
   const activeBlockers = (task.blockers || []).filter((b: any) => b.status === 'active');
   const resolvedBlockers = (task.blockers || []).filter((b: any) => b.status === 'resolved');
@@ -859,6 +906,23 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
               )}>
                 {task.status || 'Pending'}
               </span>
+              {(() => {
+                const bookHours = parseFloat(task.bookTime) || 0;
+                const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
+                  ? task.actualTime 
+                  : (loggedMs / 3600000);
+                const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                const diff = clockedHours - bookHours;
+                if (isOverBook) {
+                  return (
+                    <span className="px-2 py-1 rounded text-xs font-black uppercase tracking-tighter bg-rose-500/10 text-rose-600 dark:bg-rose-500/25 dark:text-rose-355 border border-rose-500/20 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                      Over Budget (+{diff.toFixed(1)}h)
+                    </span>
+                  );
+                }
+                return null;
+              })()}
               {task.isDiagnostic && (
                 <span className="px-2 py-1 rounded text-xs font-black uppercase tracking-tighter bg-purple-500/10 text-purple-600 border border-purple-500/20">
                   Diagnostic
@@ -871,7 +935,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
               )}
             </div>
             <p className="text-base sm:text-lg font-bold text-zinc-500 mt-1">
-              Job: <span className="text-indigo-500 cursor-pointer hover:underline" onClick={() => navigate(`/business/${tenantId}/job/${jobId}`)}>{job.title}</span> • {job.vehicleId || 'No Vehicle Linked'}
+              Job: <span className="text-indigo-500 cursor-pointer hover:underline" onClick={() => navigate(`/business/${tenantId}/job/${jobId}`)}>{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</span> • {job.vehicleId || 'No Vehicle Linked'}
             </p>
           </div>
         </div>
@@ -1167,12 +1231,65 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
           {/* Task Details Card */}
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm">
             <div className="flex items-center justify-between mb-6 pb-6 border-b border-zinc-100 dark:border-zinc-800">
-              <div>
-                <h2 className="text-xl font-bold">Task Details</h2>
-                {task.description ? (
-                  <p className="text-zinc-600 dark:text-zinc-400 mt-2 text-sm">{task.description}</p>
+              <div className="flex-1 min-w-0 mr-4">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold">Task Details</h2>
+                  {!isEditingDescription && (
+                    <button
+                      onClick={() => {
+                        setTempDescription(task.description || '');
+                        setIsEditingDescription(true);
+                      }}
+                      className="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-all"
+                      title="Edit task description/notes"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                
+                {isEditingDescription ? (
+                  <div className="mt-3 space-y-2">
+                    <textarea
+                      value={tempDescription}
+                      onChange={(e) => setTempDescription(e.target.value)}
+                      placeholder="Add specific notes or description for this task..."
+                      className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-3 text-sm resize-none focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all h-20 text-zinc-900 dark:text-white"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), {
+                              description: tempDescription.trim(),
+                              updatedAt: new Date().toISOString()
+                            });
+                            await logActivity('task_updated', `Updated task description: ${tempDescription.trim()}`);
+                            setIsEditingDescription(false);
+                            toast.success('Description updated successfully');
+                          } catch (err) {
+                            console.error(err);
+                            toast.error('Failed to update description');
+                          }
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm shrink-0"
+                      >
+                        <Check className="w-3.5 h-3.5" /> Save
+                      </button>
+                      <button
+                        onClick={() => setIsEditingDescription(false)}
+                        className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-350 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-xs font-bold transition-all shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-sm font-bold text-zinc-500 mt-2 italic">No description provided.</p>
+                  task.description ? (
+                    <p className="text-zinc-600 dark:text-zinc-400 mt-2 text-sm whitespace-pre-wrap">{task.description}</p>
+                  ) : (
+                    <p className="text-sm font-bold text-zinc-500 mt-2 italic">No description provided.</p>
+                  )
                 )}
               </div>
               

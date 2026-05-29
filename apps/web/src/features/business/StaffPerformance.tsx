@@ -158,7 +158,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
     const staffMap = new Map<string, StaffStats>();
 
     // Initialize staff map
-    rawData.staff?.forEach(s => {
+    rawData.staff?.filter(s => !s.isArchived && !s.fireDate && s.departmentId).forEach(s => {
       const name = `${s.firstName || ''} ${s.lastName || ''}`.trim() || s.displayName || s.email || 'Unnamed Staff';
       staffMap.set(s.id, {
         id: s.id,

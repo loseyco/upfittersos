@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
+import { TimeSessionEditorModal } from '../timeclock/TimeSessionEditorModal';
 
 
 interface StaffMember {
@@ -19,6 +20,9 @@ interface StaffMember {
   userId?: string;
   techNumber?: string;
   notes?: string;
+  isArchived?: boolean;
+  fireDate?: any;
+  departmentId?: string;
 }
 
 interface TimeSession {
@@ -41,6 +45,7 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [now, setNow] = useState(Date.now());
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
 
   // Live Subscription Data
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
@@ -99,7 +104,7 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
     const unsubStaff = onSnapshot(query(collection(db, `businesses/${tenantId}/staff`)), (snap) => {
       const activeStaff = snap.docs
         .map(d => ({ id: d.id, ...d.data() } as StaffMember))
-        .filter(s => !(s as any).isArchived);
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId);
       setStaffList(activeStaff);
     });
 
@@ -123,7 +128,7 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
       const todaySessions = allSessions.filter(s => {
         if (!s.clockIn?.timestamp) return false;
         const date = s.clockIn.timestamp.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
-        return date >= today;
+        return date >= today || s.status !== 'completed';
       });
       setSessions(todaySessions);
     });
@@ -1030,12 +1035,27 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
                     </td>
 
                     {/* 5. Worked Hours today */}
-                    <td className="p-1.5 align-middle text-center font-mono text-xs font-bold text-zinc-650 dark:text-zinc-400">
-                      {clockStatus === 'out' ? '--' : (
+                    <td 
+                      className={cn(
+                        "p-1.5 align-middle text-center font-mono text-xs font-bold transition-colors select-none",
+                        activeSession && canManage 
+                          ? "cursor-pointer hover:bg-indigo-50/50 dark:hover:bg-indigo-950/15" 
+                          : "text-zinc-400 dark:text-zinc-650"
+                      )}
+                      title={activeSession && canManage ? "Click to edit time entry" : undefined}
+                      onClick={() => {
+                        if (activeSession && canManage) {
+                          setEditingSession(activeSession);
+                        }
+                      }}
+                    >
+                      {activeSession ? (
                         <div className="flex flex-col items-center">
                           <span className={cn(
                             "font-extrabold",
-                            clockStatus === 'in' ? "text-indigo-600 dark:text-indigo-400" : "text-amber-500"
+                            clockStatus === 'in' ? "text-indigo-600 dark:text-indigo-400" :
+                            clockStatus === 'break' ? "text-amber-500" :
+                            "text-zinc-500 dark:text-zinc-450"
                           )}>
                             {formatDuration(workMs)}
                           </span>
@@ -1045,6 +1065,8 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
                             </span>
                           )}
                         </div>
+                      ) : (
+                        <span className="italic">--</span>
                       )}
                     </td>
                   </tr>
@@ -1054,6 +1076,14 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           </tbody>
         </table>
       </div>
+      {editingSession && (
+        <TimeSessionEditorModal
+          tenantId={tenantId}
+          session={editingSession as any}
+          onClose={() => setEditingSession(null)}
+          onSaved={() => {}}
+        />
+      )}
     </div>
   );
 }
@@ -1084,7 +1114,25 @@ function ExcelSearchableSelect<T>({
   const selectedOption = options.find(o => getValue(o) === value);
   const filteredOptions = options.filter(o => {
     const label = getLabel(o);
-    return (label || '').toLowerCase().includes(search.toLowerCase());
+    if (label && label.toLowerCase().includes(search.toLowerCase())) return true;
+    
+    // Deep search for Job objects
+    if (o && typeof o === 'object') {
+      const obj = o as any;
+      const searchStr = search.toLowerCase();
+      
+      if (obj.customerName && String(obj.customerName).toLowerCase().includes(searchStr)) return true;
+      if (obj.vin && String(obj.vin).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleVin && String(obj.vehicleVin).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleName && String(obj.vehicleName).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleMake && String(obj.vehicleMake).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleModel && String(obj.vehicleModel).toLowerCase().includes(searchStr)) return true;
+      if (obj.vehicleYear && String(obj.vehicleYear).toLowerCase().includes(searchStr)) return true;
+      if (obj.jobNumber && String(obj.jobNumber).toLowerCase().includes(searchStr)) return true;
+      if (obj.title && String(obj.title).toLowerCase().includes(searchStr)) return true;
+    }
+    
+    return false;
   });
 
   useEffect(() => {
@@ -1145,7 +1193,7 @@ function ExcelSearchableSelect<T>({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search..."
+              placeholder="Search by Job, Cust, Veh, VIN..."
               className="w-full bg-transparent border-none outline-none text-xs dark:text-white placeholder-zinc-400"
             />
           </div>
@@ -1164,13 +1212,28 @@ function ExcelSearchableSelect<T>({
                       setSearch('');
                     }}
                     className={cn(
-                      "w-full px-2 py-1.5 text-left text-xs font-semibold rounded-lg transition-colors flex items-center justify-between",
+                      "w-full px-2 py-1.5 text-left text-xs font-semibold rounded-lg transition-colors",
                       isSelected 
                         ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400" 
                         : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-850"
                     )}
                   >
-                    <span className="truncate">{getLabel(option) || ''}</span>
+                    <div className="flex flex-col min-w-0 text-left w-full">
+                      <span className="truncate text-xs font-bold leading-tight">{getLabel(option) || ''}</span>
+                      {option && typeof option === 'object' && ('customerName' in option || 'vehicleName' in option || 'vin' in option || 'vehicleVin' in option) && (
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-medium text-zinc-400 dark:text-zinc-500 mt-1 max-w-full leading-none">
+                          {(option as any).customerName && (
+                            <span className="truncate max-w-[130px] bg-zinc-100 dark:bg-zinc-800/80 px-1 py-0.5 rounded text-[8px] font-bold">Cust: {(option as any).customerName}</span>
+                          )}
+                          {((option as any).vehicleName || (option as any).vehicleMake) && (
+                            <span className="truncate max-w-[130px]">Veh: {((option as any).vehicleName || `${(option as any).vehicleYear || ''} ${(option as any).vehicleMake || ''} ${(option as any).vehicleModel || ''}`).trim()}</span>
+                          )}
+                          {((option as any).vin || (option as any).vehicleVin) && (
+                            <span className="shrink-0 font-mono text-[8px] uppercase">VIN: {String((option as any).vin || (option as any).vehicleVin).slice(-8)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </button>
                 );
               })

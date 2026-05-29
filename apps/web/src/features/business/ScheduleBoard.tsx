@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { collection, query, where, updateDoc, doc, serverTimestamp, onSnapshot, writeBatch } from 'firebase/firestore';
+import { collection, query, where, updateDoc, doc, serverTimestamp, onSnapshot, writeBatch, orderBy, limit, collectionGroup, deleteField } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Calendar as CalendarIcon, Car, AlertCircle, GripHorizontal, RefreshCw, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, Minimize, X, Search } from 'lucide-react';
+import { Calendar as CalendarIcon, Car, AlertCircle, GripHorizontal, RefreshCw, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, Minimize, X, Search, Edit2, MapPin } from 'lucide-react';
 import { useJobPartsStatus } from './hooks/useJobPartsStatus';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import { getDocs } from 'firebase/firestore';
-
+import { cn } from '../../lib/utils';
 
 
 interface WorkSchedule {
@@ -201,19 +201,134 @@ export function calculateJobSegmentsToDate(startDate: Date, endDate: Date, sched
   return segments;
 }
 
+export function isJobTrackedByBay(bay: any, job: any) {
+  if (bay.currentJobId === job.id) return true;
+  
+  // Check if the job's bayId matches this bay (case-insensitively)
+  if (job.bayId) {
+    const jBay = String(job.bayId).toLowerCase().trim();
+    const bId = String(bay.id).toLowerCase().trim();
+    const bName = String(bay.name || '').toLowerCase().trim();
+    if (jBay === bId || jBay === bName) return true;
+  }
+  
+  if (!bay.currentVehicleVin) return false;
+  
+  const bayVin = String(bay.currentVehicleVin).toLowerCase().trim();
+  const jobVin = String(job.vehicleVin || '').toLowerCase().trim();
+  const jobTitle = String(job.title || '').toLowerCase().trim();
+  const jobVehId = String(job.vehicleId || '').toLowerCase().trim();
+  
+  if (jobVin && bayVin === jobVin) return true;
+  if (jobTitle && bayVin === jobTitle) return true;
+  if (jobVehId && bayVin === jobVehId) return true;
+  if (jobVin && bayVin.includes(jobVin) && jobVin.length >= 5) return true;
+  if (jobVehId && bayVin.includes(jobVehId) && jobVehId.length >= 5) return true;
+  if (jobTitle && bayVin.includes(jobTitle) && jobTitle.length >= 5) return true;
+
+  return false;
+}
+
 interface ScheduleBoardProps {
   tenantId: string;
 }
 
-function TimelineJobBlock({ job, tenantId, staffList, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now }: { job: any, tenantId: string, staffList: any[], timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string) => void, monitorSettings: any, partsRequests: any[], now: Date }) {
+function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now }: { job: any, tenantId: string, staffList: any[], zones: any[], sessions: any[], viewMode: 'bays' | 'staff', timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string, staffId?: string) => void, monitorSettings: any, partsRequests: any[], now: Date }) {
   const navigate = useNavigate();
   const { data: partsInfo } = useJobPartsStatus(tenantId, job.id);
+  
+  const handleEditHours = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const input = window.prompt("Enter scheduled hours override for this job:", job.scheduledHours || job.estimatedHours || "");
+    if (input === null) return;
+    
+    const parsed = parseFloat(input);
+    if (isNaN(parsed) || parsed <= 0) {
+      // Clear override
+      try {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
+          scheduledHours: null,
+          updatedAt: serverTimestamp()
+        });
+        toast.success("Cleared scheduled hours override");
+      } catch (err) {
+        toast.error("Failed to clear override");
+      }
+    } else {
+      try {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, job.id), {
+          scheduledHours: parsed,
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Set scheduled hours to ${parsed}h`);
+      } catch (err) {
+        toast.error("Failed to set override");
+      }
+    }
+  };
+
+  const currentZone = zones?.find(z => isJobTrackedByBay(z, job));
+  
+  const getRowActualTimeInfo = () => {
+    let ms = 0;
+    let isActive = false;
+    
+    if (!sessions) return { ms, isActive };
+    
+    sessions.forEach(session => {
+      if (viewMode === 'staff' && job._renderedRowKey && job._renderedRowKey !== 'unassigned') {
+        if (session.userId !== job._renderedRowKey) return;
+      }
+      
+      const taskSegments = (session.jobs || []).filter((j: any) => j.id === job.id);
+      taskSegments.forEach((seg: any) => {
+        const startVal = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+        
+        let endVal = now.getTime();
+        let isSegActive = false;
+        
+        if (seg.end) {
+          endVal = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+        } else if (session.status === 'active' || session.status === 'on_break') {
+          endVal = now.getTime();
+          isSegActive = true;
+        } else {
+          const clockOutVal = session.clockOut?.timestamp;
+          if (clockOutVal) {
+            endVal = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+          } else {
+            const updatedVal = session.updatedAt || session.createdAt;
+            endVal = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || startVal).getTime();
+          }
+        }
+        
+        if (isSegActive) {
+          isActive = true;
+        }
+        
+        ms += Math.max(0, endVal - startVal);
+      });
+    });
+    
+    return { ms, isActive };
+  };
+
+  const formatActualTime = (ms: number) => {
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+  };
+
+  const actualTimeInfo = getRowActualTimeInfo();
   
   const hasPartsConflict = (partsInfo?.status === 'Blocked' || partsInfo?.status === 'Pending with ETA');
   
   const startMs = job._visualStartMs || (job.scheduledStartDate ? new Date(job.scheduledStartDate).getTime() : null);
   const endMs = job._visualEndMs || null;
-  const estimatedHours = parseFloat(job.estimatedHours) || 1; // Default to 1 hour if not set
+  const estimatedHours = job._rowEstimatedHours || parseFloat(job.scheduledHours || job.estimatedHours) || 1; // Default to 1 hour if not set
   
   if (!startMs) return null;
 
@@ -339,11 +454,19 @@ function TimelineJobBlock({ job, tenantId, staffList, timelineStart, zoomLevel, 
                           {job.customerName && (
                             <p className="text-[9px] text-white/70 font-black uppercase tracking-tight truncate mb-0.5">{job.customerName}</p>
                           )}
-                          <h4 className="font-bold text-xs text-white truncate">{job.title || 'Untitled'}</h4>
+                           <h4 className="font-bold text-xs text-white truncate">
+                            {job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title || 'Untitled'}
+                          </h4>
                           {job.vehicleId && (
                             <div className="flex items-center gap-1 text-[9px] text-white/60 font-medium mt-1">
                               <Car className="w-2.5 h-2.5 shrink-0" />
                               <span className="truncate">{job.vehicleId}</span>
+                            </div>
+                          )}
+                          {currentZone && (
+                            <div className="flex items-center gap-1 text-[9px] text-white/80 font-black uppercase tracking-wider mt-1.5 bg-black/25 px-1.5 py-0.5 rounded w-fit border border-white/5">
+                              <MapPin className="w-2.5 h-2.5 shrink-0 text-white" />
+                              <span className="truncate">{currentZone.name}</span>
                             </div>
                           )}
                         </div>
@@ -375,7 +498,7 @@ function TimelineJobBlock({ job, tenantId, staffList, timelineStart, zoomLevel, 
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        onUnschedule(job.id);
+                        onUnschedule(job.id, job._renderedRowKey);
                       }}
                       className="absolute top-0 right-0 p-1 bg-black/20 hover:bg-red-500 text-white/50 hover:text-white rounded-bl-lg rounded-tr-xl opacity-0 group-hover:opacity-100 transition-colors z-20 pointer-events-auto"
                       title="Unschedule Job"
@@ -383,12 +506,38 @@ function TimelineJobBlock({ job, tenantId, staffList, timelineStart, zoomLevel, 
                       <X className="w-3 h-3" />
                     </button>
                   </div>
-                  <div className="flex items-center justify-between text-[9px] font-bold mt-2">
-                    <span className="text-indigo-600 dark:text-indigo-400">{estimatedHours}h Book Time</span>
-                    {partsInfo && partsInfo.status !== 'No Parts Needed' && (
-                      <span className={hasPartsConflict ? 'text-red-500' : 'text-emerald-500'}>
-                        {partsInfo.status === 'Ready' ? 'Parts Ready' : 'Parts Conflict'}
+                  <div className="flex flex-col gap-1.5 mt-2">
+                    <div className="flex items-center justify-between text-[9px] font-bold">
+                      <span 
+                        onClick={handleEditHours}
+                        className="text-white hover:text-indigo-200 cursor-pointer flex items-center gap-1 bg-black/20 hover:bg-black/40 px-1.5 py-0.5 rounded transition-all pointer-events-auto shadow-sm border border-white/5"
+                        title="Click to set custom scheduled hours override"
+                      >
+                        <Edit2 className="w-2.5 h-2.5 shrink-0 text-white/70" />
+                        {estimatedHours}h {job.scheduledHours ? 'Override' : 'Book Time'}
                       </span>
+                      {partsInfo && partsInfo.status !== 'No Parts Needed' && (
+                        <span className={hasPartsConflict ? 'text-red-500 font-black' : 'text-emerald-400 font-black'}>
+                          {partsInfo.status === 'Ready' ? 'Parts Ready' : 'Parts Conflict'}
+                        </span>
+                      )}
+                    </div>
+                    {actualTimeInfo.ms > 0 && (
+                      <div className="flex items-center justify-between text-[9px] font-bold pointer-events-none">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded border flex items-center gap-1 text-[8px] font-black uppercase tracking-wider",
+                          actualTimeInfo.isActive 
+                            ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.4)]" 
+                            : "bg-black/25 text-white/70 border-white/5"
+                        )}>
+                          <span className={cn(
+                            "w-1 h-1 rounded-full shrink-0",
+                            actualTimeInfo.isActive ? "bg-emerald-400 animate-pulse" : "bg-white/40"
+                          )} />
+                          {actualTimeInfo.isActive ? 'Clocked In: ' : 'Logged Work: '}
+                          {formatActualTime(actualTimeInfo.ms)}
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -428,6 +577,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const { isSuperAdmin } = useAuthStore();
   const [jobs, setJobs] = useState<any[]>([]);
   const [bays, setBays] = useState<any[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [zoomLevel, setZoomLevel] = useState(60); // px per hour
@@ -435,15 +585,19 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const [timelineStart, setTimelineStart] = useState(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - d.getDay()); // Start on Sunday
     return d;
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [monitorSettings, setMonitorSettings] = useState<any>(null);
   const [partsRequests, setPartsRequests] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
   const [unscheduledSearch, setUnscheduledSearch] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const viewMode: any = 'staff';
+
+
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -478,15 +632,19 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // Fetch Bays (Zones of type bay)
-    const qZones = query(
-      collection(db, `businesses/${tenantId}/zones`),
-      where('type', '==', 'bay')
-    );
-    const unsubZones = onSnapshot(qZones, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''));
-      setBays(data);
+    // Fetch Bays and Zones (Bays, Lot, Parking)
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
+      const allZones = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(z => !z.isArchived);
+      
+      setZones(allZones);
+
+      const bayData = allZones.filter(z => z.type === 'bay');
+      bayData.sort((a: any, b: any) => 
+        (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
+      );
+      setBays(bayData);
     });
 
     // Fetch Departments
@@ -509,13 +667,49 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    // Fetch Timeclock Sessions exactly like the Bay Worksheet
+    const qSessions = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      orderBy('clockIn.timestamp', 'desc'),
+      limit(200)
+    );
+    const unsubSessions = onSnapshot(qSessions, (snap) => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const allSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const todaySessions = allSessions.filter(s => {
+        if (!s.clockIn?.timestamp) return false;
+        const date = s.clockIn.timestamp.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
+        return date >= today || s.status !== 'completed';
+      });
+      setSessions(todaySessions);
+    });
+
     return () => {
       unsubJobs();
       unsubZones();
       unsubDepts();
       unsubSettings();
       unsubParts();
+      unsubSessions();
     };
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const qTasks = query(
+      collectionGroup(db, 'tasks'),
+      where('tenantId', '==', tenantId)
+    );
+    const unsubTasks = onSnapshot(qTasks, (snap) => {
+      setTasks(snap.docs.map(doc => {
+        const parts = doc.ref.path.split('/');
+        const jobId = parts[parts.indexOf('jobs') + 1];
+        return { id: doc.id, jobId, ...doc.data() };
+      }));
+    });
+    return () => unsubTasks();
   }, [tenantId]);
 
   const handleSyncDepartments = async () => {
@@ -555,18 +749,18 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   // We'll leave it in the effect, so it re-centers when date changes, but we might not want it to re-center when zooming. 
   // Actually, we'll keep it simple for now.
 
-  const handlePrevWeek = () => {
+  const handlePrevDay = () => {
     setTimelineStart(prev => {
       const d = new Date(prev);
-      d.setDate(d.getDate() - 7);
+      d.setDate(d.getDate() - 1);
       return d;
     });
   };
 
-  const handleNextWeek = () => {
+  const handleNextDay = () => {
     setTimelineStart(prev => {
       const d = new Date(prev);
-      d.setDate(d.getDate() + 7);
+      d.setDate(d.getDate() + 1);
       return d;
     });
   };
@@ -575,7 +769,6 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     setTimelineStart(() => {
       const d = new Date();
       d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - d.getDay()); // Go to Sunday
       return d;
     });
   };
@@ -599,61 +792,185 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const currentDiffHours = (now.getTime() - timelineStart.getTime()) / (1000 * 60 * 60);
   const currentTimePx = currentDiffHours * zoomLevel;
 
-  const isJobTrackedByBay = (bay: any, job: any) => {
-    if (bay.currentJobId === job.id) return true;
-    if (!bay.currentVehicleVin) return false;
-    
-    const bayVin = String(bay.currentVehicleVin).toLowerCase().trim();
-    const jobVin = String(job.vehicleVin || '').toLowerCase().trim();
-    const jobTitle = String(job.title || '').toLowerCase().trim();
-    const jobVehId = String(job.vehicleId || '').toLowerCase().trim();
-    
-    if (jobVin && bayVin === jobVin) return true;
-    if (jobTitle && bayVin === jobTitle) return true;
-    if (jobVehId && bayVin === jobVehId) return true;
-    if (jobVin && bayVin.includes(jobVin) && jobVin.length >= 5) return true;
-    if (jobVehId && bayVin.includes(jobVehId) && jobVehId.length >= 5) return true;
-    if (jobTitle && bayVin.includes(jobTitle) && jobTitle.length >= 5) return true;
 
-    return false;
-  };
 
   let unscheduledJobs = jobs.filter(j => {
     const isTrackedByBay = bays.some(b => isJobTrackedByBay(b, j));
-    if ((j.bayId && j.scheduledStartDate) || isTrackedByBay) return false;
     
+    // If the user is actively searching, bypass the "scheduled" filter so they can find ANY active job!
+    const isSearching = !!unscheduledSearch.trim();
+
+    if (!isSearching) {
+      if (viewMode === 'bays') {
+        if ((j.bayId && j.scheduledStartDate) || isTrackedByBay) return false;
+      } else {
+        const staffIds = j.assignedStaffIds || [];
+        const hasUnscheduledStaff = staffIds.some((staffId: string) => {
+          if (j.staffSchedules) {
+            return !j.staffSchedules[staffId];
+          }
+          return !j.scheduledStartDate;
+        });
+        if (staffIds.length > 0 && !hasUnscheduledStaff) return false;
+      }
+    }
+    
+    const isFinished = ['Completed', 'Closed'].includes(j.status || '');
+    if (isFinished) return false;
+    if (j.isArchived) return false;
+
+    // Hard filter: MUST have at least one active (incomplete) task,
+    // UNLESS it is currently in a bay!
+    const isInBay = !!(j.currentBaySessionStart || isTrackedByBay);
+
+    const jobTasks = tasks.filter(t => t.jobId === j.id);
+    const incompleteCount = jobTasks.filter(t => !t.completedAt).length;
+    if (incompleteCount === 0 && !isInBay) return false;
+
+    // Bypasses priority filter if user is actively searching
+    if (unscheduledSearch.trim()) return true;
+
+    // Prioritized backlog filter
     const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
-    const hasBookTime = parseFloat(j.estimatedHours || '0') > 0;
-    const isFinishedOrQC = ['Ready for QA', 'Ready for Customer'].includes(j.status || '');
-    return hasEta || (hasBookTime && !isFinishedOrQC);
+    const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
+    const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
+
+    return hasEta || hasBookTime || hasStaff;
   });
   
   if (unscheduledSearch.trim()) {
-    const q = unscheduledSearch.toLowerCase();
-    unscheduledJobs = unscheduledJobs.filter(j => 
-      (j.title || '').toLowerCase().includes(q) ||
-      (j.customerName || '').toLowerCase().includes(q) ||
-      (j.vehicleName || '').toLowerCase().includes(q) ||
-      (j.vehicleVin || '').toLowerCase().includes(q)
-    );
+    const q = unscheduledSearch.toLowerCase().trim();
+    unscheduledJobs = unscheduledJobs.filter(j => {
+      const matchTitle = (j.title || '').toLowerCase().includes(q);
+      const matchCust = (j.customerName || '').toLowerCase().includes(q);
+      const matchVin = (j.vehicleVin || '').toLowerCase().includes(q);
+      const matchVeh = (j.vehicleName || '').toLowerCase().includes(q) || 
+                       `${j.vehicleYear || ''} ${j.vehicleMake || ''} ${j.vehicleModel || ''}`.toLowerCase().includes(q);
+      const matchJobNum = j.jobNumber ? String(j.jobNumber).toLowerCase().includes(q) : false;
+      const matchId = String(j.id || '').toLowerCase().includes(q);
+      const matchVehId = (j.vehicleId || '').toLowerCase().includes(q);
+      
+      const matchStaff = (j.assignedStaffIds || []).some((staffId: string) => {
+        const staff = staffList.find(s => s.id === staffId);
+        if (!staff) return false;
+        return `${staff.firstName || ''} ${staff.lastName || ''}`.toLowerCase().includes(q);
+      });
+
+      return matchTitle || matchCust || matchVin || matchVeh || matchJobNum || matchId || matchVehId || matchStaff;
+    });
   }
+
+  // Helper to determine sorting group and value for backlog prioritization
+  const getUnscheduledPriority = (j: any) => {
+    const etaRaw = j.expectedFinishTime || j.eta || j.scheduledEndDate;
+    const hasEta = !!etaRaw;
+    const etaMs = hasEta ? new Date(etaRaw).getTime() : null;
+    const isOverdue = etaMs && etaMs < now.getTime();
+    const isNextDue = etaMs && etaMs >= now.getTime();
+    
+    const hasDatesAssigned = !!(j.scheduledStartDate || j.scheduledEndDate);
+    const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
+    
+    const arrivalRaw = j.scheduledArrivalTime;
+    const isOnSite = arrivalRaw && new Date(arrivalRaw).getTime() <= now.getTime();
+
+    if (isOverdue) return { group: 1, val: etaMs }; // 1. Overdue (earliest first)
+    if (isNextDue) return { group: 2, val: etaMs }; // 2. Next due (earliest first)
+    if (hasDatesAssigned) {
+      const startMs = j.scheduledStartDate ? new Date(j.scheduledStartDate).getTime() : Infinity;
+      return { group: 3, val: startMs }; // 3. Dates Assigned (earliest first)
+    }
+    if (hasBookTime) return { group: 4, val: -parseFloat(j.scheduledHours || j.estimatedHours) }; // 4. Booked Tasks (highest book time first)
+    if (isOnSite) {
+      const arrMs = new Date(arrivalRaw).getTime();
+      return { group: 5, val: arrMs }; // 5. On Site (earliest arrival first)
+    }
+    return { group: 6, val: j.jobNumber || j.title || '' }; // 6. Rest of shop
+  };
+
+  // Sort according to user requested priority
+  unscheduledJobs.sort((a, b) => {
+    const pA = getUnscheduledPriority(a);
+    const pB = getUnscheduledPriority(b);
+    
+    if (pA.group !== pB.group) {
+      return pA.group - pB.group;
+    }
+    
+    if (typeof pA.val === 'number' && typeof pB.val === 'number') {
+      return pA.val - pB.val;
+    }
+    return String(pA.val).localeCompare(String(pB.val));
+  });
   
   const displayedUnscheduled = unscheduledJobs.slice(0, 50);
 
   const scheduledJobs = jobs.filter(j => {
-    const isTrackedByBay = bays.some(b => isJobTrackedByBay(b, j));
-    return (j.bayId && (j.scheduledStartDate || true)) || isTrackedByBay;
+    if (viewMode === 'bays') {
+      const isTrackedByBay = bays.some(b => isJobTrackedByBay(b, j));
+      return (j.bayId && (j.scheduledStartDate || true)) || isTrackedByBay;
+    } else {
+      const hasLegacyGlobal = !j.staffSchedules && j.scheduledStartDate && j.assignedStaffIds && j.assignedStaffIds.length > 0;
+      const hasStaffSchedules = j.staffSchedules && Object.keys(j.staffSchedules).length > 0;
+      return hasLegacyGlobal || hasStaffSchedules;
+    }
   });
+
+  const activeStaff = useMemo(() => {
+    const scheduledStaffIds = new Set(
+      scheduledJobs.flatMap(j => j.assignedStaffIds || [])
+    );
+
+    return staffList
+      .map(s => {
+        const dept = departments.find(d => d.id === s.departmentId);
+        const staffSession = sessions.find(sess => sess.userId === s.id || sess.userId === s.userId);
+        const isClockedIn = staffSession && staffSession.status !== 'completed';
+        
+        return {
+          ...s,
+          name: `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+          deptName: dept ? dept.name : 'Unassigned',
+          isScheduled: scheduledStaffIds.has(s.id),
+          isClockedIn: !!isClockedIn
+        };
+      })
+      .filter((s: any) => !s.isArchived && !s.fireDate)
+      .sort((a, b) => {
+        // Tier 1: Scheduled on the active timeline (isScheduled)
+        if (a.isScheduled !== b.isScheduled) {
+          return a.isScheduled ? -1 : 1;
+        }
+        
+        // Tier 2: Clocked in today (isClockedIn)
+        if (a.isClockedIn !== b.isClockedIn) {
+          return a.isClockedIn ? -1 : 1;
+        }
+        
+        // Tier 3: Sort by department name
+        if (a.deptName !== b.deptName) {
+          if (a.deptName === 'Unassigned') return 1;
+          if (b.deptName === 'Unassigned') return -1;
+          return a.deptName.localeCompare(b.deptName);
+        }
+        // Tier 4: Sort alphabetically by name
+        return a.name.localeCompare(b.name);
+      });
+  }, [staffList, departments, scheduledJobs, sessions]);
 
   const handleDragStart = (e: React.DragEvent, job: any) => {
     e.dataTransfer.setData('jobId', job.id);
     e.dataTransfer.setData('offsetX', e.nativeEvent.offsetX.toString());
+    if (job._renderedRowKey) {
+      e.dataTransfer.setData('fromStaffId', job._renderedRowKey);
+    }
   };
 
-  const handleDropOnGrid = async (e: React.DragEvent, bayId: string) => {
+  const handleDropOnGrid = async (e: React.DragEvent, rowId: string) => {
     e.preventDefault();
     const jobId = e.dataTransfer.getData('jobId');
     const dragOffsetX = parseFloat(e.dataTransfer.getData('offsetX') || '0');
+    const fromStaffId = e.dataTransfer.getData('fromStaffId');
     
     if (!jobId) return;
 
@@ -674,55 +991,160 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     const snappedDate = new Date(Math.round(newStartDate.getTime() / ms) * ms);
 
     const job = jobs.find(j => j.id === jobId);
-    const estimatedHours = parseFloat(job?.estimatedHours) || 1;
+    let estimatedHours = parseFloat(job?.scheduledHours || job?.estimatedHours || '1');
     
-    // Get the bay's department schedule
-    const bayObj = [...bays, { id: 'unassigned', name: 'Unassigned / Mobile' }].find(r => r.id === bayId || r.name === bayId);
-    const dept = departments.find(d => d.id === bayObj?.departmentId);
+    if (viewMode === 'staff' && rowId !== 'unassigned') {
+      const staffTasks = tasks.filter(t => t.jobId === jobId && t.assignedStaffIds?.includes(rowId));
+      const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+      if (staffBookTime > 0) {
+        estimatedHours = staffBookTime;
+      } else {
+        estimatedHours = 1;
+      }
+    }
     
-    const endDate = projectWorkingHours(snappedDate, estimatedHours, dept?.defaultSchedule);
+    let dept;
+    let staffObj: any;
+    if (viewMode === 'bays') {
+      const bayObj = [...bays, { id: 'unassigned', name: 'Unassigned / Mobile' }].find(r => r.id === rowId || r.name === rowId);
+      dept = departments.find(d => d.id === bayObj?.departmentId);
+    } else {
+      staffObj = activeStaff.find(s => s.id === rowId);
+      dept = departments.find(d => d.id === staffObj?.departmentId);
+    }
+    
+    let schedule = dept?.defaultSchedule ? { ...dept.defaultSchedule } : { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+    
+    // If staff member is clocked in today, treat today as a working day for them!
+    if (staffObj?.isClockedIn) {
+      const todayDay = new Date().getDay();
+      const smDay = todayDay === 0 ? 7 : todayDay;
+      if (!schedule.days.includes(smDay)) {
+        schedule.days = [...schedule.days, smDay];
+      }
+    }
+    
+    const endDate = projectWorkingHours(snappedDate, estimatedHours, schedule);
 
     try {
       const batch = writeBatch(db);
       const droppedJobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
-      batch.update(droppedJobRef, {
-        scheduledStartDate: snappedDate.toISOString(),
-        scheduledEndDate: endDate.toISOString(),
-        bayId: bayId, // Associate with the bay row dropped into
-        updatedAt: serverTimestamp()
-      });
+      
+      let newStaffIds = [...(job?.assignedStaffIds || [])];
+      let currentSchedules = { ...(job?.staffSchedules || {}) };
+      
+      if (viewMode === 'bays') {
+        batch.update(droppedJobRef, {
+          scheduledStartDate: snappedDate.toISOString(),
+          scheduledEndDate: endDate.toISOString(),
+          bayId: rowId, // Associate with the bay row dropped into
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        if (fromStaffId && fromStaffId !== rowId) {
+          // Relocate: delete schedule for the old staff member
+          delete currentSchedules[fromStaffId];
+          newStaffIds = newStaffIds.filter(id => id !== fromStaffId);
+        }
+        
+        // Add/update schedule for the new staff member
+        currentSchedules[rowId] = {
+          scheduledStartDate: snappedDate.toISOString(),
+          scheduledEndDate: endDate.toISOString()
+        };
+        if (!newStaffIds.includes(rowId)) {
+          newStaffIds.push(rowId);
+        }
+        
+        batch.update(droppedJobRef, {
+          scheduledStartDate: snappedDate.toISOString(), // Global fallback
+          scheduledEndDate: endDate.toISOString(), // Global fallback
+          assignedStaffIds: newStaffIds,
+          staffSchedules: currentSchedules,
+          updatedAt: serverTimestamp()
+        });
+      }
 
       // --- Cascade Logic ---
-      // Get all OTHER jobs in this bay that are scheduled to start AT or AFTER the dropped job's start time
+      // Get all OTHER jobs in this row that are scheduled to start AT or AFTER the dropped job's start time
       const droppedStartTime = snappedDate.getTime();
       
-      const otherJobsInBay = jobs.filter(
-        j => j.bayId === bayId && 
-             j.id !== jobId && 
-             j.scheduledStartDate && 
-             new Date(j.scheduledStartDate).getTime() >= droppedStartTime &&
-             parseFloat(j.estimatedHours || '0') > 0
-      );
+      const otherJobsInRow = jobs.filter(j => {
+        if (j.id === jobId) return false;
+        
+        if (viewMode === 'bays') {
+          if (!j.scheduledStartDate) return false;
+          if (parseFloat(j.scheduledHours || j.estimatedHours || '0') <= 0) return false;
+          if (new Date(j.scheduledStartDate).getTime() < droppedStartTime) return false;
+          return j.bayId === rowId;
+        } else {
+          const startStr = j.staffSchedules?.[rowId]?.scheduledStartDate || (!j.staffSchedules ? j.scheduledStartDate : null);
+          if (!startStr) return false;
+          
+          let estHours = parseFloat(j.scheduledHours || j.estimatedHours);
+          const staffTasks = tasks.filter(t => t.jobId === j.id && t.assignedStaffIds?.includes(rowId));
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          if (staffBookTime > 0) {
+            estHours = staffBookTime;
+          } else if (isNaN(estHours) || estHours <= 0) {
+            estHours = 1;
+          }
+          
+          if (estHours <= 0) return false;
+          if (new Date(startStr).getTime() < droppedStartTime) return false;
+          return j.assignedStaffIds?.includes(rowId);
+        }
+      });
 
       // Sort them chronologically by start date
-      otherJobsInBay.sort((a, b) => new Date(a.scheduledStartDate).getTime() - new Date(b.scheduledStartDate).getTime());
+      otherJobsInRow.sort((a, b) => {
+        const timeA = viewMode === 'bays' 
+          ? new Date(a.scheduledStartDate).getTime() 
+          : new Date(a.staffSchedules?.[rowId]?.scheduledStartDate || a.scheduledStartDate).getTime();
+        const timeB = viewMode === 'bays' 
+          ? new Date(b.scheduledStartDate).getTime() 
+          : new Date(b.staffSchedules?.[rowId]?.scheduledStartDate || b.scheduledStartDate).getTime();
+        return timeA - timeB;
+      });
 
       let currentEndTime = endDate;
 
-      for (const otherJob of otherJobsInBay) {
+      for (const otherJob of otherJobsInRow) {
         // Calculate the 10-minute buffer start time (respecting working hours)
         const bufferStart = currentEndTime;
-        const gapEnd = projectWorkingHours(bufferStart, 10 / 60, dept?.defaultSchedule);
+        const gapEnd = projectWorkingHours(bufferStart, 10 / 60, schedule);
         
-        const otherEstHours = parseFloat(otherJob.estimatedHours) || 1;
-        const otherNewEnd = projectWorkingHours(gapEnd, otherEstHours, dept?.defaultSchedule);
+        let otherEstHours = parseFloat(otherJob.scheduledHours || otherJob.estimatedHours) || 1;
+        if (viewMode === 'staff') {
+          const staffTasks = tasks.filter(t => t.jobId === otherJob.id && t.assignedStaffIds?.includes(rowId));
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          if (staffBookTime > 0) {
+            otherEstHours = staffBookTime;
+          }
+        }
         
+        const otherNewEnd = projectWorkingHours(gapEnd, otherEstHours, schedule);
         const otherJobRef = doc(db, `businesses/${tenantId}/jobs`, otherJob.id);
-        batch.update(otherJobRef, {
-          scheduledStartDate: gapEnd.toISOString(),
-          scheduledEndDate: otherNewEnd.toISOString(),
-          updatedAt: serverTimestamp()
-        });
+        
+        if (viewMode === 'bays') {
+          batch.update(otherJobRef, {
+            scheduledStartDate: gapEnd.toISOString(),
+            scheduledEndDate: otherNewEnd.toISOString(),
+            updatedAt: serverTimestamp()
+          });
+        } else {
+          const otherSchedules = { ...(otherJob.staffSchedules || {}) };
+          otherSchedules[rowId] = {
+            scheduledStartDate: gapEnd.toISOString(),
+            scheduledEndDate: otherNewEnd.toISOString()
+          };
+          batch.update(otherJobRef, {
+            scheduledStartDate: gapEnd.toISOString(), // Global fallback
+            scheduledEndDate: otherNewEnd.toISOString(), // Global fallback
+            staffSchedules: otherSchedules,
+            updatedAt: serverTimestamp()
+          });
+        }
         
         currentEndTime = otherNewEnd;
       }
@@ -739,14 +1161,49 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     e.preventDefault();
   };
 
-  const handleUnschedule = async (jobId: string) => {
+  const handleUnschedule = async (jobId: string, staffId?: string) => {
     try {
-      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
-        scheduledStartDate: null,
-        scheduledEndDate: null,
-        bayId: null,
-        updatedAt: serverTimestamp()
-      });
+      if (viewMode === 'bays') {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+          scheduledStartDate: null,
+          scheduledEndDate: null,
+          bayId: null,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        const job = jobs.find(j => j.id === jobId);
+        if (staffId) {
+          const currentSchedules = { ...(job?.staffSchedules || {}) };
+          delete currentSchedules[staffId];
+          const newStaffIds = (job?.assignedStaffIds || []).filter((id: string) => id !== staffId);
+          
+          const updateData: any = {
+            staffSchedules: currentSchedules,
+            assignedStaffIds: newStaffIds,
+            updatedAt: serverTimestamp()
+          };
+          
+          if (Object.keys(currentSchedules).length === 0) {
+            updateData.scheduledStartDate = null;
+            updateData.scheduledEndDate = null;
+            updateData.staffSchedules = deleteField(); // fully remove field from db if empty
+          } else {
+            const firstStaff = Object.keys(currentSchedules)[0];
+            updateData.scheduledStartDate = currentSchedules[firstStaff].scheduledStartDate;
+            updateData.scheduledEndDate = currentSchedules[firstStaff].scheduledEndDate;
+          }
+          
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), updateData);
+        } else {
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+            scheduledStartDate: null,
+            scheduledEndDate: null,
+            staffSchedules: deleteField(),
+            assignedStaffIds: [], // Clear all staff assignments
+            updatedAt: serverTimestamp()
+          });
+        }
+      }
       toast.success('Job unscheduled');
     } catch (err) {
       console.error(err);
@@ -757,44 +1214,75 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const handleDropOnSidebar = async (e: React.DragEvent) => {
     e.preventDefault();
     const jobId = e.dataTransfer.getData('jobId');
+    const fromStaffId = e.dataTransfer.getData('fromStaffId');
     if (!jobId) return;
-    await handleUnschedule(jobId);
+    await handleUnschedule(jobId, fromStaffId || undefined);
   };
 
 
   // Live Timeline Projection Engine
   const visualCascadedJobs = useMemo(() => {
     const result: any[] = [];
-    const jobsByBay: Record<string, any[]> = {};
+    const jobsByRow: Record<string, any[]> = {};
     
-    // Group scheduled jobs by bay
-    scheduledJobs.forEach(job => {
-      let bayKey = job.bayId;
-      if (!bayKey) {
-        // Find which bay is tracking it
-        const trackingBay = bays.find(b => isJobTrackedByBay(b, job));
-        if (trackingBay) bayKey = trackingBay.id; // Or trackingBay.name, but ScheduleBoard prefers ID for matching rows if possible, or name if ID misses.
-      }
-      bayKey = bayKey || 'unassigned';
-      
-      if (!jobsByBay[bayKey]) jobsByBay[bayKey] = [];
-      jobsByBay[bayKey].push(job);
-    });
-    
-    Object.keys(jobsByBay).forEach(bayKey => {
-      const bayJobs = jobsByBay[bayKey];
-      // Sort by planned start date
-      bayJobs.sort((a, b) => {
-        // Is actively tracked by this bay via Bay Monitor?
-        const aActive = bays.some(bay => 
-          (bay.id === bayKey || bay.name === bayKey) && isJobTrackedByBay(bay, a)
-        );
-        const bActive = bays.some(bay => 
-          (bay.id === bayKey || bay.name === bayKey) && isJobTrackedByBay(bay, b)
-        );
+    if (viewMode === 'bays') {
+      // Group scheduled jobs by bay ID (normalizing name/ID mismatches)
+      scheduledJobs.forEach(job => {
+        let bayKey = job.bayId;
+        const matchedBay = bays.find(b => {
+          const bId = String(b.id).toLowerCase().trim();
+          const bName = String(b.name || '').toLowerCase().trim();
+          const jBay = String(bayKey || '').toLowerCase().trim();
+          return bId === jBay || bName === jBay || isJobTrackedByBay(b, job);
+        });
+        bayKey = matchedBay ? matchedBay.id : 'unassigned';
         
-        if (aActive && !bActive) return -1;
-        if (!aActive && bActive) return 1;
+        if (!jobsByRow[bayKey]) jobsByRow[bayKey] = [];
+        jobsByRow[bayKey].push(job);
+      });
+    } else {
+      // Group scheduled jobs by staff member
+      scheduledJobs.forEach(job => {
+        const staffIds = job.assignedStaffIds || [];
+        if (staffIds.length === 0) {
+          const staffKey = 'unassigned';
+          if (!jobsByRow[staffKey]) jobsByRow[staffKey] = [];
+          jobsByRow[staffKey].push({ ...job });
+        } else {
+          staffIds.forEach((staffId: string) => {
+            const hasStaffSchedule = job.staffSchedules && job.staffSchedules[staffId];
+            const hasLegacyGlobalSchedule = !job.staffSchedules && job.scheduledStartDate;
+            
+            if (hasStaffSchedule || hasLegacyGlobalSchedule) {
+              if (!jobsByRow[staffId]) jobsByRow[staffId] = [];
+              const staffSpecificJob = { ...job };
+              if (hasStaffSchedule) {
+                staffSpecificJob.scheduledStartDate = job.staffSchedules[staffId].scheduledStartDate;
+                staffSpecificJob.scheduledEndDate = job.staffSchedules[staffId].scheduledEndDate;
+              }
+              jobsByRow[staffId].push(staffSpecificJob);
+            }
+          });
+        }
+      });
+    }
+    
+    Object.keys(jobsByRow).forEach(rowKey => {
+      const rowJobs = jobsByRow[rowKey];
+      // Sort by planned start date
+      rowJobs.sort((a, b) => {
+        if (viewMode === 'bays') {
+          // Is actively tracked by this bay via Bay Monitor?
+          const aActive = bays.some(bay => 
+            (bay.id === rowKey || bay.name === rowKey) && isJobTrackedByBay(bay, a)
+          );
+          const bActive = bays.some(bay => 
+            (bay.id === rowKey || bay.name === rowKey) && isJobTrackedByBay(bay, b)
+          );
+          
+          if (aActive && !bActive) return -1;
+          if (!aActive && bActive) return 1;
+        }
 
         const timeA = a.scheduledStartDate ? new Date(a.scheduledStartDate).getTime() : now.getTime();
         const timeB = b.scheduledStartDate ? new Date(b.scheduledStartDate).getTime() : now.getTime();
@@ -803,14 +1291,26 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       
       let previousVisualEndMs = 0;
       
-      bayJobs.forEach(job => {
+      rowJobs.forEach(job => {
         const originalStartMs = job.scheduledStartDate ? new Date(job.scheduledStartDate).getTime() : now.getTime();
         
-        let estimatedHours = parseFloat(job.estimatedHours);
+        let estimatedHours = parseFloat(job.scheduledHours || job.estimatedHours);
         let isZeroBookTime = false;
-        if (isNaN(estimatedHours) || estimatedHours <= 0) {
-          isZeroBookTime = true;
-          estimatedHours = 1; // Default to 1 hr if no book time and no ETA
+        
+        if (viewMode === 'staff' && rowKey !== 'unassigned') {
+          const staffTasks = tasks.filter(t => t.jobId === job.id && t.assignedStaffIds?.includes(rowKey));
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          if (staffBookTime > 0) {
+            estimatedHours = staffBookTime;
+          } else {
+            isZeroBookTime = true;
+            estimatedHours = 1; // Default to 1 hr if they have no tasks assigned yet but the job is scheduled on their row
+          }
+        } else {
+          if (isNaN(estimatedHours) || estimatedHours <= 0) {
+            isZeroBookTime = true;
+            estimatedHours = 1; // Default to 1 hr if no book time and no ETA
+          }
         }
         
         const etaRaw = job.expectedFinishTime || job.eta;
@@ -819,11 +1319,26 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
           etaMs = typeof etaRaw.toDate === 'function' ? etaRaw.toDate().getTime() : new Date(etaRaw).getTime();
         }
         
-        let dept = departments.find(d => bays.find(b => (b.name === bayKey || b.id === bayKey))?.departmentId === d.id);
-        let schedule = dept?.defaultSchedule || { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+        let schedule;
+        if (viewMode === 'bays') {
+          let dept = departments.find(d => bays.find(b => (b.name === rowKey || b.id === rowKey))?.departmentId === d.id);
+          schedule = dept?.defaultSchedule ? { ...dept.defaultSchedule } : { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+        } else {
+          const staffObj = activeStaff.find(s => s.id === rowKey);
+          let dept = departments.find(d => staffObj?.departmentId === d.id);
+          schedule = dept?.defaultSchedule ? { ...dept.defaultSchedule } : { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+          
+          // If staff member is currently clocked in today, treat today as a working day for them!
+          if (staffObj?.isClockedIn) {
+            const todayDay = new Date().getDay();
+            const smDay = todayDay === 0 ? 7 : todayDay;
+            if (!schedule.days.includes(smDay)) {
+              schedule.days = [...schedule.days, smDay];
+            }
+          }
+        }
         
         // 1. Calculate visual start (cascading from previous job's visual end + 10 mins buffer)
-        // Ensure buffer pushes correctly by projecting 10 real-time minutes (0.1333 book hours)
         let visualStartMs = originalStartMs;
         if (previousVisualEndMs > 0) {
           const bufferSegments = calculateJobSegments(new Date(previousVisualEndMs), 0.1333, schedule as any);
@@ -832,49 +1347,49 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         }
         
         // Live Push: Conveyor Belt Logic
-        // If a job hasn't officially started, its start time slides forward against the NOW line
         const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed', 'Closed'].includes(job.status || '');
         const hasTimeLogged = (job.totalBayTimeSeconds > 0) || (job.totalParkingTimeSeconds > 0) || !!job.currentBaySessionStart || !!job.currentParkingSessionStart;
         const isStarted = isFinished || hasTimeLogged;
+        
         // 2. Calculate visual end
         let visualEndMs;
         let visualFinishedAtMs: number | null = null;
         
         if (isFinished) {
-          // If finished, ignore estimated book time. Shrink to when it was actually completed (updatedAt as proxy).
           const finishedAtRaw = job.updatedAt || job.scheduledEndDate;
           const finishedAt = finishedAtRaw ? (typeof finishedAtRaw.toDate === 'function' ? finishedAtRaw.toDate().getTime() : new Date(finishedAtRaw).getTime()) : visualStartMs;
           
           visualFinishedAtMs = finishedAt;
           visualEndMs = Math.max(visualStartMs + (15 * 60000), finishedAt);
           
-          // But if it is STILL physically taking up space in the bay, it should stretch to NOW in green status
-          const isPhysicallyInBay = bays.some(b => (b.id === bayKey || b.name === bayKey) && isJobTrackedByBay(b, job));
-          if (isPhysicallyInBay && now.getTime() > visualEndMs) {
-            visualEndMs = now.getTime();
+          // Stretch to now if physically in bay (only in bays mode)
+          if (viewMode === 'bays') {
+            const isPhysicallyInBay = bays.some(b => (b.id === rowKey || b.name === rowKey) && isJobTrackedByBay(b, job));
+            if (isPhysicallyInBay && now.getTime() > visualEndMs) {
+              visualEndMs = now.getTime();
+            }
           }
         } else {
-          // Normal logic for active/pending jobs
-          if (!isStarted && now.getTime() > visualStartMs) {
-            // If not started AND we are late, DO NOT slide the start time.
-            // Instead, stretch the end time by projecting the remaining hours from NOW.
-            // This causes the job to expand (e.g. a 4 hour job becomes 5 hours if 1 hour late).
+          const startDay = new Date(visualStartMs);
+          startDay.setHours(0,0,0,0);
+          const todayDay = new Date(now);
+          todayDay.setHours(0,0,0,0);
+          const isPriorDay = startDay.getTime() < todayDay.getTime();
+
+          // Only automatically push unstarted jobs to "now" if they are from a prior day,
+          // allowing manual scheduling at earlier times on the current day!
+          if (!isStarted && isPriorDay && now.getTime() > visualStartMs) {
             const segmentsFromNow = calculateJobSegments(now, estimatedHours, schedule as any);
             visualEndMs = segmentsFromNow.length > 0 ? segmentsFromNow[segmentsFromNow.length - 1].end.getTime() : now.getTime();
           } else {
-            // Normal projection from visualStartMs
             const segments = calculateJobSegments(new Date(visualStartMs), estimatedHours, schedule as any);
             visualEndMs = segments.length > 0 ? segments[segments.length - 1].end.getTime() : visualStartMs;
           }
           
-          // Live Expansion: Stretch Logic
-          // If an active job has blown past its expected end time, stretch its end to now!
           if (isStarted && now.getTime() > visualEndMs) {
             visualEndMs = now.getTime();
           }
           
-          // Zero Book Time Override
-          // If it has no book time but DOES have an ETA, stretch the visual block to the ETA!
           if (isZeroBookTime && etaMs && etaMs > visualStartMs) {
             visualEndMs = etaMs;
           }
@@ -883,9 +1398,10 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         result.push({
           ...job,
           _visualStartMs: visualStartMs,
-          _visualEndMs: Math.max(visualStartMs + (15 * 60000), visualEndMs), // Ensure at least 15 min block
+          _visualEndMs: Math.max(visualStartMs + (15 * 60000), visualEndMs),
           _visualFinishedAtMs: visualFinishedAtMs,
-          _renderedBayKey: bayKey
+          _renderedRowKey: rowKey,
+          _rowEstimatedHours: estimatedHours
         });
         
         previousVisualEndMs = visualEndMs;
@@ -893,7 +1409,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     });
     
     return result;
-  }, [scheduledJobs, now, bays, departments]);
+  }, [scheduledJobs, now, bays, activeStaff, departments, viewMode, tasks]);
 
   // Calculate dynamic total hours based on the longest job
   const dynamicTotalHours = useMemo(() => {
@@ -921,8 +1437,8 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     });
   }, [dynamicTotalHours, timelineStart]);
 
-  // If a job has no bay, it now correctly returns to the Unscheduled sidebar.
-  const allRows = [...bays];
+  // Dynamic rows based on the selected viewMode
+  const allRows = viewMode === 'bays' ? bays : activeStaff;
 
   return (
     <div id="schedule-board-container" className="h-[calc(100vh-140px)] flex flex-col animate-in fade-in duration-500 bg-white dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
@@ -937,14 +1453,15 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         </div>
         
         <div className="flex items-center gap-4">
+
           <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-xl">
-            <button onClick={handlePrevWeek} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
+            <button onClick={handlePrevDay} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button onClick={handleToday} className="px-3 py-1.5 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-sm font-bold text-zinc-700 dark:text-zinc-300 transition-colors">
               Today
             </button>
-            <button onClick={handleNextWeek} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
+            <button onClick={handleNextDay} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -1023,50 +1540,158 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
             <p className="text-[10px] text-zinc-500">Drag to timeline to schedule. Showing top 50.</p>
           </div>
           <div className="flex-1 p-3 overflow-y-auto space-y-3 custom-scrollbar">
-            {displayedUnscheduled.map(job => (
-              <div 
-                key={job.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, job)}
-                className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm cursor-grab hover:border-indigo-500/50 transition-colors group"
-              >
-                <div className="flex flex-col gap-1.5 mb-2">
-                  <div className="flex items-center gap-2">
-                    <GripHorizontal className="w-3 h-3 text-zinc-300 shrink-0" />
-                    <h4 className="font-bold text-xs text-zinc-900 dark:text-white truncate">{job.title || 'Untitled'}</h4>
-                  </div>
-                  {(job.customerName || job.vehicleName || job.vehicleVin) && (
-                    <div className="pl-5 text-[10px] text-zinc-500 truncate space-y-0.5">
-                      {job.customerName && <div className="font-bold text-zinc-700 dark:text-zinc-300 truncate">{job.customerName}</div>}
-                      {(job.vehicleName || job.vehicleVin) && (
-                        <div className="truncate">
-                          <Car className="w-2.5 h-2.5 inline-block mr-1 opacity-70" />
-                          {job.vehicleName} {job.vehicleVin ? `(${job.vehicleVin.slice(-6)})` : ''}
+            {displayedUnscheduled.map(job => {
+              const priority = getUnscheduledPriority(job);
+              const jobTasks = tasks.filter(t => t.jobId === job.id);
+              const incompleteCount = jobTasks.filter(t => !t.completedAt).length;
+
+              // Calculate unique staff members assigned to the tasks of this job, along with their assigned task hours
+              const taskStaffSummary: { id: string, name: string, initials: string, hours: number }[] = [];
+              jobTasks.forEach(t => {
+                if (t.assignedStaffIds && t.assignedStaffIds.length > 0) {
+                  t.assignedStaffIds.forEach((staffId: string) => {
+                    const staff = staffList.find(s => s.id === staffId);
+                    if (!staff) return;
+                    const hours = parseFloat(t.bookTime) || 0;
+                    const existing = taskStaffSummary.find(item => item.id === staffId);
+                    if (existing) {
+                      existing.hours += hours;
+                    } else {
+                      taskStaffSummary.push({
+                        id: staffId,
+                        name: `${staff.firstName || ''} ${staff.lastName || ''}`,
+                        initials: `${staff.firstName?.[0] || ''}${staff.lastName?.[0] || ''}`.toUpperCase(),
+                        hours: hours
+                      });
+                    }
+                  });
+                }
+              });
+
+              const etaRaw = job.expectedFinishTime || job.eta || job.scheduledEndDate;
+              let deadlineLabel = null;
+              if (etaRaw) {
+                const parsedDate = typeof etaRaw.toDate === 'function' ? etaRaw.toDate() : new Date(etaRaw);
+                deadlineLabel = parsedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+              }
+              
+              let priorityBadge = null;
+              
+              if (priority.group === 1) {
+                priorityBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500/20 animate-pulse shrink-0">
+                    Overdue
+                  </span>
+                );
+              } else if (priority.group === 2) {
+                priorityBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-550/10 text-amber-500 border border-amber-500/20 shrink-0">
+                    Next Due
+                  </span>
+                );
+              } else if (priority.group === 3) {
+                priorityBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 shrink-0">
+                    Dates Set
+                  </span>
+                );
+              } else if (priority.group === 4) {
+                priorityBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-blue-500/10 text-blue-500 border border-blue-500/20 shrink-0">
+                    Has Task
+                  </span>
+                );
+              } else if (priority.group === 5) {
+                priorityBadge = (
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shrink-0">
+                    On Site
+                  </span>
+                );
+              }
+
+              return (
+                <div 
+                  key={job.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, job)}
+                  className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm cursor-grab hover:border-indigo-500/50 transition-colors group"
+                >
+                  <div className="flex flex-col gap-1.5 mb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <GripHorizontal className="w-3 h-3 text-zinc-300 shrink-0" />
+                        <h4 className="font-bold text-xs text-zinc-900 dark:text-white truncate">
+                          {job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title || 'Untitled'}
+                        </h4>
+                      </div>
+                      {priorityBadge}
+                    </div>
+                    {(() => {
+                      const currentZone = zones.find(z => isJobTrackedByBay(z, job));
+                      const hasDetails = job.customerName || job.vehicleName || job.vehicleVin || incompleteCount > 0 || deadlineLabel || currentZone;
+                      if (!hasDetails) return null;
+                      return (
+                        <div className="pl-5 text-[10px] text-zinc-500 truncate space-y-0.5">
+                          {job.customerName && <div className="font-bold text-zinc-700 dark:text-zinc-300 truncate">{job.customerName}</div>}
+                          {(job.vehicleName || job.vehicleVin) && (
+                            <div className="truncate">
+                              <Car className="w-2.5 h-2.5 inline-block mr-1 opacity-70" />
+                              {job.vehicleName} {job.vehicleVin ? `(${job.vehicleVin.slice(-6)})` : ''}
+                            </div>
+                          )}
+                          {currentZone && (
+                            <div className={`flex items-center gap-1 mt-1 text-[9px] font-black uppercase tracking-wider ${currentZone.type === 'bay' ? 'text-emerald-600 dark:text-emerald-400' : 'text-indigo-650 dark:text-indigo-400'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 animate-pulse ${currentZone.type === 'bay' ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
+                              {currentZone.type === 'bay' ? `In Bay: ${currentZone.name}` : `Spot: ${currentZone.name}`}
+                            </div>
+                          )}
+                          
+                          {/* Task Count & Deadline */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[9px] font-black uppercase tracking-wider">
+                            {incompleteCount > 0 && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500">
+                                {incompleteCount} active task{incompleteCount > 1 ? 's' : ''}
+                              </span>
+                            )}
+                            {deadlineLabel && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-500">
+                                Due {deadlineLabel}
+                              </span>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-bold pl-5">
+                    <div className="flex flex-wrap gap-1 items-center shrink-0">
+                      {taskStaffSummary.length > 0 ? (
+                        taskStaffSummary.map((ts) => {
+                          const isStaffScheduled = job.staffSchedules && job.staffSchedules[ts.id];
+                          return (
+                            <div 
+                              key={ts.id} 
+                              className={`px-1.5 py-0.5 rounded border text-[8px] font-black uppercase tracking-wider flex items-center gap-0.5 shadow-sm ${
+                                isStaffScheduled
+                                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-550/20"
+                                  : "bg-indigo-500/10 text-indigo-500 border-indigo-500/20"
+                              }`}
+                              title={`${ts.name}: ${ts.hours}h of assigned tasks (${isStaffScheduled ? 'Scheduled' : 'Unscheduled'})`}
+                            >
+                              <span className={`w-1 h-1 rounded-full shrink-0 ${isStaffScheduled ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
+                              {ts.initials} ({ts.hours}h)
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <span className="text-zinc-400 italic">Unassigned</span>
                       )}
                     </div>
-                  )}
-                </div>
-                <div className="flex items-center justify-between text-[10px] font-bold pl-5">
-                  <div className="flex -space-x-1 shrink-0">
-                    {job.assignedStaffIds && job.assignedStaffIds.length > 0 ? (
-                      job.assignedStaffIds.slice(0, 3).map((staffId: string) => {
-                        const staff = staffList.find(s => s.id === staffId);
-                        if (!staff) return null;
-                        return (
-                          <div key={staffId} className="w-4 h-4 rounded-full bg-zinc-200 dark:bg-zinc-800 border border-white dark:border-zinc-950 flex items-center justify-center text-[7px] font-black text-zinc-600 dark:text-zinc-400 shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
-                            {staff.firstName?.[0] || ''}{staff.lastName?.[0] || ''}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <span className="text-zinc-400 italic">Unassigned</span>
-                    )}
+                    <span className="text-zinc-500">{job.estimatedHours || 0}h Book Time</span>
                   </div>
-                  <span className="text-zinc-500">{job.estimatedHours || 0}h Book Time</span>
                 </div>
-              </div>
-            ))}
+            );
+          })}
           </div>
         </div>
 
@@ -1077,7 +1702,9 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
             <div className="sticky top-0 z-30 flex bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm shrink-0">
             {/* Corner Cell */}
             <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-4 flex items-end sticky left-0 z-40 bg-white dark:bg-zinc-950">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Bay / Upfitter</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                {viewMode === 'bays' ? 'Bay' : 'Staff Member'}
+              </span>
             </div>
             
             {/* Time Ticks */}
@@ -1105,7 +1732,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
             {currentTimePx > 0 && currentTimePx < (dynamicTotalHours * zoomLevel) && (
               <div 
                 className="absolute top-0 bottom-0 w-px bg-red-500 z-20 shadow-[0_0_8px_rgba(239,68,68,0.6)] pointer-events-none"
-                style={{ left: `${currentTimePx + 192}px` }} // +192px for the Bay column width
+                style={{ left: `${currentTimePx + 192}px` }} // +192px for the row column width
               >
                 <div className="absolute -top-3 -translate-x-1/2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full z-20">
                   NOW
@@ -1114,25 +1741,115 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
             )}
 
             {/* Rows */}
-            {allRows.map((bay) => {
-              let dept = departments.find(dept => dept.id === bay.departmentId);
-              let schedule = dept?.defaultSchedule;
-              if (!schedule) {
-                schedule = { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+            {allRows.map((row) => {
+              let dept = departments.find(dept => dept.id === row.departmentId);
+              let schedule = dept?.defaultSchedule ? { ...dept.defaultSchedule } : { days: [1,2,3,4,5], startTime: '08:00', endTime: '17:00' };
+              
+              if (viewMode === 'staff' && row.isClockedIn) {
+                const todayDay = new Date().getDay();
+                const smDay = todayDay === 0 ? 7 : todayDay;
+                if (!schedule.days.includes(smDay)) {
+                  schedule.days = [...schedule.days, smDay];
+                }
+              }
+              
+              // If staff view mode, evaluate their live timeclock and schedule status
+              let liveStatusNode = null;
+              if (viewMode === 'staff') {
+                const staffSession = sessions.find(s => s.userId === row.id || s.userId === row.userId);
+                const activeJobSegment = staffSession?.jobs?.find((j: any) => !j.end);
+                
+                const scheduledNow = visualCascadedJobs.find(j => 
+                  j._renderedRowKey === row.id &&
+                  j._visualStartMs <= now.getTime() &&
+                  j._visualEndMs >= now.getTime()
+                );
+                
+                if (staffSession && staffSession.status !== 'completed') {
+                  const isBreak = staffSession.status === 'on_break';
+                  const clockedJobId = activeJobSegment?.id;
+                  
+                  if (isBreak) {
+                    liveStatusNode = (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase tracking-wider animate-pulse shrink-0">
+                        Break
+                      </span>
+                    );
+                  } else if (clockedJobId) {
+                    const clockedJob = jobs.find(j => j.id === clockedJobId);
+                    const clockedJobNum = clockedJob?.jobNumber ? `#${clockedJob.jobNumber}` : 'Job';
+                    
+                    if (scheduledNow && scheduledNow.id === clockedJobId) {
+                      liveStatusNode = (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-wider shrink-0" title="Clocked into scheduled job">
+                          <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                          On Schedule
+                        </span>
+                      );
+                    } else if (scheduledNow) {
+                      const scheduledJobNum = scheduledNow.jobNumber ? `#${scheduledNow.jobNumber}` : scheduledNow.title;
+                      liveStatusNode = (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 text-[8px] font-black uppercase tracking-wider animate-pulse border border-orange-500/25 shrink-0" title={`Scheduled on ${scheduledJobNum}, but clocked into ${clockedJobNum} instead!`}>
+                          <span className="w-1 h-1 rounded-full bg-orange-500" />
+                          Off Sched: {clockedJobNum}
+                        </span>
+                      );
+                    } else {
+                      liveStatusNode = (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-wider shrink-0" title={`Clocked into ${clockedJobNum} (unscheduled)`}>
+                          Working: {clockedJobNum}
+                        </span>
+                      );
+                    }
+                  } else {
+                    liveStatusNode = (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-500 text-[8px] font-black uppercase tracking-wider shrink-0">
+                        Clocked In
+                      </span>
+                    );
+                  }
+                } else {
+                  liveStatusNode = (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 text-[8px] font-bold uppercase tracking-wider shrink-0">
+                      Clocked Out
+                    </span>
+                  );
+                }
               }
               
               return (
-              <div key={bay.id} className="flex border-b border-zinc-100 dark:border-zinc-800/50 group h-24 relative hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20 transition-colors">
-                {/* Left Fixed Column: Bay Info */}
-                <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-4 sticky left-0 z-20 bg-white dark:bg-zinc-950 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-900/80 transition-colors flex items-center justify-between">
-                  <h3 className="font-bold text-sm text-zinc-900 dark:text-white truncate">{bay.name || bay.id}</h3>
+              <div key={row.id} className="flex border-b border-zinc-100 dark:border-zinc-800/50 group h-24 relative hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20 transition-colors">
+                {/* Left Fixed Column: Row Info */}
+                <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-4 sticky left-0 z-20 bg-white dark:bg-zinc-950 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-900/80 transition-colors flex items-center gap-3 justify-between">
+                  {viewMode === 'bays' ? (
+                    <h3 className="font-bold text-sm text-zinc-900 dark:text-white truncate">{row.name || row.id}</h3>
+                  ) : (
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center font-black text-indigo-500 dark:text-indigo-400 text-[10px] shrink-0">
+                        {row.firstName?.[0] || ''}{row.lastName?.[0] || ''}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 justify-between">
+                          <h3 className="font-bold text-xs text-zinc-900 dark:text-white truncate max-w-[80px]" title={row.name}>
+                            {row.name}
+                          </h3>
+                          {liveStatusNode}
+                        </div>
+                        {dept && (
+                          <p className="text-[8px] text-zinc-400 font-bold uppercase tracking-wider truncate">
+                            {dept.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 {/* Scrollable Timeline Track */}
                 <div 
                   className="relative flex-1"
                   style={{ width: `${dynamicTotalHours * zoomLevel}px`, minWidth: `${dynamicTotalHours * zoomLevel}px` }}
-                  onDrop={(e) => handleDropOnGrid(e, bay.name || bay.id)}
+                  onDrop={(e) => handleDropOnGrid(e, row.id)}
                   onDragOver={handleDragOver}
                 >
                   {/* Grid Lines */}
@@ -1165,15 +1882,20 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                     })}
                   </div>
 
-                  {/* Render Jobs for this Bay */}
+                  {/* Render Jobs for this Row */}
                   {visualCascadedJobs
-                    .filter((j: any) => (j._renderedBayKey === bay.name || j._renderedBayKey === bay.id) || (bay.id === 'unassigned' && j._renderedBayKey === 'unassigned'))
+                    .filter((j: any) => {
+                      return j._renderedRowKey === row.id || (row.id === 'unassigned' && j._renderedRowKey === 'unassigned');
+                    })
                     .map((job: any) => (
                       <TimelineJobBlock 
                         key={job.id} 
                         job={job} 
                         tenantId={tenantId}
                         staffList={staffList}
+                        zones={zones}
+                        sessions={sessions}
+                        viewMode={viewMode}
                         timelineStart={timelineStart}
                         zoomLevel={zoomLevel}
                         schedule={schedule}

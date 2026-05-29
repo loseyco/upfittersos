@@ -169,6 +169,9 @@ const calculateDynamicETA = (job: any, tasks: any[], departments: any[]) => {
     deptHours[d] = (deptHours[d] || 0) + (parseFloat(t.bookTime) || 0);
   });
   
+  const totalHours = Object.values(deptHours).reduce((sum, h) => sum + h, 0);
+  if (totalHours <= 0) return null;
+  
   const nowTime = new Date();
   let maxETA = nowTime;
   
@@ -535,8 +538,12 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     const tasks = (job?.id && jobsTasks[job.id]) || [];
     const dynamicETA = job?.id ? calculateDynamicETA(job, tasks, departments) : null;
 
-    const deadlineRaw = job?.scheduledEndDate || job?.expectedFinishTime || job?.eta || zone.eta;
-    const etaRaw = dynamicETA || job?.expectedFinishTime || job?.eta || zone.eta;
+    const deadlineRaw = job 
+      ? (job.scheduledEndDate || job.expectedFinishTime || job.eta)
+      : zone.eta;
+    const etaRaw = job
+      ? (dynamicETA || job.expectedFinishTime || job.eta)
+      : zone.eta;
 
     let isOverdue = false;
     let isUrgent = false; // Based on business settings
@@ -549,7 +556,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       etaDate = parseSafeDate(etaRaw);
     }
 
-    if (deadlineRaw) {
+    if (deadlineRaw && etaRaw) {
       const parsedDeadline = parseSafeDate(deadlineRaw);
       if (parsedDeadline) {
         const diffMs = parsedDeadline.getTime() - now;
@@ -771,8 +778,13 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                   className="flex flex-col"
                 >
                   <div className="text-[12px] 2xl:text-base 3xl:text-3xl font-black text-white line-clamp-1 leading-tight tracking-tight">
-                    {vehicle?.year || ''} {vehicle?.make || ''} {vehicle?.model || 'Vehicle'}
+                    {job?.jobNumber ? `JOB #${job.jobNumber}` : `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || 'Vehicle'}`}
                   </div>
+                  {job?.jobNumber && (
+                    <div className="text-white/60 text-[9px] 3xl:text-[16px] font-bold truncate leading-none mt-0.5">
+                      {vehicle?.year || ''} {vehicle?.make || ''} {vehicle?.model || 'Vehicle'}
+                    </div>
+                  )}
                   {!job && (
                     <div className="text-red-400 font-bold text-[8px] 3xl:text-[14px] uppercase flex items-center gap-0.5 mt-0.5">
                       <AlertTriangle className="w-2.5 h-2.5 3xl:w-4 3xl:h-4" />
@@ -943,7 +955,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                   className="font-black text-white line-clamp-1 tracking-tighter leading-none mb-0.5"
                   style={{ fontSize: 'clamp(0.9rem, 6.5cqw, 2.8rem)' }}
                 >
-                  {vehicle?.year || ''} {vehicle?.make || ''} {vehicle?.model || 'Vehicle'}
+                  {job?.jobNumber ? `JOB #${job.jobNumber}` : `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || 'Vehicle'}`}
                 </div>
                 {!job && (
                   <div className="text-red-400 font-bold uppercase flex items-center gap-1 mt-1 mb-0.5"
@@ -952,16 +964,24 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                     No Active Job
                   </div>
                 )}
-                {job?.title && (
+                {job && (
                   <div 
                     className={cn("font-bold line-clamp-1 leading-none mb-0.5 tracking-tight", textColor, "opacity-90")}
                     style={{ fontSize: 'clamp(0.7rem, 4cqw, 1.8rem)' }}
+                  >
+                    {job?.jobNumber ? `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || 'Vehicle'}` : job.title}
+                  </div>
+                )}
+                {job?.jobNumber && job.title && (
+                  <div 
+                    className="font-bold line-clamp-1 leading-none mb-0.5 tracking-tight text-white/70"
+                    style={{ fontSize: 'clamp(0.6rem, 35cqw, 1.4rem)' }}
                   >
                     {job.title}
                   </div>
                 )}
                 <div 
-                  className="font-black uppercase tracking-widest text-white/30 line-clamp-1 leading-none"
+                  className="font-black uppercase tracking-widest text-white/30 line-clamp-1 leading-none mt-0.5"
                   style={{ fontSize: 'clamp(0.5rem, 2cqw, 1rem)' }}
                 >
                   {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 

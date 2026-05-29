@@ -175,7 +175,9 @@ export function QuickDesk({ tenantId }: { tenantId: string }) {
     // 3. Subscribe to Staff
     const qStaff = query(collection(db, `businesses/${tenantId}/staff`));
     const unsubStaff = onSnapshot(qStaff, (snap) => {
-      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setStaff(snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId));
     });
 
     // 4. Subscribe to Todos

@@ -110,6 +110,8 @@ interface StaffMember {
   departmentId?: string;
   userId?: string;
   individualSchedule?: WorkSchedule;
+  isArchived?: boolean;
+  fireDate?: any;
 }
 
 interface Department {
@@ -301,11 +303,11 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
 
       const allSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeSession));
       
-      // Filter for sessions that started today
+      // Filter for sessions that started today OR are still active
       return allSessions.filter(s => {
         if (!s.clockIn?.timestamp) return false;
         const date = s.clockIn.timestamp.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
-        return date >= today;
+        return date >= today || s.status !== 'completed';
       });
     },
     refetchInterval: 60000 // Refetch every minute to keep it live
@@ -317,8 +319,11 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
       const staffSnap = await getDocs(query(collection(db, `businesses/${tenantId}/staff`)));
       const deptSnap = await getDocs(query(collection(db, `businesses/${tenantId}/departments`)));
       
+      const allStaff = staffSnap.docs.map(d => ({ id: d.id, ...d.data() } as StaffMember));
+      const activeStaff = allStaff.filter(s => !s.isArchived && !s.fireDate && s.departmentId);
+      
       return {
-        staff: staffSnap.docs.map(d => ({ id: d.id, ...d.data() } as StaffMember)),
+        staff: activeStaff,
         departments: deptSnap.docs.map(d => ({ id: d.id, ...d.data() } as Department))
       };
     }
@@ -339,7 +344,8 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
 
   const filteredSessions = sessions?.filter(s => {
     const staff = scheduleData?.staff?.find((st: any) => st.userId === s.userId || st.id === s.userId);
-    const displayName = staff ? `${staff.firstName} ${staff.lastName}`.trim() : (s.userName || 'Technician');
+    if (!staff) return false;
+    const displayName = `${staff.firstName} ${staff.lastName}`.trim();
     return displayName.toLowerCase().includes(searchTerm.toLowerCase());
   });
 

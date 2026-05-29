@@ -24,6 +24,8 @@ interface Staff {
   departmentId?: string;
   name?: string;
   displayName?: string;
+  isArchived?: boolean;
+  fireDate?: any;
 }
 
 interface Department {
@@ -132,7 +134,7 @@ export function TasksManager({ tenantId }: { tenantId: string }) {
   // Listeners for HR context
   useEffect(() => {
     const unsubStaff = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
-      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as Staff)));
+      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as Staff)).filter(s => !s.isArchived && !s.fireDate && s.departmentId));
     });
     const unsubDepts = onSnapshot(collection(db, `businesses/${tenantId}/departments`), (snap) => {
       setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as Department)));

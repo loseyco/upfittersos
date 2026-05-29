@@ -567,7 +567,7 @@ export function ZoneDetailsModal({ zone, tenantId, vehicles, jobs, onClose, onAs
                           <Briefcase className="w-4 h-4 text-emerald-500" />
                         </div>
                         <div>
-                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-snug group-hover:text-emerald-500 transition-colors">{job.title}</h4>
+                          <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-snug group-hover:text-emerald-500 transition-colors">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h4>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             {job.customerName && (
                               <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-tight">{job.customerName}</p>

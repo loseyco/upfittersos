@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { GenericDataGrid } from './GenericDataGrid';
 import { QuickAddVehicleModal } from './VehicleSelector';
 import { X, Edit2, CarFront, Search, Archive, ShieldCheck, MapPin, Loader2, Clock, LogIn, LogOut, Plus } from 'lucide-react';
@@ -45,10 +45,10 @@ interface Zone {
 }
 
 export function VehiclesManager({ tenantId }: { tenantId: string }) {
+  const navigate = useNavigate();
   const { permissions, isSuperAdmin } = useAuthStore();
   const canManage = isSuperAdmin || permissions['vehicles.manage'];
   const queryClient = useQueryClient();
-  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
   const [editingVehicle, setEditingVehicle] = useState<any | null>(null);
   const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,16 +66,6 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
     onConfirm: () => {}
   });
 
-  const { data: business } = useQuery({
-    queryKey: ['business-details', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return null;
-      const snap = await getDocs(collection(db, 'businesses'));
-      const doc = snap.docs.find(d => d.id === tenantId);
-      return doc ? { id: doc.id, ...doc.data() as any } : null;
-    }
-  });
-
   // Deep Link Auto-Open Hook
   useEffect(() => {
     const vinParam = searchParams.get('vin');
@@ -84,7 +74,7 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
       const directRef = doc(db, `businesses/${tenantId}/vehicles`, vinParam);
       getDoc(directRef).then((directSnap) => {
         if (directSnap.exists()) {
-          setSelectedVehicle({ id: directSnap.id, ...directSnap.data() });
+          navigate(`/business/${tenantId}/vehicle/${directSnap.id}`);
           return;
         }
         
@@ -95,7 +85,7 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
         );
         return getDocs(qVin).then((snap) => {
           if (!snap.empty) {
-            setSelectedVehicle({ id: snap.docs[0].id, ...snap.docs[0].data() });
+            navigate(`/business/${tenantId}/vehicle/${snap.docs[0].id}`);
             return;
           }
           
@@ -106,7 +96,7 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
           );
           return getDocs(qSticker).then((snapSticker) => {
             if (!snapSticker.empty) {
-              setSelectedVehicle({ id: snapSticker.docs[0].id, ...snapSticker.docs[0].data() });
+              navigate(`/business/${tenantId}/vehicle/${snapSticker.docs[0].id}`);
             }
           });
         });
@@ -229,51 +219,15 @@ export function VehiclesManager({ tenantId }: { tenantId: string }) {
         title="Customer Vehicles" 
         columns={vehicleColumns}
         localFilter={handleFilter}
-        onRowClick={(row) => setSelectedVehicle(row)}
+        onRowClick={(row) => navigate(`/business/${tenantId}/vehicle/${row.id}`)}
       />
-
-      {selectedVehicle && !editingVehicle && (
-        <VehicleDetailsModal 
-          tenantId={tenantId}
-          vehicle={selectedVehicle}
-          business={business}
-          onConfirmAction={setConfirmConfig}
-          onClose={() => setSelectedVehicle(null)}
-
-          onEdit={() => {
-            setEditingVehicle(selectedVehicle);
-            setSelectedVehicle(null);
-          }}
-          onArchive={async () => {
-            setConfirmConfig({
-              isOpen: true,
-              title: 'Archive Vehicle',
-              message: `Are you sure you want to archive this ${selectedVehicle.year} ${selectedVehicle.make}? This will hide it from active database lists.`,
-              onConfirm: async () => {
-                try {
-                  await updateDoc(doc(db, `businesses/${tenantId}/vehicles`, selectedVehicle.id), { isArchived: true });
-                  toast.success("Vehicle archived");
-                  queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
-                  queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
-                  setSelectedVehicle(null);
-                } catch (e) {
-                  toast.error("Failed to archive vehicle");
-                }
-              }
-            });
-          }}
-
-          getSource={getSource}
-        />
-      )}
 
       {editingVehicle && (
         <EditVehicleModal
           tenantId={tenantId}
           vehicle={editingVehicle}
           onClose={() => setEditingVehicle(null)}
-          onSaved={(updatedData: any) => {
-            setSelectedVehicle({ ...editingVehicle, ...updatedData });
+          onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/vehicles`] });
             queryClient.invalidateQueries({ queryKey: ['global-search-index', tenantId] });
             setEditingVehicle(null);

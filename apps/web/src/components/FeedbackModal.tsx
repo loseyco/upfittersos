@@ -7,18 +7,20 @@ import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot } from 
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase/config';
 import { useAuthStore } from '../lib/auth/store';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 interface FeedbackModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  isPage?: boolean;
 }
 
-export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
+export function FeedbackModal({ isOpen, onClose, isPage = false }: FeedbackModalProps) {
   const { user, tenantId, permissions, isSuperAdmin } = useAuthStore();
   const canLogStaff = isSuperAdmin || permissions['staff.manage'] === true;
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Tab State: system feedback vs staff incident logging
   const [activeTab, setActiveTab] = useState<'system' | 'staff'>('system');
@@ -40,10 +42,19 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
   const canvasRef = useRef<ReactSketchCanvasRef>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Close handler
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
+    } else {
+      navigate(-1);
+    }
+  };
+
   // Close on ESC
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
@@ -51,12 +62,12 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
 
   // Load active staff members
   useEffect(() => {
-    if (!tenantId || !isOpen || !canLogStaff) return;
+    if (!tenantId || (!isOpen && !isPage) || !canLogStaff) return;
     const q = query(collection(db, `businesses/${tenantId}/staff`), orderBy('firstName', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
       const active = snap.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
-        .filter(s => !s.isArchived)
+        .filter(s => !s.isArchived && !s.fireDate && s.departmentId)
         .map(s => ({
           id: s.id,
           firstName: s.firstName || '',
@@ -67,7 +78,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
       console.error('Error fetching staff for incident logs:', err);
     });
     return () => unsub();
-  }, [tenantId, isOpen, canLogStaff]);
+  }, [tenantId, isOpen, isPage, canLogStaff]);
 
   const captureScreenshot = async () => {
     setIsCapturing(true);
@@ -177,7 +188,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
       setDescription('');
       setSelectedStaffId('');
       setScreenshotData(null);
-      onClose();
+      handleClose();
     } catch (err) {
       console.error('Submission failed:', err);
       toast.error('Failed to submit entry.');
@@ -188,22 +199,20 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
 
   return (
     <AnimatePresence>
-      {isOpen && (
-        <motion.div
+      {(isOpen || isPage) && (
+        <div
           id="feedback-modal-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          className={isPage ? "w-full max-w-4xl mx-auto py-6 px-4" : "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"}
           onClick={(e: React.MouseEvent) => {
-            if (e.target === e.currentTarget) onClose();
+            if (!isPage && e.target === e.currentTarget) handleClose();
           }}
         >
           <motion.div
-            initial={{ y: 50, opacity: 0, scale: 0.95 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 20, opacity: 0, scale: 0.95 }}
-            className="bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-[90vh]"
+            initial={isPage ? {} : { y: 50, opacity: 0, scale: 0.95 }}
+            animate={isPage ? {} : { y: 0, opacity: 1, scale: 1 }}
+            exit={isPage ? {} : { y: 20, opacity: 0, scale: 0.95 }}
+            className={`bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl w-full ${isPage ? 'max-w-4xl animate-none' : 'max-w-2xl'} flex flex-col overflow-hidden max-h-[90vh]`}
+            onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="flex flex-col border-b border-neutral-800 shrink-0">
@@ -212,7 +221,8 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
                   {activeTab === 'staff' ? 'Log Staff Incident' : 'Send Feedback'}
                 </h2>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
+                  type="button"
                   className="text-neutral-400 hover:text-white p-1 rounded hover:bg-neutral-800 transition-colors"
                 >
                   <X size={20} />
@@ -433,7 +443,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
             <div className="p-4 border-t border-neutral-800 bg-neutral-900/50 flex justify-end gap-3 shrink-0">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
               >
                 Cancel
@@ -457,7 +467,7 @@ export function FeedbackModal({ isOpen, onClose }: FeedbackModalProps) {
               </button>
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );

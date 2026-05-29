@@ -21,6 +21,7 @@ export const PERMISSIONS = {
   'graphics.view': 'View Graphics Board',
   'fast.view': 'View F.A.S.T Board',
   'fabrication.view': 'View Fabrication Board',
+  'harness.view': 'View Harness Board',
   'office.view': 'View Office Board',
   'settings.view': 'View Settings',
   'settings.manage': 'Manage Settings',
@@ -37,12 +38,18 @@ export const PERMISSIONS = {
   'whiteboards.view': 'View Whiteboards',
   'whiteboards.manage': 'Manage Whiteboards',
   'sync.view': 'View Raw Sync Data',
-  'sync.manage': 'Manage Sync Integrations',
+  'sync.manage': 'Download QuickBooks Connector',
   'experimental.new_modals': 'Beta: Use New Modals',
   'vendors.view': 'View Vendors & Services',
   'vendors.manage': 'Manage Vendors & Services',
   'staff_worksheet.view': 'View Staff Worksheet',
   'bay_worksheet.view': 'View Bay Worksheet',
+  'parts_worksheet.view': 'View Parts Worksheet',
+  'package_intake.use': 'Perform Package Intake',
+  'part_request.use': 'Add Part / Part Request',
+  'vehicle_intake.use': 'Perform Vehicle Intake',
+  'incident_log.use': 'Log System Feedback & Incidents',
+  'dashboard.customize': 'Customize Personal Dashboard',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
