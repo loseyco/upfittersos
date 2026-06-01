@@ -61,6 +61,7 @@ const ITEMS: NavItem[] = [
 
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
+  { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
   { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },

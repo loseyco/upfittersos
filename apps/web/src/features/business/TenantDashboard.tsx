@@ -63,6 +63,7 @@ import { StaffWorksheet } from './StaffWorksheet';
 import { BayWorksheet } from './BayWorksheet';
 import { PartsWorksheet } from './PartsWorksheet';
 import { JobsWorksheet } from './JobsWorksheet';
+import { ProgressDigest } from './ProgressDigest';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -573,6 +574,12 @@ export function TenantDashboard() {
             {activeTab === 'jobs_worksheet' && (
               <PermissionGate permission="jobs.view">
                 <JobsWorksheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'progress_digest' && (
+              <PermissionGate permissions={["office.view", "jobs.view", "foreman.view"]}>
+                <ProgressDigest tenantId={tenantId!} />
               </PermissionGate>
             )}
 
