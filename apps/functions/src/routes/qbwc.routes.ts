@@ -303,21 +303,30 @@ qbwcRoutes.post('/', async (req: Request, res: Response): Promise<any> => {
 
                 if (!snapshot.empty) {
                     const doc = snapshot.docs[0];
-                    await doc.ref.update({ status: 'completed', response: _responseXmlText, completedAt: admin.firestore.FieldValue.serverTimestamp() });
-
                     const tenantId = doc.data().tenantId;
                     const action = doc.data().action;
 
+                    let syncedCount = 0;
                     if (_responseXmlText) {
                         try {
                             const parser = new xml2js.Parser({ explicitArray: false });
                             const parsed = await parser.parseStringPromise(_responseXmlText);
                             const qbwcService = new QbwcService(tenantId);
-                            await qbwcService.processResponse(action, parsed);
+                            const result = await qbwcService.processResponse(action, parsed);
+                            if (result && typeof result.syncedCount === 'number') {
+                                syncedCount = result.syncedCount;
+                            }
                         } catch (parseErr) {
                             console.error("Error parsing or processing QBWC response XML", parseErr);
                         }
                     }
+
+                    await doc.ref.update({ 
+                        status: 'completed', 
+                        response: _responseXmlText, 
+                        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        recordsSynced: syncedCount
+                    });
 
                     // Check if there are more items pending to determine progress
                     // We use .limit(1) to guarantee exactly 1 read, instead of fetching the whole queue

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Home, Users, Briefcase, Layers, Map, 
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package, PackagePlus,
-  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, PackageOpen, ShieldCheck,
+import {
+  Home, Users, Briefcase, Layers, Map,
+  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
+  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -19,6 +19,7 @@ export type NavItem = {
   hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings';
   groupLabel?: string;
   permission?: PermissionKey;
+  permissions?: PermissionKey[];
 };
 
 const ITEMS: NavItem[] = [
@@ -27,16 +28,21 @@ const ITEMS: NavItem[] = [
   { id: 'time_details', label: 'Time Clock', icon: Clock, hub: 'dashboard' },
   { id: 'device_settings', label: 'Device Settings', icon: Settings, hub: 'dashboard' },
 
-  
+
   // Upfitters Dept
   { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
+  { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'jobs.view' },
+  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'upfitters', permission: 'jobs.view' },
+  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'staff_worksheet.view' },
+  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'bay_worksheet.view' },
+  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'upfitters', permission: 'foreman.view' },
 
   // Parts Dept
   { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
-  { id: 'items', label: 'Parts Library', icon: PackageOpen, hub: 'parts', permission: 'parts.view' },
-  { id: 'parts_worksheet', label: 'Parts Worksheet', icon: FileSpreadsheet, hub: 'parts', permission: 'parts_worksheet.view' },
-  { id: 'package_intake', label: 'Package Intake', icon: Package, hub: 'parts', permission: 'package_intake.use' },
-  { id: 'part_request', label: 'Add Part / Request', icon: PackagePlus, hub: 'parts', permission: 'part_request.use' },
+  // { id: 'items', label: 'Parts Library', icon: PackageOpen, hub: 'parts', permission: 'parts.view' },
+  { id: 'parts_worksheet', label: 'Parts Request', icon: FileSpreadsheet, hub: 'parts', permissions: ['parts_worksheet.view', 'parts.manage'] },
+  // { id: 'package_intake', label: 'Package Intake', icon: Package, hub: 'parts', permission: 'parts.view' },
+  // { id: 'part_request', label: 'Add Part / Request', icon: PackagePlus, hub: 'parts', permission: 'parts.view' },
 
   // Print Farm Dept
   { id: 'printed_parts', label: 'Overview', icon: Printer, hub: 'printed_parts', permission: 'printed_parts.view' },
@@ -55,16 +61,17 @@ const ITEMS: NavItem[] = [
 
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
+  { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
+  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },
+  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'bay_worksheet.view' },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'jobs', label: 'Jobs', icon: Briefcase, hub: 'office', permission: 'jobs.view' },
   { id: 'customers', label: 'Customers', icon: Users, hub: 'office', permission: 'customers.view' },
   { id: 'vehicles', label: 'Vehicles', icon: Car, hub: 'office', permission: 'vehicles.view' },
   { id: 'vendors', label: 'Vendors', icon: Handshake, hub: 'office', permission: 'vendors.view' },
   { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'office', permission: 'foreman.view' },
   { id: 'control_board', label: 'Control Board', icon: ClipboardList, hub: 'office', permission: 'jobs.view' },
-  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },
-  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'bay_worksheet.view' },
-  { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'timeclock', label: 'Timeclock Logs', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
   { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'office', permission: 'vehicles.view' },
@@ -114,15 +121,15 @@ const HUBS: HubType[] = [
   { id: 'settings', label: 'Admin & Sync', icon: Settings },
 ];
 
-export function BusinessSidebar({ 
-  activeTab, 
+export function BusinessSidebar({
+  activeTab,
   setActiveTab,
   isOpen,
   setIsOpen,
   lastSync,
   activeSync
-}: { 
-  activeTab: string; 
+}: {
+  activeTab: string;
   setActiveTab: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
@@ -132,7 +139,7 @@ export function BusinessSidebar({
   const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
   const navigate = useNavigate();
   const params = useParams();
-  
+
   let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : useAuthStore.getState().tenantId;
 
   // Retrieve custom white-label business logo
@@ -163,10 +170,17 @@ export function BusinessSidebar({
 
   // Keep Tier 1 active hub synchronized when activeTab changes
   useEffect(() => {
-    const activeItem = ITEMS.find(item => item.id === activeTab);
-    if (activeItem) {
-      setActiveHub(activeItem.hub);
-    }
+    setActiveHub(current => {
+      const currentHubItems = ITEMS.filter(item => item.hub === current);
+      const isTabInCurrentHub = currentHubItems.some(item => item.id === activeTab);
+      
+      if (isTabInCurrentHub) {
+        return current;
+      }
+      
+      const activeItem = ITEMS.find(item => item.id === activeTab);
+      return activeItem ? activeItem.hub : current;
+    });
   }, [activeTab]);
 
   // Manage hover flyout menus when unpinned (collapsed)
@@ -203,6 +217,9 @@ export function BusinessSidebar({
   // Filter items based on active role permissions
   const visibleItems = ITEMS.filter(item => {
     if (isSuperAdmin) return true;
+    if (item.permissions) {
+      return item.permissions.some(p => permissions[p]);
+    }
     if (!item.permission) return true;
     return permissions[item.permission];
   });
@@ -218,7 +235,7 @@ export function BusinessSidebar({
 
   const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings', isOverlay = false) => {
     const hubItems = getSubmenuItemsForHub(hubId);
-    
+
     // Extract unique groups
     const groups = Array.from(new Set(hubItems.map(item => item.groupLabel || 'Pages')));
 
@@ -272,11 +289,10 @@ export function BusinessSidebar({
                           setIsOpen(false);
                         }
                       }}
-                      className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-95 text-left ${
-                        isActive
-                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-                          : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
-                      }`}
+                      className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-95 text-left ${isActive
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                        : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
+                        }`}
                     >
                       <item.icon className={`w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-white" : "text-zinc-500"}`} />
                       <span className="text-xs font-semibold tracking-wide truncate">{item.label}</span>
@@ -316,7 +332,7 @@ export function BusinessSidebar({
       {/* 📱 MOBILE SIDEBAR DRAWER (SPLIT DOUBLE COLUMN)                          */}
       {/* ========================================================================= */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-[100] bg-zinc-950/80 backdrop-blur-sm lg:hidden transition-opacity duration-300 animate-in fade-in"
           onClick={() => setIsOpen(false)}
         />
@@ -345,11 +361,10 @@ export function BusinessSidebar({
                 <button
                   key={hub.id}
                   onClick={() => setActiveHub(hub.id)}
-                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 relative group shrink-0 active:scale-90 ${
-                    isActive 
-                      ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" 
-                      : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/60"
-                  }`}
+                  className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-200 relative group shrink-0 active:scale-90 ${isActive
+                    ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
+                    : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/60"
+                    }`}
                   title={hub.label}
                 >
                   <hub.icon className="w-5 h-5 shrink-0" />
@@ -362,7 +377,7 @@ export function BusinessSidebar({
 
         {/* Tier 2 - Mobile Subpages Column */}
         <div className="flex-1 bg-zinc-900 flex flex-col h-full relative">
-          <button 
+          <button
             onClick={() => setIsOpen(false)}
             className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-zinc-200 transition-colors"
           >
@@ -409,11 +424,10 @@ export function BusinessSidebar({
                         togglePin(); // auto expand when clicking an icon if collapsed
                       }
                     }}
-                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 relative group active:scale-[0.93] ${
-                      isActive 
-                        ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner" 
-                        : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/50"
-                    }`}
+                    className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 relative group active:scale-[0.93] ${isActive
+                      ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner"
+                      : "text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/50"
+                      }`}
                   >
                     <hub.icon className={`w-[22px] h-[22px] shrink-0 transition-transform duration-300 group-hover:scale-105 ${isActive ? 'text-indigo-400' : 'text-zinc-400 group-hover:text-zinc-100'}`} />
                     {isActive && <div className="absolute left-0 top-1/4 bottom-1/4 w-[3px] bg-indigo-500 rounded-full" />}

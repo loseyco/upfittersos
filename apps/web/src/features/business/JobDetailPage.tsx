@@ -768,6 +768,14 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         });
       }
 
+      if (!newZoneId) {
+        // Clear bayId on job if moved to Off-site
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+          bayId: null,
+          updatedAt: serverTimestamp()
+        });
+      }
+
       const newZone = zones.find(z => z.id === newZoneId);
 
       if (newZoneId) {
@@ -776,6 +784,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         const isParking = newZone?.type === 'parking' || newZone?.type === 'lot';
 
         const jobUpdate: any = {
+          bayId: newZoneId,
           updatedAt: serverTimestamp()
         };
 
@@ -1526,6 +1535,60 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
               </button>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Quick Parking Spot Selector Bar (Highly prominent on mobile) */}
+      <div className="bg-gradient-to-r from-zinc-950 to-indigo-950/40 p-5 rounded-[2rem] border border-indigo-500/25 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-5 transition-all">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-indigo-500/20 border border-indigo-500/30 rounded-2xl shrink-0 shadow-inner">
+            <MapPin className="w-6 h-6 text-indigo-400" />
+          </div>
+          <div>
+            <h4 className="text-[10px] font-black uppercase text-indigo-300 tracking-wider">Active Key & Spot Deck Assignment</h4>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <span className="text-sm font-bold text-white">Current Spot:</span>
+              <span className={cn(
+                "text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider",
+                zones.find(z => z.currentJobId === jobId)
+                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 animate-pulse shadow-sm shadow-indigo-500/10"
+                  : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+              )}>
+                {zones.find(z => z.currentJobId === jobId)?.name || 'Off-site / Unassigned'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Spot Dropdown */}
+        <div className="w-full md:w-80 shrink-0">
+          <SearchableSelect
+            theme="indigo"
+            options={zones.sort((a, b) => a.name.localeCompare(b.name))}
+            value={zones.find(z => z.currentJobId === jobId)?.id || ''}
+            onChange={val => handleZoneChange(val || '')}
+            getLabel={z => z.name}
+            getValue={z => z.id}
+            placeholder="-- Move Key to Off-site --"
+            searchPlaceholder="Search parking spot..."
+            renderOption={(zone) => (
+              <div className="flex flex-col">
+                <span className="font-bold text-zinc-900 dark:text-white text-sm">
+                  {zone.name}
+                </span>
+                {zone.currentJobId && zone.currentJobId !== jobId && (
+                  <span className="text-[10px] text-rose-500 font-black uppercase tracking-widest mt-0.5">
+                    Occupied
+                  </span>
+                )}
+                {(!zone.currentJobId || zone.currentJobId === jobId) && (
+                  <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest mt-0.5">
+                    Available
+                  </span>
+                )}
+              </div>
+            )}
+          />
         </div>
       </div>
 

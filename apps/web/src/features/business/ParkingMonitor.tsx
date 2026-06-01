@@ -136,6 +136,10 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
   const [pagePadding, setPagePadding] = useState<number>(() => {
     return Number(localStorage.getItem('parking_monitor_page_padding') || '24');
   });
+  const [showPaperSlot, setShowPaperSlot] = useState<boolean>(() => {
+    const stored = localStorage.getItem('parking_monitor_show_paper_slot');
+    return stored === 'true'; // Defaults to false if not set
+  });
 
   // Persist settings changes
   useEffect(() => {
@@ -154,13 +158,15 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
     localStorage.setItem('parking_monitor_hide_header', String(hideHeader));
     localStorage.setItem('parking_monitor_grid_gap', String(gridGap));
     localStorage.setItem('parking_monitor_page_padding', String(pagePadding));
+    localStorage.setItem('parking_monitor_show_paper_slot', String(showPaperSlot));
   }, [
     monitorMode, gridCols, gridRows, hookOffset, showCrosshairs, alignmentMode,
     fontScale, customStart, customEnd, cardWidth, cardHeight, headerHeight,
-    hideHeader, gridGap, pagePadding
+    hideHeader, gridGap, pagePadding, showPaperSlot
   ]);
 
   const applyPreset = (presetType: string) => {
+    localStorage.setItem('parking_monitor_has_calibrated', 'true');
     if (presetType === '15x15_4k') {
       setCardWidth(1200);
       setCardHeight(1200);
@@ -170,6 +176,7 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
       setPagePadding(60);
       setFontScale(1.35);
       setHookOffset(25);
+      setShowPaperSlot(true);
     } else if (presetType === '15x15_1080p') {
       setCardWidth(600);
       setCardHeight(600);
@@ -179,6 +186,7 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
       setPagePadding(30);
       setFontScale(1.0);
       setHookOffset(25);
+      setShowPaperSlot(true);
     } else if (presetType === '12x15_1080p') {
       setCardWidth(480);
       setCardHeight(600);
@@ -188,8 +196,47 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
       setPagePadding(24);
       setFontScale(1.0);
       setHookOffset(25);
+      setShowPaperSlot(true);
+    } else if (presetType === 'compact_keys') {
+      setCardWidth(220);
+      setCardHeight(240);
+      setGridCols(8);
+      setGridRows(4);
+      setGridGap(16);
+      setPagePadding(20);
+      setFontScale(0.85);
+      setHookOffset(30);
+      setShowPaperSlot(false);
+      setHideHeader(true);
+    } else if (presetType === 'compact_keys_4k') {
+      setCardWidth(440);
+      setCardHeight(480);
+      setGridCols(8);
+      setGridRows(4);
+      setGridGap(32);
+      setPagePadding(40);
+      setFontScale(1.2);
+      setHookOffset(30);
+      setShowPaperSlot(false);
+      setHideHeader(true);
     }
   };
+
+  // One-time mount migration to auto-apply compact keys preset on uncalibrated TVs
+  useEffect(() => {
+    const hasCalibrated = localStorage.getItem('parking_monitor_has_calibrated') === 'true';
+    if (!hasCalibrated) {
+      applyPreset('compact_keys');
+      localStorage.setItem('parking_monitor_has_calibrated', 'true');
+    }
+  }, []);
+
+  // If settings drawer is opened, mark has_calibrated as true so migration won't overwrite their manual tweaks on next load
+  useEffect(() => {
+    if (isSettingsOpen) {
+      localStorage.setItem('parking_monitor_has_calibrated', 'true');
+    }
+  }, [isSettingsOpen]);
 
   // Firestore snapshot error callback
   const handleSnapshotError = (error: any, listenerName: string) => {
@@ -591,20 +638,28 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
             </div>
             
             {/* Outline representing the physical plastic pocket size overlay */}
-            <div className="w-full border-4 border-dashed border-yellow-500/80 bg-yellow-500/5 rounded-2xl flex flex-col items-center justify-center p-6 mt-auto" style={{ height: `${94 - headerHeight}%` }}>
-              <span className="text-[10px] font-black uppercase text-yellow-400 tracking-widest leading-none mb-1.5">Binder Holder sleeve</span>
-              <span className="text-[9px] font-bold text-yellow-500/70 uppercase tracking-wide">15" x 12" Physical Area</span>
-              <span className="text-[8px] font-semibold text-zinc-500 uppercase tracking-wider mt-2">Position physical pocket directly over this box</span>
-            </div>
+            {/* Outline representing the physical plastic pocket size overlay */}
+            {showPaperSlot ? (
+              <div className="w-full border-4 border-dashed border-yellow-500/80 bg-yellow-500/5 rounded-2xl flex flex-col items-center justify-center p-6 mt-auto" style={{ height: `${94 - headerHeight}%` }}>
+                <span className="text-[10px] font-black uppercase text-yellow-400 tracking-widest leading-none mb-1.5">Binder Holder sleeve</span>
+                <span className="text-[9px] font-bold text-yellow-500/70 uppercase tracking-wide">15" x 12" Physical Area</span>
+                <span className="text-[8px] font-semibold text-zinc-500 uppercase tracking-wider mt-2">Position physical pocket directly over this box</span>
+              </div>
+            ) : (
+              <div className="w-full border-4 border-dashed border-yellow-500/50 bg-yellow-500/5 rounded-2xl flex flex-col items-center justify-center p-4 mt-auto h-[60%]">
+                <span className="text-[10px] font-black uppercase text-yellow-400 tracking-widest leading-none mb-1">Key Backing Grid Box</span>
+                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider">Alignment Bounds</span>
+              </div>
+            )}
           </div>
         ) : (
           <>
             {/* Upper Digital Details Header Section */}
             <div 
               className="w-full flex flex-col justify-between z-10 min-h-0 overflow-hidden pr-1"
-              style={{ height: `${headerHeight}%` }}
+              style={{ height: showPaperSlot ? `${headerHeight}%` : '100%' }}
             >
-              <div className="h-[25%]"></div> {/* Space buffer for Spot Badge and Hook Ring */}
+              <div style={{ height: showPaperSlot ? '25%' : '15%' }}></div> {/* Space buffer for Spot Badge and Hook Ring */}
               
               <div className="flex-1 flex flex-col justify-end gap-1.5 min-h-0">
                 <AnimatePresence mode="wait">
@@ -685,22 +740,24 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
             </div>
 
             {/* Bottom Physical Binder Pocket Sleeve Area */}
-            <div 
-              className="w-full relative rounded-3xl border-2 border-dashed border-zinc-800/40 bg-zinc-950/30 flex flex-col items-center justify-center p-4 transition-all duration-700"
-              style={{ 
-                height: `${96 - headerHeight}%`,
-                marginTop: 'auto'
-              }}
-            >
-              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.02),transparent)] pointer-events-none rounded-3xl"></div>
-              
-              {/* Pocket visual mockup contents */}
-              <div className="text-center flex flex-col items-center gap-1.5 opacity-30 group-hover:opacity-50 transition-opacity">
-                <LayoutGrid className="w-5 h-5 text-zinc-700" />
-                <span className="text-[8px] font-black uppercase text-zinc-600 tracking-widest leading-none">Paper Slot</span>
-                <span className="text-[7px] font-bold text-zinc-700 uppercase tracking-tighter">Holds 11" x 8.5" Job Sheet</span>
+            {showPaperSlot && (
+              <div 
+                className="w-full relative rounded-3xl border-2 border-dashed border-zinc-800/40 bg-zinc-950/30 flex flex-col items-center justify-center p-4 transition-all duration-700"
+                style={{ 
+                  height: `${96 - headerHeight}%`,
+                  marginTop: 'auto'
+                }}
+              >
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(99,102,241,0.02),transparent)] pointer-events-none rounded-3xl"></div>
+                
+                {/* Pocket visual mockup contents */}
+                <div className="text-center flex flex-col items-center gap-1.5 opacity-30 group-hover:opacity-50 transition-opacity">
+                  <LayoutGrid className="w-5 h-5 text-zinc-700" />
+                  <span className="text-[8px] font-black uppercase text-zinc-600 tracking-widest leading-none">Paper Slot</span>
+                  <span className="text-[7px] font-bold text-zinc-700 uppercase tracking-tighter">Holds 11" x 8.5" Job Sheet</span>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </motion.div>
@@ -914,6 +971,20 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
                     Instantly load calculated dimensions to match your physical pockets perfectly.
                   </p>
                   <div className="grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => applyPreset('compact_keys')}
+                      className="py-2.5 px-3 text-left font-bold uppercase tracking-wider rounded-xl border border-indigo-500/20 bg-indigo-950/10 hover:bg-indigo-950/20 text-[10px] flex items-center justify-between group transition-colors shadow-sm"
+                    >
+                      <span className="text-indigo-200">★ Compact Key Tags (1080p - Fits 32)</span>
+                      <span className="text-[9px] font-mono text-indigo-400 font-black">8x4 Grid • 220px</span>
+                    </button>
+                    <button
+                      onClick={() => applyPreset('compact_keys_4k')}
+                      className="py-2.5 px-3 text-left font-bold uppercase tracking-wider rounded-xl border border-indigo-500/20 bg-indigo-950/10 hover:bg-indigo-950/20 text-[10px] flex items-center justify-between group transition-colors shadow-sm"
+                    >
+                      <span className="text-indigo-200">★ Compact Key Tags (4K - Fits 32)</span>
+                      <span className="text-[9px] font-mono text-indigo-400 font-black">8x4 Grid • 440px</span>
+                    </button>
                     <button
                       onClick={() => applyPreset('15x15_1080p')}
                       className="py-2.5 px-3 text-left font-bold uppercase tracking-wider rounded-xl border border-zinc-800 bg-zinc-950/40 hover:bg-zinc-800 text-[10px] flex items-center justify-between group transition-colors"
@@ -1143,6 +1214,20 @@ export function ParkingMonitor({ tenantId }: { tenantId: string }) {
                 <div className="space-y-3 pt-3 border-t border-zinc-800">
                   <label className="block text-[10px] font-black uppercase text-indigo-400 tracking-wider">Setup & Calibration Tools</label>
                   
+                  {/* Show Paper Slot switch */}
+                  <div className="flex items-center justify-between p-3 bg-zinc-950/60 rounded-2xl border border-zinc-800">
+                    <div>
+                      <h4 className="font-extrabold uppercase text-zinc-350">Show Paper Binder Sleeves</h4>
+                      <p className="text-[9px] text-zinc-500 leading-normal mt-0.5">Toggle off if you leave papers in the cars and want compact, digital-only key tag cards to fit more spots on screen!</p>
+                    </div>
+                    <input 
+                      type="checkbox" 
+                      checked={showPaperSlot}
+                      onChange={(e) => setShowPaperSlot(e.target.checked)}
+                      className="w-4 h-4 accent-indigo-500 rounded cursor-pointer"
+                    />
+                  </div>
+
                   {/* Hide Header switch */}
                   <div className="flex items-center justify-between p-3 bg-zinc-950/60 rounded-2xl border border-zinc-800">
                     <div>

@@ -62,6 +62,7 @@ import { WorkflowCanvasTab } from './WorkflowCanvasTab';
 import { StaffWorksheet } from './StaffWorksheet';
 import { BayWorksheet } from './BayWorksheet';
 import { PartsWorksheet } from './PartsWorksheet';
+import { JobsWorksheet } from './JobsWorksheet';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -110,6 +111,7 @@ export function TenantDashboard() {
     staff_worksheet: 'Staff Worksheet',
     bay_worksheet: 'Bay Worksheet',
     parts_worksheet: 'Parts Worksheet',
+    jobs_worksheet: 'Jobs Worksheet',
     package_intake: 'Package Intake',
     part_request: 'Add Part / Request',
     vehicle_intake: 'Vehicle Intake',
@@ -563,8 +565,14 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'parts_worksheet' && (
-              <PermissionGate permission="parts_worksheet.view">
+              <PermissionGate permissions={["parts_worksheet.view", "parts.manage"]}>
                 <PartsWorksheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'jobs_worksheet' && (
+              <PermissionGate permission="jobs.view">
+                <JobsWorksheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 
@@ -689,15 +697,18 @@ export function TenantDashboard() {
 
 function PermissionGate({ 
   permission, 
+  permissions: permissionList,
   children 
 }: { 
   permission?: PermissionKey, 
+  permissions?: PermissionKey[],
   children: React.ReactNode 
 }) {
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { permissions: userPermissions, isSuperAdmin } = useAuthStore();
   if (isSuperAdmin) return <>{children}</>;
-  if (!permission) return <>{children}</>;
-  if (permissions[permission]) return <>{children}</>;
+  if (permission && userPermissions[permission]) return <>{children}</>;
+  if (permissionList && permissionList.some(p => userPermissions[p])) return <>{children}</>;
+  if (!permission && !permissionList) return <>{children}</>;
   return (
     <div className="p-12 text-center animate-in fade-in duration-500">
       <div className="w-20 h-20 bg-rose-500/10 rounded-full flex items-center justify-center mx-auto mb-6">

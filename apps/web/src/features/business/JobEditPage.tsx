@@ -132,7 +132,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           title: data.title || '',
           jobNumber: data.jobNumber || '',
           status: data.status || 'Open',
-          priority: data.priority || 'Medium',
+          priority: data.priority || '3 - Medium',
           vehicleId: data.vehicleId || '',
           customerId: data.customerId || null,
           customerName: data.customerName || '',
@@ -160,7 +160,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       title: '',
       jobNumber: '',
       status: 'Open',
-      priority: 'Medium',
+      priority: '3 - Medium',
       vehicleId: '',
       customerId: null,
       customerName: '',
@@ -851,9 +851,9 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
               <div>
                 <label className="block text-xs font-bold text-zinc-500 mb-1.5">Priority</label>
                 <SearchableSelect
-                  options={['Low', 'Medium', 'High', 'Urgent']}
-                  value={formData.priority}
-                  onChange={val => setFormData((prev: any) => ({ ...prev, priority: val || 'Medium' }))}
+                  options={['0 - Not Ready', '1 - Low', '2 - Medium-Low', '3 - Medium', '4 - High', '5 - Urgent']}
+                  value={formData.priority || '3 - Medium'}
+                  onChange={val => setFormData((prev: any) => ({ ...prev, priority: val || '3 - Medium' }))}
                   getLabel={s => s}
                   getValue={s => s}
                   theme="rose"

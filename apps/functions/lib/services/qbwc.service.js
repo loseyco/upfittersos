@@ -391,9 +391,11 @@ class QbwcService {
                 await b.commit();
             }
             console.log(`Successfully processed and saved ${syncedCount} ${syncedLabel} for ${action} from QBWC.`);
+            return { syncedCount };
         }
         catch (e) {
             console.error(`Error processing QBWC response for ${action}:`, e);
+            return { syncedCount: 0 };
         }
     }
 }

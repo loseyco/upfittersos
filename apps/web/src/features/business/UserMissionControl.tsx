@@ -2050,6 +2050,80 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                 </div>
               </div>
 
+              {/* Current Pay Period Summary Card */}
+              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm space-y-4 animate-in fade-in duration-300">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-500">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-zinc-900 dark:text-white text-base">Current Pay Period Metrics</h3>
+                    <p className="text-xs text-zinc-500 font-semibold">Summary of your accumulated hours and efficiency</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {/* Card 1: Period Pay Hours */}
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Period Pay Hours</span>
+                    <span className="font-mono text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 block">
+                      {displayPayHours.toFixed(2)}h
+                    </span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Estimated pay hours</span>
+                  </div>
+
+                  {/* Card 2: Actual Clocked */}
+                  <div className="bg-zinc-50 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Actual Clocked</span>
+                    <span className="font-mono text-xl font-black text-zinc-805 dark:text-white mt-1 block">
+                      {(weekMs / 3600000).toFixed(2)}h
+                    </span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Net time on clock</span>
+                  </div>
+
+                  {/* Card 3: Completed Book Time */}
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Time Earned</span>
+                    <span className="font-mono text-xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
+                      {doneBookHours.toFixed(2)}h
+                    </span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Flat rate earned</span>
+                  </div>
+
+                  {/* Card 4: Efficiency */}
+                  <div className="bg-zinc-55 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Efficiency</span>
+                    <span className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-450 mt-1 block">
+                      {efficiency !== null ? `${efficiency.toFixed(0)}%` : '--'}
+                    </span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Book vs actual ratio</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between text-xs text-zinc-500 border-t border-zinc-100 dark:border-zinc-800/80 pt-3 gap-2">
+                  <div className="flex items-center gap-4">
+                    <span>
+                      <strong className="text-zinc-700 dark:text-zinc-300">Gross Clocked:</strong> {((weekMs + weekBreakMs) / 3600000).toFixed(2)}h
+                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                    <span>
+                      <strong className="text-zinc-700 dark:text-zinc-300">Breaks Logged:</strong> {(weekBreakMs / 3600000).toFixed(2)}h
+                    </span>
+                    {activeCreditMs > 0 && (
+                      <>
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                        <span>
+                          <strong className="text-zinc-700 dark:text-zinc-300">Period Credit:</strong> {(activeCreditMs / 3600000).toFixed(2)}h
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-zinc-405 font-bold uppercase tracking-wider">
+                    Pay Period: {weekStart.toLocaleDateString([], { month: 'short', day: 'numeric' })} - {new Date(new Date(weekStart).setDate(weekStart.getDate() + 6)).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+
               {/* Disclaimer Notice Banner */}
               <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3 animate-in fade-in duration-300">
                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />

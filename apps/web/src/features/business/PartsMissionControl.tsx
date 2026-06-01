@@ -6,8 +6,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Truck, Plus, ExternalLink, 
-  Clock, Box, User, Search, Package, Calendar, AlertCircle,
+  Truck, Plus, 
+  Clock, Box, User, Search, Package, AlertCircle,
   Trash2, CheckCircle, ShoppingCart, Hash, FileText, MapPin, Briefcase, CarFront,
   Maximize, Minimize
 } from 'lucide-react';
@@ -153,6 +153,20 @@ export function PartsMissionControl() {
   const [shipDescription, setShipDescription] = useState('');
   const [shipJobId, setShipJobId] = useState('');
 
+  // Dropdown search state
+  const [isJobDropdownOpen, setIsJobDropdownOpen] = useState(false);
+  const [jobSearchQuery, setJobSearchQuery] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const [isPoDropdownOpen, setIsPoDropdownOpen] = useState(false);
+  const [poSearchQuery, setPoSearchQuery] = useState('');
+  const poDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Recently received states
+  const [activeFilter, setActiveFilter] = useState<'all' | 'arriving' | 'received' | 'delivered'>('received');
+  const [packageSearchQuery, setPackageSearchQuery] = useState('');
+  const [displayLimit, setDisplayLimit] = useState(10);
+
   // Data State
   const [requests, setRequests] = useState<PartsRequest[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -168,6 +182,122 @@ export function PartsMissionControl() {
   const [qbPOs, setQbPOs] = useState<QuickBooksPO[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [inventoryCount, setInventoryCount] = useState<number>(0);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsJobDropdownOpen(false);
+      }
+      if (poDropdownRef.current && !poDropdownRef.current.contains(event.target as Node)) {
+        setIsPoDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Filtered QuickBooks POs for searchable dropdown
+  const filteredPOsForSelect = React.useMemo(() => {
+    const q = poSearchQuery.toLowerCase().trim();
+    if (!q) return qbPOs;
+    return qbPOs.filter(po => 
+      po.refNumber?.toLowerCase().includes(q) || 
+      po.vendorName?.toLowerCase().includes(q)
+    );
+  }, [qbPOs, poSearchQuery]);
+
+  // Filtered jobs for searchable dropdown
+  const filteredJobsForSelect = React.useMemo(() => {
+    const q = jobSearchQuery.toLowerCase().trim();
+    if (!q) return jobs;
+    return jobs.filter(j => 
+      j.title?.toLowerCase().includes(q) || 
+      j.jobNumber?.toLowerCase().includes(q)
+    );
+  }, [jobs, jobSearchQuery]);
+
+  // Merged Recently Received (Shipments + Parts Requests)
+  const baseReceived = React.useMemo(() => {
+    return [
+      ...shipments.map(s => ({ ...s, type: 'shipment' })),
+      ...requests.map(p => ({ ...p, type: 'part', description: p.partName, status: p.status }))
+    ].filter((item: any) => {
+      const q = packageSearchQuery.toLowerCase().trim();
+      if (!q) return true;
+      const fields = [
+        item.trackingNumber,
+        item.description,
+        item.partName,
+        item.location,
+        item.notes,
+        item.jobTitle,
+        item.jobId,
+        item.receivedBy,
+        item.requestedBy,
+        item.carrier,
+        item.shipper,
+        item.vendorName,
+        item.status,
+        item.id
+      ].map(f => String(f || '').toLowerCase());
+      return fields.some(f => f.includes(q));
+    });
+  }, [shipments, requests, packageSearchQuery]);
+
+  const counts = React.useMemo(() => {
+    return {
+      arriving: baseReceived.filter((i: any) => i.status === 'ordered' || i.status === 'in_transit' || i.status === 'out_for_delivery' || i.status === 'pending').length,
+      received: baseReceived.filter((i: any) => i.status === 'received').length,
+      delivered: baseReceived.filter((i: any) => i.status === 'delivered' || i.status === 'fulfilled').length,
+    };
+  }, [baseReceived]);
+
+  const allReceived = React.useMemo(() => {
+    return baseReceived.filter((item: any) => {
+      if (activeFilter === 'arriving' && !(item.status === 'ordered' || item.status === 'in_transit' || item.status === 'out_for_delivery' || item.status === 'pending')) return false;
+      if (activeFilter === 'received' && item.status !== 'received') return false;
+      if (activeFilter === 'delivered' && !(item.status === 'delivered' || item.status === 'fulfilled')) return false;
+      
+      return true;
+    }).sort((a: any, b: any) => {
+      const timeA = a.createdAt?.seconds || a.statusChangedAt?.seconds || 0;
+      const timeB = b.createdAt?.seconds || b.statusChangedAt?.seconds || 0;
+      return timeB - timeA;
+    });
+  }, [baseReceived, activeFilter]);
+
+  const displayItems = React.useMemo(() => {
+    return allReceived.slice(0, displayLimit);
+  }, [allReceived, displayLimit]);
+
+  const hasMore = allReceived.length > displayLimit;
+
+  const handleUpdateStatusPackage = async (item: any, newStatus: string) => {
+    if (!tenantId) return;
+    try {
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const collectionName = item.type === 'shipment' ? 'shipments' : 'parts_requests';
+      const updateData: any = {
+        status: newStatus,
+        statusChangedAt: serverTimestamp()
+      };
+      
+      // Special fields for specific statuses
+      if (newStatus === 'delivered' && item.type === 'shipment') {
+        updateData.putAwayAt = serverTimestamp();
+      }
+      if (newStatus === 'received' && item.type === 'shipment') {
+        updateData.deliveredAt = serverTimestamp();
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/${collectionName}`, item.id), updateData);
+      toast.success(`Item marked as ${newStatus}`);
+    } catch (err) {
+      console.error('Error updating status:', err);
+      toast.error('Failed to update status');
+    }
+  };
 
 
   // Real-time listener for Zones
@@ -304,20 +434,7 @@ export function PartsMissionControl() {
     }
   };
 
-  const handleMarkPutAway = async (shipmentId: string) => {
-    if (!tenantId) return;
-    try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      await updateDoc(doc(db, `businesses/${tenantId}/shipments`, shipmentId), {
-        status: 'delivered',
-        putAwayAt: serverTimestamp()
-      });
-      toast.success('Package marked as put away');
-    } catch (err) {
-      console.error('Error marking as put away:', err);
-      toast.error('Failed to update status');
-    }
-  };
+
 
   const detectCarrier = (tracking: string) => {
     const t = tracking.toUpperCase().replace(/\s/g, '');
@@ -484,8 +601,7 @@ export function PartsMissionControl() {
     }
   };
 
-  const activeShipments = shipments?.filter(s => s.status !== 'delivered') || [];
-  const recentReceived = shipments?.filter(s => s.status === 'delivered').slice(0, 10) || [];
+
 
   return (
     <div 
@@ -598,7 +714,10 @@ export function PartsMissionControl() {
         {canManage ? (
           <div className="space-y-8">
             {/* Incoming Shipment Form - dark glassmorphic styling */}
-            <div className="bg-zinc-900/60 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] bg-gradient-to-br from-white/[0.05] to-transparent rounded-2xl p-6">
+            <div className={cn(
+              "bg-zinc-900/60 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] bg-gradient-to-br from-white/[0.05] to-transparent rounded-2xl p-6 relative",
+              (isJobDropdownOpen || isPoDropdownOpen) ? "z-20 animate-none" : "z-10"
+            )}>
               <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-white">
                 <Truck className="w-5 h-5 text-indigo-500" />
                 Track Incoming Shipment
@@ -639,28 +758,140 @@ export function PartsMissionControl() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative" ref={poDropdownRef}>
                     <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Description / PO</label>
-                    <input 
-                      type="text" 
-                      value={shipDescription}
-                      onChange={(e) => setShipDescription(e.target.value)}
-                      placeholder="e.g. Parts for Smith Job"
-                      className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-zinc-900 dark:text-white"
-                    />
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        value={shipDescription}
+                        onChange={(e) => {
+                          setShipDescription(e.target.value);
+                          setPoSearchQuery(e.target.value);
+                          setIsPoDropdownOpen(true);
+                        }}
+                        onFocus={() => {
+                          setPoSearchQuery(shipDescription);
+                          setIsPoDropdownOpen(true);
+                        }}
+                        placeholder="e.g. Parts for Smith Job"
+                        className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-zinc-900 dark:text-white font-medium placeholder:text-zinc-500"
+                      />
+                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+
+                      {isPoDropdownOpen && (
+                        <div className="absolute left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div className="max-h-60 overflow-y-auto custom-scrollbar p-1 space-y-1">
+                            <div className="px-3 py-1.5 text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-850 mb-1">
+                              QuickBooks Purchase Orders
+                            </div>
+                            {filteredPOsForSelect.map(po => {
+                              const displayText = `PO #${po.refNumber} - ${po.vendorName}`;
+                              return (
+                                <button
+                                  key={po.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setShipDescription(displayText);
+                                    setIsPoDropdownOpen(false);
+                                  }}
+                                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all flex items-center justify-between cursor-pointer"
+                                >
+                                  <span className="truncate">{displayText}</span>
+                                  <span className="text-[10px] text-zinc-500 font-mono">${po.totalAmount.toLocaleString()}</span>
+                                </button>
+                              );
+                            })}
+                            {filteredPOsForSelect.length === 0 && (
+                              <div className="p-3 text-center text-zinc-500 text-xs italic">
+                                No matching QuickBooks POs found
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 relative" ref={dropdownRef}>
                     <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Link to Job</label>
-                    <select 
-                      value={shipJobId}
-                      onChange={(e) => setShipJobId(e.target.value)}
-                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-zinc-900 dark:text-white"
-                    >
-                      <option value="">No Job Linked</option>
-                      {jobs.map(job => (
-                        <option key={job.id} value={job.id}>{job.title}</option>
-                      ))}
-                    </select>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsJobDropdownOpen(!isJobDropdownOpen);
+                          setJobSearchQuery('');
+                        }}
+                        className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-zinc-900 dark:text-white flex items-center justify-between font-medium cursor-pointer"
+                      >
+                        <span className="truncate">
+                          {shipJobId 
+                            ? (jobs.find(j => j.id === shipJobId) ? (() => {
+                                const matched = jobs.find(j => j.id === shipJobId);
+                                return matched ? `${matched.jobNumber ? `#${matched.jobNumber} ` : ''}${matched.title}` : 'Linked Job';
+                              })() : 'Linked Job')
+                            : 'No Job Linked'}
+                        </span>
+                        <Search className="w-4 h-4 text-zinc-400" />
+                      </button>
+
+                      {isJobDropdownOpen && (
+                        <div className="absolute left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div className="p-2 border-b border-zinc-800">
+                            <div className="relative">
+                              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                              <input
+                                type="text"
+                                value={jobSearchQuery}
+                                onChange={(e) => setJobSearchQuery(e.target.value)}
+                                placeholder="Search jobs by title or number..."
+                                className="w-full pl-9 pr-4 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs outline-none text-white focus:border-indigo-500"
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+                          <div className="max-h-60 overflow-y-auto custom-scrollbar p-1 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShipJobId('');
+                                setIsJobDropdownOpen(false);
+                              }}
+                              className={cn(
+                                "w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer",
+                                !shipJobId ? "bg-indigo-600 text-white" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                              )}
+                            >
+                              No Job Linked
+                            </button>
+                            {filteredJobsForSelect.map(job => {
+                              const isSelected = shipJobId === job.id;
+                              return (
+                                <button
+                                  key={job.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setShipJobId(job.id);
+                                    setIsJobDropdownOpen(false);
+                                  }}
+                                  className={cn(
+                                    "w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all flex items-center justify-between cursor-pointer",
+                                    isSelected ? "bg-indigo-600 text-white" : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                                  )}
+                                >
+                                  <span className="truncate">
+                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                            {filteredJobsForSelect.length === 0 && (
+                              <div className="p-3 text-center text-zinc-500 text-xs italic">
+                                No matching jobs found
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -673,6 +904,197 @@ export function PartsMissionControl() {
                   Track Shipment
                 </button>
               </form>
+            </div>
+
+            {/* Recently Received panel matching the office dashboard */}
+            <div className="bg-zinc-900/60 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] bg-gradient-to-br from-white/[0.05] to-transparent rounded-2xl p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold flex items-center gap-2 text-white">
+                  <Package className="w-5 h-5 text-emerald-500" />
+                  Recently Received
+                </h2>
+                <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+                  {allReceived.length} Items
+                </span>
+              </div>
+
+              {/* Package Search Box */}
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="w-4 h-4 text-zinc-400" />
+                </div>
+                <input
+                  type="text"
+                  value={packageSearchQuery}
+                  onChange={(e) => setPackageSearchQuery(e.target.value)}
+                  placeholder="Search packages (tracking, notes, location)..."
+                  className="w-full pl-9 pr-8 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs font-medium outline-none text-white focus:border-indigo-500 placeholder:text-zinc-500"
+                />
+                {packageSearchQuery && (
+                  <button 
+                    onClick={() => setPackageSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white text-xs font-bold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Filters */}
+              <div className="flex items-center gap-1 p-1 bg-zinc-955 rounded-xl border border-zinc-800/40">
+                {(['arriving', 'received', 'delivered'] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      setActiveFilter(f);
+                      setDisplayLimit(10);
+                    }}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 py-1.5 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer",
+                      activeFilter === f 
+                        ? "bg-zinc-800 text-indigo-400 shadow-sm" 
+                        : "text-zinc-500 hover:text-zinc-200"
+                    )}
+                  >
+                    {f === 'delivered' ? 'Put Away' : f}
+                    {counts[f] > 0 && (
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded-full text-[8px] font-bold min-w-[1.25rem] text-center",
+                        activeFilter === f 
+                          ? "bg-indigo-500/20 text-indigo-400" 
+                          : "bg-zinc-800 text-zinc-500"
+                      )}>
+                        {counts[f]}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              <div className="bg-zinc-950/40 rounded-2xl p-4 shadow-inner min-h-[300px] border border-zinc-800/40">
+                {displayItems.length === 0 ? (
+                  <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center p-8">
+                    <CheckCircle className="w-8 h-8 mb-3 opacity-20 text-emerald-500" />
+                    <p>No {activeFilter} items found.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {displayItems.map((item: any) => {
+                      const matchedJob = jobs.find(j => j.id === item.jobId);
+                      return (
+                        <div key={item.id} className={cn(
+                          "bg-zinc-900/60 border rounded-2xl p-4 shadow-sm hover:border-emerald-500 transition-all group relative",
+                          item.type === 'part' ? "border-indigo-500/20" : "border-emerald-500/20"
+                        )}>
+                          <div 
+                            className="absolute inset-0 z-0 cursor-pointer" 
+                            onClick={() => {
+                              if (item.jobId) {
+                                navigate(`/business/${tenantId}/job/${item.jobId}`);
+                              } else if (item.type === 'part') {
+                                setSelectedPartId(item.id);
+                              } else {
+                                setSelectedShipmentId(item.id);
+                              }
+                            }}
+                          />
+                          <div className="flex items-start justify-between mb-2 relative z-10 pointer-events-none">
+                            <div className="flex-1 min-w-0 pr-2">
+                              <div className="flex items-center gap-2 mb-1">
+                                {item.type === 'part' ? (
+                                  <ShoppingCart className="w-3 h-3 text-indigo-500 shrink-0" />
+                                ) : (
+                                  <Package className="w-3 h-3 text-emerald-500 shrink-0" />
+                                )}
+                                <h4 className="font-bold text-white truncate">{item.description || 'Item'}</h4>
+                                {item.type === 'shipment' && item.carrier && (
+                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter shrink-0 ${getCarrierBadgeStyles(item.carrier)}`}>
+                                    {item.carrier}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] font-mono text-zinc-400 truncate">
+                                {item.trackingNumber || (item.type === 'part' ? 'INTERNAL REQUEST' : 'NO TRACKING')}
+                              </p>
+                            </div>
+                            
+                            {/* Contextual Action Button */}
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const nextStatus = item.status === 'ordered' || item.status === 'pending' || item.status === 'in_transit' || item.status === 'out_for_delivery' ? 'received' : 
+                                                 item.status === 'received' ? 'delivered' : 'received';
+                                handleUpdateStatusPackage(item, nextStatus);
+                              }}
+                              className={cn(
+                                "shrink-0 p-2 text-white rounded-xl transition-all shadow-lg active:scale-95 pointer-events-auto cursor-pointer",
+                                item.status === 'ordered' || item.status === 'pending' || item.status === 'in_transit' || item.status === 'out_for_delivery' ? "bg-amber-500 shadow-amber-500/20 hover:bg-amber-600" :
+                                item.status === 'received' ? "bg-emerald-500 shadow-emerald-500/20 hover:bg-emerald-600" :
+                                "bg-zinc-500 shadow-zinc-500/20 hover:bg-zinc-600"
+                              )}
+                              title={item.status === 'ordered' || item.status === 'pending' || item.status === 'in_transit' || item.status === 'out_for_delivery' ? 'Mark Received' : 
+                                     item.status === 'received' ? 'Mark Processed' : 'Revert to Received'}
+                            >
+                              {item.status === 'ordered' || item.status === 'pending' || item.status === 'in_transit' || item.status === 'out_for_delivery' ? <MapPin className="w-4 h-4" /> :
+                               item.status === 'received' ? <CheckCircle className="w-4 h-4" /> :
+                               <Clock className="w-4 h-4" />}
+                            </button>
+                          </div>
+
+                          <div className="space-y-2 mt-3 pt-3 border-t border-zinc-800/60 relative z-10 pointer-events-none">
+                            <div className="flex items-center gap-2 text-xs font-bold text-zinc-300">
+                              <MapPin className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+                              {item.location || (item.type === 'part' ? 'DELIVER TO SHOP' : 'OFFICE STAGING')}
+                            </div>
+                            {(item.notes || matchedJob?.title) && (
+                              <div className="flex flex-col gap-1 p-2 bg-zinc-950 rounded-lg">
+                                {matchedJob?.title && (
+                                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-tight">
+                                    FOR: {matchedJob.title}
+                                  </div>
+                                )}
+                                {item.notes && (
+                                  <div className="text-[10px] text-zinc-400 italic flex items-start gap-1">
+                                    <FileText className="w-3 h-3 mt-0.5 shrink-0" />
+                                    {item.notes}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {((item.images && item.images.length > 0) || item.imageUrl || item.photoUrl || item.partImageUrl) && (
+                              <div className="flex items-center gap-2 overflow-x-auto pb-1 mt-2 custom-scrollbar">
+                                {(item.images?.length > 0 ? item.images : [item.imageUrl || item.photoUrl || item.partImageUrl].filter(Boolean)).map((img: string, i: number) => (
+                                  <div key={i} className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-zinc-850 shrink-0 border border-zinc-800 shadow-sm relative group/img">
+                                    <img src={img} alt={`Item ${i+1}`} className="w-full h-full object-cover group-hover/img:scale-110 transition-transform duration-300" />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between pt-1 mt-1">
+                              <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
+                                <User className="w-3 h-3" />
+                                {item.receivedBy || item.requestedBy || 'Staff'}
+                              </div>
+                              <div className="text-[10px] text-zinc-500 font-medium">
+                                {item.type === 'part' ? 'Part Arrived' : 'Package Arrived'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {hasMore && (
+                      <button 
+                        onClick={() => setDisplayLimit(prev => prev + 10)}
+                        className="w-full py-3 mt-4 text-[10px] font-black uppercase tracking-widest text-zinc-550 hover:text-indigo-400 transition-colors cursor-pointer"
+                      >
+                        Load More Items ({allReceived.length - displayLimit} remaining)
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -907,187 +1329,6 @@ export function PartsMissionControl() {
                 </div>
               );
             })()}
-          </div>
-
-          {/* Recently Arrived Packages */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-emerald-500" />
-              Recently Arrived
-            </h3>
-            {recentReceived.length === 0 ? (
-              <div className="p-8 text-center text-zinc-400 bg-zinc-900/60 backdrop-blur-xl border border-dashed border-white/[0.08] rounded-2xl">
-                No recent arrivals.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <AnimatePresence mode="popLayout">
-                  {recentReceived.map(shipment => (
-                    <motion.div 
-                      key={shipment.id} 
-                      layout
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                      whileHover={{ scale: 1.02, y: -4 }}
-                      onClick={() => setSelectedShipmentId(shipment.id)}
-                      className="bg-zinc-900/60 backdrop-blur-xl border border-white/[0.08] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] bg-gradient-to-br from-white/[0.05] to-transparent rounded-2xl p-4 flex flex-col gap-3 hover:border-emerald-500/50 transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between pointer-events-none">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white truncate max-w-[150px]">{shipment.description || 'Arrived Package'}</span>
-                          <span className="text-[10px] font-mono text-zinc-400 truncate">{shipment.trackingNumber}</span>
-                        </div>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 text-[10px] font-bold">
-                          RECEIVED
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                        <div className="flex flex-col gap-1 flex-1">
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
-                            <MapPin className="w-3.5 h-3.5 text-zinc-400" />
-                            {shipment.location || 'Unknown Location'}
-                          </div>
-                          {shipment.notes && (
-                            <div className="flex items-start gap-1.5 text-[10px] text-zinc-400 bg-zinc-50 dark:bg-zinc-800/55 p-1.5 rounded-lg border border-zinc-100 dark:border-zinc-800">
-                              <FileText className="w-3 h-3 mt-0.5 text-zinc-400 shrink-0" />
-                              <span className="italic">"{shipment.notes}"</span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                            <User className="w-3.5 h-3.5" />
-                            Received by <StaffLink name={shipment.receivedBy || 'Staff'} tenantId={tenantId!} />
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-end gap-2 text-right">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleMarkPutAway(shipment.id);
-                            }}
-                            className="p-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all active:scale-95 pointer-events-auto flex items-center gap-2 group/btn cursor-pointer"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            <span className="text-[10px] font-black uppercase tracking-wider hidden group-hover/btn:block">Mark Processed</span>
-                          </button>
-                          <div className="text-[10px] text-zinc-400 flex flex-col items-end opacity-60">
-                            <span className="font-bold">{shipment.deliveredAt?.toDate ? shipment.deliveredAt.toDate().toLocaleDateString() : 'Today'}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
-          </div>
-
-          {/* Inbound Shipments */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-              <Package className="w-4 h-4" />
-              Inbound Shipments
-            </h3>
-            {activeShipments.length === 0 ? (
-              <div className="p-8 text-center text-zinc-400 bg-zinc-900/60 backdrop-blur-xl border border-dashed border-white/[0.08] rounded-2xl">
-                No active shipments.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <AnimatePresence mode="popLayout">
-                  {activeShipments.map(shipment => {
-                    const isLocalIntake = shipment.isIntake;
-                    return (
-                      <motion.div 
-                        key={shipment.id} 
-                        layout
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                        whileHover={{ scale: 1.02, y: -4 }}
-                        onClick={() => setSelectedShipmentId(shipment.id)}
-                        className={`bg-zinc-900/60 backdrop-blur-xl border ${isLocalIntake ? 'border-emerald-500/30' : 'border-white/[0.08]'} shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] bg-gradient-to-br from-white/[0.05] to-transparent rounded-2xl p-4 flex flex-col gap-3 hover:border-indigo-500/50 transition-colors cursor-pointer group`}
-                      >
-                        <div className="flex items-center justify-between pointer-events-none">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${isLocalIntake ? 'bg-emerald-500 text-white' : getCarrierBadgeStyles(shipment.carrier)}`}>
-                              {isLocalIntake ? 'LOCAL INTAKE' : 'SHIPMENT'}
-                            </span>
-                            <span className="font-bold text-white">
-                              {isLocalIntake ? 'Package Received' : shipment.carrier}
-                            </span>
-                            <span className="text-[10px] font-mono text-zinc-400 truncate max-w-[100px]">
-                              {shipment.trackingNumber}
-                            </span>
-                          </div>
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider ring-1 ${getStatusColor(shipment.status)}`}>
-                            {shipment.status.replace(/_/g, ' ').toUpperCase()}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-col gap-1">
-                          <p className="text-xs font-semibold text-zinc-300">
-                            {shipment.description || 'No description'}
-                          </p>
-                          {shipment.location && (
-                            <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-                              <MapPin className="w-3 h-3 text-emerald-500" />
-                              Stored at: <span className="font-bold text-zinc-300">{shipment.location}</span>
-                            </div>
-                          )}
-                          {shipment.notes && (
-                            <p className="text-[10px] text-zinc-400 italic mt-1 line-clamp-2">"{shipment.notes}"</p>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                          <div className="flex items-center gap-3">
-                            {shipment.eta && (
-                              <div className="flex items-center gap-1 text-[10px] text-zinc-400">
-                                <Calendar className="w-3 h-3" /> {shipment.eta}
-                              </div>
-                            )}
-                            {shipment.jobId && (
-                              <div className="text-[10px] font-semibold text-indigo-500">
-                                Job: {jobs.find(j => j.id === shipment.jobId)?.title || 'Linked'}
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 text-right">
-                            {isLocalIntake && shipment.status === 'received' && (
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMarkPutAway(shipment.id);
-                                }}
-                                className="px-3 py-1 bg-emerald-500 hover:bg-emerald-600 text-white text-[10px] font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                              >
-                                <CheckCircle className="w-3 h-3" />
-                                MARK PUT AWAY
-                              </button>
-                            )}
-                            {!isLocalIntake && (
-                              <a 
-                                href={`https://parcelsapp.com/en/tracking/${shipment.trackingNumber}`} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="p-1.5 text-zinc-400 hover:text-indigo-500 transition-colors"
-                              >
-                                <ExternalLink className="w-4 h-4" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
-            )}
           </div>
 
           {/* QuickBooks Purchase Orders */}

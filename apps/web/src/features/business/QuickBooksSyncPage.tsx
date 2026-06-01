@@ -11,6 +11,29 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 
+// Helper to count records from response XML
+function countRecordsFromXml(xmlString: string | undefined | null): number {
+  if (!xmlString) return 0;
+  const matches = xmlString.match(/<[A-Za-z0-9]+Ret\b[^>]*>/g);
+  return matches ? matches.length : 0;
+}
+
+// Helper to get a human-readable action name
+function getFriendlyActionName(action: string): string {
+  if (!action) return 'Sync Job';
+  if (action === 'CustomerQuery') return 'Customers';
+  if (action.startsWith('Item') && action.endsWith('Query')) return 'Inventory Items';
+  if (action === 'InvoiceQuery') return 'Invoices';
+  if (action === 'PurchaseOrderQuery') return 'Purchase Orders';
+  if (action === 'TimeTrackingQuery') return 'Time Tracking';
+  if (action === 'VendorQuery') return 'Vendors';
+  if (action === 'EmployeeQuery') return 'Employees';
+  if (action === 'ClassQuery') return 'Classes';
+  if (action === 'ItemInventoryAdd') return 'Add Inventory Item';
+  if (action === 'InventoryAdjustmentAdd') return 'Inventory Qty Adjustment';
+  return action;
+}
+
 function QbCollectionStats({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -233,6 +256,10 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
   const processingCount = queue.filter(q => q.status === 'processing').length;
   const errorCount = queue.filter(q => q.status === 'error').length;
   const completedCount = queue.filter(q => q.status === 'completed').length;
+  
+  const totalRecordsSynced = queue
+    .filter(q => q.status === 'completed')
+    .reduce((acc, item) => acc + (typeof item.recordsSynced === 'number' ? item.recordsSynced : countRecordsFromXml(item.response)), 0);
   
   const processingItem = queue.find(q => q.status === 'processing');
   const errors = queue.filter(q => q.status === 'error').sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -497,13 +524,20 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
           <p className="text-xs text-zinc-500 font-bold mt-2">Requires attention</p>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col">
-          <div className="flex items-center gap-2 mb-2 text-emerald-500">
-            <CheckCircle2 className="w-5 h-5" />
-            <h3 className="font-bold uppercase tracking-wider text-sm">Completed</h3>
+        <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-emerald-500">
+              <CheckCircle2 className="w-5 h-5" />
+              <h3 className="font-bold uppercase tracking-wider text-sm">Completed</h3>
+            </div>
+            <p className="text-3xl font-black text-zinc-900 dark:text-white">{completedCount}</p>
           </div>
-          <p className="text-3xl font-black text-zinc-900 dark:text-white">{completedCount}</p>
-          <p className="text-xs text-zinc-500 font-bold mt-2">Since last wipe</p>
+          <div className="mt-2 pt-2 border-t border-zinc-150 dark:border-zinc-800/60 flex items-center justify-between text-xs">
+            <span className="text-zinc-500 dark:text-zinc-400 font-medium">Records Synced:</span>
+            <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg">
+              {totalRecordsSynced.toLocaleString()}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -600,11 +634,32 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
                       <td className="py-3 px-4 text-zinc-500 font-medium">
                         {item.completedAt ? (item.completedAt.toDate ? item.completedAt.toDate() : new Date(item.completedAt)).toLocaleString() : '-'}
                       </td>
-                      <td className="py-3 px-4 max-w-[240px] truncate text-zinc-400 dark:text-zinc-550 font-medium">
+                      <td className="py-3 px-4 max-w-[320px] font-medium">
                         {hasError ? (
                           <span className="text-rose-500/95 font-semibold text-xs truncate block">{item.error}</span>
+                        ) : isCompleted ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1">
+                              ✓ {item.action?.includes('Add') ? 'Added' : 'Synced'} {typeof item.recordsSynced === 'number' ? item.recordsSynced : countRecordsFromXml(item.response)} {getFriendlyActionName(item.action)}
+                            </span>
+                            <code className="text-[9px] text-zinc-400 dark:text-zinc-650 font-mono block max-w-xs truncate">{item.qbxml}</code>
+                          </div>
+                        ) : isProcessing ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-blue-500 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              Processing {getFriendlyActionName(item.action)}...
+                            </span>
+                            <code className="text-[9px] text-zinc-400 dark:text-zinc-650 font-mono block max-w-xs truncate">{item.qbxml}</code>
+                          </div>
                         ) : (
-                          <code className="text-[10px] text-zinc-500 font-mono block max-w-xs truncate">{item.qbxml || 'No payload'}</code>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-zinc-500 dark:text-zinc-400 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              Pending {getFriendlyActionName(item.action)}
+                            </span>
+                            <code className="text-[9px] text-zinc-400 dark:text-zinc-650 font-mono block max-w-xs truncate">{item.qbxml}</code>
+                          </div>
                         )}
                       </td>
                       <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
