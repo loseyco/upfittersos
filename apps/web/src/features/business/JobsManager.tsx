@@ -215,7 +215,7 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
 
           <SearchableSelect
             className="w-full md:w-48"
-            options={['all', 'Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QA', 'Ready for Customer', 'Completed', 'Closed']}
+            options={['all', 'Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QC', 'Ready for Customer', 'Completed', 'Closed']}
             value={statusFilter}
             onChange={(val) => {
               const newVal = val || 'all';
@@ -244,8 +244,8 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         columns={jobColumns}
         dbOrderBy={{ field: 'updatedAt', direction: 'desc' }}
         localFilter={(job) => {
-          const vehicle = vehicles.find(v => v.vin === job.vehicleId);
-          const vehicleLabel = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : '';
+          const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
+          const vehicleLabel = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'No Vehicle Assigned';
           const matchesSearch = 
             (job.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
             (job.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||

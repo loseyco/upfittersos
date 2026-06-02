@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Terminal, Shield, BarChart3, AlertTriangle, Settings, 
   X, Copy, RefreshCw, Trash2, Search, Moon, Sun, 
-  UserCheck, ShieldAlert, Cpu, Database, EyeOff, Check, AlertCircle
+  UserCheck, ShieldAlert, Cpu, Database, EyeOff, Check, AlertCircle,
+  ChevronRight
 } from 'lucide-react';
 import { collection, query, limit, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
@@ -401,44 +402,53 @@ export function DebugPortal() {
 
   return (
     <>
-      {/* ⚡ FLOATING LAUNCHER PILL */}
+      {/* ⚡ FLOATING LAUNCHER TAB ON LEFT EDGE */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-6 left-6 z-50 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white px-4 py-3 rounded-full shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-300 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex items-center gap-2 group border border-indigo-400/20"
+          className="fixed left-0 top-1/2 -translate-y-1/2 z-50 bg-zinc-900/95 hover:bg-zinc-800 hover:text-white text-zinc-400 w-5 h-16 rounded-r-md border border-l-0 border-zinc-800 shadow-md transition-all duration-300 hover:w-6 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          title="Open Debug Portal"
         >
-          <Terminal size={16} className="animate-pulse text-indigo-200" />
-          <span className="text-[10px] font-black tracking-widest uppercase select-none">Debug Portal</span>
+          <ChevronRight size={14} />
         </button>
       )}
 
-      {/* 💻 EXPANDED DRAWER */}
+      {/* 💻 EXPANDED DRAWER (LEFT SIDEBAR) */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 24, stiffness: 180 }}
-            className="fixed bottom-0 left-0 right-0 z-[999] h-[55vh] min-h-[420px] max-h-[85vh] bg-zinc-950/98 backdrop-blur-md border-t border-zinc-800 shadow-2xl flex flex-col font-sans select-text text-zinc-200"
+            initial={{ x: '-100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '-100%' }}
+            transition={{ type: 'spring', damping: 26, stiffness: 190 }}
+            className="fixed top-0 bottom-0 left-0 z-[999] w-[420px] max-w-[95vw] bg-zinc-950/98 backdrop-blur-md border-r border-zinc-800 shadow-2xl flex flex-col font-sans select-text text-zinc-200"
           >
+            {/* Collapse toggle tab on the outer edge of the open drawer */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="absolute -right-5 top-1/2 -translate-y-1/2 z-50 bg-zinc-950/98 hover:bg-zinc-900 hover:text-white text-zinc-400 w-5 h-16 rounded-r-md border border-l-0 border-zinc-800 shadow-md flex items-center justify-center focus:outline-none"
+              title="Close Debug Portal"
+            >
+              <ChevronRight size={14} className="rotate-180" />
+            </button>
+
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-3 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
-              <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/50 shrink-0">
+              <div className="flex flex-col gap-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse" />
-                  <h2 className="text-xs font-black tracking-widest uppercase text-white">
-                    Upfitters OS Debug Console
+                  <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+                  <h2 className="text-[10px] font-black tracking-widest uppercase text-white truncate">
+                    Debug Console
                   </h2>
                 </div>
 
                 {impersonatedStaff && (
-                  <div className="flex items-center gap-2 px-2.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold rounded-full border border-emerald-500/20">
-                    <UserCheck size={11} />
-                    Impersonating: {impersonatedStaff.name}
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 text-[9px] font-bold rounded border border-emerald-500/20 truncate">
+                    <UserCheck size={10} className="shrink-0" />
+                    <span className="truncate">Imp: {impersonatedStaff.name}</span>
                     <button 
                       onClick={stopImpersonating}
-                      className="ml-1 text-white hover:text-emerald-300 font-extrabold underline underline-offset-2"
+                      className="ml-1 text-white hover:text-emerald-300 font-extrabold underline underline-offset-2 shrink-0"
                     >
                       Stop
                     </button>
@@ -446,105 +456,105 @@ export function DebugPortal() {
                 )}
 
                 {isSuperAdmin && !impersonatedStaff && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[10px] font-bold rounded-full border border-indigo-500/20">
-                    <ShieldAlert size={11} />
-                    Super Admin Portal Mode
+                  <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 text-[9px] font-bold rounded border border-indigo-500/20 shrink-0 w-fit">
+                    <ShieldAlert size={10} className="shrink-0" />
+                    Super Admin
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] text-zinc-500 font-mono">
-                  Uptime: {uptime} | Tenant: {tenantId || 'GLOBAL'}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] text-zinc-500 font-mono">
+                  {tenantId || 'GLOBAL'}
                 </span>
                 <button
                   onClick={() => setIsOpen(false)}
                   className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
                 >
-                  <X size={16} />
+                  <X size={15} />
                 </button>
               </div>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex border-b border-zinc-800 bg-zinc-900/30 px-6 py-1.5 gap-2 shrink-0">
+            <div className="flex border-b border-zinc-800 bg-zinc-900/30 px-4 py-1.5 gap-1 shrink-0 overflow-x-auto scrollbar-none">
               <button
                 onClick={() => setActiveTab('permissions')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
                   activeTab === 'permissions' 
-                    ? 'bg-zinc-800 text-white shadow' 
+                    ? 'bg-zinc-800 text-white shadow border border-zinc-700/50' 
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Shield size={14} />
-                Permissions & Impersonation
+                <Shield size={12} />
+                Perms
               </button>
               <button
                 onClick={() => setActiveTab('telemetry')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
                   activeTab === 'telemetry' 
-                    ? 'bg-zinc-800 text-white shadow' 
+                    ? 'bg-zinc-800 text-white shadow border border-zinc-700/50' 
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <BarChart3 size={14} />
-                Telemetry & TanStack Queries
+                <BarChart3 size={12} />
+                Telemetry
               </button>
               <button
                 onClick={() => setActiveTab('console')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
                   activeTab === 'console' 
-                    ? 'bg-zinc-800 text-white shadow' 
+                    ? 'bg-zinc-800 text-white shadow border border-zinc-700/50' 
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <AlertTriangle size={14} />
-                Diagnostics & Log stream
+                <AlertTriangle size={12} />
+                Logs
               </button>
               <button
                 onClick={() => setActiveTab('utilities')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
                   activeTab === 'utilities' 
-                    ? 'bg-zinc-800 text-white shadow' 
+                    ? 'bg-zinc-800 text-white shadow border border-zinc-700/50' 
                     : 'text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                <Settings size={14} />
-                Quick Utilities
+                <Settings size={12} />
+                Utils
               </button>
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-zinc-950">
+            <div className="flex-1 overflow-y-auto p-4 min-h-0 bg-zinc-950 space-y-4">
               
               {/* TAB 1: PERMISSIONS & IMPERSONATION */}
               {activeTab === 'permissions' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-                  {/* Left Column: Impersonate Staff */}
-                  <div className="flex flex-col gap-4 border-r border-zinc-800 pr-6">
+                <div className="flex flex-col gap-5 h-full">
+                  {/* Masquerade & Impersonation */}
+                  <div className="flex flex-col gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-white mb-1">
+                      <h3 className="text-xs font-bold text-white mb-0.5">
                         Masquerade & Impersonation
                       </h3>
-                      <p className="text-xs text-zinc-400">
+                      <p className="text-[11px] text-zinc-400 leading-normal">
                         View Upfitters OS as a specific employee to audit visual limits.
                       </p>
                     </div>
 
                     {tenantId && tenantId !== 'GLOBAL' ? (
-                      <div className="flex flex-col gap-3 flex-1 min-h-0">
+                      <div className="flex flex-col gap-2">
                         <div className="relative">
-                          <Search className="absolute top-2.5 left-3 w-4 h-4 text-zinc-500" />
+                          <Search className="absolute top-2 left-2.5 w-3.5 h-3.5 text-zinc-500" />
                           <input
                             type="text"
                             placeholder="Search active staff members..."
                             value={staffSearch}
                             onChange={(e) => setStaffSearch(e.target.value)}
-                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                           />
                         </div>
 
-                        <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-lg divide-y divide-zinc-900 max-h-[160px] lg:max-h-none">
+                        <div className="overflow-y-auto border border-zinc-800 rounded-lg divide-y divide-zinc-900 max-h-[160px]">
                           {filteredStaffList.length > 0 ? (
                             filteredStaffList.map((s: any) => (
                               <div 
@@ -552,50 +562,50 @@ export function DebugPortal() {
                                 className="flex items-center justify-between p-2 hover:bg-zinc-900 transition-colors"
                               >
                                 <div className="min-w-0 pr-2">
-                                  <p className="text-xs font-bold text-white truncate">
+                                  <p className="text-[11px] font-bold text-white truncate">
                                     {s.firstName} {s.lastName}
                                   </p>
-                                  <p className="text-[10px] text-zinc-500 truncate capitalize">
+                                  <p className="text-[9px] text-zinc-500 truncate capitalize">
                                     {s.role || 'Staff'} {s.departmentName ? `• ${s.departmentName}` : ''}
                                   </p>
                                 </div>
                                 <button
                                   onClick={() => handleImpersonateUser(s)}
                                   disabled={impersonatedStaff?.id === s.id}
-                                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-bold transition-all disabled:opacity-50"
+                                  className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[9px] font-bold transition-all disabled:opacity-50 shrink-0"
                                 >
                                   Impersonate
                                 </button>
                               </div>
                             ))
                           ) : (
-                            <div className="p-4 text-center text-xs text-zinc-500">
+                            <div className="p-3 text-center text-[11px] text-zinc-500">
                               No staff matches found.
                             </div>
                           )}
                         </div>
                       </div>
                     ) : (
-                      <div className="p-4 bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-center flex flex-col items-center justify-center gap-2 my-auto">
-                        <EyeOff className="w-8 h-8 text-zinc-500" />
-                        <p className="text-xs text-zinc-400 font-bold">Impersonate Unavailable</p>
-                        <p className="text-[10px] text-zinc-500 max-w-[200px]">
+                      <div className="p-3 bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-center flex flex-col items-center justify-center gap-1.5">
+                        <EyeOff className="w-6 h-6 text-zinc-500" />
+                        <p className="text-[11px] text-zinc-400 font-bold">Impersonate Unavailable</p>
+                        <p className="text-[9px] text-zinc-500 max-w-[240px] leading-normal">
                           Select a Tenant / Business dashboard first (staff are fetched per tenant scope).
                         </p>
                       </div>
                     )}
 
                     <div className="border-t border-zinc-800 pt-3">
-                      <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-wider mb-2">
-                        Quick Mock Roles (Generic Rules)
+                      <h4 className="text-[9px] font-black text-zinc-500 uppercase tracking-wider mb-2">
+                        Quick Mock Roles
                       </h4>
                       <div className="flex flex-col gap-1.5">
                         {mockRoles.map((r, i) => (
-                          <div key={i} className="flex items-center justify-between text-xs">
+                          <div key={i} className="flex items-center justify-between text-[11px]">
                             <span className="text-zinc-300 font-medium">{r.name}</span>
                             <button
                               onClick={() => handleImpersonateRole(r.name, r.permissions)}
-                              className="px-2 py-0.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded text-[10px] font-bold"
+                              className="px-2 py-0.5 border border-zinc-700 hover:border-zinc-500 text-zinc-300 rounded text-[9px] font-bold"
                             >
                               Activate
                             </button>
@@ -605,37 +615,37 @@ export function DebugPortal() {
                     </div>
                   </div>
 
-                  {/* Middle & Right Column combined: Permission Checklist */}
-                  <div className="flex flex-col gap-4 lg:col-span-2 h-full min-h-0">
-                    <div className="flex items-center justify-between shrink-0">
+                  {/* Permission Checklist */}
+                  <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4">
+                    <div className="flex flex-col gap-2 shrink-0">
                       <div>
-                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <h3 className="text-xs font-bold text-white flex items-center gap-2">
                           Live Permission Matrix
                           {currentViewRequirement.requiredKey && (
-                            <span className="text-[10px] bg-amber-500/10 border border-amber-500/20 text-amber-400 font-black px-2 py-0.5 rounded uppercase">
-                              Required: {currentViewRequirement.requiredKey}
+                            <span className="text-[9px] bg-amber-500/10 border border-amber-500/20 text-amber-400 font-black px-1.5 py-0.5 rounded uppercase">
+                              Req: {currentViewRequirement.requiredKey}
                             </span>
                           )}
                         </h3>
-                        <p className="text-xs text-zinc-400">
-                          Inspect permissions in real-time. Toggle checkboxes to immediately overlay custom states on the UI.
+                        <p className="text-[11px] text-zinc-400 leading-normal">
+                          Inspect & toggle active session overrides.
                         </p>
                       </div>
 
-                      <div className="relative w-48">
+                      <div className="relative">
                         <Search className="absolute top-2 left-2.5 w-3.5 h-3.5 text-zinc-500" />
                         <input
                           type="text"
                           placeholder="Filter permissions..."
                           value={permSearch}
                           onChange={(e) => setPermSearch(e.target.value)}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none"
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
                         />
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-900/10 p-4 max-h-[220px] lg:max-h-none">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-900/10 p-2 max-h-[250px]">
+                      <div className="grid grid-cols-1 gap-1.5">
                         {filteredPermissionKeys.map((key) => {
                           const hasPerm = permissions[key] === true;
                           return (
@@ -649,21 +659,21 @@ export function DebugPortal() {
                               }`}
                             >
                               <div className="min-w-0 pr-2">
-                                <p className="text-[11px] font-bold text-zinc-100 truncate">
+                                <p className="text-[10px] font-bold text-zinc-100 truncate">
                                   {key}
                                 </p>
-                                <p className="text-[9px] text-zinc-400 truncate">
+                                <p className="text-[8px] text-zinc-400 truncate">
                                   {PERMISSIONS[key]}
                                 </p>
                               </div>
                               
                               <div className="shrink-0 flex items-center">
                                 {hasPerm ? (
-                                  <div className="w-4.5 h-4.5 bg-indigo-600 border border-indigo-500 rounded flex items-center justify-center text-white">
-                                    <Check size={11} strokeWidth={3} />
+                                  <div className="w-4 h-4 bg-indigo-600 border border-indigo-500 rounded flex items-center justify-center text-white">
+                                    <Check size={10} strokeWidth={3} />
                                   </div>
                                 ) : (
-                                  <div className="w-4.5 h-4.5 border border-zinc-700 hover:border-zinc-500 rounded" />
+                                  <div className="w-4 h-4 border border-zinc-700 hover:border-zinc-500 rounded" />
                                 )}
                               </div>
                             </div>
@@ -677,17 +687,17 @@ export function DebugPortal() {
 
               {/* TAB 2: TELEMETRY & TANSTACK QUERIES */}
               {activeTab === 'telemetry' && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-                  {/* Left Column: Client Telemetry */}
-                  <div className="flex flex-col gap-4 border-r border-zinc-800 pr-6">
-                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Cpu className="w-4 h-4 text-violet-400" />
+                <div className="flex flex-col gap-5">
+                  {/* Client Diagnostics */}
+                  <div className="flex flex-col gap-3">
+                    <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-violet-400" />
                       Client Diagnostics
                     </h3>
 
-                    <div className="space-y-2.5 text-xs">
+                    <div className="space-y-2 text-[11px]">
                       <div className="flex justify-between border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-400">Current Tab / Route</span>
+                        <span className="text-zinc-400">Current Route</span>
                         <span className="text-white font-mono font-bold truncate max-w-[200px]" title={location.pathname}>
                           {location.pathname}
                         </span>
@@ -699,93 +709,67 @@ export function DebugPortal() {
                         </span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-400">Screen Resolution</span>
+                        <span className="text-zinc-400">Screen Size</span>
                         <span className="text-white font-mono">
-                          {window.innerWidth}x{window.innerHeight} ({window.devicePixelRatio}x dpr)
-                        </span>
-                      </div>
-                      <div className="flex justify-between border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-400">Firebase User ID</span>
-                        <span className="text-white font-mono truncate max-w-[150px]" title={user?.uid}>
-                          {user?.uid || 'Not Authenticated'}
+                          {window.innerWidth}x{window.innerHeight} ({window.devicePixelRatio}x)
                         </span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1.5">
                         <span className="text-zinc-400">Operator Email</span>
-                        <span className="text-emerald-400 font-mono truncate max-w-[150px]" title={user?.email || ''}>
+                        <span className="text-emerald-400 font-mono truncate max-w-[200px]" title={user?.email || ''}>
                           {user?.email || 'N/A'}
                         </span>
                       </div>
                       <div className="flex justify-between border-b border-zinc-900 pb-1.5">
-                        <span className="text-zinc-400">PWA Online State</span>
+                        <span className="text-zinc-400">PWA Connection</span>
                         <span className={`font-black ${navigator.onLine ? 'text-emerald-500' : 'text-red-500'}`}>
                           {navigator.onLine ? 'ONLINE' : 'OFFLINE'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between pb-1.5">
-                        <span className="text-zinc-400">Network Speed Type</span>
-                        <span className="text-amber-400 font-mono uppercase">
-                          {(navigator as any).connection?.effectiveType || 'N/A'}
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Middle & Right Column: React Query Monitor */}
-                  <div className="flex flex-col gap-4 lg:col-span-2 h-full min-h-0">
+                  {/* TanStack Query Store Cache */}
+                  <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4">
                     <div className="flex items-center justify-between shrink-0">
-                      <div>
-                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                          <Database className="w-4 h-4 text-indigo-400" />
-                          TanStack Query Store Cache
-                        </h3>
-                        <p className="text-xs text-zinc-400">
-                          Active query collections and document fetch states for the current route.
-                        </p>
-                      </div>
+                      <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-indigo-400" />
+                        TanStack Queries ({queryClient.getQueryCache().getAll().length})
+                      </h3>
 
                       <button
                         onClick={handleClearCache}
-                        className="flex items-center gap-1.5 px-3 py-1 border border-red-500/20 hover:bg-red-500/10 text-red-400 rounded-lg text-xs font-bold transition-all"
+                        className="flex items-center gap-1 px-2 py-0.5 border border-red-500/20 hover:bg-red-500/10 text-red-400 rounded text-[9px] font-bold transition-all"
                       >
-                        <Trash2 size={12} />
-                        Flush Cache
+                        <Trash2 size={10} />
+                        Flush
                       </button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-900/10">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-zinc-900/60 border-b border-zinc-800 text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                            <th className="px-4 py-2">Query Key Path</th>
-                            <th className="px-4 py-2">Cache Status</th>
-                            <th className="px-4 py-2 text-right">Data Updated At</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-900 font-mono">
-                          {queryClient.getQueryCache().getAll().map((q, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-900/30 transition-colors">
-                              <td className="px-4 py-2 max-w-[320px] truncate text-zinc-200">
+                    <div className="overflow-y-auto border border-zinc-800 rounded-lg bg-zinc-900/10 max-h-[300px]">
+                      <div className="divide-y divide-zinc-900 font-mono text-[10px]">
+                        {queryClient.getQueryCache().getAll().map((q, idx) => (
+                          <div key={idx} className="p-2.5 hover:bg-zinc-900/30 transition-colors flex flex-col gap-1">
+                            <div className="flex justify-between items-start gap-2">
+                              <span className="text-zinc-300 break-all font-bold">
                                 {JSON.stringify(q.queryKey)}
-                              </td>
-                              <td className="px-4 py-2">
-                                <span className={`px-2 py-0.5 text-[10px] font-black rounded-full uppercase border ${
-                                  q.state.fetchStatus === 'fetching' 
-                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse'
-                                    : q.state.status === 'success' 
-                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
-                                }`}>
-                                  {q.state.fetchStatus === 'fetching' ? 'fetching' : q.state.status}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2 text-right text-zinc-500 text-[10px]">
-                                {new Date(q.state.dataUpdatedAt).toLocaleTimeString()}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                              </span>
+                              <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-black rounded uppercase border ${
+                                q.state.fetchStatus === 'fetching' 
+                                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                  : q.state.status === 'success' 
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                              }`}>
+                                {q.state.fetchStatus === 'fetching' ? 'fetching' : q.state.status}
+                              </span>
+                            </div>
+                            <div className="text-zinc-500 text-[9px]">
+                              Updated: {new Date(q.state.dataUpdatedAt).toLocaleTimeString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -793,20 +777,20 @@ export function DebugPortal() {
 
               {/* TAB 3: DIAGNOSTICS & LOG STREAM */}
               {activeTab === 'console' && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full min-h-0">
-                  {/* Left Column: Captured Console Logs */}
-                  <div className="flex flex-col gap-4 h-full min-h-0">
+                <div className="flex flex-col gap-5">
+                  {/* Console Logs */}
+                  <div className="flex flex-col gap-3">
                     <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <Terminal className="w-4 h-4 text-emerald-400" />
+                      <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-emerald-400" />
                         Captured Logs & Warnings
                       </h3>
-                      <p className="text-xs text-zinc-400">
-                        Diagnostics captured automatically from this active browser session.
+                      <p className="text-[11px] text-zinc-400 leading-normal">
+                        Captured from active browser session.
                       </p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto border border-zinc-800 bg-black/60 rounded-lg p-4 font-mono text-[10px] space-y-2">
+                    <div className="overflow-y-auto border border-zinc-800 bg-black/60 rounded-lg p-2.5 font-mono text-[9px] space-y-2 max-h-[220px]">
                       {logs.length > 0 ? (
                         logs.map((log, idx) => (
                           <div 
@@ -817,7 +801,7 @@ export function DebugPortal() {
                                 : 'bg-amber-500/5 text-amber-400 border-l-2 border-l-amber-500'
                             }`}
                           >
-                            <div className="flex justify-between font-bold text-[9px] opacity-80 mb-1">
+                            <div className="flex justify-between font-bold text-[8px] opacity-80 mb-1">
                               <span className="uppercase">{log.type}</span>
                               <span>{log.timestamp.toLocaleTimeString()}</span>
                             </div>
@@ -825,35 +809,35 @@ export function DebugPortal() {
                           </div>
                         ))
                       ) : (
-                        <div className="flex flex-col items-center justify-center h-full text-zinc-500 gap-1.5 py-8">
-                          <Check className="w-5 h-5 text-emerald-500" />
+                        <div className="flex flex-col items-center justify-center text-zinc-500 gap-1 py-6">
+                          <Check className="w-4 h-4 text-emerald-500" />
                           <span>Console clean. No issues captured.</span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Right Column: Feedback Reports */}
-                  <div className="flex flex-col gap-4 h-full min-h-0">
+                  {/* Feedback Reports */}
+                  <div className="flex flex-col gap-3 border-t border-zinc-800 pt-4">
                     <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-violet-400" />
-                        Recent System Feedback Reports
+                      <h3 className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-violet-400" />
+                        Recent Feedback Reports
                       </h3>
-                      <p className="text-xs text-zinc-400">
-                        Bugs and incident reports recorded globally in Firestore.
+                      <p className="text-[11px] text-zinc-400 leading-normal">
+                        Bugs/reports recorded globally in Firestore.
                       </p>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-lg p-3 bg-zinc-900/10 space-y-2">
+                    <div className="overflow-y-auto border border-zinc-800 rounded-lg p-2 bg-zinc-900/10 space-y-2 max-h-[220px]">
                       {feedbackReports.length > 0 ? (
                         feedbackReports.map((report) => (
                           <div 
                             key={report.id}
-                            className="bg-zinc-900 border border-zinc-800 rounded-lg p-3 text-xs"
+                            className="bg-zinc-900 border border-zinc-800 rounded-lg p-2 text-[11px]"
                           >
-                            <div className="flex justify-between items-center mb-1.5 border-b border-zinc-800 pb-1">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase ${
+                            <div className="flex justify-between items-center mb-1 border-b border-zinc-800 pb-1">
+                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${
                                 report.type === 'bug' 
                                   ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
                                   : report.type === 'feature'
@@ -862,19 +846,19 @@ export function DebugPortal() {
                               }`}>
                                 {report.type || 'feedback'}
                               </span>
-                              <span className="text-[10px] text-zinc-500">
-                                {report.createdAt?.toDate ? report.createdAt.toDate().toLocaleString() : 'Just Now'}
+                              <span className="text-[9px] text-zinc-500">
+                                {report.createdAt?.toDate ? report.createdAt.toDate().toLocaleTimeString() : 'Just Now'}
                               </span>
                             </div>
-                            <p className="text-zinc-200 leading-relaxed font-medium mb-1.5">{report.description}</p>
-                            <div className="flex justify-between text-[10px] text-zinc-500">
-                              <span>Reporter: <strong className="text-zinc-400">{report.userEmail || 'Anonymous'}</strong></span>
-                              <span className="truncate max-w-[150px]">Path: {report.route || '/'}</span>
+                            <p className="text-zinc-200 leading-relaxed font-medium mb-1">{report.description}</p>
+                            <div className="flex justify-between text-[9px] text-zinc-500 gap-2">
+                              <span className="truncate">User: {report.userEmail || 'Anonymous'}</span>
+                              <span className="truncate max-w-[120px]">Path: {report.route || '/'}</span>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="p-8 text-center text-xs text-zinc-500">
+                        <div className="p-4 text-center text-[11px] text-zinc-500">
                           No feedback reports recorded.
                         </div>
                       )}
@@ -885,72 +869,72 @@ export function DebugPortal() {
 
               {/* TAB 4: QUICK UTILITIES */}
               {activeTab === 'utilities' && (
-                <div className="h-full flex flex-col gap-6">
+                <div className="flex flex-col gap-4">
                   <div>
-                    <h3 className="text-sm font-bold text-white mb-1">
+                    <h3 className="text-xs font-bold text-white mb-0.5">
                       Quick Developer Operations
                     </h3>
-                    <p className="text-xs text-zinc-400">
-                      Force overrides, local cleanup tools, and state copy facilities.
+                    <p className="text-[11px] text-zinc-400 leading-normal">
+                      Force overrides, local cleanup, and state copy.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 gap-2.5">
                     {/* Action 1 */}
                     <button 
                       onClick={handleCopyState}
-                      className="p-4 bg-zinc-900 border border-zinc-800 hover:border-violet-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-2"
+                      className="p-3 bg-zinc-900 border border-zinc-800 hover:border-violet-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-1"
                     >
-                      <Copy className="w-5 h-5 text-violet-400 group-hover:scale-105 transition-transform" />
-                      <span className="text-xs font-bold text-white">Copy System State</span>
-                      <span className="text-[10px] text-zinc-400 leading-normal">
-                        Copies a full state dump containing user profiles, permissions, tabs, and connection stats.
+                      <Copy className="w-4 h-4 text-violet-400 group-hover:scale-105 transition-transform" />
+                      <span className="text-[11px] font-bold text-white">Copy State</span>
+                      <span className="text-[9px] text-zinc-500 leading-snug">
+                        Copy user, perm, and query dump.
                       </span>
                     </button>
 
                     {/* Action 2 */}
                     <button 
                       onClick={handleClearCache}
-                      className="p-4 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-2"
+                      className="p-3 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-1"
                     >
-                      <RefreshCw className="w-5 h-5 text-indigo-400 group-hover:rotate-45 transition-transform" />
-                      <span className="text-xs font-bold text-white">Flush Queries Cache</span>
-                      <span className="text-[10px] text-zinc-400 leading-normal">
-                        Clears the TanStack query client cache and triggers structural data re-fetches for operational stability.
+                      <RefreshCw className="w-4 h-4 text-indigo-400 group-hover:rotate-45 transition-transform" />
+                      <span className="text-[11px] font-bold text-white">Flush Cache</span>
+                      <span className="text-[9px] text-zinc-500 leading-snug">
+                        Flush query client cache.
                       </span>
                     </button>
 
                     {/* Action 3 */}
                     <button 
                       onClick={handleToggleTheme}
-                      className="p-4 bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-2"
+                      className="p-3 bg-zinc-900 border border-zinc-800 hover:border-amber-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-1"
                     >
-                      <div className="flex gap-1.5 text-amber-400">
-                        <Sun className="w-4 h-4" />
-                        <Moon className="w-4 h-4" />
+                      <div className="flex gap-1 text-amber-400">
+                        <Sun className="w-3.5 h-3.5" />
+                        <Moon className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-xs font-bold text-white">Force Theme Switch</span>
-                      <span className="text-[10px] text-zinc-400 leading-normal">
-                        Toggles light/dark root document class names instantly, bypassing system matching preferences.
+                      <span className="text-[11px] font-bold text-white">Toggle Theme</span>
+                      <span className="text-[9px] text-zinc-500 leading-snug">
+                        Toggles light/dark root theme.
                       </span>
                     </button>
 
                     {/* Action 4 */}
                     <button 
                       onClick={handleClearLocalStorage}
-                      className="p-4 bg-zinc-900 border border-zinc-800 hover:border-red-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-2"
+                      className="p-3 bg-zinc-900 border border-zinc-800 hover:border-red-500/50 rounded-xl text-left hover:bg-zinc-900/80 transition-all group flex flex-col gap-1"
                     >
-                      <Trash2 className="w-5 h-5 text-red-400 group-hover:scale-105 transition-transform" />
-                      <span className="text-xs font-bold text-white text-red-400">Wipe LocalStorage</span>
-                      <span className="text-[10px] text-zinc-400 leading-normal">
-                        Completely deletes cached sidebar states, device keys, tokens, and initiates root site reload.
+                      <Trash2 className="w-4 h-4 text-red-400 group-hover:scale-105 transition-transform" />
+                      <span className="text-[11px] font-bold text-red-400">Wipe Storage</span>
+                      <span className="text-[9px] text-zinc-500 leading-snug">
+                        Full local storage wipe & reload.
                       </span>
                     </button>
                   </div>
 
-                  <div className="mt-auto border-t border-zinc-900 pt-4 flex justify-between items-center text-[10px] text-zinc-500">
-                    <span>Upfitters OS developer suite v3.2.0 • build static: ready</span>
-                    <span>Pairing with Google Gemini Agent</span>
+                  <div className="border-t border-zinc-900 pt-4 flex flex-col gap-0.5 text-[9px] text-zinc-500">
+                    <div>Upfitters OS developer suite v3.2.0</div>
+                    <div>Pairing with Google Gemini Agent</div>
                   </div>
                 </div>
               )}

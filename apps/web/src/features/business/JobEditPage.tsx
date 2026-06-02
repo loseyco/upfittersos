@@ -257,7 +257,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       };
       syncJobTechs();
     }
-  }, [jobTasks, jobId, tenantId, job, tasksLoaded, isNew]);
+  }, [jobTasks, jobId, tenantId, job, tasksLoaded, isNew]);  const prevTasksStateRef = useRef<string>('');
 
   // Progression & Regression Logic Hook
   useEffect(() => {
@@ -268,6 +268,11 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
     const allQCComplete = nonGeneralTasks.every(t => t.status === 'QC Complete');
+
+    // Check if tasks actually changed
+    const currentTasksState = nonGeneralTasks.map(t => `${t.id}:${t.status}`).join(',');
+    const tasksChanged = prevTasksStateRef.current && prevTasksStateRef.current !== currentTasksState;
+    prevTasksStateRef.current = currentTasksState;
 
     const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
@@ -282,8 +287,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           toast.success(msg);
         }
 
-        // Automatically assign job to QC staff if status is Ready for QA
-        if (newStatus === 'Ready for QA') {
+        // Automatically assign job to QC staff if status is Ready for QC
+        if (newStatus === 'Ready for QC') {
           await assignQCStaffToJob(tenantId, jobId);
         }
       } catch (e) {
@@ -291,23 +296,26 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       }
     };
 
-    // Progression: If Active/Open/Ready for QA, progress forward if all tasks are ready
-    if (['Active', 'Open', 'Ready for QA'].includes(job.status)) {
-      if (allQCComplete) {
-        updateJobStatus('Ready for Customer', 'Job ready for customer!');
-      } else if (allQCReady) {
-        updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+    // Only auto-progress or auto-revert if tasks actually changed to avoid manual status change revert loops
+    if (tasksChanged) {
+      // Progression: If Active/Open/Ready for QC, progress forward if all tasks are ready
+      if (['Active', 'Open', 'Ready for QC'].includes(job.status || '')) {
+        if (allQCComplete) {
+          updateJobStatus('Ready for Customer', 'Job ready for customer!');
+        } else if (allQCReady) {
+          updateJobStatus('Ready for QC', 'Job ready for QC inspection');
+        }
       }
-    }
 
-    // Regression: If currently Ready for Customer or Ready for QA, but tasks were reopened or added
-    if (['Ready for Customer', 'Ready for QA'].includes(job.status)) {
-      if (!allQCReady) {
-        // There are unfinished tasks, so job must go back to Active
-        updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
-      } else if (job.status === 'Ready for Customer' && !allQCComplete) {
-        // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to Ready for QA
-        updateJobStatus('Ready for QA', 'QC tasks pending: Job status reverted to Ready for QA', true);
+      // Regression: If currently Ready for Customer or Ready for QC, but tasks were reopened or added
+      if (['Ready for Customer', 'Ready for QC'].includes(job.status || '')) {
+        if (!allQCReady) {
+          // There are unfinished tasks, so job must go back to Active
+          updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
+        } else if (job.status === 'Ready for Customer' && !allQCComplete) {
+          // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to QC pending
+          updateJobStatus('Ready for QC', 'QC tasks pending: Job status reverted', true);
+        }
       }
     }
   }, [jobTasks, job?.status, tenantId, jobId]);
@@ -840,7 +848,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
               <div>
                 <label className="block text-xs font-bold text-zinc-500 mb-1.5">Status</label>
                 <SearchableSelect
-                  options={['Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QA', 'Ready for Customer', 'Completed', 'Closed']}
+                  options={['Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold', 'Ready for QC', 'Ready for Customer', 'Completed', 'Closed']}
                   value={formData.status}
                   onChange={val => setFormData((prev: any) => ({ ...prev, status: val || 'Open' }))}
                   getLabel={s => s}

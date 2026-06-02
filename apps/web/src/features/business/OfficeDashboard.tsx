@@ -134,9 +134,9 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
 
   // 1. Jobs Flagged as Ready for QC
   const readyForQcJobs = jobs.filter(job => 
-    job.status === 'Ready for QA'
+    job.status === 'Ready for QC'
   ).filter(job => {
-    const vehicle = vehicles.find(v => v.vin === job.vehicleId);
+    const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
     return matchesSearch(job, vehicle);
   }).sort((a, b) => {
     // Sort by expectedFinishTime/due date ascending, then updatedAt descending
@@ -155,7 +155,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const readyForCustomerJobs = jobs.filter(job => 
     job.status === 'Ready for Customer'
   ).filter(job => {
-    const vehicle = vehicles.find(v => v.vin === job.vehicleId);
+    const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
     return matchesSearch(job, vehicle);
   }).sort((a, b) => {
     // Sort by expectedFinishTime/due date ascending, then updatedAt descending
@@ -218,10 +218,10 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const hasMore = allReceived.length > displayLimit;
 
   const renderJobCard = (job: any, type: 'qc' | 'customer') => {
-    const vehicle = vehicles.find(v => v.vin === job.vehicleId);
+    const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
     const vehicleDisplay = vehicle 
       ? (`${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${job.vehicleId}`) 
-      : (job.vehicleId ? `VIN: ${job.vehicleId}` : 'Unlinked');
+      : (job.vehicleId ? `VIN: ${job.vehicleId}` : 'No Vehicle Assigned');
       
     const etaRaw = getJobEta(job);
     let etaLabel = null;
@@ -439,7 +439,59 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
-        
+
+        {/* Jobs Marked as Ready for Customer */}
+        <section className="flex flex-col">
+          <div className="flex items-center justify-between mb-4 px-1">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+              <CheckCircle className="w-5 h-5 text-emerald-500" />
+              Ready for Customer
+            </h2>
+            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+              {readyForCustomerJobs.length} Jobs
+            </span>
+          </div>
+          
+          <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
+            {readyForCustomerJobs.length === 0 ? (
+              <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
+                <CheckCircle className="w-8 h-8 mb-3 opacity-20 text-emerald-500" />
+                <p>No jobs marked as ready for customer.</p>
+              </div>
+            ) : (
+              <div className="space-y-3 sm:space-y-4">
+                {readyForCustomerJobs.map(job => renderJobCard(job, 'customer'))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Jobs Flagged as Ready for QC */}
+        <section className="flex flex-col">
+          <div className="flex items-center justify-between mb-4 px-1">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
+              <CheckSquare className="w-5 h-5 text-indigo-500" />
+              Ready for QC
+            </h2>
+            <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+              {readyForQcJobs.length} Jobs
+            </span>
+          </div>
+          
+          <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
+            {readyForQcJobs.length === 0 ? (
+              <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
+                <CheckSquare className="w-8 h-8 mb-3 opacity-20 text-indigo-500" />
+                <p>No jobs flagged as ready for QC.</p>
+              </div>
+            ) : (
+              <div className="space-y-3 sm:space-y-4">
+                {readyForQcJobs.map(job => renderJobCard(job, 'qc'))}
+              </div>
+            )}
+          </div>
+        </section>
+
         {/* Packages to Put Away */}
         <section className="flex flex-col lg:col-span-2 xl:col-span-1">
           <div className="flex items-center justify-between mb-4 px-1">
@@ -616,58 +668,6 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
                     Load More Items ({allReceived.length - displayLimit} remaining)
                   </button>
                 )}
-              </div>
-            )}
-          </div>
-        </section>
-        
-        {/* Jobs Flagged as Ready for QC */}
-        <section className="flex flex-col">
-          <div className="flex items-center justify-between mb-4 px-1">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
-              <CheckSquare className="w-5 h-5 text-indigo-500" />
-              Ready for QC
-            </h2>
-            <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
-              {readyForQcJobs.length} Jobs
-            </span>
-          </div>
-          
-          <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
-            {readyForQcJobs.length === 0 ? (
-              <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
-                <CheckSquare className="w-8 h-8 mb-3 opacity-20 text-indigo-500" />
-                <p>No jobs flagged as ready for QC.</p>
-              </div>
-            ) : (
-              <div className="space-y-3 sm:space-y-4">
-                {readyForQcJobs.map(job => renderJobCard(job, 'qc'))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Jobs Marked as Ready for Customer */}
-        <section className="flex flex-col">
-          <div className="flex items-center justify-between mb-4 px-1">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-zinc-900 dark:text-white">
-              <CheckCircle className="w-5 h-5 text-emerald-500" />
-              Ready for Customer
-            </h2>
-            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
-              {readyForCustomerJobs.length} Jobs
-            </span>
-          </div>
-          
-          <div className="flex-1 bg-zinc-50/50 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-inner">
-            {readyForCustomerJobs.length === 0 ? (
-              <div className="h-48 flex flex-col items-center justify-center text-zinc-500 italic text-center">
-                <CheckCircle className="w-8 h-8 mb-3 opacity-20 text-emerald-500" />
-                <p>No jobs marked as ready for customer.</p>
-              </div>
-            ) : (
-              <div className="space-y-3 sm:space-y-4">
-                {readyForCustomerJobs.map(job => renderJobCard(job, 'customer'))}
               </div>
             )}
           </div>

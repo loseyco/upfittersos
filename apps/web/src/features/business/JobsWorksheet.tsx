@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import {
   Search, FileSpreadsheet, ExternalLink, ChevronDown,
   AlertTriangle, Package, Plus, Maximize, Minimize,
-  Mail, Share2
+  Mail, Share2, Check
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -179,6 +179,13 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
+  const [colFilters, setColFilters] = useState<Record<string, string>>({
+    priority: 'all',
+    location: 'all',
+    status: 'all',
+    parts: 'all'
+  });
 
   useWakeLock(isFullscreen);
 
@@ -404,8 +411,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const filteredJobs = useMemo(() => {
     return jobsList.filter(job => {
       // 1. Search Query Filter
-      const vehicle = vehiclesList.find(v => v.vin === job.vehicleId);
-      const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : '';
+      const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+      const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
       const matchesSearch =
         (job.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (job.jobNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -425,8 +432,9 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       const hasTasksNeedingDone = totalTasks > completedTasks;
       const hasQCNeedingDone = nonGeneralTasks.some(t => t.status === 'QC' || t.status === 'in_review');
       const isReadyForCustomer = job.status === 'Ready for Customer';
+      const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
 
-      const isActionable = hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer;
+      const isActionable = hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
       if (!isActionable) return false;
 
       // 3. Status Toolbar Dropdown Filter
@@ -442,7 +450,46 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
         (selectedStatusFilter === 'Completed' && (resolvedStatus === 'Completed' || resolvedStatus === 'Closed')) ||
         (selectedStatusFilter === job.status);
 
-      return matchesStatus;
+      if (!matchesStatus) return false;
+
+      // 4. Excel-style Column Filters
+      // Priority filter
+      if (colFilters.priority !== 'all') {
+        const priorityVal = job.priority || '3 Medium';
+        if (colFilters.priority === 'urgent' && !priorityVal.includes('5')) return false;
+        if (colFilters.priority === 'high' && !priorityVal.includes('4')) return false;
+        if (colFilters.priority === 'medium' && !priorityVal.includes('3')) return false;
+        if (colFilters.priority === 'low' && !priorityVal.includes('2') && !priorityVal.includes('1') && !priorityVal.includes('0')) return false;
+      }
+
+      // Location filter
+      if (colFilters.location !== 'all') {
+        const resolvedLocationId = zonesList.find(z => z.currentJobId === job.id)?.id || job.bayId || 'none';
+        const bay = zonesList.find(z => z.id === resolvedLocationId);
+        const bayName = bay ? bay.name : (resolvedLocationId !== 'none' ? resolvedLocationId : 'None');
+        if (colFilters.location.toLowerCase() !== bayName.toLowerCase()) return false;
+      }
+
+      // Status filter
+      if (colFilters.status !== 'all') {
+        if (colFilters.status === 'Active' && resolvedStatus !== 'Active' && resolvedStatus !== 'Open') return false;
+        if (colFilters.status !== 'Active' && colFilters.status !== resolvedStatus) return false;
+      }
+
+      // Parts filter
+      if (colFilters.parts !== 'all') {
+        const jobParts = partsRequests.filter(p => p.jobId === job.id);
+        const totalParts = jobParts.length;
+        const missingParts = jobParts.filter(p => p.status === 'pending' || p.status === 'ordered').length;
+        
+        let partsLabel = 'no_parts';
+        if (totalParts > 0) {
+          partsLabel = missingParts > 0 ? 'missing' : 'ready';
+        }
+        if (colFilters.parts !== partsLabel) return false;
+      }
+
+      return true;
     }).sort((a, b) => {
       // 1. Sort by Priority (descending: 5 - Urgent down to 0 - Not Ready)
       const getPriorityVal = (j: any) => {
@@ -471,7 +518,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       // 3. Sort by last updated
       return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
     });
-  }, [jobsList, vehiclesList, searchTerm, selectedStatusFilter, tasksMap]);
+  }, [jobsList, vehiclesList, searchTerm, selectedStatusFilter, tasksMap, colFilters, zonesList, partsRequests]);
 
   // Edits Handlers
   const handleDueDateChange = async (jobId: string, newDateStr: string) => {
@@ -638,10 +685,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     };
 
     jobsList.forEach((job) => {
-      const vehicle = vehiclesList.find(v => v.vin === job.vehicleId);
+      const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
       const vehicleLabel = vehicle
         ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-        : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'N/A');
+        : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
       const jobDesc = `${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title} (${vehicleLabel})`;
 
       // 1. Task progress today
@@ -657,10 +704,16 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
         isToday(t.completedAt) || isToday(t.qcCompletedAt) || isToday(t.updatedAt)
       );
 
-      // Only add to readyForQc list if ALL tasks of the job are marked as ready for QC (and there's activity today)
-      if (allTasksQcReady && hasQcActivityToday) {
+      // Only add to readyForQc list if explicitly marked as Ready for QC, or if ALL tasks of the job are marked as ready for QC (and there's activity today)
+      const isExplicitReadyForQC = job.status === 'Ready for QC';
+      const isReadyForCustomerOrClosed = ['Ready for Customer', 'Completed', 'Closed'].includes(job.status || '');
+      if (!isReadyForCustomerOrClosed && (isExplicitReadyForQC || (allTasksQcReady && hasQcActivityToday))) {
         const crewNames = Array.from(new Set(nonGeneralTasks.flatMap(t => t.assignedStaff?.map((s: any) => s.name) || []))).join(', ') || 'Unassigned';
-        reportSections.readyForQc.push(`🏁 Job ${jobDesc} is fully READY FOR QC (All ${totalTasks} tasks completed! Crew: ${crewNames})`);
+        reportSections.readyForQc.push(
+          isExplicitReadyForQC 
+            ? `🏁 Job ${jobDesc} is marked READY FOR QC (Crew: ${crewNames})`
+            : `🏁 Job ${jobDesc} is fully READY FOR QC (All ${totalTasks} tasks completed! Crew: ${crewNames})`
+        );
       }
 
       // Check for individual tasks passed QC or rework today
@@ -875,6 +928,65 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const uniqueBays = useMemo(() => {
+    const bays = new Set<string>();
+    jobsList.forEach(job => {
+      const resolvedLocationId = zonesList.find(z => z.currentJobId === job.id)?.id || job.bayId;
+      if (resolvedLocationId && resolvedLocationId !== 'none') {
+        const zoneObj = zonesList.find(z => z.id === resolvedLocationId);
+        bays.add(zoneObj ? zoneObj.name : resolvedLocationId);
+      }
+    });
+    return Array.from(bays).sort();
+  }, [jobsList, zonesList]);
+
+  const renderHeaderFilter = (colKey: string, options: Array<{ value: string; label: string }>) => {
+    const isActive = colFilters[colKey] !== 'all';
+    return (
+      <div className="inline-block ml-1 relative group no-print">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveHeaderFilterDropdown(activeHeaderFilterDropdown === colKey ? null : colKey);
+          }}
+          className={cn(
+            "p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-md transition-colors cursor-pointer inline-flex items-center align-middle",
+            isActive ? "text-indigo-500 font-bold" : "text-zinc-400 dark:text-zinc-500"
+          )}
+          title={`Filter by ${colKey}`}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+        {activeHeaderFilterDropdown === colKey && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setActiveHeaderFilterDropdown(null)} 
+            />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl p-1.5 z-50 min-w-[140px] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in duration-150 text-left font-sans normal-case text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              {options.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setColFilters(prev => ({ ...prev, [colKey]: opt.value }));
+                    setActiveHeaderFilterDropdown(null);
+                  }}
+                  className={cn(
+                    "w-full px-2 py-1.5 text-left rounded-lg transition-colors flex items-center justify-between hover:bg-zinc-50 dark:hover:bg-zinc-850",
+                    colFilters[colKey] === opt.value ? "bg-indigo-50/50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold" : ""
+                  )}
+                >
+                  <span>{opt.label}</span>
+                  {colFilters[colKey] === opt.value && <Check className="w-3 h-3 text-indigo-500 shrink-0 ml-1.5" />}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
 
 
   return (
@@ -953,6 +1065,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
               <option value="all">All Job Statuses</option>
               <option value="Active">Active / Open</option>
               <option value="Blocked">Blocked</option>
+              <option value="Ready for QC">Ready for QC</option>
+              <option value="Ready for Customer">Ready for Customer</option>
               <option value="Completed">Completed / Closed</option>
               <option value="On Hold">On Hold</option>
               <option value="Almost Ready">Almost Ready</option>
@@ -987,7 +1101,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Job # & Details {renderResizeHandle('jobInfo')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.priority }}>
-                Priority {renderResizeHandle('priority')}
+                Priority {renderHeaderFilter('priority', [{ value: 'all', label: 'All Priorities' }, { value: 'urgent', label: 'Urgent (5)' }, { value: 'high', label: 'High (4)' }, { value: 'medium', label: 'Medium (3)' }, { value: 'low', label: 'Low (2/1/0)' }])} {renderResizeHandle('priority')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.dueDate }}>
                 Due Date {renderResizeHandle('dueDate')}
@@ -996,10 +1110,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Est Completion {renderResizeHandle('dynamicETA')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.location }}>
-                Location / Bay {renderResizeHandle('location')}
+                Location / Bay {renderHeaderFilter('location', [{ value: 'all', label: 'All Locations' }, ...uniqueBays.map(b => ({ value: b, label: b }))])} {renderResizeHandle('location')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.status }}>
-                Job Status {renderResizeHandle('status')}
+                Job Status {renderHeaderFilter('status', [{ value: 'all', label: 'All Statuses' }, { value: 'Active', label: 'Active / Open' }, { value: 'Blocked', label: 'Blocked' }, { value: 'Ready for QC', label: 'Ready for QC' }, { value: 'Ready for Customer', label: 'Ready for Customer' }, { value: 'Almost Ready', label: 'Almost Ready' }, { value: 'On Hold', label: 'On Hold' }])} {renderResizeHandle('status')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.crew }}>
                 Active Staff {renderResizeHandle('crew')}
@@ -1008,7 +1122,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Tasks Completed {renderResizeHandle('tasks')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.parts }}>
-                Parts Status {renderResizeHandle('parts')}
+                Parts Status {renderHeaderFilter('parts', [{ value: 'all', label: 'All Parts' }, { value: 'missing', label: 'Missing Parts' }, { value: 'ready', label: 'Ready' }, { value: 'no_parts', label: 'No Parts' }])} {renderResizeHandle('parts')}
               </th>
               <th className="p-2.5 relative align-middle" style={{ width: colWidths.blockers }}>
                 Active Blockers {renderResizeHandle('blockers')}
@@ -1027,10 +1141,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
             ) : (
               filteredJobs.map((job) => {
                 // Find vehicle
-                const vehicle = vehiclesList.find(v => v.vin === job.vehicleId);
+                const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
                 const vehicleLabel = vehicle
                   ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-                  : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : null);
+                  : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
 
                 // Tasks stats
                 const jobTasks = tasksMap[job.id] || [];
@@ -1038,6 +1152,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 const totalTasks = nonGeneralTasks.length;
                 const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
                 const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+                const totalBookTime = nonGeneralTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                const remainingBookTime = nonGeneralTasks
+                  .filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed')
+                  .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
 
                 // Parts aggregation
                 const jobParts = partsRequests.filter(p => p.jobId === job.id);
@@ -1211,7 +1330,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                               "text-zinc-650 dark:text-zinc-400"
                         )}>
                           <ExcelSearchableSelect
-                            options={['Open', 'Active', 'Blocked', 'Almost Ready', 'On Hold', 'Ready for QA', 'Ready for Customer', 'Completed', 'Closed']}
+                            options={['Open', 'Active', 'Blocked', 'Almost Ready', 'On Hold', 'Ready for QC', 'Ready for Customer', 'Completed', 'Closed']}
                             value={job.status || 'Open'}
                             onChange={(val) => handleStatusChange(job.id, val)}
                             getLabel={(s) => s}
@@ -1278,6 +1397,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                 style={{ width: `${progressPercentage}%` }}
                               />
                             </div>
+                            {totalBookTime > 0 && (
+                              <div className="text-[10px] text-zinc-550 dark:text-zinc-400 mt-1.5 font-bold leading-none">
+                                {remainingBookTime.toFixed(1)}h remaining
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>

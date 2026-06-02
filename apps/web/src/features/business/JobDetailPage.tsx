@@ -19,6 +19,7 @@ import { PartsRequestModal } from './PartsRequestModal';
 import { ETAModal } from './ETAModal';
 import { SearchableSelect } from './SearchableSelect';
 import { TakeoffsSection } from './TakeoffsSection';
+import { LogoQRCode } from '../../components/LogoQRCode';
 
 export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
@@ -33,6 +34,21 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   
   const [staffMember, setStaffMember] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
+  const [businessLogo, setBusinessLogo] = useState<string>('');
+  const [businessName, setBusinessName] = useState<string>('');
+  
+  useEffect(() => {
+    if (!tenantId) return;
+    const docRef = doc(db, 'businesses', tenantId);
+    getDoc(docRef).then((snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const logo = data?.rawData?.logoUrl || data?.logoUrl || '';
+        setBusinessLogo(logo);
+        setBusinessName(data?.name || '');
+      }
+    });
+  }, [tenantId]);
   
   // Track technician staff member record
   useEffect(() => {
@@ -848,7 +864,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       toast.error('Failed to record check');
     }
   };
-
+  const prevTasksStateRef = useRef<string>('');
 
   // Progression & Regression Logic Hook
   useEffect(() => {
@@ -859,6 +875,11 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
     const allQCComplete = nonGeneralTasks.every(t => t.status === 'QC Complete');
+
+    // Check if tasks actually changed
+    const currentTasksState = nonGeneralTasks.map(t => `${t.id}:${t.status}`).join(',');
+    const tasksChanged = prevTasksStateRef.current && prevTasksStateRef.current !== currentTasksState;
+    prevTasksStateRef.current = currentTasksState;
 
     const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
@@ -873,8 +894,8 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           toast.success(msg);
         }
 
-        // Automatically assign job to QC staff if status is Ready for QA
-        if (newStatus === 'Ready for QA') {
+        // Automatically assign job to QC staff if status is Ready for QC
+        if (newStatus === 'Ready for QC') {
           await assignQCStaffToJob(tenantId, jobId);
         }
       } catch (e) {
@@ -882,23 +903,26 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       }
     };
 
-    // Progression: If Active/Open/Ready for QA, progress forward if all tasks are ready
-    if (['Active', 'Open', 'Ready for QA'].includes(job.status)) {
-      if (allQCComplete) {
-        updateJobStatus('Ready for Customer', 'Job ready for customer!');
-      } else if (allQCReady) {
-        updateJobStatus('Ready for QA', 'Job ready for QA inspection');
+    // Only auto-progress or auto-revert if tasks actually changed to avoid manual status change revert loops
+    if (tasksChanged) {
+      // Progression: If Active/Open/Ready for QC, progress forward if all tasks are ready
+      if (['Active', 'Open', 'Ready for QC'].includes(job.status || '')) {
+        if (allQCComplete) {
+          updateJobStatus('Ready for Customer', 'Job ready for customer!');
+        } else if (allQCReady) {
+          updateJobStatus('Ready for QC', 'Job ready for QC inspection');
+        }
       }
-    }
 
-    // Regression: If currently Ready for Customer or Ready for QA, but tasks were reopened or added
-    if (['Ready for Customer', 'Ready for QA'].includes(job.status)) {
-      if (!allQCReady) {
-        // There are unfinished tasks, so job must go back to Active
-        updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
-      } else if (job.status === 'Ready for Customer' && !allQCComplete) {
-        // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to Ready for QA
-        updateJobStatus('Ready for QA', 'QC tasks pending: Job status reverted to Ready for QA', true);
+      // Regression: If currently Ready for Customer or Ready for QC, but tasks were reopened or added
+      if (['Ready for Customer', 'Ready for QC'].includes(job.status || '')) {
+        if (!allQCReady) {
+          // There are unfinished tasks, so job must go back to Active
+          updateJobStatus('Active', 'Tasks reopened: Job status set to Active', true);
+        } else if (job.status === 'Ready for Customer' && !allQCComplete) {
+          // All tasks are at least QC Ready, but not all are QC Complete, so job must go back to QC pending
+          updateJobStatus('Ready for QC', 'QC tasks pending: Job status reverted', true);
+        }
       }
     }
   }, [tasks, job?.status, tenantId, jobId]);
@@ -1233,7 +1257,13 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 <div style="font-weight: bold; color: #18181b;">${t.title}</div>
                 ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
                 <div style="font-size: 11px; color: #10b981; font-weight: 600; margin-top: 4px;">Completed by: ${staffNames}</div>
-                ${t.title !== 'General' && bookHours > 0 ? `
+                ${clockedHours === 0 ? `
+                  <div style="font-size: 11px; color: #71717a; font-weight: 600; margin-top: 4px;">
+                    <span style="color: #71717a; background: #f4f4f5; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid #e4e4e7;">
+                      No time logged but complete
+                    </span>
+                  </div>
+                ` : t.title !== 'General' && bookHours > 0 ? `
                   <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
                     Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
                     ${isOverBook ? `
@@ -1283,7 +1313,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 ` : ''}
               </td>
               <td style="padding: 12px 10px; font-family: monospace; text-align: right; color: #4f46e5; font-weight: bold;">
-                ${clockedHours.toFixed(1)}h
+                ${bookHours > 0 ? `${clockedHours.toFixed(1)}h / ${bookHours.toFixed(1)}h` : `${clockedHours.toFixed(1)}h`}
               </td>
             </tr>
           `;
@@ -1373,15 +1403,29 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       </div>
     ` : '';
 
+    const jobUrl = `${window.location.origin}/business/${tenantId}/jobs/${jobId}`;
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(jobUrl)}`;
+
     return `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; padding: 30px 15px; color: #18181b;">
         <div style="max-width: 650px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 1px solid #e4e4e7;">
           
           <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; padding: 30px 24px;">
-            <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">JOB STATUS REPORT</h1>
-            <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-              ${job.customerName || 'Walk-in Customer'} &bull; Job ${job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
-            </p>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="vertical-align: middle;">
+                  <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">JOB STATUS REPORT</h1>
+                  <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ${job.customerName || 'Walk-in Customer'} &bull; Job ${job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
+                  </p>
+                </td>
+                <td style="text-align: right; width: 80px; padding-left: 15px; vertical-align: middle;">
+                  <div style="background: white; padding: 4px; border-radius: 8px; display: inline-block; line-height: 0;">
+                    <img src="${qrImageUrl}" width="64" height="64" alt="QR Code" style="border: 0; display: block;" />
+                  </div>
+                </td>
+              </tr>
+            </table>
           </div>
 
           <div style="padding: 24px;">
@@ -1418,7 +1462,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 <tr>
                   <td style="padding: 10px 0 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Total Job Progress</td>
                   <td style="padding: 10px 0 6px 0;">
-                    <div style="font-weight: 800; font-size: 15px; color: #4f46e5; margin-bottom: 4px;">${jobProgress}% Complete</div>
+                    <div style="font-weight: 800; font-size: 15px; color: #4f46e5; margin-bottom: 4px;">
+                      ${completedBookHours.toFixed(1)}h / ${totalBookHours.toFixed(1)}h (${jobProgress}%)
+                    </div>
                     <div style="background: #e4e4e7; border-radius: 99px; height: 10px; width: 100%; overflow: hidden;">
                       <div style="background: #6366f1; height: 100%; border-radius: 99px; width: ${jobProgress}%;"></div>
                     </div>
@@ -1428,11 +1474,18 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
             </div>
 
             <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                ✔ WHAT'S DONE
+              <h2 style="font-size: 14px; font-weight: 900; color: #1f2937; border-bottom: 2px solid #1f2937; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                👤 STAFF ALLOCATION OVERVIEW
+              </h2>
+              ${staffWorkloadHtml}
+            </div>
+
+            <div style="margin-bottom: 24px;">
+              <h2 style="font-size: 14px; font-weight: 900; color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚠ MISSING / PENDING PARTS
               </h2>
               <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                ${doneHtml}
+                ${partsHtml}
               </table>
             </div>
 
@@ -1446,22 +1499,17 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
             </div>
 
             <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                ⚠ MISSING / PENDING PARTS
+              <h2 style="font-size: 14px; font-weight: 900; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                ✔ WHAT'S DONE
               </h2>
               <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                ${partsHtml}
+                ${doneHtml}
               </table>
             </div>
 
             ${efficiencyHtml}
 
-            <div style="margin-bottom: 12px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #1f2937; border-bottom: 2px solid #1f2937; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                👤 STAFF ALLOCATION OVERVIEW
-              </h2>
-              ${staffWorkloadHtml}
-            </div>
+
 
           </div>
 
@@ -1975,7 +2023,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                     Clock Out
                                                   </button>
                                                 ) : (
-                                                   task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '') && (
+                                                   task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '') && (
                                                     <button 
                                                       onClick={async (e) => { 
                                                         e.stopPropagation(); 
@@ -2108,7 +2156,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     <div className="space-y-8">
                       {renderGroupedTasks(activeTasksList)}
                       <div id="qc-tasks-section">
-                        {renderGroupedTasks(completedTasksList, "Ready for QA & Completed")}
+                        {renderGroupedTasks(completedTasksList, "Ready for QC & Completed")}
                       </div>
                     </div>
                   );
@@ -2855,9 +2903,18 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                         {job.customerName || 'Walk-in Customer'} &bull; Job {job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
                       </p>
                     </div>
-                    <div className="text-right">
-                      <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
-                      <div className="text-xs font-bold font-mono">{new Date().toLocaleDateString()}</div>
+                    <div className="flex items-center gap-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
+                        <div className="text-xs font-bold font-mono">{new Date().toLocaleDateString()}</div>
+                      </div>
+                      <LogoQRCode 
+                        value={`${window.location.origin}/business/${tenantId}/jobs/${jobId}`} 
+                        size={60} 
+                        logoUrl={businessLogo}
+                        businessName={businessName}
+                        type="job"
+                      />
                     </div>
                   </div>
 
@@ -2893,9 +2950,72 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                         <div className="flex-1 h-2 bg-zinc-200 rounded-full overflow-hidden">
                           <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${jobProgress}%` }} />
                         </div>
-                        <span className="font-bold font-mono text-zinc-800">{jobProgress}%</span>
+                        <span className="font-bold font-mono text-zinc-800 text-xs whitespace-nowrap">
+                          {completedBookHours.toFixed(1)}h / {totalBookHours.toFixed(1)}h ({jobProgress}%)
+                        </span>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Staff Workload Section */}
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 mb-6 text-xs print-no-break">
+                    <h3 className="text-xs font-black text-zinc-700 border-b border-zinc-200 pb-1.5 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" />
+                      Staff Workload Allocation
+                    </h3>
+                    {staffStats.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No staff assigned.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-zinc-200 text-zinc-400 font-bold uppercase tracking-wider text-[9px]">
+                              <th className="py-1">Technician</th>
+                              <th className="py-1 text-center">Tasks (Done / Total)</th>
+                              <th className="py-1 text-right">Hours (Done / Total)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100">
+                            {staffStats.map(s => (
+                              <tr key={s.id}>
+                                <td className="py-2 font-bold text-zinc-700">{s.name}</td>
+                                <td className="py-2 text-center text-zinc-500">{s.completedTasks} / {s.totalTasks}</td>
+                                <td className="py-2 text-right font-mono font-bold text-zinc-700">
+                                  {s.completedHours.toFixed(1)} / {s.totalHours.toFixed(1)}h
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Missing Parts Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5" />
+                      Missing / Pending Parts
+                    </h2>
+                    {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No parts pending requests.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').map(p => (
+                          <div key={p.id} className="py-2.5 flex justify-between items-center gap-4">
+                            <div>
+                              <h4 className="text-xs font-bold text-zinc-800">{p.partName}</h4>
+                              <p className="text-[10px] text-zinc-400 mt-0.5">
+                                Qty: {p.quantity || 1} &bull; {p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
+                              </p>
+                            </div>
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
+                              {p.status || 'requested'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Efficiency Report Summary */}
@@ -2943,57 +3063,6 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     </div>
                   )}
 
-                  {/* Tasks Done Section */}
-                  <div className="mb-6 print-no-break">
-                    <h2 className="text-xs font-black text-emerald-600 border-b border-emerald-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      What's Done
-                    </h2>
-                    {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic">No tasks completed yet.</p>
-                    ) : (
-                      <div className="divide-y divide-zinc-100">
-                        {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
-                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
-                          const loggedMs = getTaskLoggedMs(t.id);
-                          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-                          const bookHours = parseFloat(t.bookTime) || 0;
-                          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
-                          const diff = clockedHours - bookHours;
-                          
-                          return (
-                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
-                              <div>
-                                <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
-                                {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
-                                <div className="flex flex-wrap items-center gap-2 mt-1">
-                                  <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">Completed by: {staffNames}</span>
-                                  {t.title !== 'General' && bookHours > 0 && (
-                                    <>
-                                      <span className="text-zinc-300">•</span>
-                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
-                                      {isOverBook ? (
-                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
-                                          <AlertTriangle className="w-2.5 h-2.5" />
-                                          +{diff.toFixed(1)}h Over
-                                        </span>
-                                      ) : (
-                                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100">
-                                          Under Budget
-                                        </span>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                              <span className="font-mono text-xs font-bold text-emerald-600">{clockedHours.toFixed(1)}h</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Tasks Pending Section */}
                   <div className="mb-6 print-no-break">
                     <h2 className="text-xs font-black text-indigo-600 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
@@ -3033,7 +3102,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                   )}
                                 </div>
                               </div>
-                              <span className="font-mono text-xs font-bold text-indigo-600">{clockedHours.toFixed(1)}h</span>
+                              <span className="font-mono text-xs font-bold text-indigo-600">
+                                {bookHours > 0 ? `${clockedHours.toFixed(1)}h / ${bookHours.toFixed(1)}h` : `${clockedHours.toFixed(1)}h`}
+                              </span>
                             </div>
                           );
                         })}
@@ -3041,66 +3112,65 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     )}
                   </div>
 
-                  {/* Missing Parts Section */}
+                  {/* Tasks Done Section */}
                   <div className="mb-6 print-no-break">
-                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
-                      <Wrench className="w-3.5 h-3.5" />
-                      Missing / Pending Parts
+                    <h2 className="text-xs font-black text-emerald-600 border-b border-emerald-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      What's Done
                     </h2>
-                    {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic">No parts pending requests.</p>
+                    {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks completed yet.</p>
                     ) : (
                       <div className="divide-y divide-zinc-100">
-                        {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').map(p => (
-                          <div key={p.id} className="py-2.5 flex justify-between items-center gap-4">
-                            <div>
-                              <h4 className="text-xs font-bold text-zinc-800">{p.partName}</h4>
-                              <p className="text-[10px] text-zinc-400 mt-0.5">
-                                Qty: {p.quantity || 1} &bull; {p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
-                              </p>
+                        {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
+                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+                          const loggedMs = getTaskLoggedMs(t.id);
+                          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                          const diff = clockedHours - bookHours;
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
+                                {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">Completed by: {staffNames}</span>
+                                  {clockedHours === 0 ? (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 rounded text-[8px] font-black uppercase tracking-widest border border-zinc-200 dark:border-zinc-700">
+                                        No time logged but complete
+                                      </span>
+                                    </>
+                                  ) : t.title !== 'General' && bookHours > 0 && (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
+                                      {isOverBook ? (
+                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
+                                          <AlertTriangle className="w-2.5 h-2.5" />
+                                          +{diff.toFixed(1)}h Over
+                                        </span>
+                                      ) : (
+                                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100">
+                                          Under Budget
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-emerald-600">{clockedHours.toFixed(1)}h</span>
                             </div>
-                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
-                              {p.status || 'requested'}
-                            </span>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
 
-                  {/* Staff Workload Section */}
-                  <div className="print-no-break">
-                    <h2 className="text-xs font-black text-zinc-700 border-b border-zinc-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" />
-                      Staff Workload Allocation
-                    </h2>
-                    {staffStats.length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic">No staff assigned.</p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-zinc-200 text-zinc-400 font-bold uppercase tracking-wider text-[9px]">
-                              <th className="py-1">Technician</th>
-                              <th className="py-1 text-center">Tasks (Done / Total)</th>
-                              <th className="py-1 text-right">Hours (Done / Total)</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-100">
-                            {staffStats.map(s => (
-                              <tr key={s.id}>
-                                <td className="py-2 font-bold text-zinc-700">{s.name}</td>
-                                <td className="py-2 text-center text-zinc-500">{s.completedTasks} / {s.totalTasks}</td>
-                                <td className="py-2 text-right font-mono font-bold text-zinc-700">
-                                  {s.completedHours.toFixed(1)} / {s.totalHours.toFixed(1)}h
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
+
                 </div>
               </div>
 
@@ -3121,7 +3191,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       placeholder="e.g. customer@domain.com, foreman@saegrp.com"
                       value={emailRecipients}
                       onChange={(e) => setEmailRecipients(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400"
+                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400 text-zinc-900 dark:text-white"
                     />
                     {customerEmail && (
                       <button 
@@ -3140,7 +3210,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       placeholder="Email Subject"
                       value={emailSubject}
                       onChange={(e) => setEmailSubject(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all"
+                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all text-zinc-900 dark:text-white"
                     />
                   </div>
 

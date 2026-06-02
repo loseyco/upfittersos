@@ -2058,11 +2058,11 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   </div>
                   <div>
                     <h3 className="font-black text-zinc-900 dark:text-white text-base">Current Pay Period Metrics</h3>
-                    <p className="text-xs text-zinc-500 font-semibold">Summary of your accumulated hours and efficiency</p>
+                    <p className="text-xs text-zinc-500 font-semibold">Summary of your accumulated hours and completed book time</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* Card 1: Period Pay Hours */}
                   <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
                     <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Period Pay Hours</span>
@@ -2075,7 +2075,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   {/* Card 2: Actual Clocked */}
                   <div className="bg-zinc-50 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
                     <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Actual Clocked</span>
-                    <span className="font-mono text-xl font-black text-zinc-805 dark:text-white mt-1 block">
+                    <span className="font-mono text-xl font-black text-zinc-850 dark:text-white mt-1 block">
                       {(weekMs / 3600000).toFixed(2)}h
                     </span>
                     <span className="text-[9px] text-zinc-400 mt-1 block">Net time on clock</span>
@@ -2083,20 +2083,11 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
                   {/* Card 3: Completed Book Time */}
                   <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Time Earned</span>
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Time Completed</span>
                     <span className="font-mono text-xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
                       {doneBookHours.toFixed(2)}h
                     </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Flat rate earned</span>
-                  </div>
-
-                  {/* Card 4: Efficiency */}
-                  <div className="bg-zinc-55 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Efficiency</span>
-                    <span className="font-mono text-xl font-black text-emerald-600 dark:text-emerald-450 mt-1 block">
-                      {efficiency !== null ? `${efficiency.toFixed(0)}%` : '--'}
-                    </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Book vs actual ratio</span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Flat rate completed</span>
                   </div>
                 </div>
 

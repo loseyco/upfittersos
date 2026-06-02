@@ -230,6 +230,9 @@ service cloud.firestore {
       match /staff/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /staff_dashboard_configs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /staff_logs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
@@ -334,6 +337,9 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /native_tasks/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /task_defaults/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /vendors/{docId} {

@@ -372,7 +372,7 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
     isOverdue = (parsedDate.getTime() - now.getTime()) < 0;
   }
 
-  const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed'].includes(job?.status || '');
+  const isFinished = ['Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '');
   let customBgStyle: React.CSSProperties = {};
   
   if (isBlocked) {
@@ -1347,7 +1347,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         }
         
         // Live Push: Conveyor Belt Logic
-        const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed', 'Closed'].includes(job.status || '');
+        const isFinished = ['Ready for QC', 'Ready for Customer', 'Completed', 'Closed'].includes(job.status || '');
         const hasTimeLogged = (job.totalBayTimeSeconds > 0) || (job.totalParkingTimeSeconds > 0) || !!job.currentBaySessionStart || !!job.currentParkingSessionStart;
         const isStarted = isFinished || hasTimeLogged;
         

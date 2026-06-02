@@ -959,7 +959,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                     Clock Out
                   </button>
                 ) : (
-                  task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '') && (
+                  task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '') && (
                     <button 
                       onClick={async () => {
                         if (effectiveUserId && effectiveUserId !== user?.uid) {

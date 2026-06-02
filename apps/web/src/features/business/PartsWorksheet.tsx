@@ -423,7 +423,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
 
       // 4. Status Filter
       if (statusFilter === 'active') {
-        return r.status !== 'received' && r.status !== 'fulfilled' && r.status !== 'delivered' && r.status !== 'cancelled';
+        return r.status !== 'fulfilled' && r.status !== 'delivered' && r.status !== 'cancelled';
       }
       if (statusFilter === 'pending') return r.status === 'pending';
       if (statusFilter === 'ordered') return r.status === 'ordered';
@@ -588,7 +588,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white"
             >
-              <option value="active">Active Requests (Pending/Ordered)</option>
+              <option value="active">Active Requests (Pending/Ordered/Received)</option>
               <option value="pending">Pending Only</option>
               <option value="ordered">Ordered Only</option>
               <option value="received">Received Only</option>

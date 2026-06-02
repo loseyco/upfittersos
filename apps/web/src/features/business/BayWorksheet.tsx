@@ -64,6 +64,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
   const [colWidths, setColWidths] = useState<Record<string, number>>({
     bayName: 140,
     activeJob: 240,
+    vehicle: 160,
     crew: 240,
     activeTask: 200,
     hours: 100,
@@ -498,6 +499,9 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.activeJob }}>
                 Active Job Assignment {renderResizeHandle('activeJob')}
               </th>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.vehicle }}>
+                Vehicle {renderResizeHandle('vehicle')}
+              </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.crew }}>
                 Active Crew {renderResizeHandle('crew')}
               </th>
@@ -518,7 +522,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
             
             {/* ==================== SERVICE BAYS SECTION ==================== */}
             <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-b border-zinc-200 dark:border-zinc-800 select-none">
-              <td colSpan={6} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
+              <td colSpan={7} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
                 <div className="flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
                   <span>Service Bays ({filteredBays.length})</span>
@@ -528,7 +532,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
 
             {filteredBays.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
+                <td colSpan={7} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
                   No service bays match the selected filter configuration.
                 </td>
               </tr>
@@ -596,19 +600,6 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                               disabled={!canManage}
                             />
                           </div>
-                          {currentJobId === 'none' && zone.currentVehicleVin && (
-                            (() => {
-                              const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
-                              const label = vehicle 
-                                ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin.slice(-8)}`
-                                : `VIN: ${zone.currentVehicleVin.slice(-8)}`;
-                              return (
-                                <div className="text-[10px] text-zinc-550 dark:text-zinc-400 font-bold bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded mt-1 truncate inline-block max-w-full" title={`Full VIN: ${zone.currentVehicleVin}`}>
-                                  🚙 {label}
-                                </div>
-                              );
-                            })()
-                          )}
                         </div>
                         {currentJobId && currentJobId !== 'none' && (
                           <button
@@ -619,22 +610,35 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                             <ExternalLink className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {currentJobId === 'none' && zone.currentVehicleVin && (
-                          (() => {
-                            const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
-                            if (!vehicle) return null;
-                            return (
+                      </div>
+                    </td>
+
+                    {/* 2b. Vehicle Column */}
+                    <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                      {(() => {
+                        const vehicleVin = activeJobDoc?.vehicleId || zone.currentVehicleVin;
+                        if (!vehicleVin) {
+                          return <span className="text-[10px] text-zinc-400 dark:text-zinc-650 px-2 italic">No Vehicle Assigned</span>;
+                        }
+                        const vehicle = vehiclesList.find(v => v.vin === vehicleVin);
+                        const label = vehicle 
+                          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${vehicleVin.slice(-8)}`
+                          : `VIN: ${vehicleVin.slice(-8)}`;
+                        return (
+                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-zinc-700 dark:text-zinc-300 truncate">
+                            <span>🚙 {label}</span>
+                            {vehicle?.id && (
                               <button
                                 onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle.id}`)}
-                                className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                                className="p-0.5 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0 ml-auto no-print"
                                 title="View Vehicle Details"
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
+                                <ExternalLink className="w-3 h-3" />
                               </button>
-                            );
-                          })()
-                        )}
-                      </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* 3. Active Crew */}
@@ -776,7 +780,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
 
             {/* ==================== PARKING SPOTS SECTION ==================== */}
             <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-t border-b border-zinc-200 dark:border-zinc-800 select-none">
-              <td colSpan={6} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
+              <td colSpan={7} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
                 <div className="flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
                   <span>Parking Spots ({filteredParking.length})</span>
@@ -786,7 +790,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
 
             {filteredParking.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
+                <td colSpan={7} className="p-8 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
                   No parking spots match the selected filter configuration.
                 </td>
               </tr>
@@ -854,19 +858,6 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                               disabled={!canManage}
                             />
                           </div>
-                          {currentJobId === 'none' && zone.currentVehicleVin && (
-                            (() => {
-                              const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
-                              const label = vehicle 
-                                ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${zone.currentVehicleVin.slice(-8)}`
-                                : `VIN: ${zone.currentVehicleVin.slice(-8)}`;
-                              return (
-                                <div className="text-[10px] text-zinc-550 dark:text-zinc-400 font-bold bg-zinc-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded mt-1 truncate inline-block max-w-full" title={`Full VIN: ${zone.currentVehicleVin}`}>
-                                  🚙 {label}
-                                </div>
-                              );
-                            })()
-                          )}
                         </div>
                         {currentJobId && currentJobId !== 'none' && (
                           <button
@@ -877,22 +868,35 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                             <ExternalLink className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {currentJobId === 'none' && zone.currentVehicleVin && (
-                          (() => {
-                            const vehicle = vehiclesList.find(v => v.vin === zone.currentVehicleVin);
-                            if (!vehicle) return null;
-                            return (
+                      </div>
+                    </td>
+
+                    {/* 2b. Vehicle Column */}
+                    <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                      {(() => {
+                        const vehicleVin = activeJobDoc?.vehicleId || zone.currentVehicleVin;
+                        if (!vehicleVin) {
+                          return <span className="text-[10px] text-zinc-400 dark:text-zinc-650 px-2 italic">No Vehicle Assigned</span>;
+                        }
+                        const vehicle = vehiclesList.find(v => v.vin === vehicleVin);
+                        const label = vehicle 
+                          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || `VIN: ${vehicleVin.slice(-8)}`
+                          : `VIN: ${vehicleVin.slice(-8)}`;
+                        return (
+                          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-zinc-700 dark:text-zinc-300 truncate">
+                            <span>🚙 {label}</span>
+                            {vehicle?.id && (
                               <button
                                 onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle.id}`)}
-                                className="p-1 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0"
+                                className="p-0.5 text-zinc-400 hover:text-indigo-500 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition active:scale-95 shrink-0 ml-auto no-print"
                                 title="View Vehicle Details"
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
+                                <ExternalLink className="w-3 h-3" />
                               </button>
-                            );
-                          })()
-                        )}
-                      </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* 3. Active Crew */}

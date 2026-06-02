@@ -624,21 +624,21 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
 
     const nonGeneralTasks = tasks.filter((t: any) => t && t.title !== 'General');
     const totalTasksCount = nonGeneralTasks.length;
-    const readyForQATasksCount = nonGeneralTasks.filter((t: any) => t && (t.status === 'QC' || t.status === 'QC Complete')).length;
+    const readyForQCTasksCount = nonGeneralTasks.filter((t: any) => t && (t.status === 'QC' || t.status === 'QC Complete')).length;
 
-    const someTasksReadyForQA = totalTasksCount > 0 && readyForQATasksCount > 0 && readyForQATasksCount < totalTasksCount;
-    const allTasksReadyForQA = totalTasksCount > 0 && readyForQATasksCount === totalTasksCount;
+    const someTasksReadyForQC = totalTasksCount > 0 && readyForQCTasksCount > 0 && readyForQCTasksCount < totalTasksCount;
+    const allTasksReadyForQC = totalTasksCount > 0 && readyForQCTasksCount === totalTasksCount;
 
     if (isBlocked) {
       customBgStyle = { backgroundColor: colors.blocked, borderColor: `${colors.blocked}ff`, boxShadow: `0 0 30px ${colors.blocked}66`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-black";
-    } else if (hasVehicle && allTasksReadyForQA) {
+    } else if (hasVehicle && allTasksReadyForQC) {
       customBgStyle = { backgroundColor: '#10b981', borderColor: '#059669', boxShadow: `0 0 30px rgba(16,185,129,0.4)`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-black";
     } else if (hasVehicle && isPartsMissing) {
       customBgStyle = { backgroundColor: colors.urgent, borderColor: `${colors.urgent}ff`, boxShadow: `0 0 30px ${colors.urgent}4d`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-black";
-    } else if (hasVehicle && someTasksReadyForQA) {
+    } else if (hasVehicle && someTasksReadyForQC) {
       customBgStyle = { backgroundColor: colors.active, borderColor: '#10b981', boxShadow: `0 0 20px rgba(16,185,129,0.4)`, borderWidth: '4px', borderStyle: 'solid' };
       textColor = "text-white font-bold";
     } else if (hasVehicle && isOverdue) {
@@ -791,16 +791,16 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                       No Active Job
                     </div>
                   )}
-                  {allTasksReadyForQA && !isBlocked && (
+                  {allTasksReadyForQC && !isBlocked && (
                     <div className="text-emerald-400 font-bold text-[8px] 3xl:text-[14px] uppercase flex items-center gap-0.5 mt-0.5">
                       <CheckCircle2 className="w-2.5 h-2.5 3xl:w-4 3xl:h-4" />
-                      Ready for QA
+                      Ready for QC
                     </div>
                   )}
-                  {someTasksReadyForQA && !isBlocked && (
+                  {someTasksReadyForQC && !isBlocked && (
                     <div className="text-emerald-400/90 font-bold text-[8px] 3xl:text-[14px] uppercase flex items-center gap-0.5 mt-0.5">
                       <CheckCircle2 className="w-2.5 h-2.5 3xl:w-4 3xl:h-4" />
-                      QA {readyForQATasksCount}/{totalTasksCount}
+                      QC {readyForQCTasksCount}/{totalTasksCount}
                     </div>
                   )}
                   <div className="flex items-center justify-between mt-0.5">
@@ -923,20 +923,20 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                   {requestedCount}/{orderedCount}/{receivedCount}
                 </motion.div>
               )}
-              {allTasksReadyForQA && !isBlocked && (
+              {allTasksReadyForQC && !isBlocked && (
                 <motion.div 
                   className="bg-emerald-500 text-white px-1.5 py-0.5 rounded-md text-[max(0.5rem,1.8cqw)] font-black uppercase tracking-widest flex items-center gap-1 shadow-lg"
                 >
                   <CheckCircle2 className="w-[max(0.6rem,2cqw)] h-[max(0.6rem,2cqw)]" /> 
-                  QA
+                  QC
                 </motion.div>
               )}
-              {someTasksReadyForQA && !isBlocked && (
+              {someTasksReadyForQC && !isBlocked && (
                 <motion.div 
                   className="bg-emerald-600/90 text-white px-1.5 py-0.5 rounded-md text-[max(0.5rem,1.8cqw)] font-black uppercase tracking-widest flex items-center gap-1 shadow-lg ring-1 ring-emerald-500/20"
                 >
                   <CheckCircle2 className="w-[max(0.6rem,2cqw)] h-[max(0.6rem,2cqw)]" /> 
-                  QA {readyForQATasksCount}/{totalTasksCount}
+                  QC {readyForQCTasksCount}/{totalTasksCount}
                 </motion.div>
               )}
             </div>
@@ -949,51 +949,51 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                 initial={{ y: 10, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -10, opacity: 0 }}
-                className="flex-1 min-h-0 flex flex-col justify-center py-0.5"
+                className="flex-1 min-h-0 flex flex-col justify-start py-0.5 gap-0.5"
               >
                 <div 
-                  className="font-black text-white line-clamp-1 tracking-tighter leading-none mb-0.5"
-                  style={{ fontSize: 'clamp(0.9rem, 6.5cqw, 2.8rem)' }}
+                  className="font-black text-white line-clamp-1 tracking-tighter leading-tight shrink-0"
+                  style={{ fontSize: 'clamp(0.8rem, 5cqw, 2rem)' }}
                 >
                   {job?.jobNumber ? `JOB #${job.jobNumber}` : `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || 'Vehicle'}`}
                 </div>
                 {!job && (
-                  <div className="text-red-400 font-bold uppercase flex items-center gap-1 mt-1 mb-0.5"
-                       style={{ fontSize: 'clamp(0.6rem, 3cqw, 1.4rem)' }}>
-                    <AlertTriangle className="w-[max(0.7rem,2.5cqw)] h-[max(0.7rem,2.5cqw)]" />
+                  <div className="text-red-400 font-bold uppercase flex items-center gap-1 mt-0.5 shrink-0"
+                       style={{ fontSize: 'clamp(0.6rem, 2.6cqw, 1.15rem)' }}>
+                    <AlertTriangle className="w-[max(0.55rem,2cqw)] h-[max(0.55rem,2cqw)]" />
                     No Active Job
                   </div>
                 )}
                 {job && (
                   <div 
-                    className={cn("font-bold line-clamp-1 leading-none mb-0.5 tracking-tight", textColor, "opacity-90")}
-                    style={{ fontSize: 'clamp(0.7rem, 4cqw, 1.8rem)' }}
+                    className={cn("font-bold line-clamp-1 leading-tight tracking-tight opacity-90 shrink-0", textColor)}
+                    style={{ fontSize: 'clamp(0.7rem, 3.5cqw, 1.35rem)' }}
                   >
                     {job?.jobNumber ? `${vehicle?.year || ''} ${vehicle?.make || ''} ${vehicle?.model || 'Vehicle'}` : job.title}
                   </div>
                 )}
                 {job?.jobNumber && job.title && (
                   <div 
-                    className="font-bold line-clamp-1 leading-none mb-0.5 tracking-tight text-white/70"
-                    style={{ fontSize: 'clamp(0.6rem, 35cqw, 1.4rem)' }}
+                    className="font-bold line-clamp-1 leading-tight tracking-tight text-white/70 shrink-0"
+                    style={{ fontSize: 'clamp(0.6rem, 3cqw, 1.1rem)' }}
                   >
                     {job.title}
                   </div>
                 )}
                 <div 
-                  className="font-black uppercase tracking-widest text-white/30 line-clamp-1 leading-none mt-0.5"
-                  style={{ fontSize: 'clamp(0.5rem, 2cqw, 1rem)' }}
+                  className="font-black uppercase tracking-widest text-white/30 line-clamp-1 leading-tight shrink-0"
+                  style={{ fontSize: 'clamp(0.5rem, 2cqw, 0.85rem)' }}
                 >
                   {(!job?.title || job.title.toLowerCase().trim() !== (job?.customerName || vehicle?.customerName || '').toLowerCase().trim()) 
                     ? (job?.customerName || vehicle?.customerName || 'No Customer')
                     : ''}
                 </div>
                 {activeStaffForJob.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-1.5 border-t border-white/10 pt-2.5 shrink-0">
-                    <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.5rem,1.8cqw)] leading-none">
-                      Active Crew
+                  <div className="mt-1 flex flex-col gap-1 border-t border-white/10 pt-1 shrink-0">
+                    <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.45rem,1.4cqw)] leading-none shrink-0 mb-0.5">
+                      Crew
                     </span>
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-1 shrink-0">
                       {activeStaffForJob.map((session: any) => {
                         const jobsArr = Array.isArray(session.jobs) ? session.jobs : [];
                         const activeJobSegment = jobsArr.find((j: any) => j && !j.end && j.id === job?.id);
@@ -1001,21 +1001,21 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
                         return (
                           <div 
                             key={session.id} 
-                            className="flex items-center gap-2 bg-white/10 dark:bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/15 backdrop-blur-sm shadow-sm"
+                            className="flex items-center gap-1.5 bg-white/10 dark:bg-black/25 px-2 py-0.5 rounded-md border border-white/15 backdrop-blur-sm shadow-sm shrink-0"
                           >
                             <div className="relative flex items-center justify-center shrink-0">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                              <span className="absolute w-2 h-2 rounded-full bg-emerald-500 animate-ping opacity-70" />
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span className="absolute w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping opacity-70" />
                             </div>
-                            <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0 flex flex-col shrink-0">
                               <span 
-                                className="font-black text-white uppercase truncate shrink-0"
-                                style={{ fontSize: 'clamp(0.7rem, 2.8cqw, 1.4rem)' }}
+                                className="font-black text-white uppercase truncate leading-tight shrink-0"
+                                style={{ fontSize: 'clamp(0.65rem, 2.2cqw, 1rem)' }}
                               >
                                 {session.userName || 'Unknown Crew'}
                               </span>
                               <span 
-                                className="font-bold text-white/70 uppercase truncate text-right text-[max(0.6rem,2cqw)] bg-white/5 px-1.5 py-0.5 rounded border border-white/5"
+                                className="font-bold text-white/60 uppercase truncate text-[max(0.5rem,1.4cqw)] leading-none mt-0.5 shrink-0"
                               >
                                 {taskName}
                               </span>
@@ -1052,69 +1052,25 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
         </div>
 
         {hasVehicle && (
-          <div className="pt-1 border-t border-white/10 shrink-0 grid grid-cols-2 gap-1.5">
-            <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.6rem,2cqw)] leading-none mb-1">
-                {zone.type === 'bay' ? 'Session' : 'Parked'}
-              </span>
-              <span 
-                className="font-black text-white leading-none truncate"
-                style={{ fontSize: 'clamp(0.9rem, 3.5cqw, 2rem)' }}
-              >
-                {calculateTotalDuration(0, activeSessionStart, true) || '---'}
-              </span>
+          <div className="pt-1.5 border-t border-white/10 shrink-0 flex flex-col gap-1 text-[max(0.6rem,1.8cqw)]">
+            {/* Row 1: Session and Total Bay times */}
+            <div className="flex justify-between items-center text-white/70">
+              <span>{zone.type === 'bay' ? 'Session' : 'Parked'}: <strong className="text-white font-black">{calculateTotalDuration(0, activeSessionStart, true) || '---'}</strong></span>
+              <span>{zone.type === 'bay' ? 'Total' : 'Total Lot'}: <strong className="text-white font-black">{job ? calculateTotalDuration(zone.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, activeSessionStart) || '---' : '---'}</strong></span>
             </div>
-            <div className="flex flex-col">
-              <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.6rem,2cqw)] leading-none mb-1">
-                {zone.type === 'bay' ? 'Total Bay' : 'Total Lot'}
-              </span>
-              <span 
-                className="font-black text-white leading-none truncate"
-                style={{ fontSize: 'clamp(0.9rem, 3.5cqw, 2rem)' }}
-              >
-                {job ? calculateTotalDuration(zone.type === 'bay' ? job.totalBayTimeSeconds : job.totalParkingTimeSeconds, activeSessionStart) || '---' : '---'}
-              </span>
+            
+            {/* Row 2: Last Updated and ETA/Due */}
+            <div className="flex justify-between items-center text-white/50 border-t border-white/5 pt-1.5 mt-0.5">
+              <span>Updated: <strong className={cn("font-bold", isStale ? "text-amber-400" : "text-white/80")}>{lastUpdated()}</strong></span>
+              {etaDate && (
+                <span className={cn(
+                  "font-black tracking-tight", 
+                  isOverdue ? "text-red-400 animate-pulse" : isUrgent ? "text-amber-300" : "text-emerald-400"
+                )}>
+                  Due: {isOverdue ? `-${timeLabel}` : timeLabel}
+                </span>
+              )}
             </div>
-            <div className="flex flex-col col-span-2 mt-1.5 pt-1.5 border-t border-white/5">
-              <span className="font-bold uppercase tracking-widest text-white/40 text-[max(0.5rem,1.8cqw)] leading-none mb-1">Last Updated</span>
-              <span 
-                className={cn(
-                  "font-black leading-none truncate", 
-                  isStale ? "text-amber-400" : "text-white/60"
-                )}
-                style={{ fontSize: 'clamp(0.8rem, 2.8cqw, 1.8rem)' }}
-              >
-                {lastUpdated()}
-              </span>
-            </div>
-
-            {etaDate && (
-              <div className="flex flex-col col-span-2 mt-2">
-                <div className="flex items-center justify-between border-t border-white/20 pt-2">
-                  <div className="flex flex-col">
-                    <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.5rem,1.8cqw)] leading-none mb-1">ETA</span>
-                    <span 
-                      className="font-black text-white/70 leading-none truncate"
-                      style={{ fontSize: 'clamp(0.8rem, 2.8cqw, 1.8rem)' }}
-                    >
-                      {etaDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-end">
-                    <span className="font-bold uppercase tracking-widest text-white/60 text-[max(0.5rem,1.8cqw)] leading-none mb-1">Due</span>
-                    <span 
-                      className={cn(
-                        "font-black tracking-tighter leading-none truncate", 
-                        isOverdue ? "text-red-400 animate-pulse" : isUrgent ? "text-amber-300" : "text-emerald-400"
-                      )}
-                      style={{ fontSize: 'clamp(1.1rem, 4.5cqw, 3rem)' }}
-                    >
-                      {isOverdue ? `-${timeLabel}` : timeLabel}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
         <BlockerTicker blockers={activeBlockers} isBlocked={isBlocked} />
@@ -1137,7 +1093,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
               {businessName}
             </div>
             <h1 className="text-2xl md:text-4xl 2xl:text-5xl 3xl:text-[120px] font-black tracking-tighter text-white leading-none">
-              BAY MONITOR
+              BAY MONITOR (V2 TEST)
             </h1>
           </div>
         </div>

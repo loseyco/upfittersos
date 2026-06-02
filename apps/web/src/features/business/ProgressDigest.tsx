@@ -142,10 +142,10 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
     };
 
     jobsList.forEach((job) => {
-      const vehicle = vehiclesList.find(v => v.vin === job.vehicleId);
+      const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
       const vehicleLabel = vehicle
         ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
-        : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'N/A');
+        : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
       const jobDesc = `${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title} (${vehicleLabel})`;
 
       // 1. Task progress today
@@ -161,12 +161,14 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
         isToday(t.completedAt) || isToday(t.qcCompletedAt) || isToday(t.updatedAt)
       );
 
-      if (allTasksQcReady && hasQcActivityToday) {
+      const isExplicitReadyForQC = job.status === 'Ready for QC';
+      const isReadyForCustomerOrClosed = ['Ready for Customer', 'Completed', 'Closed'].includes(job.status || '');
+      if (!isReadyForCustomerOrClosed && (isExplicitReadyForQC || (allTasksQcReady && hasQcActivityToday))) {
         const crewNames = Array.from(new Set(nonGeneralTasks.flatMap(t => t.assignedStaff?.map((s: any) => s.name) || []))).join(', ') || 'Unassigned';
         sections.readyForQc.push({
           jobId: job.id,
-          message: `Job ${jobDesc} is fully ready for Quality Control!`,
-          subtext: `All ${totalTasks} tasks completed by crew: ${crewNames}`
+          message: isExplicitReadyForQC ? `Job ${jobDesc} is marked Ready for QC` : `Job ${jobDesc} is fully ready for Quality Control!`,
+          subtext: isExplicitReadyForQC ? `Status: Ready for QC | Crew: ${crewNames}` : `All ${totalTasks} tasks completed by crew: ${crewNames}`
         });
       }
 

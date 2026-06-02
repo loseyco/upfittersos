@@ -345,7 +345,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
   const sortedParking = [...occupiedParkingList].sort(sortByOldest);
 
   const blockedJobsCount = allJobs?.filter((j: any) => j.status === 'Blocked').length || 0;
-  const activeJobsCount = allJobs?.filter((j: any) => !['Closed', 'Completed', 'Blocked', 'Ready for Customer', 'Ready for QA'].includes(j.status)).length || 0;
+  const activeJobsCount = allJobs?.filter((j: any) => !['Closed', 'Completed', 'Blocked', 'Ready for Customer', 'Ready for QC'].includes(j.status)).length || 0;
   const vehiclesOnSiteCount = zones?.reduce((acc: number, z: any) => {
     if (z.allowMultiple && z.currentVehicleVins) return acc + z.currentVehicleVins.length;
     if (z.currentVehicleVin) return acc + 1;
@@ -356,7 +356,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     ['pending', 'ordered', 'requested'].includes((pr.status || 'pending').toLowerCase())
   ).length || 0;
 
-  const readyForQACount = allJobs?.filter((j: any) => j.status === 'Ready for QA').length || 0;
+  const readyForQCCount = allJobs?.filter((j: any) => j.status === 'Ready for QC').length || 0;
 
   const kpis = [
     { label: 'Active Jobs', value: activeJobsCount, icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10', tab: 'jobs', loading: statsLoading },
@@ -364,7 +364,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     { label: 'Parking Lot', value: `${occupiedParking}/${totalParking}`, icon: Car, color: 'text-emerald-500', bg: 'bg-emerald-500/10', tab: 'zones?type=parking', loading: false },
     { label: 'Missing Parts', value: missingPartsCount, icon: Package, color: 'text-amber-500', bg: 'bg-amber-500/10', tab: 'parts', loading: false },
     { label: 'Blocked Jobs', value: blockedJobsCount, icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-500/10', tab: 'jobs?status=Blocked', loading: statsLoading },
-    { label: 'Ready for QA', value: readyForQACount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QA', loading: statsLoading },
+    { label: 'Ready for QC', value: readyForQCCount, icon: CheckSquare, color: 'text-cyan-500', bg: 'bg-cyan-500/10', tab: 'jobs?status=Ready+for+QC', loading: statsLoading },
     { label: 'Shipments', value: activeShipmentsCount, icon: Truck, color: 'text-orange-500', bg: 'bg-orange-500/10', tab: 'shipments', loading: false },
     { label: 'On Site', value: vehiclesOnSiteCount, icon: Car, color: 'text-indigo-500', bg: 'bg-indigo-500/10', tab: 'vehicles', loading: statsLoading },
   ];
@@ -468,7 +468,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 3. Inactive Jobs
   recentJobs?.forEach((job: any) => {
-    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && job.updatedAt) {
+    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QC'].includes(job.status) && job.updatedAt) {
       const updatedTime = new Date(job.updatedAt.seconds ? job.updatedAt.seconds * 1000 : job.updatedAt).getTime();
       const days = (Date.now() - updatedTime) / (1000 * 60 * 60 * 24);
       if (days > 7 && job.status !== 'Blocked') {
@@ -488,7 +488,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
 
   // 4. Overdue Jobs
   allJobs?.forEach((job: any) => {
-    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(job.status) && (job.eta || job.expectedFinishTime)) {
+    if (!['Closed', 'Completed', 'Ready for Customer', 'Ready for QC'].includes(job.status) && (job.eta || job.expectedFinishTime)) {
       const targetTimeRaw = job.eta || job.expectedFinishTime;
       const targetTime = typeof targetTimeRaw?.toDate === 'function' ? targetTimeRaw.toDate().getTime() : new Date(targetTimeRaw).getTime();
       
@@ -821,7 +821,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                         if (etaDate.getTime() - Date.now() < 0) isOverdue = true;
                       }
 
-                      const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed'].includes(job?.status || '');
+                      const isFinished = ['Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '');
 
                       let customStyle = "hover:bg-zinc-50 dark:hover:bg-zinc-800/30 border-transparent";
                       if (isFinished) {
@@ -871,7 +871,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                       <>
                                         <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                         <span className="text-emerald-500 font-black uppercase tracking-[0.1em] text-[10px]">
-                                          READY FOR QA
+                                          READY FOR QC
                                         </span>
                                       </>
                                     )}
@@ -1059,7 +1059,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                           if (etaDate.getTime() - Date.now() < 0) isOverdue = true;
                         }
 
-                        const isFinished = ['Ready for QA', 'Ready for Customer', 'Completed'].includes(job?.status || '');
+                        const isFinished = ['Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '');
                         
                         // We duplicate parts/blockers logic lightly here for consistent styling
                         const target = job || zone;
@@ -1129,7 +1129,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                                       <>
                                         <span className="text-zinc-300 dark:text-zinc-700">•</span>
                                         <span className="text-emerald-500 font-black uppercase tracking-[0.1em] text-[10px]">
-                                          READY FOR QA
+                                          READY FOR QC
                                         </span>
                                       </>
                                     )}

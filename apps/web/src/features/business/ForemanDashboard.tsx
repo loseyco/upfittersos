@@ -190,7 +190,7 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
   const twentyFourHours = 24 * 60 * 60 * 1000;
 
   allJobs.forEach(j => {
-    if (['Closed', 'Completed', 'Ready for Customer', 'Ready for QA'].includes(j.status)) return;
+    if (['Closed', 'Completed', 'Ready for Customer', 'Ready for QC'].includes(j.status)) return;
     
     // Check zones for this job's ETA first, fallback to job's ETA
     const zone = zones.find(z => z.currentJobId === j.id);

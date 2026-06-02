@@ -571,8 +571,8 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
             </div>
             <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl">
               <div>
-                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Job Ready for QA</span>
-                <span className="text-xs text-zinc-500">Alert staff when a job's status changes to "Ready for QA"</span>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white block mb-0.5">Job Ready for QC</span>
+                <span className="text-xs text-zinc-500">Alert staff when a job's status changes to "Ready for QC"</span>
               </div>
               <input type="checkbox" name="globalNotifyReadyForQA" checked={formData.globalNotifyReadyForQA} onChange={handleChange} className="w-5 h-5 accent-indigo-600" />
             </div>

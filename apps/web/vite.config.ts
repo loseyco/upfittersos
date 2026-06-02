@@ -15,6 +15,13 @@ export default defineConfig({
         short_name: 'Upfitters',
         description: 'Premium Operating System for Vehicle Upfitters',
         theme_color: '#121826',
+        background_color: '#09090b',
+        display: 'standalone',
+        start_url: '/',
+        scope: '/',
+        launch_handler: {
+          client_mode: 'navigate-existing'
+        },
         icons: [
           {
             src: '/favicon.png', // Generated UpfittersOS Icon
@@ -34,7 +41,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5000000
       },
       devOptions: {
-        enabled: true
+        enabled: false
       }
     })
   ],

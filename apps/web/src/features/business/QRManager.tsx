@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner';
 
 type ActiveTab = 'preprint' | 'assigned';
-type LabelSize = 'roll_2_2' | 'roll_1_1' | 'sheet_avery_5160';
+type LabelSize = 'roll_2_2' | 'roll_1_1' | 'sheet_avery_5160' | 'sheet_full_page' | 'sheet_3_3_grid';
 
 export function QRManager({ tenantId }: { tenantId: string }) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('preprint');
@@ -410,6 +410,52 @@ export function QRManager({ tenantId }: { tenantId: string }) {
             height: 0.85in !important;
             margin-right: 0.1in;
           }
+
+          /* Full Page 8.5" x 11" Centered Preset */
+          .print-sheet-full {
+            width: 8.5in;
+            height: 11in;
+            page-break-after: always;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: none !important;
+            background: white !important;
+            padding: 1in;
+          }
+          .print-sheet-full .qr-element {
+            width: 5in !important;
+            height: 5in !important;
+          }
+
+          /* 3" x 3" Grid Sheet (2 columns x 3 rows = 6 per page) */
+          .print-grid-3-3 {
+            display: grid;
+            grid-template-columns: repeat(2, 3in);
+            grid-gap: 0.3in 0.6in;
+            padding: 0.5in 0.45in;
+            box-sizing: border-box;
+            background: white !important;
+          }
+          .print-grid-item-3-3 {
+            width: 3in;
+            height: 3in;
+            box-sizing: border-box;
+            padding: 0.15in;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px dashed #ccc !important;
+            page-break-inside: avoid;
+            background: white !important;
+          }
+          .print-grid-item-3-3 .qr-element {
+            width: 1.8in !important;
+            height: 1.8in !important;
+          }
         }
       `}</style>
 
@@ -496,6 +542,36 @@ export function QRManager({ tenantId }: { tenantId: string }) {
                       <p className="text-[10px] opacity-75 font-normal">3 columns, 10 rows per standard letter page</p>
                     </div>
                     {labelSize === 'sheet_avery_5160' && <Check className="w-4 h-4" />}
+                  </button>
+
+                  <button 
+                    onClick={() => setLabelSize('sheet_full_page')}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                      labelSize === 'sheet_full_page' 
+                        ? 'border-indigo-600 bg-indigo-50/40 dark:bg-indigo-500/10 dark:border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold'
+                        : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 text-zinc-700 dark:text-zinc-300'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm">Full Page Work Order Sheet</p>
+                      <p className="text-[10px] opacity-75 font-normal">Centered large QR (5"x5") on 8.5" x 11" sheet</p>
+                    </div>
+                    {labelSize === 'sheet_full_page' && <Check className="w-4 h-4" />}
+                  </button>
+
+                  <button 
+                    onClick={() => setLabelSize('sheet_3_3_grid')}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                      labelSize === 'sheet_3_3_grid' 
+                        ? 'border-indigo-600 bg-indigo-50/40 dark:bg-indigo-500/10 dark:border-indigo-500 text-indigo-600 dark:text-indigo-400 font-bold'
+                        : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 text-zinc-700 dark:text-zinc-300'
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm">3" x 3" Label Grid Sheet</p>
+                      <p className="text-[10px] opacity-75 font-normal">6 labels per 8.5" x 11" sheet (2 cols x 3 rows)</p>
+                    </div>
+                    {labelSize === 'sheet_3_3_grid' && <Check className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
@@ -892,6 +968,52 @@ export function QRManager({ tenantId }: { tenantId: string }) {
                   <p className="text-[9px] font-black font-mono truncate mt-0.5">{item.title}</p>
                   <p className="text-[8px] font-bold text-zinc-700 truncate mt-0.5">{item.sub}</p>
                   {item.tag && <p className="text-[7px] text-zinc-500 truncate mt-0.5">{item.tag}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : labelSize === 'sheet_full_page' ? (
+          // Full page 8.5" x 11" centered layout
+          <div className="flex flex-col bg-white items-center">
+            {printQueue.map(item => (
+              <div key={item.id} className="print-sheet-full text-black">
+                <p className="text-[12px] font-extrabold uppercase tracking-widest text-indigo-600 mb-6 font-sans">UpfittersOS Operations Code</p>
+                <div className="qr-element flex items-center justify-center shrink-0 border border-zinc-200 p-8 rounded-3xl shadow-sm bg-white">
+                  <LogoQRCode 
+                    value={item.value} 
+                    size={380} 
+                    logoUrl={embedLogo ? businessLogo : undefined} 
+                    businessName={businessName}
+                    type="general"
+                  />
+                </div>
+                <div className="text-center leading-normal mt-8 max-w-lg">
+                  <span className="px-3 py-1 bg-zinc-100 border border-zinc-300 text-zinc-800 text-[10px] font-black uppercase tracking-wider rounded-md">
+                    Pre-Print Operational Code
+                  </span>
+                  <p className="text-3xl font-black font-mono mt-3 select-all tracking-tight">{item.title}</p>
+                  <p className="text-sm font-semibold text-zinc-500 mt-2">Scan with camera or PWA to assign to a Vehicle or active Work Order / Job.</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : labelSize === 'sheet_3_3_grid' ? (
+          // 3" x 3" grid layout (6 per standard letter sheet)
+          <div className="print-grid-3-3 bg-white">
+            {printQueue.map(item => (
+              <div key={item.id} className="print-grid-item-3-3 text-black">
+                <div className="qr-element flex items-center justify-center shrink-0">
+                  <LogoQRCode 
+                    value={item.value} 
+                    size={140} 
+                    logoUrl={embedLogo ? businessLogo : undefined} 
+                    businessName={businessName}
+                    type="general"
+                  />
+                </div>
+                <div className="w-full text-center leading-none text-black mt-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">UpfittersOS</p>
+                  <p className="text-[11px] font-black font-mono select-all mt-1">{item.title}</p>
                 </div>
               </div>
             ))}

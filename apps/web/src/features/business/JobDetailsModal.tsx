@@ -5217,7 +5217,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                                  disabled={!isClockedIn && ['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '')}
+                                  disabled={!isClockedIn && ['Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '')}
 
                                   className={cn(
 
@@ -7571,7 +7571,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                          <option value="Ready for QA">Ready for QA</option>
+                          <option value="Ready for QC">Ready for QC</option>
 
 
 
@@ -9444,7 +9444,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                            {renderGroupedModalTasks(completedTasksList, "Ready for QA & Completed")}
+                            {renderGroupedModalTasks(completedTasksList, "Ready for QC & Completed")}
 
 
 
@@ -16102,7 +16102,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                                  disabled={!isClockedIn && ['Ready for QA', 'Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '')}
+                                  disabled={!isClockedIn && ['Ready for QC', 'Ready for Customer', 'Completed'].includes(job.status || '')}
 
                                   className={cn(
 
@@ -18438,7 +18438,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                          <option value="Ready for QA">Ready for QA</option>
+                          <option value="Ready for QC">Ready for QC</option>
 
 
 
@@ -20311,7 +20311,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                            {renderGroupedModalTasks(completedTasksList, "Ready for QA & Completed")}
+                            {renderGroupedModalTasks(completedTasksList, "Ready for QC & Completed")}
 
 
 

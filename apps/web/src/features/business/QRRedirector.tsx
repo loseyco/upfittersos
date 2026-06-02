@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
-import { doc, setDoc, updateDoc, collection, getDocs, serverTimestamp, collectionGroup, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, serverTimestamp, collectionGroup, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   QrCode, Car, Briefcase, Search, Check, 
-  Loader2, ArrowRight
+  Loader2, ArrowRight, Link2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-type LinkType = 'vehicle' | 'job';
+type LinkType = 'vehicle' | 'job' | 'url';
 
 export function QRRedirector() {
   const [searchParams] = useSearchParams();
@@ -72,52 +72,69 @@ export function QRRedirector() {
     // Resolve unassigned Sticker ID
     if (sid) {
       setResolving(true);
-      
-      // Query sticker across all tenant collections using collectionGroup query
-      const stickersQuery = query(collectionGroup(db, 'qr_stickers'), where('id', '==', sid));
-      
-      getDocs(stickersQuery).then((snap) => {
-        if (!snap.empty) {
-          const stickerDoc = snap.docs[0];
-          const data = stickerDoc.data();
-          const computedTenantId = data.tenantId || stickerDoc.ref.parent.parent?.id;
-          
-          if (computedTenantId) {
-            setResolvedTenantId(computedTenantId);
-            
-            if (data?.assignedTo) {
-              setAssignedTarget(data.assignedTo);
-              
-              // Redirect immediately based on mapping
-              if (data.assignedTo.type === 'vehicle') {
-                navigate(`/business/${computedTenantId}/vehicles?vin=${encodeURIComponent(data.assignedTo.id)}`);
-              } else if (data.assignedTo.type === 'job') {
-                navigate(`/business/${computedTenantId}/job/${data.assignedTo.id}`);
-              }
-              return;
-            }
-            
-            // No assignment mapping, show Assignment Screen!
-            setResolving(false);
-            loadSearchLists(computedTenantId);
-            return;
+      const fallbackTenant = tenantId || t;
+
+      const processStickerData = (data: any, computedTenantId: string) => {
+        setResolvedTenantId(computedTenantId);
+        if (data?.assignedTo) {
+          setAssignedTarget(data.assignedTo);
+          if (data.assignedTo.type === 'vehicle') {
+            navigate(`/business/${computedTenantId}/vehicles?vin=${encodeURIComponent(data.assignedTo.id)}`);
+          } else if (data.assignedTo.type === 'job') {
+            navigate(`/business/${computedTenantId}/job/${data.assignedTo.id}`);
+          } else if (data.assignedTo.type === 'url') {
+            window.location.href = data.assignedTo.id.startsWith('http') ? data.assignedTo.id : `https://${data.assignedTo.id}`;
           }
+          return true;
         }
-        
-        // Fallback if not found in database: use the user's current tenantId or 't' from URL
-        const fallbackTenant = tenantId || t;
+        setResolving(false);
+        loadSearchLists(computedTenantId);
+        return false;
+      };
+
+      const handleFallback = () => {
         if (fallbackTenant) {
           setResolvedTenantId(fallbackTenant);
           setResolving(false);
           loadSearchLists(fallbackTenant);
         } else {
-          toast.error("Sticker not found or registered in the database.");
+          toast.error("Sticker not registered in the database.");
           setResolving(false);
         }
-      }).catch(err => {
-        console.error("Error looking up QR sticker:", err);
-        setResolving(false);
-      });
+      };
+
+      // 1. Try direct lookup first (Faster, bypasses collection group permission constraints)
+      if (fallbackTenant) {
+        const directStickerRef = doc(db, `businesses/${fallbackTenant}/qr_stickers`, sid);
+        getDoc(directStickerRef).then((snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            const computedTenantId = data.tenantId || fallbackTenant;
+            processStickerData(data, computedTenantId);
+          } else {
+            // Try collectionGroup query as secondary fallback
+            const stickersQuery = query(collectionGroup(db, 'qr_stickers'), where('id', '==', sid));
+            getDocs(stickersQuery).then((groupSnap) => {
+              if (!groupSnap.empty) {
+                const stickerDoc = groupSnap.docs[0];
+                const data = stickerDoc.data();
+                const computedTenantId = data.tenantId || stickerDoc.ref.parent.parent?.id || fallbackTenant;
+                processStickerData(data, computedTenantId);
+              } else {
+                handleFallback();
+              }
+            }).catch((err) => {
+              console.warn("Secondary collectionGroup query lookup skipped:", err);
+              handleFallback();
+            });
+          }
+        }).catch((err) => {
+          console.error("Direct sticker lookup error, falling back:", err);
+          handleFallback();
+        });
+      } else {
+        handleFallback();
+      }
     } else {
       // Fallback if no params are supplied
       navigate(`/business/${targetTenant}/overview`);
@@ -160,12 +177,12 @@ export function QRRedirector() {
         (veh.vin || '').toLowerCase().includes(query) ||
         (veh.make || '').toLowerCase().includes(query) ||
         (veh.model || '').toLowerCase().includes(query) ||
-        (veh.year || '').toLowerCase().includes(query) ||
+        String(veh.year || '').toLowerCase().includes(query) ||
         (veh.customerName || '').toLowerCase().includes(query)
       ).slice(0, 5); // Return top 5 matches
     } else {
       return jobs.filter(job => 
-        (job.jobNumber || '').toLowerCase().includes(query) ||
+        String(job.jobNumber || '').toLowerCase().includes(query) ||
         (job.title || '').toLowerCase().includes(query) ||
         (job.customerName || '').toLowerCase().includes(query)
       ).slice(0, 5);
@@ -185,8 +202,10 @@ export function QRRedirector() {
     let labelText = '';
     if (linkType === 'vehicle') {
       labelText = `${selectedItem.year || ''} ${selectedItem.make || ''} ${selectedItem.model || 'Vehicle'} (VIN: ${selectedItem.vin || selectedItem.id})`;
-    } else {
+    } else if (linkType === 'job') {
       labelText = selectedItem.jobNumber ? `Job #${selectedItem.jobNumber} - ${selectedItem.title}` : selectedItem.title;
+    } else {
+      labelText = `Custom Link: ${selectedItem.id}`;
     }
 
     try {
@@ -196,7 +215,7 @@ export function QRRedirector() {
         tenantId: targetTenant,
         assignedTo: {
           type: linkType,
-          id: linkType === 'vehicle' ? (selectedItem.vin || selectedItem.id) : selectedItem.id,
+          id: selectedItem.id,
           label: labelText
         },
         assignedAt: serverTimestamp(),
@@ -208,7 +227,7 @@ export function QRRedirector() {
       if (linkType === 'vehicle') {
         const vehRef = doc(db, `businesses/${targetTenant}/vehicles`, selectedItem.id);
         await updateDoc(vehRef, { qrStickerId: sid });
-      } else {
+      } else if (linkType === 'job') {
         const jobRef = doc(db, `businesses/${targetTenant}/jobs`, selectedItem.id);
         await updateDoc(jobRef, { qrStickerId: sid });
       }
@@ -218,8 +237,10 @@ export function QRRedirector() {
       // 3. Open newly linked page
       if (linkType === 'vehicle') {
         navigate(`/business/${targetTenant}/vehicles?vin=${encodeURIComponent(selectedItem.vin || selectedItem.id)}`);
-      } else {
+      } else if (linkType === 'job') {
         navigate(`/business/${targetTenant}/job/${selectedItem.id}`);
+      } else {
+        window.location.href = selectedItem.id.startsWith('http') ? selectedItem.id : `https://${selectedItem.id}`;
       }
     } catch (err: any) {
       console.error("Failed to link sticker:", err);
@@ -290,21 +311,21 @@ export function QRRedirector() {
         {/* Form Selector */}
         <div className="space-y-4">
           <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Assign Sticker To:</p>
-          <div className="grid grid-cols-2 gap-2 bg-zinc-950/40 p-1 rounded-xl border border-zinc-800/40">
+          <div className="grid grid-cols-3 gap-2 bg-zinc-950/40 p-1 rounded-xl border border-zinc-800/40">
             <button
               onClick={() => {
                 setLinkType('vehicle');
                 setSearchQuery('');
                 setSelectedItem(null);
               }}
-              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center justify-center gap-1 py-2.5 rounded-lg text-[10px] font-bold transition-all ${
                 linkType === 'vehicle'
                   ? 'bg-indigo-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              <Car className="w-3.5 h-3.5" />
-              Vehicle / Keys
+              <Car className="w-3 h-3 shrink-0" />
+              Vehicle
             </button>
             <button
               onClick={() => {
@@ -312,36 +333,79 @@ export function QRRedirector() {
                 setSearchQuery('');
                 setSelectedItem(null);
               }}
-              className={`flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all ${
+              className={`flex items-center justify-center gap-1 py-2.5 rounded-lg text-[10px] font-bold transition-all ${
                 linkType === 'job'
                   ? 'bg-indigo-600 text-white shadow-md'
                   : 'text-zinc-400 hover:text-white'
               }`}
             >
-              <Briefcase className="w-3.5 h-3.5" />
-              Work Order / Job
+              <Briefcase className="w-3 h-3 shrink-0" />
+              Job
+            </button>
+            <button
+              onClick={() => {
+                setLinkType('url');
+                setSearchQuery('');
+                setSelectedItem(null);
+              }}
+              className={`flex items-center justify-center gap-1 py-2.5 rounded-lg text-[10px] font-bold transition-all ${
+                linkType === 'url'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Link2 className="w-3 h-3 shrink-0" />
+              Custom URL
             </button>
           </div>
         </div>
 
-        {/* Search & Autocomplete */}
-        <div className="space-y-3 relative">
-          <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest block">
-            Search {linkType === 'vehicle' ? 'Vehicle vin/make/cust...' : 'Active Jobs/Work Orders...'}
-          </label>
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-            <input
-              type="text"
-              placeholder={linkType === 'vehicle' ? "Type to search Vehicle VIN or Owner..." : "Type to search Job # or Customer..."}
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setSelectedItem(null);
-              }}
-              className="w-full pl-10 pr-4 py-3 bg-zinc-950/40 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-bold"
-            />
+        {/* Search & Autocomplete or Custom URL input */}
+        {linkType === 'url' ? (
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest block">
+              Enter Custom URL / Destination
+            </label>
+            <div className="relative">
+              <Link2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="e.g., customsite.com/docs, google.com"
+                value={searchQuery}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  if (val.trim()) {
+                    setSelectedItem({ id: val.trim(), title: val.trim() });
+                  } else {
+                    setSelectedItem(null);
+                  }
+                }}
+                className="w-full pl-10 pr-4 py-3 bg-zinc-950/40 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-bold"
+              />
+            </div>
+            <p className="text-[10px] text-zinc-500 leading-normal">
+              Any scan of this QR code will automatically redirect users to this exact link destination.
+            </p>
           </div>
+        ) : (
+          <div className="space-y-3 relative">
+            <label className="text-xs font-bold text-zinc-400 uppercase tracking-widest block">
+              Search {linkType === 'vehicle' ? 'Vehicle vin/make/cust...' : 'Active Jobs/Work Orders...'}
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                placeholder={linkType === 'vehicle' ? "Type to search Vehicle VIN or Owner..." : "Type to search Job # or Customer..."}
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setSelectedItem(null);
+                }}
+                className="w-full pl-10 pr-4 py-3 bg-zinc-950/40 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-bold"
+              />
+            </div>
 
           {/* Search Result Suggestions List */}
           {searchQuery && !selectedItem && (
@@ -386,6 +450,7 @@ export function QRRedirector() {
             </div>
           )}
         </div>
+      )}
 
         {/* Selected target preview card */}
         {selectedItem && (
@@ -395,11 +460,14 @@ export function QRRedirector() {
               <p className="font-extrabold text-white text-xs truncate">
                 {linkType === 'vehicle' 
                   ? `${selectedItem.year || ''} ${selectedItem.make || ''} ${selectedItem.model || ''}`
-                  : selectedItem.title
+                  : (linkType === 'job' ? selectedItem.title : `Custom URL Destination`)
                 }
               </p>
               <p className="text-[10px] font-mono text-zinc-400 truncate mt-0.5">
-                {linkType === 'vehicle' ? `VIN: ${selectedItem.vin || selectedItem.id}` : `Job #: ${selectedItem.jobNumber || 'Native'}`}
+                {linkType === 'vehicle' 
+                  ? `VIN: ${selectedItem.vin || selectedItem.id}` 
+                  : (linkType === 'job' ? `Job #: ${selectedItem.jobNumber || 'Native'}` : selectedItem.id)
+                }
               </p>
             </div>
             <div className="p-2 bg-emerald-500/10 text-emerald-450 border border-emerald-500/20 rounded-xl">

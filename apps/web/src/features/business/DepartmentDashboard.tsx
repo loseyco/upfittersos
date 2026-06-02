@@ -219,8 +219,8 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
               </div>
             ) : (
               activeJobs.map(job => {
-                const vehicle = vehicles.find(v => v.vin === job.vehicleId);
-                const vehicleDisplay = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : job.vehicleId;
+                const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
+                const vehicleDisplay = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : (job.vehicleId || 'No Vehicle Assigned');
                 const isBlocked = job.status === 'Blocked' || (job.blockers || []).some((b: any) => b.status === 'active');
                 
                 return (

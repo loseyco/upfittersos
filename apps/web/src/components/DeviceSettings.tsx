@@ -218,7 +218,7 @@ export const DeviceSettings: React.FC<DeviceSettingsProps> = ({ tenantId }) => {
                   { key: 'notifyBayArrivals', label: 'Bay Arrivals', desc: 'Alert when a vehicle is assigned to a bay' },
                   { key: 'notifyBayUpdates', label: 'General Bay Updates', desc: 'Alert when a bay\'s status, ETA, or notes are updated' },
                   { key: 'notifyStaleBays', label: 'Stale Bays Alert', desc: 'Alert when a bay has had no activity beyond the threshold' },
-                  { key: 'notifyReadyForQA', label: 'Ready for QA', desc: 'Alert when a job is marked ready for quality assurance' },
+                  { key: 'notifyReadyForQA', label: 'Ready for QC', desc: 'Alert when a job is marked ready for quality check' },
                   { key: 'notifyReadyForCustomer', label: 'Ready for Customer', desc: 'Alert when a job is marked ready for the customer' }
                 ].map(pref => (
                   <div key={pref.key} className="flex items-start justify-between gap-4">
