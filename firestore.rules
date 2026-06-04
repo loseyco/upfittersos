@@ -39,10 +39,7 @@ service cloud.firestore {
     }
     
     match /{path=**}/qr_stickers/{stickerId} {
-      allow read: if request.auth != null && (
-        isTenant(resource.data.tenantId) || 
-        isSuperAdmin()
-      );
+      allow read: if true;
     }
     
     // ============================================
@@ -227,6 +224,9 @@ service cloud.firestore {
       match /meetings/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /weekly_meetings/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /staff/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
@@ -234,6 +234,12 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /staff_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /staff_direct_messages/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /dashboard_questions/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /departments/{docId} {
@@ -374,7 +380,13 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /qr_stickers/{docId} {
-        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+        allow read: if true;
+        allow write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /qr_scans/{docId} {
+        allow create: if true;
+        allow read: if isTenant(tenantId) || isSuperAdmin();
+        allow update, delete: if false;
       }
     }
   }

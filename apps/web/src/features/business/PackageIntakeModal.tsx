@@ -417,6 +417,38 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage =
         await updateDoc(shipmentRef, { images: imageUrls });
       }
 
+      let partNotes = `Intake Location: ${location.trim()}`;
+      if (notes.trim()) {
+        partNotes += `. Notes: ${notes.trim()}`;
+      }
+      partNotes += `. Tracking: ${finalId}`;
+
+      await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+        partName: description.trim(),
+        quantity: 1,
+        urgency: 'normal',
+        jobId: null,
+        jobTitle: null,
+        notes: partNotes,
+        status: 'received',
+        requestedBy: user?.displayName || user?.email?.split('@')[0] || 'Package Intake',
+        requestedById: user?.uid || null,
+        isArchived: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        statusChangedAt: serverTimestamp()
+      });
+
+      // Log to global activity feed
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'parts',
+        title: 'Part Received (Intake)',
+        message: `Part "${description.trim()}" received at ${location.trim()} via Package Intake`,
+        timestamp: serverTimestamp(),
+        severity: 'success',
+        author: user?.displayName || user?.email?.split('@')[0] || 'System'
+      });
+
       toast.success("Package intake complete!");
       onSuccess?.();
       handleClose();
@@ -703,6 +735,8 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage =
                   />
                 </div>
               </div>
+
+
 
               {/* Multi-Image Capture Section */}
               <div className="space-y-3 pt-2">

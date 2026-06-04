@@ -7,22 +7,76 @@ import { useQuery } from '@tanstack/react-query';
 import { 
   collection, query, where, getDocs, addDoc, 
   updateDoc, doc, getDoc, serverTimestamp, 
-  orderBy, limit 
+  orderBy, limit, onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Coffee, Pizza, LogIn, 
-  Loader2, Play, Pause, Square, Activity, Power
+  Loader2, Play, Pause, Square, Activity, Power,
+  MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { calculateDistance, cn } from '../../lib/utils';
 
 export function TimeClockBar() {
   const navigate = useNavigate();
-  const { user, tenantId, permissions } = useAuthStore();
+  const { user, tenantId, permissions, impersonatedStaff } = useAuthStore();
   const { status, startTime, activeSessionId, setStatus, reset } = useTimeclockStore();
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [staffMember, setStaffMember] = useState<any>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const effectiveUserId = impersonatedStaff?.id || user?.uid;
+  useEffect(() => {
+    if (!tenantId || !effectiveUserId || tenantId === 'GLOBAL') {
+      setStaffMember(null);
+      return;
+    }
+
+    if (impersonatedStaff && impersonatedStaff.type === 'staff') {
+      const docRef = doc(db, `businesses/${tenantId}/staff`, impersonatedStaff.id);
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setStaffMember({ id: docSnap.id, ...docSnap.data() });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    } else {
+      const q = query(
+        collection(db, `businesses/${tenantId}/staff`),
+        where('userId', '==', effectiveUserId)
+      );
+      const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          setStaffMember({ id: snap.docs[0].id, ...snap.docs[0].data() });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [tenantId, effectiveUserId, impersonatedStaff]);
+
+  useEffect(() => {
+    if (!tenantId || !staffMember?.id) {
+      setUnreadCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, `businesses/${tenantId}/dashboard_questions`),
+      where('staffId', '==', staffMember.id),
+      where('status', '==', 'pending')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setUnreadCount(snap.size);
+    }, (err) => {
+      console.error("TimeClockBar: error loading pending questions count:", err);
+    });
+    return () => unsub();
+  }, [tenantId, staffMember?.id]);
 
   // Fetch Business Settings for Timeclock config
   const { data: settings } = useQuery({
@@ -529,33 +583,50 @@ export function TimeClockBar() {
         )}
       </div>
 
-      {/* Right: Timer */}
-      {status !== 'clocked_out' && startTime && (
-        <div 
-          onClick={() => tenantId && navigate(`/business/${tenantId}/time_details`)}
-          className="flex items-center gap-4 pl-3 sm:pl-6 border-l border-zinc-200 dark:border-zinc-800 shrink-0 cursor-pointer hover:opacity-85 active:scale-95 transition-all select-none"
-        >
-          <div className="flex flex-col items-end">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none mb-1 hidden sm:block">
-              {status === 'clocked_in' ? 'Work Timer' : `${status.replace('on_', '').toUpperCase()} TIMER`}
+      {/* Right side: Chat Icon + Conditionally Timer */}
+      <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+        {/* Chat Icon Button */}
+        {staffMember?.id && unreadCount > 0 && (
+          <button
+            onClick={() => navigate(`/business/${tenantId}/overview`)}
+            className="relative p-2 sm:p-2.5 bg-rose-500/10 dark:bg-rose-500/25 border border-rose-500/20 rounded-xl text-rose-600 dark:text-rose-450 hover:bg-rose-500/20 transition-all active:scale-[0.95] flex items-center justify-center shrink-0 cursor-pointer shadow-sm animate-bounce"
+            title="You have pending questions to respond to!"
+          >
+            <MessageSquare className="w-4.5 h-4.5" />
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white shadow-sm shadow-rose-500/20 border border-white dark:border-zinc-950">
+              {unreadCount}
             </span>
-            <span className={cn(
-              "text-sm sm:text-xl font-mono font-black tabular-nums",
-              status === 'clocked_in' ? "text-indigo-600 dark:text-indigo-400" : "text-amber-500"
-            )}>
-              {status === 'clocked_in' 
-                ? formatDuration(calculateNetWorkMs()) 
-                : formatDuration(Math.max(0, currentTime - startTime))
-              }
-            </span>
-            {status !== 'clocked_in' && (
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter mt-0.5">
-                Total: {formatDuration(calculateNetWorkMs())}
+          </button>
+        )}
+
+        {/* Live Timer */}
+        {status !== 'clocked_out' && startTime && (
+          <div 
+            onClick={() => tenantId && navigate(`/business/${tenantId}/time_details`)}
+            className="flex items-center gap-3 sm:gap-4 pl-3 sm:pl-4 border-l border-zinc-200 dark:border-zinc-800 cursor-pointer hover:opacity-85 active:scale-95 transition-all select-none"
+          >
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none mb-1 hidden sm:block">
+                {status === 'clocked_in' ? 'Work Timer' : `${status.replace('on_', '').toUpperCase()} TIMER`}
               </span>
-            )}
+              <span className={cn(
+                "text-sm sm:text-xl font-mono font-black tabular-nums",
+                status === 'clocked_in' ? "text-indigo-600 dark:text-indigo-400" : "text-amber-500"
+              )}>
+                {status === 'clocked_in' 
+                  ? formatDuration(calculateNetWorkMs()) 
+                  : formatDuration(Math.max(0, currentTime - startTime))
+                }
+              </span>
+              {status !== 'clocked_in' && (
+                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-tighter mt-0.5">
+                  Total: {formatDuration(calculateNetWorkMs())}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

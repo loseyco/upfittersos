@@ -27,7 +27,9 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
   
-  const canClockOthers = isSuperAdmin || permissions['tasks.clock_others'] === true;
+  const canClockOthers = false;
+  const canManageTasks = isSuperAdmin || permissions['tasks.manage'] === true;
+  const canManageTime = isSuperAdmin || permissions['timeclock.manage'] === true;
   
   const [staffMember, setStaffMember] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
@@ -35,28 +37,46 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   // Track technician staff member record
   useEffect(() => {
     if (!tenantId || !effectiveUserId) return;
-    const q = query(
-      collection(db, `businesses/${tenantId}/staff`),
-      where('userId', '==', effectiveUserId)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        setStaffMember({ 
-          id: snap.docs[0].id, 
-          ...data,
-          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
-        });
-      } else {
-        setStaffMember(null);
-      }
-    });
-    return () => unsub();
-  }, [tenantId, effectiveUserId]);
 
-  // Track all staff members for clock-others mapping
+    if (impersonatedStaff && impersonatedStaff.type === 'staff') {
+      const docRef = doc(db, `businesses/${tenantId}/staff`, impersonatedStaff.id);
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setStaffMember({ 
+            id: docSnap.id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    } else {
+      const q = query(
+        collection(db, `businesses/${tenantId}/staff`),
+        where('userId', '==', effectiveUserId)
+      );
+      const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          setStaffMember({ 
+            id: snap.docs[0].id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [tenantId, effectiveUserId, impersonatedStaff]);
+
+  // Track all staff members for clock-others mapping and UID resolution
   useEffect(() => {
-    if (!tenantId || !canClockOthers) return;
+    if (!tenantId) return;
     const unsub = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
       setAllStaff(snap.docs.map(d => {
         const data = d.data();
@@ -68,7 +88,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       }));
     });
     return () => unsub();
-  }, [tenantId, canClockOthers]);
+  }, [tenantId]);
 
   const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
   
@@ -156,11 +176,16 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   }, [jobId, tenantId]);
 
   const isUserClockedIntoTask = (userId: string, targetTaskId: string, staffName?: string) => {
+    const staffRec = allStaff.find(s => s.id === userId || s.userId === userId);
+    const searchIds = [userId];
+    if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+    if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
     return timeLogs.some(session => {
       const isSessionActive = session.status === 'active' || session.status === 'on_break';
       if (!isSessionActive) return false;
 
-      const matchesUid = session.userId === userId;
+      const matchesUid = searchIds.includes(session.userId);
       const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
       const targetName = (staffName || '').toLowerCase().trim();
       const matchesName = targetName && sessionName && (sessionName === targetName);
@@ -172,13 +197,18 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
 
   const handleClockOther = async (targetUid: string, targetName: string, targetTaskId: string, taskTitle: string, action: 'in' | 'out') => {
     try {
+      const staffRec = allStaff.find(s => s.id === targetUid || s.userId === targetUid);
+      const searchIds = [targetUid];
+      if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+      if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
       const q = query(
         collection(db, `businesses/${tenantId}/time_sessions`),
         where('status', 'in', ['active', 'on_break'])
       );
       const snap = await getDocs(q);
       const activeSession = snap.empty ? null : snap.docs.map(d => ({ id: d.id, ...d.data() as any })).find(session => {
-        const matchesUid = session.userId === targetUid;
+        const matchesUid = searchIds.includes(session.userId);
         const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
         const targetLower = (targetName || '').toLowerCase().trim();
         const matchesName = targetLower && sessionName && (sessionName === targetLower);
@@ -195,6 +225,8 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
         } catch (err) {
           console.warn('Could not fetch task bookTime', err);
         }
+
+        const sessionUserId = staffRec?.userId || targetUid;
 
         if (activeSession) {
           const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
@@ -232,7 +264,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
           toast.success(`Clocked ${targetName} into ${taskTitle}`);
         } else {
           await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
-            userId: targetUid,
+            userId: sessionUserId,
             userName: targetName,
             clockIn: {
               timestamp: serverTimestamp(),
@@ -478,9 +510,17 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
     );
     
     const unsub = onSnapshot(q, (snap) => {
+      const searchIds = [effectiveUserId];
+      if (staffMember?.id && !searchIds.includes(staffMember.id)) {
+        searchIds.push(staffMember.id);
+      }
+      if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+        searchIds.push(staffMember.userId);
+      }
+
       const activeSession = snap.docs.find(d => {
         const data = d.data();
-        const matchesUid = data.userId === effectiveUserId;
+        const matchesUid = searchIds.includes(data.userId);
         const sessionName = (data.userName || data.staffName || '').toLowerCase().trim();
         const targetName = (staffMember?.name || '').toLowerCase().trim();
         const matchesName = targetName && sessionName && (sessionName === targetName);
@@ -500,7 +540,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       console.error("Session sync listener error:", err);
     });
     return () => unsub();
-  }, [tenantId, effectiveUserId, staffMember?.name]);
+  }, [tenantId, effectiveUserId, staffMember?.name, staffMember?.userId, staffMember?.id]);
 
   const logActivity = async (type: string, message: string, metadata: any = {}) => {
     try {
@@ -857,10 +897,15 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                     (staffMember?.id && (
                       task.assignedStaffIds?.includes(staffMember.id) || 
                       task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
+                    )) ||
+                    (staffMember?.userId && (
+                      task.assignedStaffIds?.includes(staffMember.userId) || 
+                      task.assignedStaff?.some((s: any) => s.uid === staffMember.userId || s.id === staffMember.userId)
                     ));
+  const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
 
   const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
-  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || (canPerformQC && task.status === 'QC');
+  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || isUnassigned || (canPerformQC && task.status === 'QC');
 
   if (!hasAccess) {
     return (
@@ -941,7 +986,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
         </div>
 
         <div className="flex items-center gap-2">
-           {(isAssigned || canClockOthers) && (
+           {(isAssigned || isUnassigned || canClockOthers) && (
              <>
                {isCurrentTask ? (
                   <button 
@@ -1040,7 +1085,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
       )}
 
       {/* Privileged Support Control Board */}
-      {canClockOthers && (
+      {canManageTasks && (
         <div className="bg-zinc-900/90 dark:bg-zinc-950/80 border-l-4 border-indigo-500 rounded-3xl p-6 text-white shadow-xl animate-in slide-in-from-top-4 duration-300">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10 mb-4">
             <div>
@@ -1060,56 +1105,8 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
           </div>
 
           <div className="space-y-4">
-            <div>
-              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">Clock Staff Assigned to Task</span>
-              {task.assignedStaff && task.assignedStaff.length > 0 ? (
-                <div className="flex flex-wrap gap-3">
-                  {task.assignedStaff.map((staff: any) => {
-                    const staffUid = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.userId || staff.id || staff.uid;
-                    const resolvedStaffName = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.name || staff.name;
-
-                    const isClockedIn = isUserClockedIntoTask(staffUid, task.id, resolvedStaffName);
-
-                    return (
-                      <div 
-                        key={staff.id || staff.uid} 
-                        className="flex items-center gap-3 bg-white/5 px-4 py-2 rounded-2xl border border-white/10 shadow-sm"
-                      >
-                        <span className="flex items-center gap-2 text-xs font-bold text-zinc-200">
-                          <span className={cn(
-                            "w-1.5 h-1.5 rounded-full shrink-0",
-                            isClockedIn ? "bg-emerald-500 animate-pulse" : "bg-zinc-500"
-                          )} />
-                          {staff.name}
-                        </span>
-                        {isClockedIn ? (
-                          <button
-                            onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'out')}
-                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-rose-600/20"
-                          >
-                            Clock Out
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'in')}
-                            className="px-3 py-1.5 bg-indigo-500 hover:bg-indigo-650 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-indigo-500/20"
-                          >
-                            Clock In
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="p-4 rounded-2xl bg-white/5 border border-dashed border-white/10 text-center">
-                  <p className="text-xs text-zinc-400 italic">No technicians are assigned to this task. Assign a technician first to manage their clock.</p>
-                </div>
-              )}
-            </div>
-
             {/* Task Attribute Overrides */}
-            <div className="pt-4 border-t border-white/10">
+            <div>
               <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">Override Task Attributes</span>
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2.5 cursor-pointer bg-white/5 hover:bg-white/10 px-4 py-2.5 rounded-2xl border border-white/10 transition-all select-none">
@@ -1410,7 +1407,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                               </div>
                             </div>
                              <span className="font-mono font-bold text-zinc-700 dark:text-zinc-300">{formatMs(seg.duration)}</span>
-                             {canClockOthers && (
+                             {canManageTime && (
                                <div className="flex items-center gap-1.5 ml-2">
                                  <button
                                    onClick={() => {
@@ -1438,50 +1435,6 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                 </div>
               );
             })()}
-            {/* Clock Staff (For Managers / Admins) */}
-            {canClockOthers && task.assignedStaff && task.assignedStaff.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-3 w-full">
-                <span className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mr-1">Clock Staff:</span>
-                <div className="flex flex-wrap gap-2">
-                  {task.assignedStaff.map((staff: any) => {
-                    const staffUid = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.userId || staff.id || staff.uid;
-                    const resolvedStaffName = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.name || staff.name;
-
-                    const isClockedIn = isUserClockedIntoTask(staffUid, task.id, resolvedStaffName);
-
-                    return (
-                      <div 
-                        key={staff.id || staff.uid} 
-                        className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm"
-                      >
-                        <span className="flex items-center gap-1.5 text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                          <span className={cn(
-                            "w-1.5 h-1.5 rounded-full shrink-0",
-                            isClockedIn ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
-                          )} />
-                          {staff.name}
-                        </span>
-                        {isClockedIn ? (
-                          <button
-                            onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'out')}
-                            className="px-2 py-1 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm shadow-rose-500/10"
-                          >
-                            Clock Out
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'in')}
-                            className="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm shadow-indigo-500/10"
-                          >
-                            Clock In
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Activity Timeline */}

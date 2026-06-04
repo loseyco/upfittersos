@@ -46,22 +46,85 @@ async function main() {
   const projectId = 'saegroup-c6487';
   const tenantId = '7jlg4IA2G6lvDJ0S5Vbp';
 
-  const staffUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/businesses/${tenantId}/staff?pageSize=100`;
-  const staffRes = await makeRequest(staffUrl, token);
+  const adrianDocId = 'guD1vlbwo44sSpWaPtnh';
+  const adrianUid = '3xYvYIOXGVNyaHxfUYXh0LjyRlx1';
   
-  if (staffRes.documents) {
-    staffRes.documents.forEach(doc => {
-      const fields = doc.fields || {};
-      const firstName = fields.firstName?.stringValue || '';
-      const lastName = fields.lastName?.stringValue || '';
-      const userId = fields.userId?.stringValue || 'N/A';
-      const email = fields.email?.stringValue || '';
-      
-      if (firstName.toLowerCase().includes('eric') || lastName.toLowerCase().includes('eric') || email.toLowerCase().includes('eric')) {
-        console.log(`DocID: ${doc.name.split('/').pop()} | Name: ${firstName} ${lastName} | userId field: ${userId} | email: ${email}`);
+  // Use Firestore REST runQuery
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`;
+  
+  const queryPayload = {
+    structuredQuery: {
+      from: [{ collectionId: 'tasks', allDescendants: true }],
+      where: {
+        compositeFilter: {
+          op: 'AND',
+          filters: [
+            {
+              fieldFilter: {
+                field: { fieldPath: 'tenantId' },
+                op: 'EQUAL',
+                value: { stringValue: tenantId }
+              }
+            },
+            {
+              fieldFilter: {
+                field: { fieldPath: 'assignedStaffIds' },
+                op: 'ARRAY_CONTAINS',
+                value: { stringValue: adrianUid }
+              }
+            }
+          ]
+        }
       }
+    }
+  };
+
+  const makePostRequest = (url, token, payload) => {
+    return new Promise((resolve, reject) => {
+      const parsedUrl = new URL(url);
+      const options = {
+        hostname: parsedUrl.hostname,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      };
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode === 200) resolve(JSON.parse(data));
+          else reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+        });
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify(payload));
+      req.end();
     });
-  }
+  };
+
+  console.log("Querying tasks containing UID...");
+  const resUid = await makePostRequest(url, token, queryPayload);
+  console.log(`Found ${resUid.length} results.`);
+  resUid.forEach((r, idx) => {
+    if (r.document) {
+      const fields = r.document.fields || {};
+      console.log(`[${idx}] JobID: ${r.document.name.split('/')[8]} | Task: ${fields.title?.stringValue} | Status: ${fields.status?.stringValue}`);
+    }
+  });
+
+  console.log("\nQuerying tasks containing DocID...");
+  queryPayload.structuredQuery.where.compositeFilter.filters[1].fieldFilter.value.stringValue = adrianDocId;
+  const resDoc = await makePostRequest(url, token, queryPayload);
+  console.log(`Found ${resDoc.length} results.`);
+  resDoc.forEach((r, idx) => {
+    if (r.document) {
+      const fields = r.document.fields || {};
+      console.log(`[${idx}] JobID: ${r.document.name.split('/')[8]} | Task: ${fields.title?.stringValue} | Status: ${fields.status?.stringValue}`);
+    }
+  });
 }
 
 main().catch(console.error);

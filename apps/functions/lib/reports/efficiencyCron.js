@@ -86,7 +86,7 @@ const calculateTenantEfficiency = async (tenantId) => {
                 const sessionClockedMs = Math.max(0, sessionMs - breakMs);
                 totalLoggedMs += sessionClockedMs;
                 userStats[uId].loggedMs += sessionClockedMs;
-                let hasBookedJob = false;
+                let sessionEfficiencyLoggedMs = 0;
                 const sessionJobs = session.jobs || [];
                 sessionJobs.forEach((j) => {
                     var _a;
@@ -94,14 +94,14 @@ const calculateTenantEfficiency = async (tenantId) => {
                         return;
                     const jobDoc = jobs.find((job) => job.id === j.id);
                     const estimatedHours = (jobDoc === null || jobDoc === void 0 ? void 0 : jobDoc.estimatedHours) ? parseFloat(jobDoc.estimatedHours) : 0;
-                    if (estimatedHours > 0) {
-                        hasBookedJob = true;
-                        userStats[uId].jobsTouched.add(j.id);
-                    }
                     // Track individual segment duration in jobStats
                     const startTs = ((_a = j.start) === null || _a === void 0 ? void 0 : _a.toDate) ? j.start.toDate().getTime() : new Date(j.start).getTime();
                     const endTs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : nowTime;
                     const duration = Math.max(0, endTs - startTs);
+                    if (estimatedHours > 0) {
+                        sessionEfficiencyLoggedMs += duration;
+                        userStats[uId].jobsTouched.add(j.id);
+                    }
                     if (!jobStats[j.id]) {
                         jobStats[j.id] = {
                             title: (jobDoc === null || jobDoc === void 0 ? void 0 : jobDoc.title) || j.name || 'Unknown Job',
@@ -111,10 +111,8 @@ const calculateTenantEfficiency = async (tenantId) => {
                     }
                     jobStats[j.id].loggedMs += duration;
                 });
-                if (hasBookedJob) {
-                    efficiencyLoggedMs += sessionClockedMs;
-                    userStats[uId].efficiencyLoggedMs += sessionClockedMs;
-                }
+                efficiencyLoggedMs += sessionEfficiencyLoggedMs;
+                userStats[uId].efficiencyLoggedMs += sessionEfficiencyLoggedMs;
             });
             let totalBookMs = 0;
             Object.values(jobStats).forEach(jStat => {

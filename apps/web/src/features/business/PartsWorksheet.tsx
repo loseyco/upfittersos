@@ -39,6 +39,7 @@ interface Job {
   vehicleName?: string;
   vin?: string;
   status?: string;
+  vehicleId?: string;
 }
 
 export function PartsWorksheet({ tenantId }: { tenantId: string }) {
@@ -72,6 +73,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
   // Live Subscription Data
   const [requestsList, setRequestsList] = useState<PartsRequest[]>([]);
   const [jobsList, setJobsList] = useState<Job[]>([]);
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
 
   // Column Resizing State
   const [colWidths, setColWidths] = useState<Record<string, number>>({
@@ -133,11 +135,27 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
       setRequestsList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PartsRequest)));
     });
 
+    // 3. Listen to vehicles
+    const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
+      setVehiclesList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     return () => {
       unsubJobs();
       unsubRequests();
+      unsubVehicles();
     };
   }, [tenantId]);
+
+  // Filter jobs to only those with vehicles currently on-site (active check-in and not departed / with customer)
+  const onSiteJobs = useMemo(() => {
+    return jobsList.filter(j => {
+      if (j.status === 'Closed') return false;
+      if (!j.vehicleId) return false;
+      const vehicle = vehiclesList.find(v => v.vin === j.vehicleId || v.id === j.vehicleId);
+      return vehicle && vehicle.arrivedAt && !vehicle.departedAt && !vehicle.isWithCustomer;
+    });
+  }, [jobsList, vehiclesList]);
 
   // Handle Quick Add
   const handleQuickAdd = async (e: React.FormEvent) => {
@@ -538,7 +556,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
               className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 outline-none rounded-xl text-xs font-bold dark:text-white cursor-pointer"
             >
               <option value="none">No Job Linked</option>
-              {jobsList.map(j => (
+              {onSiteJobs.map(j => (
                 <option key={j.id} value={j.id}>
                   {j.jobNumber ? `#${j.jobNumber} - ${j.title}` : j.title}
                 </option>
@@ -588,8 +606,8 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white"
             >
-              <option value="active">Active Requests (Pending/Ordered/Received)</option>
-              <option value="pending">Pending Only</option>
+              <option value="active">Active Requests (Requested/Ordered/Received)</option>
+              <option value="pending">Requested Only</option>
               <option value="ordered">Ordered Only</option>
               <option value="received">Received Only</option>
               <option value="completed">Completed / Finished</option>
@@ -629,7 +647,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
           {/* Legend */}
           <div className="hidden lg:flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 ml-auto select-none">
             <span>Grid Row Hints:</span>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/20" /> Pending</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/20" /> Requested</div>
             <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-blue-500/10 dark:bg-blue-950/20 border border-blue-500/20" /> Ordered</div>
             <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-500/10 dark:bg-emerald-950/20 border border-emerald-500/20" /> Received / Delivered</div>
           </div>
@@ -799,7 +817,13 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
                           <ExcelSearchableSelect
                             options={[
                               { id: 'none', title: 'No Job Linked' },
-                              ...jobsList.filter(j => j.status !== 'Closed')
+                              ...jobsList.filter(j => {
+                                if (j.id === currentJobId) return true;
+                                if (j.status === 'Closed') return false;
+                                if (!j.vehicleId) return false;
+                                const vehicle = vehiclesList.find(v => v.vin === j.vehicleId || v.id === j.vehicleId);
+                                return vehicle && vehicle.arrivedAt && !vehicle.departedAt && !vehicle.isWithCustomer;
+                              })
                             ]}
                             value={currentJobId}
                             onChange={(val) => handleJobChange(request.id, val)}
@@ -833,7 +857,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
                           !canManage && "cursor-not-allowed opacity-80"
                         )}
                       >
-                        <option value="pending" className="bg-white dark:bg-zinc-900 text-amber-600 font-bold">PENDING</option>
+                        <option value="pending" className="bg-white dark:bg-zinc-900 text-amber-600 font-bold">REQUESTED</option>
                         <option value="ordered" className="bg-white dark:bg-zinc-900 text-blue-600 font-bold">ORDERED</option>
                         <option value="received" className="bg-white dark:bg-zinc-900 text-emerald-600 font-bold">RECEIVED</option>
                         <option value="delivered" className="bg-white dark:bg-zinc-900 text-emerald-700 font-bold">WITH VEHICLE</option>

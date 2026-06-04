@@ -298,13 +298,46 @@ export const onActivityFeedCreated = functions.firestore.onDocumentCreated(
 export const onJobTaskWritten = functions.firestore.onDocumentWritten(
     'businesses/{tenantId}/jobs/{jobId}/tasks/{taskId}',
     async (event) => {
-        const { tenantId, jobId } = event.params;
+        const { tenantId, jobId, taskId } = event.params;
         const db = admin.firestore();
         try {
             await db.doc(`businesses/${tenantId}/jobs/${jobId}`).update({
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             });
             console.log(`Updated job ${jobId} updatedAt due to task write`);
+
+            // Clean up active clock-in sessions if this task was deleted
+            if (event.data && !event.data.after.exists) {
+                console.log(`Task ${taskId} in job ${jobId} was deleted. Cleaning up active clock-in sessions...`);
+                const sessionsSnap = await db.collection('businesses')
+                    .doc(tenantId)
+                    .collection('time_sessions')
+                    .where('status', 'in', ['active', 'on_break'])
+                    .get();
+
+                for (const sessionDoc of sessionsSnap.docs) {
+                    const sessionData = sessionDoc.data();
+                    const jobs = sessionData.jobs || [];
+                    let updated = false;
+                    const updatedJobs = jobs.map((j: any) => {
+                        if (j.id === jobId && j.taskId === taskId && !j.end) {
+                            updated = true;
+                            return {
+                                ...j,
+                                end: admin.firestore.Timestamp.now()
+                            };
+                        }
+                        return j;
+                    });
+                    if (updated) {
+                        await sessionDoc.ref.update({
+                            jobs: updatedJobs,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        console.log(`Automatically clocked out user ${sessionData.userId} from deleted task ${taskId}`);
+                    }
+                }
+            }
 
             // Proactive Server-Side Progression & Regression Sync
             const jobRef = db.collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
@@ -346,10 +379,19 @@ export const onJobTaskWritten = functions.firestore.onDocumentWritten(
             }
 
             if (newStatus && newStatus !== currentJobStatus) {
-                await jobRef.update({
+                const updateFields: any = {
                     status: newStatus,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                };
+                if (newStatus === 'Ready for Customer') {
+                    updateFields.readyForCustomerAt = admin.firestore.FieldValue.serverTimestamp();
+                } else if (newStatus === 'Completed' || newStatus === 'Closed') {
+                    updateFields.completedAt = admin.firestore.FieldValue.serverTimestamp();
+                } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+                    updateFields.readyForCustomerAt = null;
+                    updateFields.completedAt = null;
+                }
+                await jobRef.update(updateFields);
                 console.log(`Auto-synced job ${jobId} status from ${currentJobStatus} to ${newStatus} on task write`);
             }
         } catch (e) {

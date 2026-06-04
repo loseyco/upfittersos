@@ -275,21 +275,7 @@ export function ShopFloorActivity({ tenantId }: { tenantId: string }) {
           };
         }
       },
-      {
-        path: `businesses/${tenantId}/time_edit_requests`,
-        transform: (doc: any) => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            type: 'time_session' as const,
-            title: 'Clock Correction',
-            message: `Requested: ${data.note?.slice(0, 50)}${data.note?.length > 50 ? '...' : ''}`,
-            timestamp: data.createdAt,
-            severity: 'warning' as const,
-            author: data.userName
-          };
-        }
-      },
+
       {
         path: `businesses/${tenantId}/customers`,
         transform: (doc: any) => {

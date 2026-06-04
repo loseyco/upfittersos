@@ -171,7 +171,7 @@ export function GlobalSearchModal() {
 
   function handleResultClick(item: SearchResult) {
     if (item.type === 'Staff') {
-      navigate(`/business/${tenantId}/performance?staffName=${encodeURIComponent(item.title)}`);
+      navigate(`/business/${tenantId}/staff/${item.id}`);
       close();
       return;
     }

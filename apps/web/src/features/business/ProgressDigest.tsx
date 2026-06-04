@@ -5,7 +5,7 @@ import {
 import { db } from '../../lib/firebase/config';
 import {
   ExternalLink, AlertTriangle, Package, Mail, Share2, Activity,
-  Clock, Wrench, ShieldCheck, MapPin
+  Clock, Wrench, ShieldCheck, MapPin, Sparkles, CheckCircle2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -138,7 +138,9 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
       bayMoves: [] as any[],
       generalUpdates: [] as any[],
       currentBlockers: [] as any[],
-      missingParts: [] as any[]
+      missingParts: [] as any[],
+      readyForCustomerToday: [] as any[],
+      completedToday: [] as any[]
     };
 
     jobsList.forEach((job) => {
@@ -147,6 +149,36 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
         ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
         : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
       const jobDesc = `${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title} (${vehicleLabel})`;
+
+      // Track Ready for Customer Today
+      const isReadyForCustomerToday = job.readyForCustomerAt
+        ? isToday(job.readyForCustomerAt)
+        : (job.status === 'Ready for Customer' && isToday(job.updatedAt));
+      
+      if (isReadyForCustomerToday) {
+        const timeVal = job.readyForCustomerAt || job.updatedAt;
+        const timeStr = timeVal ? new Date(parseSafeDate(timeVal)!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        sections.readyForCustomerToday.push({
+          jobId: job.id,
+          message: `${job.jobNumber ? `#${job.jobNumber} - ` : ''}${job.title}`,
+          subtext: `Ready for customer since ${timeStr}`
+        });
+      }
+
+      // Track Completed Today (complete meaning with customer, not our problem anymore)
+      const isCompletedToday = job.completedAt
+        ? isToday(job.completedAt)
+        : (['Completed', 'Closed'].includes(job.status || '') && isToday(job.updatedAt));
+
+      if (isCompletedToday) {
+        const timeVal = job.completedAt || job.updatedAt;
+        const timeStr = timeVal ? new Date(parseSafeDate(timeVal)!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        sections.completedToday.push({
+          jobId: job.id,
+          message: `${job.jobNumber ? `#${job.jobNumber} - ` : ''}${job.title}`,
+          subtext: `Completed & picked up since ${timeStr}`
+        });
+      }
 
       // 1. Task progress today
       const jobTasks = tasksMap[job.id] || [];
@@ -278,6 +310,20 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
       totalChanges += reportData.readyForQc.length;
     }
 
+    if (reportData.readyForCustomerToday.length > 0) {
+      text += `✨ READY FOR CUSTOMER TODAY:\n`;
+      reportData.readyForCustomerToday.forEach(item => text += `   - ${item.message} (${item.subtext})\n`);
+      text += `\n`;
+      totalChanges += reportData.readyForCustomerToday.length;
+    }
+
+    if (reportData.completedToday.length > 0) {
+      text += `🤝 COMPLETED / PICKED UP TODAY:\n`;
+      reportData.completedToday.forEach(item => text += `   - ${item.message} (${item.subtext})\n`);
+      text += `\n`;
+      totalChanges += reportData.completedToday.length;
+    }
+
     if (reportData.rework.length > 0) {
       text += `⚠️ REWORK / FAILED QC REASONS:\n`;
       reportData.rework.forEach(item => text += `   - ${item.message} (${item.subtext})\n`);
@@ -382,7 +428,7 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
       </div>
 
       {/* Metrics Summary Row */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
         
         {/* QC Passed */}
         <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24">
@@ -406,8 +452,34 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
           <div className="text-2xl font-black text-zinc-900 dark:text-white mt-1">
             {reportData.readyForQc.length}
           </div>
-          <div className="text-[9px] text-zinc-400 font-semibold mt-0.5">Jobs complete today</div>
+          <div className="text-[9px] text-zinc-400 font-semibold mt-0.5">Jobs ready for inspection</div>
           <div className="absolute right-0 bottom-0 w-24 h-24 bg-indigo-500/[0.02] rounded-full translate-x-8 translate-y-8" />
+        </div>
+
+        {/* Ready for Customer */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">Ready Customer</span>
+            <Sparkles className="w-4 h-4 text-violet-500 shrink-0" />
+          </div>
+          <div className="text-2xl font-black text-zinc-900 dark:text-white mt-1">
+            {reportData.readyForCustomerToday.length}
+          </div>
+          <div className="text-[9px] text-zinc-400 font-semibold mt-0.5">Jobs ready today</div>
+          <div className="absolute right-0 bottom-0 w-24 h-24 bg-violet-500/[0.02] rounded-full translate-x-8 translate-y-8" />
+        </div>
+
+        {/* Completed Today */}
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">Completed / Done</span>
+            <CheckCircle2 className="w-4 h-4 text-teal-500 shrink-0" />
+          </div>
+          <div className="text-2xl font-black text-zinc-900 dark:text-white mt-1">
+            {reportData.completedToday.length}
+          </div>
+          <div className="text-[9px] text-zinc-400 font-semibold mt-0.5">With customer today</div>
+          <div className="absolute right-0 bottom-0 w-24 h-24 bg-teal-500/[0.02] rounded-full translate-x-8 translate-y-8" />
         </div>
 
         {/* Flagged Rework */}
@@ -437,7 +509,7 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
         </div>
 
         {/* Missing Parts */}
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24 col-span-2 md:col-span-1">
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">Waiting Parts</span>
             <Package className="w-4 h-4 text-blue-500 shrink-0" />
@@ -572,6 +644,64 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
                       <ExternalLink className="w-3 h-3 text-zinc-400 shrink-0" />
                     </div>
                     <div className="text-[10px] text-zinc-500 font-semibold">{item.subtext}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Ready for Customer Today */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2.5">
+              <h3 className="font-black text-xs uppercase tracking-wider text-zinc-805 dark:text-white flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-violet-500 shrink-0" />
+                Ready for Customer Today ({reportData.readyForCustomerToday.length})
+              </h3>
+            </div>
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {reportData.readyForCustomerToday.length === 0 ? (
+                <div className="p-6 text-center text-zinc-400 dark:text-zinc-500 italic">No jobs marked ready for customer today yet.</div>
+              ) : (
+                reportData.readyForCustomerToday.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className="p-3 rounded-xl bg-violet-500/5 border border-violet-500/10 hover:border-violet-500/20 cursor-pointer transition active:scale-[0.99] flex flex-col gap-1"
+                    onClick={() => navigate(`/business/${tenantId}/job/${item.jobId}`)}
+                  >
+                    <div className="font-bold text-zinc-900 dark:text-white flex items-center justify-between">
+                      <span>{item.message}</span>
+                      <ExternalLink className="w-3 h-3 text-zinc-400 shrink-0" />
+                    </div>
+                    <div className="text-[10px] text-violet-650 dark:text-violet-400 font-bold">{item.subtext}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Completed Today */}
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2.5">
+              <h3 className="font-black text-xs uppercase tracking-wider text-zinc-805 dark:text-white flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-teal-500 shrink-0" />
+                Completed Today (With Customer) ({reportData.completedToday.length})
+              </h3>
+            </div>
+            <div className="space-y-3 max-h-60 overflow-y-auto">
+              {reportData.completedToday.length === 0 ? (
+                <div className="p-6 text-center text-zinc-400 dark:text-zinc-500 italic">No jobs completed today yet.</div>
+              ) : (
+                reportData.completedToday.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className="p-3 rounded-xl bg-teal-500/5 border border-teal-500/10 hover:border-teal-500/20 cursor-pointer transition active:scale-[0.99] flex flex-col gap-1"
+                    onClick={() => navigate(`/business/${tenantId}/job/${item.jobId}`)}
+                  >
+                    <div className="font-bold text-zinc-900 dark:text-white flex items-center justify-between">
+                      <span>{item.message}</span>
+                      <ExternalLink className="w-3 h-3 text-zinc-400 shrink-0" />
+                    </div>
+                    <div className="text-[10px] text-teal-600 dark:text-teal-400 font-bold">{item.subtext}</div>
                   </div>
                 ))
               )}

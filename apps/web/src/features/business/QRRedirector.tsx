@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
-import { doc, getDoc, setDoc, updateDoc, collection, getDocs, serverTimestamp, collectionGroup, query, where } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, serverTimestamp, collectionGroup, query, where, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   QrCode, Car, Briefcase, Search, Check, 
@@ -11,10 +11,147 @@ import { toast } from 'sonner';
 
 type LinkType = 'vehicle' | 'job' | 'url';
 
+// Geofence calculation helper using Haversine formula
+function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3; // metres
+  const φ1 = lat1 * Math.PI/180; // φ, λ in radians
+  const φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180;
+  const Δλ = (lon2-lon1) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c; // in meters
+}
+
 export function QRRedirector() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, tenantId, loading: authLoading } = useAuthStore();
+
+  const scanLoggedRef = useRef(false);
+
+  const logScan = async (
+    scanTenantId: string,
+    targetType: string,
+    targetId: string,
+    targetLabel: string,
+    scannedStickerId?: string
+  ) => {
+    if (scanLoggedRef.current) return;
+    scanLoggedRef.current = true;
+
+    // 1. Client-side User Agent, Referrer info
+    const ua = navigator.userAgent;
+    let deviceType = 'desktop';
+    if (/tablet|ipad|playbook|silk/i.test(ua.toLowerCase())) {
+      deviceType = 'tablet';
+    } else if (/mobile|iphone|ipod|android|blackberry|iemobile|opera mini/i.test(ua.toLowerCase())) {
+      deviceType = 'mobile';
+    }
+
+    let browser = 'Other';
+    if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Chrome')) browser = 'Chrome';
+    else if (ua.includes('Safari') && !ua.includes('Chrome')) browser = 'Safari';
+    else if (ua.includes('Edge')) browser = 'Edge';
+    else if (ua.includes('Opera') || ua.includes('OPR')) browser = 'Opera';
+
+    let os = 'Other';
+    if (ua.includes('Windows')) os = 'Windows';
+    else if (ua.includes('Macintosh') || ua.includes('Mac OS')) os = 'macOS';
+    else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('Linux')) os = 'Linux';
+
+    // 2. Fetch IP and Geolocation
+    let ip = '';
+    let geo: any = {};
+    try {
+      const res = await fetch('https://freeipapi.com/api/json');
+      if (res.ok) {
+        const data = await res.json();
+        ip = data.ipAddress || '';
+        geo = {
+          city: data.cityName || '',
+          region: data.regionName || '',
+          country: data.countryName || '',
+          latitude: data.latitude || null,
+          longitude: data.longitude || null
+        };
+      }
+    } catch (err) {
+      console.warn('Silent IP geo-lookup failed:', err);
+    }
+
+    // 3. Determine if "In-House" or "In the Wild"
+    let locationType: 'in_house' | 'in_the_wild' = 'in_the_wild';
+    
+    // Try fetching business settings for geofence if we have scanTenantId
+    let siteLat = '';
+    let siteLng = '';
+    let siteRadius = 500;
+    try {
+      const bizDoc = await getDoc(doc(db, 'businesses', scanTenantId));
+      if (bizDoc.exists()) {
+        const bizData = bizDoc.data();
+        siteLat = bizData.siteLat || '';
+        siteLng = bizData.siteLng || '';
+        siteRadius = parseInt(bizData.siteRadius, 10) || 500;
+      }
+    } catch (e) {
+      console.warn('Failed to fetch business geofence:', e);
+    }
+
+    if (user && tenantId === scanTenantId) {
+      // Logged in staff members are in_house
+      locationType = 'in_house';
+    } else if (geo.latitude && geo.longitude && siteLat && siteLng) {
+      const distance = getDistanceInMeters(
+        geo.latitude,
+        geo.longitude,
+        parseFloat(siteLat),
+        parseFloat(siteLng)
+      );
+      if (distance <= siteRadius) {
+        locationType = 'in_house';
+      }
+    }
+
+    // 4. User details
+    const scanUser = user ? {
+      uid: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || 'Staff'
+    } : null;
+
+    // 5. Write log to Firestore
+    try {
+      await addDoc(collection(db, `businesses/${scanTenantId}/qr_scans`), {
+        stickerId: scannedStickerId || null,
+        targetType,
+        targetId,
+        targetLabel,
+        tenantId: scanTenantId,
+        scannedAt: serverTimestamp(),
+        user: scanUser,
+        isStaff: !!user && tenantId === scanTenantId,
+        userAgent: ua,
+        referrer: document.referrer || 'Direct Scan',
+        deviceType,
+        browser,
+        os,
+        locationType,
+        ip,
+        geo
+      });
+    } catch (err) {
+      console.error('Failed to log QR scan:', err);
+    }
+  };
 
   // Route Parameters
   const t = searchParams.get('t'); // Tenant ID
@@ -46,26 +183,62 @@ export function QRRedirector() {
     if (authLoading) return;
 
     const currentPath = window.location.pathname + window.location.search;
+    const targetTenant = t || tenantId;
 
-    if (!user) {
-      // Prompt login, keep redirect target
-      localStorage.setItem('pendingQrRedirect', currentPath);
-      navigate('/login');
-      return;
-    }
+    // Helper to trigger direct redirects with logging
+    const handleDirectRedirect = async (type: string, id: string, label: string, path: string) => {
+      if (targetTenant) {
+        await logScan(targetTenant, type, id, label);
+      }
+      if (!user) {
+        localStorage.setItem('pendingQrRedirect', currentPath);
+        navigate('/login');
+      } else {
+        navigate(path);
+      }
+    };
 
     // If direct legacy parameters are present, handle them immediately (backwards compatibility)
-    const targetTenant = t || tenantId;
     if (v) {
-      navigate(`/business/${targetTenant}/vehicles?vin=${encodeURIComponent(v)}`);
+      handleDirectRedirect(
+        'vehicle',
+        v,
+        `VIN: ${v}`,
+        `/business/${targetTenant}/vehicles?vin=${encodeURIComponent(v)}`
+      );
       return;
     }
     if (j) {
-      navigate(`/business/${targetTenant}/job/${j}`);
+      // Fetch job details first to log a beautiful title if possible
+      (async () => {
+        let label = `Job ID: ${j}`;
+        if (targetTenant) {
+          try {
+            const jobSnap = await getDoc(doc(db, `businesses/${targetTenant}/jobs`, j));
+            if (jobSnap.exists()) {
+              const data = jobSnap.data();
+              label = data.jobNumber ? `Job #${data.jobNumber} - ${data.title}` : data.title;
+            }
+          } catch (e) {
+            console.warn("Failed to fetch job details for direct link scan logging:", e);
+          }
+        }
+        await handleDirectRedirect(
+          'job',
+          j,
+          label,
+          `/business/${targetTenant}/job/${j}`
+        );
+      })();
       return;
     }
     if (p) {
-      navigate(`/business/${targetTenant}/items?search=${encodeURIComponent(p)}`);
+      handleDirectRedirect(
+        'part',
+        p,
+        `Part Query: ${p}`,
+        `/business/${targetTenant}/items?search=${encodeURIComponent(p)}`
+      );
       return;
     }
 
@@ -74,27 +247,81 @@ export function QRRedirector() {
       setResolving(true);
       const fallbackTenant = tenantId || t;
 
-      const processStickerData = (data: any, computedTenantId: string) => {
+      const processStickerData = async (data: any, computedTenantId: string) => {
         setResolvedTenantId(computedTenantId);
+        
         if (data?.assignedTo) {
           setAssignedTarget(data.assignedTo);
-          if (data.assignedTo.type === 'vehicle') {
-            navigate(`/business/${computedTenantId}/vehicles?vin=${encodeURIComponent(data.assignedTo.id)}`);
+          
+          // Log scan
+          await logScan(
+            computedTenantId,
+            data.assignedTo.type,
+            data.assignedTo.id,
+            data.assignedTo.label || `${data.assignedTo.type}: ${data.assignedTo.id}`,
+            sid
+          );
+
+          // Handle redirects
+          if (data.assignedTo.type === 'url') {
+            const url = data.assignedTo.id.startsWith('http') ? data.assignedTo.id : `https://${data.assignedTo.id}`;
+            window.location.href = url;
+          } else if (data.assignedTo.type === 'vehicle') {
+            if (!user) {
+              localStorage.setItem('pendingQrRedirect', currentPath);
+              navigate('/login');
+            } else {
+              navigate(`/business/${computedTenantId}/vehicles?vin=${encodeURIComponent(data.assignedTo.id)}`);
+            }
           } else if (data.assignedTo.type === 'job') {
-            navigate(`/business/${computedTenantId}/job/${data.assignedTo.id}`);
-          } else if (data.assignedTo.type === 'url') {
-            window.location.href = data.assignedTo.id.startsWith('http') ? data.assignedTo.id : `https://${data.assignedTo.id}`;
+            if (!user) {
+              localStorage.setItem('pendingQrRedirect', currentPath);
+              navigate('/login');
+            } else {
+              navigate(`/business/${computedTenantId}/job/${data.assignedTo.id}`);
+            }
           }
           return true;
         }
+
+        // Unassigned sticker scanned
+        await logScan(
+          computedTenantId,
+          'unassigned',
+          sid,
+          `Unassigned Sticker ${sid}`,
+          sid
+        );
+
+        if (!user) {
+          localStorage.setItem('pendingQrRedirect', currentPath);
+          navigate('/login');
+          return false;
+        }
+
         setResolving(false);
         loadSearchLists(computedTenantId);
         return false;
       };
 
-      const handleFallback = () => {
+      const handleFallback = async () => {
         if (fallbackTenant) {
           setResolvedTenantId(fallbackTenant);
+          
+          await logScan(
+            fallbackTenant,
+            'unassigned',
+            sid,
+            `Unassigned/Fallback Sticker ${sid}`,
+            sid
+          );
+
+          if (!user) {
+            localStorage.setItem('pendingQrRedirect', currentPath);
+            navigate('/login');
+            return;
+          }
+
           setResolving(false);
           loadSearchLists(fallbackTenant);
         } else {
@@ -137,7 +364,11 @@ export function QRRedirector() {
       }
     } else {
       // Fallback if no params are supplied
-      navigate(`/business/${targetTenant}/overview`);
+      if (targetTenant) {
+        navigate(`/business/${targetTenant}/overview`);
+      } else {
+        navigate('/login');
+      }
     }
   }, [user, tenantId, authLoading, sid, t, v, j, p, navigate]);
 

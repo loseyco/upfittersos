@@ -41,6 +41,7 @@ const ITEMS: NavItem[] = [
   { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
   // { id: 'items', label: 'Parts Library', icon: PackageOpen, hub: 'parts', permission: 'parts.view' },
   { id: 'parts_worksheet', label: 'Parts Request', icon: FileSpreadsheet, hub: 'parts', permissions: ['parts_worksheet.view', 'parts.manage'] },
+  { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'parts', permission: 'jobs.view' },
   // { id: 'package_intake', label: 'Package Intake', icon: Package, hub: 'parts', permission: 'parts.view' },
   // { id: 'part_request', label: 'Add Part / Request', icon: PackagePlus, hub: 'parts', permission: 'parts.view' },
 
@@ -62,6 +63,7 @@ const ITEMS: NavItem[] = [
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
+  { id: 'weekly_meeting', label: 'Weekly Meeting', icon: ClipboardList, hub: 'office', permission: 'office.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
   { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },

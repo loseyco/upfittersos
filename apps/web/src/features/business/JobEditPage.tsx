@@ -178,7 +178,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     setJobTasks([{
       id: 'general-init',
       title: 'General',
-      description: 'General shop work and cleanup',
+      description: 'General clock in to job when no task clock in here',
       taskGroup: 'General',
       bookTime: 0,
       status: 'pending',
@@ -214,7 +214,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           if (snap.empty) {
             await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
               title: 'General',
-              description: 'General shop work and cleanup',
+              description: 'General clock in to job when no task clock in here',
               taskGroup: 'General',
               bookTime: 0,
               status: 'pending',
@@ -277,10 +277,19 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
       try {
-        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+        const updateFields: any = {
           status: newStatus,
           updatedAt: new Date()
-        });
+        };
+        if (newStatus === 'Ready for Customer') {
+          updateFields.readyForCustomerAt = new Date();
+        } else if (['Completed', 'Closed'].includes(newStatus)) {
+          updateFields.completedAt = new Date();
+        } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+          updateFields.readyForCustomerAt = null;
+          updateFields.completedAt = null;
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), updateFields);
         if (isReversion) {
           toast.error(msg);
         } else {
@@ -374,7 +383,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     setIsSaving(true);
     try {
       const { expectedFinishTime, scheduledArrivalTime, scheduledStartDate, scheduledEndDate, currentZoneId, ...rest } = formData;
-      const payload = {
+      const payload: any = {
         ...rest,
         expectedFinishTime: expectedFinishTime ? new Date(expectedFinishTime).toISOString() : null,
         scheduledArrivalTime: scheduledArrivalTime ? new Date(scheduledArrivalTime).toISOString() : null,
@@ -384,6 +393,17 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         departmentIds: Array.from(new Set(jobTasks.map(t => t.departmentId).filter(Boolean))),
         updatedAt: new Date()
       };
+
+      if (formData.status !== job?.status) {
+        if (formData.status === 'Ready for Customer') {
+          payload.readyForCustomerAt = new Date();
+        } else if (['Completed', 'Closed'].includes(formData.status)) {
+          payload.completedAt = new Date();
+        } else if (['Active', 'Open', 'Ready for QC'].includes(formData.status)) {
+          payload.readyForCustomerAt = null;
+          payload.completedAt = null;
+        }
+      }
 
       let finalJobId = jobId;
       if (isNew) {
@@ -625,6 +645,27 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       toast.success('Task removed');
     } else {
       try {
+        // Clock out any active sessions on this task
+        const activeSessionsToUpdate = timeLogs.filter(session => {
+          const isSessionActive = session.status === 'active' || session.status === 'on_break';
+          if (!isSessionActive) return false;
+          return (session.jobs || []).some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+        });
+
+        for (const session of activeSessionsToUpdate) {
+          const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+          const updatedJobs = (session.jobs || []).map((j: any) => {
+            if (!j.end && j.id === jobId && j.taskId === taskId) {
+              return { ...j, end: new Date() };
+            }
+            return j;
+          });
+          await updateDoc(sessionRef, {
+            jobs: updatedJobs,
+            updatedAt: serverTimestamp()
+          });
+        }
+
         await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
         await logActivity('task_deleted', `Removed task: ${taskToDelete?.title || 'Unnamed Task'}`);
         toast.success('Task removed');

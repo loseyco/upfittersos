@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  collection, query, where, orderBy, limit, doc, updateDoc, serverTimestamp, onSnapshot
+  collection, query, where, orderBy, limit, doc, updateDoc, serverTimestamp, onSnapshot, getDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import {
   Search, FileSpreadsheet, ExternalLink, ChevronDown,
   AlertTriangle, Package, Plus, Maximize, Minimize,
-  Mail, Share2, Check
+  Mail, Share2, Check, Printer, FileText
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -236,7 +237,24 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
 
   // Report Modal state
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [generatedReportText, setGeneratedReportText] = useState('');
+  const [reportModalTab, setReportModalTab] = useState<'filtered' | 'digest'>('filtered');
+  const [businessName, setBusinessName] = useState('UpFittersOS');
+
+  // Fetch business details for report header
+  useEffect(() => {
+    if (!tenantId) return;
+    const fetchBusiness = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'businesses', tenantId));
+        if (snap.exists()) {
+          setBusinessName(snap.data().name || 'UpFittersOS');
+        }
+      } catch (err) {
+        console.warn("Could not fetch business name for report header:", err);
+      }
+    };
+    fetchBusiness();
+  }, [tenantId]);
 
   // Live Subscription Data
   const [jobsList, setJobsList] = useState<any[]>([]);
@@ -603,10 +621,19 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     setIsUpdating(jobId);
     try {
       const jobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
-      await updateDoc(jobRef, {
+      const updateFields: any = {
         status: newStatus,
         updatedAt: serverTimestamp()
-      });
+      };
+      if (newStatus === 'Ready for Customer') {
+        updateFields.readyForCustomerAt = serverTimestamp();
+      } else if (['Completed', 'Closed'].includes(newStatus)) {
+        updateFields.completedAt = serverTimestamp();
+      } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+        updateFields.readyForCustomerAt = null;
+        updateFields.completedAt = null;
+      }
+      await updateDoc(jobRef, updateFields);
       toast.success(`Job status changed to ${newStatus}`);
     } catch (err: any) {
       toast.error(`Failed to update status: ${err.message}`);
@@ -660,6 +687,108 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     } finally {
       setIsUpdating(null);
     }
+  };
+
+  const generateFilteredJobsTextReport = () => {
+    const todayStr = new Date().toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let text = `📋 UPFITTERS OS - FILTERED JOBS REPORT\n`;
+    text += `Report Date: ${todayStr} at ${timeStr}\n`;
+    
+    // Add current filters summary if any
+    const filterParts = [];
+    if (searchTerm) filterParts.push(`Search: "${searchTerm}"`);
+    if (selectedStatusFilter !== 'all') filterParts.push(`Status Filter: ${selectedStatusFilter}`);
+    if (colFilters.priority !== 'all') filterParts.push(`Priority: ${colFilters.priority}`);
+    if (colFilters.location !== 'all') filterParts.push(`Location: ${colFilters.location}`);
+    if (colFilters.status !== 'all') filterParts.push(`Col Status: ${colFilters.status}`);
+    if (colFilters.parts !== 'all') filterParts.push(`Parts: ${colFilters.parts}`);
+    
+    if (filterParts.length > 0) {
+      text += `Applied Filters: ${filterParts.join(', ')}\n`;
+    }
+    text += `==================================================\n\n`;
+
+    if (filteredJobs.length === 0) {
+      text += `No jobs match the current filter configuration.\n`;
+    } else {
+      filteredJobs.forEach((job, index) => {
+        const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+        const vehicleLabel = vehicle
+          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
+          : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
+        
+        const jobDesc = `${job.jobNumber ? `#${job.jobNumber} ` : ''}${job.title}`;
+        
+        text += `${index + 1}. Job: ${jobDesc}\n`;
+        text += `   Customer: ${job.customerName || 'N/A'}\n`;
+        text += `   Vehicle: ${vehicleLabel}\n`;
+        
+        const resolvedLocationId = zonesList.find(z => z.currentJobId === job.id)?.id || job.bayId || 'none';
+        const bay = zonesList.find(z => z.id === resolvedLocationId);
+        const bayName = bay ? bay.name : (resolvedLocationId !== 'none' ? resolvedLocationId : 'None');
+        text += `   Location: ${bayName}\n`;
+        text += `   Status: ${job.status || 'Open'}\n`;
+        
+        // Active crew clocked in
+        const activeCrewSessions = sessions.filter(s => {
+          if (s.status === 'completed') return false;
+          return s.jobs?.some((j: any) => !j.end && j.id === job.id);
+        });
+        if (activeCrewSessions.length > 0) {
+          const crewNames = activeCrewSessions.map(s => {
+            const staff = staffList.find(st => st.userId === s.userId || st.id === s.userId);
+            return staff ? `${staff.firstName} ${staff.lastName}` : s.userName || 'Tech';
+          }).join(', ');
+          text += `   Clocked Crew: ${crewNames}\n`;
+        }
+
+        // Tasks Completed Progress
+        const jobTasks = tasksMap[job.id] || [];
+        const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+        const totalTasks = nonGeneralTasks.length;
+        const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
+        text += `   Task Progress: ${completedTasks} / ${totalTasks} Completed\n`;
+        
+        // Remaining tasks checklist
+        const activeTasks = nonGeneralTasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed');
+        if (activeTasks.length > 0) {
+          text += `   Tasks to Do:\n`;
+          activeTasks.forEach((task: any) => {
+            const assignedStaffNames = task.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+            const bookTime = parseFloat(task.bookTime) || 0;
+            text += `     [ ] ${task.title} (${bookTime.toFixed(1)}h) - Assigned: ${assignedStaffNames}\n`;
+          });
+        } else if (totalTasks > 0) {
+          text += `   Tasks: All completed! 🏁\n`;
+        }
+
+        // Active blockers
+        const activeBlockers = (job.blockers || []).filter((b: any) => b.status === 'active');
+        if (activeBlockers.length > 0) {
+          text += `   ⚠️ Active Blockers:\n`;
+          activeBlockers.forEach((b: any) => {
+            text += `     - ${b.message} (Logged: ${new Date(b.createdAt).toLocaleDateString()})\n`;
+          });
+        }
+
+        // Parts Status (Ignore cancelled, fulfilled, or delivered parts)
+        const jobParts = partsRequests
+          .filter(p => p.jobId === job.id)
+          .filter(p => p.status !== 'fulfilled' && p.status !== 'cancelled' && (p.status as string) !== 'delivered');
+        if (jobParts.length > 0) {
+          text += `   📦 Parts Checklist:\n`;
+          jobParts.forEach((p: any) => {
+            text += `     - ${p.partName} (${p.qty || p.quantity || 1}x) - Status: ${p.status || 'requested'}\n`;
+          });
+        }
+
+        text += `--------------------------------------------------\n\n`;
+      });
+    }
+
+    text += `Upfitters OS - Real-time Shop Command Center\n`;
+    return text;
   };
 
   const generateProgressReport = () => {
@@ -840,25 +969,31 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   };
 
   const handleOpenReport = () => {
-    const reportText = generateProgressReport();
-    setGeneratedReportText(reportText);
+    setReportModalTab('filtered');
     setIsReportModalOpen(true);
   };
 
   const handleCopyReportToClipboard = () => {
-    navigator.clipboard.writeText(generatedReportText);
-    toast.success("Progress Digest Copied!", {
-      description: "Daily activity report copied to your clipboard.",
+    const text = reportModalTab === 'filtered' ? generateFilteredJobsTextReport() : generateProgressReport();
+    navigator.clipboard.writeText(text);
+    toast.success(reportModalTab === 'filtered' ? "Filtered Jobs Report Copied!" : "Progress Digest Copied!", {
+      description: reportModalTab === 'filtered' ? "Checklist report copied to your clipboard." : "Daily activity report copied to your clipboard.",
       duration: 3000,
     });
   };
 
   const handleEmailReportLink = () => {
-    const emailSubject = encodeURIComponent(`Daily Shop Progress Digest - ${new Date().toLocaleDateString()}`);
-    const emailBody = encodeURIComponent(generatedReportText);
+    const isFiltered = reportModalTab === 'filtered';
+    const emailSubject = encodeURIComponent(
+      isFiltered 
+        ? `Shop Jobs Status Report - ${new Date().toLocaleDateString()}`
+        : `Daily Shop Progress Digest - ${new Date().toLocaleDateString()}`
+    );
+    const text = isFiltered ? generateFilteredJobsTextReport() : generateProgressReport();
+    const emailBody = encodeURIComponent(text);
     window.location.href = `mailto:?subject=${emailSubject}&body=${emailBody}`;
     toast.success("Opening Email Client...", {
-      description: "Email prefilled with daily shop digest.",
+      description: isFiltered ? "Email prefilled with jobs report." : "Email prefilled with daily shop digest.",
       duration: 3000,
     });
   };
@@ -1664,59 +1799,457 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       {/* ----------------------------------------------------
           PROGRESS DIGEST POPUP MODAL
       ---------------------------------------------------- */}
-      {isReportModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsReportModalOpen(false)}>
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-zinc-150 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-850 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-indigo-500 shrink-0" />
-                <h3 className="font-black text-xs uppercase tracking-wider text-zinc-850 dark:text-white">Shop Progress Activity Digest</h3>
+      {isReportModalOpen && createPortal(
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 worksheet-report-modal-wrapper" onClick={() => setIsReportModalOpen(false)}>
+          {/* Injectable Media Print Stylesheet */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: letter portrait;
+                margin: 0.4in;
+              }
+              body > *:not(.worksheet-report-modal-wrapper) {
+                display: none !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+              .no-print,
+              .no-print * {
+                display: none !important;
+                height: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+              .worksheet-report-modal-wrapper,
+              .worksheet-report-modal-container,
+              .worksheet-report-modal-container > div,
+              .worksheet-report-modal-container > div > div {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                float: none !important;
+                flex: none !important;
+                animation: none !important;
+                transition: none !important;
+                transform: none !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+              }
+              #worksheet-report-print-area {
+                width: 100% !important;
+                max-width: 100% !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                display: block !important;
+                position: static !important;
+                background: white !important;
+                color: black !important;
+              }
+              .print-no-break {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+            }
+          ` }} />
+
+          <div className="w-full max-w-5xl h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 worksheet-report-modal-container" onClick={e => e.stopPropagation()}>
+            {/* Modal Header (Hidden on print) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 gap-4 no-print">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Shop Worksheet Reports</h3>
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Generate print-ready or emailable status checklists</p>
+                </div>
               </div>
+
+              {/* Tabs */}
+              <div className="flex bg-zinc-150 dark:bg-zinc-800 p-1 rounded-xl">
+                <button
+                  onClick={() => setReportModalTab('filtered')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                    reportModalTab === 'filtered' 
+                      ? "bg-white dark:bg-zinc-900 text-indigo-650 dark:text-indigo-400 shadow-sm" 
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  )}
+                >
+                  Filtered Jobs Report
+                </button>
+                <button
+                  onClick={() => setReportModalTab('digest')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                    reportModalTab === 'digest' 
+                      ? "bg-white dark:bg-zinc-900 text-indigo-650 dark:text-indigo-400 shadow-sm" 
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  )}
+                >
+                  Daily Activity Digest
+                </button>
+              </div>
+
               <button 
                 onClick={() => setIsReportModalOpen(false)}
-                className="text-xs font-black uppercase text-zinc-400 hover:text-zinc-650 dark:hover:text-white"
+                className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 transition-colors"
               >
                 ✕ Close
               </button>
             </div>
-            <div className="p-4 space-y-4">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Below is a progress summary showing only the shop activity and status changes that occurred today.
-              </p>
-              
-              <textarea
-                readOnly
-                rows={15}
-                value={generatedReportText}
-                className="w-full p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 rounded-xl font-mono text-[11px] outline-none dark:text-zinc-200 leading-relaxed overflow-y-auto select-text cursor-text"
-                onClick={e => (e.target as HTMLTextAreaElement).select()}
-                title="Click inside to select all text for copying"
-              />
-              
-              <div className="flex items-center justify-between pt-2 border-t border-zinc-100 dark:border-zinc-800/80">
-                <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider select-none">
-                  💡 Tip: Click inside the box to select all text instantly!
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleCopyReportToClipboard}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs transition"
-                  >
-                    <Share2 className="w-3.5 h-3.5" />
-                    Copy to Clipboard
-                  </button>
-                  <button
-                    onClick={handleEmailReportLink}
-                    className="flex items-center gap-1.5 px-5 py-2 bg-indigo-650 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-600/10 transition"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    Send Email
-                  </button>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* Left Side: Preview Panel */}
+              <div className="flex-1 overflow-y-auto p-6 bg-zinc-100 dark:bg-zinc-950/40 border-r border-zinc-200 dark:border-zinc-800 no-scrollbar">
+                
+                {reportModalTab === 'filtered' ? (
+                  /* --- FILTERED JOBS HTML REPORT --- */
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center no-print">
+                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Document Preview</span>
+                      <button 
+                        onClick={() => window.print()}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-indigo-500" />
+                        Print Document
+                      </button>
+                    </div>
+
+                    {/* Printable Sheet */}
+                    <div 
+                      id="worksheet-report-print-area" 
+                      className="bg-white text-zinc-900 p-8 rounded-2xl border border-zinc-200 shadow-md font-sans mx-auto max-w-[800px] space-y-6"
+                    >
+                      {/* Sheet Header */}
+                      <div className="border-b-2 border-indigo-900 pb-4 flex justify-between items-start">
+                        <div>
+                          <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">SHOP JOBS STATUS REPORT</h1>
+                          <p className="text-xs font-bold text-zinc-550 mt-1 uppercase tracking-wider">
+                            {businessName} &bull; Worksheet Checklist Summary
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
+                          <div className="text-xs font-bold font-mono">
+                            {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Filter Details */}
+                      <div className="flex flex-wrap gap-2 text-[10px] font-bold text-zinc-550 border-b border-zinc-150 pb-3 no-print">
+                        <span className="text-zinc-400 uppercase tracking-wider">Active Filters:</span>
+                        {searchTerm && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Search: "{searchTerm}"</span>}
+                        {selectedStatusFilter !== 'all' && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Status: {selectedStatusFilter}</span>}
+                        {colFilters.priority !== 'all' && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Priority: {colFilters.priority}</span>}
+                        {colFilters.location !== 'all' && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Location: {colFilters.location}</span>}
+                        {colFilters.status !== 'all' && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Col Status: {colFilters.status}</span>}
+                        {colFilters.parts !== 'all' && <span className="bg-zinc-100 px-2 py-0.5 rounded border border-zinc-200">Parts: {colFilters.parts}</span>}
+                        {!searchTerm && selectedStatusFilter === 'all' && Object.values(colFilters).every(v => v === 'all') && (
+                          <span className="text-zinc-400 italic">None - Showing All Active Jobs</span>
+                        )}
+                        <span className="ml-auto text-indigo-650">{filteredJobs.length} Jobs Listed</span>
+                      </div>
+
+                      {/* Jobs checklist cards list */}
+                      <div className="space-y-6">
+                        {filteredJobs.length === 0 ? (
+                          <p className="text-sm text-zinc-500 italic text-center py-8">No jobs match the current filter configuration.</p>
+                        ) : (
+                          filteredJobs.map((job) => {
+                            const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+                            const vehicleLabel = vehicle
+                              ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
+                  : (job.vehicleId ? `VIN: ${job.vehicleId.slice(-8)}` : 'No Vehicle Assigned');
+
+                            const jobTasks = tasksMap[job.id] || [];
+                            const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+                            const totalTasks = nonGeneralTasks.length;
+                            const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
+                            const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+                            const remainingBookTime = nonGeneralTasks
+                              .filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed')
+                              .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+
+                            const jobParts = partsRequests
+                               .filter(p => p.jobId === job.id)
+                               .filter(p => p.status !== 'fulfilled' && p.status !== 'cancelled' && (p.status as string) !== 'delivered');
+                            const requestedParts = jobParts.filter(p => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'requested');
+                            const orderedParts = jobParts.filter(p => (p.status || '').toLowerCase() === 'ordered');
+
+                            const activeCrewSessions = sessions.filter(s => {
+                              if (s.status === 'completed') return false;
+                              return s.jobs?.some((j: any) => !j.end && j.id === job.id);
+                            });
+
+                            const activeBlockers = (job.blockers || []).filter((b: any) => b.status === 'active');
+                            const incompleteTasks = nonGeneralTasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed');
+
+                            const resolvedLocationId = zonesList.find(z => z.currentJobId === job.id)?.id || job.bayId || 'none';
+                            const bay = zonesList.find(z => z.id === resolvedLocationId);
+                            const bayName = bay ? bay.name : (resolvedLocationId !== 'none' ? resolvedLocationId : 'None');
+
+                            return (
+                              <div key={job.id} className="p-5 border border-zinc-200 rounded-2xl bg-white shadow-sm space-y-4 print-no-break text-xs text-zinc-800">
+                                {/* Card Header */}
+                                <div className="flex justify-between items-start border-b border-zinc-100 pb-3">
+                                  <div>
+                                    <h3 className="text-sm font-bold text-zinc-950">
+                                      {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                    </h3>
+                                    <p className="text-[10px] text-zinc-500 font-semibold mt-0.5">
+                                      Cust: {job.customerName || 'N/A'} &bull; 🚙 {vehicleLabel}
+                                    </p>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={cn(
+                                      "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border",
+                                      (job.priority || '').startsWith('5') ? "bg-red-50 text-red-600 border-red-200" :
+                                      (job.priority || '').startsWith('4') ? "bg-amber-50 text-amber-600 border-amber-250" :
+                                      "bg-zinc-50 text-zinc-650 border-zinc-200"
+                                    )}>
+                                      Priority: {job.priority || '3 Medium'}
+                                    </span>
+                                    <p className="text-[9px] text-zinc-400 mt-1 uppercase tracking-wider font-semibold">
+                                      Due: {job.expectedFinishTime ? new Date(job.expectedFinishTime).toLocaleDateString() : 'Not Set'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Details Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-zinc-700">
+                                  <div>
+                                    <span className="block text-[8px] font-black text-zinc-400 uppercase tracking-widest">Status & Location</span>
+                                    <span className={cn(
+                                      "font-bold text-xs inline-block mt-0.5",
+                                      activeBlockers.length > 0 ? "text-red-600" : job.status === 'Active' ? "text-emerald-600" : "text-zinc-700"
+                                    )}>
+                                      {activeBlockers.length > 0 ? 'Blocked' : job.status || 'Open'}
+                                    </span>
+                                    <span className="block text-[10px] text-zinc-500 mt-0.5 font-bold">Bay: {bayName}</span>
+                                  </div>
+
+                                  <div>
+                                    <span className="block text-[8px] font-black text-zinc-400 uppercase tracking-widest">Active Crew</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {activeCrewSessions.length === 0 ? (
+                                        <span className="text-[10px] text-zinc-400 italic">No crew logged</span>
+                                      ) : (
+                                        activeCrewSessions.map(s => {
+                                          const staff = staffList.find(st => st.userId === s.userId || st.id === s.userId);
+                                          const name = staff ? `${staff.firstName} ${staff.lastName}` : s.userName || 'Tech';
+                                          return (
+                                            <span key={s.id} className="px-2 py-0.5 bg-zinc-100 rounded-full text-[9px] font-bold border border-zinc-200" title={name}>
+                                              {name}
+                                            </span>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div>
+                                    <span className="block text-[8px] font-black text-zinc-400 uppercase tracking-widest">Parts Status</span>
+                                    <div className="mt-1 flex items-center gap-1">
+                                      {jobParts.length === 0 ? (
+                                        <span className="text-[10px] text-zinc-400 italic">No parts requested</span>
+                                      ) : (
+                                        <span className={cn(
+                                          "px-2 py-0.5 rounded text-[9px] font-bold border",
+                                          requestedParts.length > 0 ? "bg-red-50 text-red-600 border-red-200" :
+                                          orderedParts.length > 0 ? "bg-amber-50 text-amber-600 border-amber-250" :
+                                          "bg-emerald-50 text-emerald-650 border-emerald-250"
+                                        )}>
+                                          {requestedParts.length > 0 ? `Waiting on ${requestedParts.length} Parts` : 
+                                           orderedParts.length > 0 ? `${orderedParts.length} Parts Ordered` : 'All Parts Ready'}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Progress Block */}
+                                <div className="space-y-1">
+                                  <div className="flex justify-between items-center text-[10px] font-bold">
+                                    <span className="text-indigo-650">Tasks Completed: {completedTasks} / {totalTasks}</span>
+                                    <span className="font-mono text-zinc-500">{remainingBookTime.toFixed(1)}h remaining</span>
+                                  </div>
+                                  <div className="w-full bg-zinc-100 h-2 rounded-full overflow-hidden border border-zinc-200/50">
+                                    <div className="bg-indigo-600 h-full transition-all" style={{ width: `${progressPercentage}%` }} />
+                                  </div>
+                                </div>
+
+                                {/* Active Blockers list */}
+                                {activeBlockers.length > 0 && (
+                                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl space-y-1">
+                                    <span className="text-[8px] font-black text-red-500 uppercase tracking-widest block">Active Blockers</span>
+                                    {activeBlockers.map((b: any) => (
+                                      <p key={b.id} className="text-[10px] text-red-700 font-bold leading-tight">
+                                        &bull; {b.message} <span className="text-[9px] font-semibold text-red-500">({new Date(b.createdAt).toLocaleDateString()})</span>
+                                      </p>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Checklist of Remaining Tasks */}
+                                <div className="space-y-2">
+                                  <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100 pb-1">
+                                    Remaining Checklist ({incompleteTasks.length})
+                                  </h4>
+                                  {incompleteTasks.length === 0 ? (
+                                    <p className="text-[10px] text-emerald-600 italic font-semibold">All checklist tasks completed! 🏁</p>
+                                  ) : (
+                                    <div className="space-y-1.5 pl-1">
+                                      {incompleteTasks.map(t => {
+                                        const assigned = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
+                                        const bTime = parseFloat(t.bookTime) || 0;
+                                        return (
+                                          <div key={t.id} className="flex justify-between items-center text-[10px] text-zinc-700 font-medium">
+                                            <div className="flex items-center gap-2">
+                                              <div className="w-3.5 h-3.5 border border-zinc-300 rounded shrink-0 flex items-center justify-center font-bold text-[8px] text-zinc-400">
+                                                [ ]
+                                              </div>
+                                              <span>{t.title} <span className="text-zinc-400">({bTime.toFixed(1)}h)</span></span>
+                                            </div>
+                                            <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider">
+                                              {assigned}
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Parts Checklist */}
+                                {jobParts.length > 0 && (
+                                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-150 pb-1">
+                                      Parts Checklist ({jobParts.length})
+                                    </h4>
+                                    <div className="space-y-1.5 pl-1">
+                                      {jobParts.map((p: any) => (
+                                        <div key={p.id} className="flex justify-between items-center text-[10px] text-zinc-700 font-medium">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-zinc-400">&bull;</span>
+                                            <span>{p.partName} <span className="text-zinc-450 font-bold">({p.qty || p.quantity || 1}x)</span></span>
+                                          </div>
+                                          <span className={cn(
+                                            "px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider rounded border leading-none",
+                                            p.status === 'received' || p.status === 'fulfilled' || p.status === 'delivered' ? "bg-emerald-50 text-emerald-600 border-emerald-150" :
+                                            p.status === 'ordered' ? "bg-blue-50 text-blue-600 border-blue-150" :
+                                            "bg-amber-50 text-amber-600 border-amber-200"
+                                          )}>
+                                            {p.status || 'requested'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* --- DAILY ACTIVITY DIGEST (Original text viewer) --- */
+                  <div className="space-y-4">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Below is a progress summary showing only the shop activity and status changes that occurred today.
+                    </p>
+                    <textarea
+                      readOnly
+                      rows={15}
+                      value={generateProgressReport()}
+                      className="w-full p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 rounded-xl font-mono text-[11px] outline-none dark:text-zinc-200 leading-relaxed overflow-y-auto select-text cursor-text no-print"
+                      onClick={e => (e.target as HTMLTextAreaElement).select()}
+                      title="Click inside to select all text for copying"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Right Side: Actions Panel (Hidden on print) */}
+              <div className="w-full md:w-80 p-6 flex flex-col bg-zinc-50 dark:bg-zinc-900 border-t md:border-t-0 border-zinc-200 dark:border-zinc-800 justify-between no-print">
+                <div className="space-y-5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-indigo-500/10 text-indigo-500 rounded-lg">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <h4 className="text-sm font-bold text-zinc-900 dark:text-white">Share & Dispatch Report</h4>
+                  </div>
+
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {reportModalTab === 'filtered' 
+                      ? "Print out the visual checklist report for the shop floor, or email/copy the structured text summary of these filtered jobs."
+                      : "Copy or email a text digest summarizing tasks completed, failed QC rework events, active blockers, and bay movements today."}
+                  </p>
+
+                  <div className="space-y-2">
+                    {reportModalTab === 'filtered' && (
+                      <button 
+                        onClick={() => window.print()}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-md shadow-indigo-650/10 cursor-pointer"
+                      >
+                        <Printer className="w-4 h-4" />
+                        Print Checklist Report
+                      </button>
+                    )}
+
+                    <button 
+                      onClick={handleEmailReportLink}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-2 px-4 py-3 border rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer",
+                        reportModalTab === 'filtered'
+                          ? "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                          : "bg-indigo-650 hover:bg-indigo-700 text-white border-transparent shadow-md shadow-indigo-650/10"
+                      )}
+                    >
+                      <Mail className="w-4 h-4 text-indigo-500" />
+                      Send Email Report
+                    </button>
+
+                    <button 
+                      onClick={handleCopyReportToClipboard}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer"
+                    >
+                      <Share2 className="w-4 h-4 text-indigo-500" />
+                      Copy Clean Text
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-zinc-100 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-[10px] text-zinc-500 space-y-2 mt-6">
+                  <p className="font-bold text-zinc-650 dark:text-zinc-350 uppercase tracking-wider">💡 Pro Printing Tip</p>
+                  <p>To email the full visual checklist layout, click "Print", choose "Save as PDF" as the destination, and attach the saved PDF file to your email.</p>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

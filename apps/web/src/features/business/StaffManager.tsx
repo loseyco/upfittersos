@@ -20,14 +20,14 @@ import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 
-interface WorkSchedule {
+export interface WorkSchedule {
   days: number[]; // [1, 2, 3, 4, 5] where 1=Mon
   startTime: string; // "08:00"
   endTime: string; // "17:00"
   expectedHoursPerDay: number;
 }
 
-interface StaffMember {
+export interface StaffMember {
   id: string;
   userId?: string;
   firstName: string;
@@ -38,7 +38,7 @@ interface StaffMember {
   jobTitle?: string;
   role?: string;
   payRate?: number;
-  payType?: 'hourly' | 'salary';
+  payType?: 'hourly' | 'salary' | 'flat_rate';
   individualPermissions?: PermissionSet;
   isArchived?: boolean;
   tags?: string[];
@@ -63,7 +63,7 @@ interface StaffMember {
   payPeriodBookTimeCredit?: number;
 }
 
-interface Department {
+export interface Department {
   id: string;
   name: string;
   permissions: PermissionSet;
@@ -149,7 +149,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
       label: 'Staff Member',
       format: (_: any, row: any) => {
         const name = `${row.firstName || ''} ${row.lastName || ''}`.trim() || row.displayName || row.email || 'Unnamed';
-        return <StaffLink name={name} tenantId={tenantId} className="font-semibold text-zinc-900 dark:text-zinc-100" />;
+        return <StaffLink name={name} tenantId={tenantId} staffId={row.id} className="font-semibold text-zinc-900 dark:text-zinc-100" />;
       }
     },
     { key: 'email', label: 'Email' },
@@ -214,7 +214,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
           title="Staff Members" 
           columns={staffColumns}
           localFilter={handleFilter}
-          onRowClick={(row) => setSelectedStaff(row as StaffMember)}
+          onRowClick={(row) => navigate(`/business/${tenantId}/staff/${row.id}`)}
         />
 
 
@@ -832,13 +832,15 @@ function StaffDetailsModal({
                 <Archive className="w-5 h-5" />
               </button>
             )}
-            <button 
-              onClick={onViewPerformance}
-              className="p-2.5 text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 rounded-xl transition-all"
-              title="View Performance Leaderboard"
-            >
-              <Trophy className="w-5 h-5" />
-            </button>
+            {canViewLogs && onViewPerformance && (
+              <button 
+                onClick={onViewPerformance}
+                className="p-2.5 text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 rounded-xl transition-all"
+                title="View Performance Leaderboard"
+              >
+                <Trophy className="w-5 h-5" />
+              </button>
+            )}
             <button 
               onClick={onEdit}
               className="p-2.5 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 rounded-xl transition-all"
@@ -878,6 +880,7 @@ function StaffDetailsModal({
             >
               <Users className="w-3.5 h-3.5" /> Manager Log
             </button>
+
           </div>
         )}
 
@@ -1125,7 +1128,7 @@ function StaffDetailsModal({
   );
 }
 
-function StaffEditModal({ 
+export function StaffEditModal({ 
   tenantId, 
   staff, 
   departments,
@@ -1138,28 +1141,28 @@ function StaffEditModal({
   onClose: () => void, 
   onSaved: () => void 
 }) {
-  const [firstName, setFirstName] = useState(staff?.firstName || '');
-  const [lastName, setLastName] = useState(staff?.lastName || '');
-  const [email, setEmail] = useState(staff?.email || '');
-  const [phone, setPhone] = useState(staff?.phone || '');
-  const [departmentId, setDepartmentId] = useState(staff?.departmentId || '');
-  const [hireDate, setHireDate] = useState(staff?.hireDate || '');
-  const [fireDate, setFireDate] = useState(staff?.fireDate || '');
-  const [shirtSize, setShirtSize] = useState(staff?.shirtSize || '');
-  const [hatSize, setHatSize] = useState(staff?.hatSize || '');
-  const [pantsSize, setPantsSize] = useState(staff?.pantsSize || '');
-  const [shoeSize, setShoeSize] = useState(staff?.shoeSize || '');
-  const [gloveSize, setGloveSize] = useState(staff?.gloveSize || '');
-  const [emergencyName, setEmergencyName] = useState(staff?.emergencyContact?.name || '');
-  const [emergencyPhone, setEmergencyPhone] = useState(staff?.emergencyContact?.phone || '');
-  const [emergencyRelation, setEmergencyRelation] = useState(staff?.emergencyContact?.relation || '');
-  const [jobTitle, setJobTitle] = useState(staff?.jobTitle || '');
-  const [role, setRole] = useState(staff?.role || '');
-  const [techNumber, setTechNumber] = useState(staff?.techNumber || '');
+  const [firstName, setFirstName] = useState(String(staff?.firstName || ''));
+  const [lastName, setLastName] = useState(String(staff?.lastName || ''));
+  const [email, setEmail] = useState(String(staff?.email || ''));
+  const [phone, setPhone] = useState(String(staff?.phone || ''));
+  const [departmentId, setDepartmentId] = useState(String(staff?.departmentId || ''));
+  const [hireDate, setHireDate] = useState(String(staff?.hireDate || ''));
+  const [fireDate, setFireDate] = useState(String(staff?.fireDate || ''));
+  const [shirtSize, setShirtSize] = useState(String(staff?.shirtSize || ''));
+  const [hatSize, setHatSize] = useState(String(staff?.hatSize || ''));
+  const [pantsSize, setPantsSize] = useState(String(staff?.pantsSize || ''));
+  const [shoeSize, setShoeSize] = useState(String(staff?.shoeSize || ''));
+  const [gloveSize, setGloveSize] = useState(String(staff?.gloveSize || ''));
+  const [emergencyName, setEmergencyName] = useState(String(staff?.emergencyContact?.name || ''));
+  const [emergencyPhone, setEmergencyPhone] = useState(String(staff?.emergencyContact?.phone || ''));
+  const [emergencyRelation, setEmergencyRelation] = useState(String(staff?.emergencyContact?.relation || ''));
+  const [jobTitle, setJobTitle] = useState(String(staff?.jobTitle || ''));
+  const [role, setRole] = useState(String(staff?.role || ''));
+  const [techNumber, setTechNumber] = useState(String(staff?.techNumber || ''));
   const [payRate, setPayRate] = useState(staff?.payRate || 0);
   const [payType, setPayType] = useState(staff?.payType || 'hourly');
   const [payPeriodBookTimeCredit, setPayPeriodBookTimeCredit] = useState<number>(staff?.payPeriodBookTimeCredit || 0);
-  const [notes, setNotes] = useState(staff?.notes || '');
+  const [notes, setNotes] = useState(String(staff?.notes || ''));
   const [individualPermissions, setIndividualPermissions] = useState<PermissionSet>(staff?.individualPermissions || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'permissions' | 'schedule'>('details');
@@ -1179,7 +1182,7 @@ function StaffEditModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) {
+    if (!String(firstName).trim() || !String(lastName).trim() || !String(email).trim()) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -1187,18 +1190,18 @@ function StaffEditModal({
     setIsSubmitting(true);
     try {
       const data = {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone.trim(),
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        email: String(email).trim().toLowerCase(),
+        phone: String(phone).trim(),
         departmentId: departmentId || null,
-        jobTitle: jobTitle.trim(),
-        role: role.trim(),
-        techNumber: techNumber.trim(),
+        jobTitle: String(jobTitle).trim(),
+        role: String(role).trim(),
+        techNumber: String(techNumber).trim(),
         payRate: Number(payRate) || 0,
         payType,
         payPeriodBookTimeCredit: Number(payPeriodBookTimeCredit) || 0,
-        notes: notes.trim(),
+        notes: String(notes).trim(),
         hireDate: hireDate || null,
         fireDate: fireDate || null,
         shirtSize: shirtSize || null,
@@ -1207,9 +1210,9 @@ function StaffEditModal({
         shoeSize: shoeSize || null,
         gloveSize: gloveSize || null,
         emergencyContact: {
-          name: emergencyName.trim(),
-          phone: emergencyPhone.trim(),
-          relation: emergencyRelation.trim()
+          name: String(emergencyName).trim(),
+          phone: String(emergencyPhone).trim(),
+          relation: String(emergencyRelation).trim()
         },
         individualPermissions,
         individualSchedule,

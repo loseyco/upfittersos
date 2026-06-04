@@ -4,14 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
 import { 
   collection, query, where, onSnapshot, doc, updateDoc, 
-  collectionGroup, orderBy, limit, setDoc, addDoc, getDocs, getDoc 
+  collectionGroup, orderBy, limit, setDoc, addDoc, getDocs, getDoc, serverTimestamp, arrayUnion 
 } from 'firebase/firestore';
 import { 
   Clock, Briefcase, ArrowRight, Package, AlertTriangle, Wrench, 
-  CarFront, Timer, Search, Command, Maximize, Minimize, MapPin, 
-  TrendingUp, Award, CheckSquare, GripVertical, ChevronUp, 
+  CarFront, Search, Command, MapPin, 
+  TrendingUp, CheckSquare, GripVertical, ChevronUp, 
   ChevronDown, EyeOff, Settings, Plus, Check, Coffee, Pizza, 
-  LogIn, Square, Play, Loader2, Activity
+  LogIn, Square, Play, Loader2, Activity, History, HelpCircle
 } from 'lucide-react';
 import { ZoneDetailsModal } from './ZoneModals';
 import { PackageIntakeModal } from './PackageIntakeModal';
@@ -21,11 +21,11 @@ import { VehicleIntakeModal } from './VehicleIntakeModal';
 import { toast, Toaster } from 'sonner';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { cn } from '../../lib/utils';
-import { useJobClock } from '../timeclock/useJobClock';
 import { useTimeclockStore, type ClockStatus } from '../../lib/store/timeclockStore';
 import { useSearchStore } from '../../lib/store/searchStore';
 import { DeviceSettings } from '../../components/DeviceSettings';
 import { TimeClockHistory } from '../timeclock/TimeClockHistory';
+import { useJobClock } from '../timeclock/useJobClock';
 
 export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenantId: string; viewMode?: string }) {
   const navigate = useNavigate();
@@ -33,6 +33,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
   const { status: clockStatus, startTime: clockStartTime, activeSessionId, setStatus: setClockStatus, reset: resetClock } = useTimeclockStore();
   const { open: openSearch } = useSearchStore();
+  const { clockOutOfJob, isProcessing: isJobClockingOut } = useJobClock(tenantId);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -58,7 +59,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     quick_stats: { visible: true, minimized: false },
     quick_links: { visible: true, minimized: false }
   });
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const hasUnsavedChangesRef = useRef(false);
 
   const [draggedCardId, setDraggedCardId] = useState<string | null>(null);
@@ -110,23 +111,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
   useWakeLock(isFullscreen);
 
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(err => {
-        toast.error(`Error attempting to enable fullscreen: ${err.message}`);
-      });
-      toast.success("Optimized Mode Active", {
-        description: "Keep Screen Awake is now active for this board.",
-        duration: 5000,
-      });
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
-    }
-  };
+
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -141,21 +126,28 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const [allZones, setAllZones] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [sessionJobIds, setSessionJobIds] = useState<string[]>([]);
+  const [activeSegments, setActiveSegments] = useState<any[]>([]);
   const [selectedZone, setSelectedZone] = useState<any>(null);
-  const [taskJobIds, setTaskJobIds] = useState<string[]>([]);
   const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [staffMember, setStaffMember] = useState<any>(null);
   const [myDept, setMyDept] = useState<any>(null);
   const [todos, setTodos] = useState<any[]>([]);
+  const [partsRequests, setPartsRequests] = useState<any[]>([]);
+  const [previousJobs, setPreviousJobs] = useState<any[]>([]);
+  const [loadingPrevious, setLoadingPrevious] = useState(false);
+  const [visiblePreviousCount, setVisiblePreviousCount] = useState(5);
 
   // Track jobs where the user is assigned to specific tasks
   useEffect(() => {
     if (!effectiveUserId || !tenantId) return;
 
     const searchIds = [effectiveUserId];
-    if (staffMember?.id && staffMember.id !== effectiveUserId) {
+    if (staffMember?.id && !searchIds.includes(staffMember.id)) {
       searchIds.push(staffMember.id);
+    }
+    if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+      searchIds.push(staffMember.userId);
     }
 
     const q = query(
@@ -170,21 +162,27 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
           jobId: doc.ref.path.split('/')[3],
           ...doc.data() 
       })));
-      
-      const ids = filteredDocs.map(doc => doc.ref.path.split('/')[3]);
-      setTaskJobIds([...new Set(ids)]);
     }, (err) => {
       console.error("Task assignment listener error:", err);
     });
     return () => unsub();
-  }, [effectiveUserId, tenantId, staffMember?.id]);
+  }, [effectiveUserId, tenantId, staffMember?.id, staffMember?.userId]);
   
   // Track user's time sessions
   useEffect(() => {
     if (!effectiveUserId || !tenantId) return;
+
+    const searchIds = [effectiveUserId];
+    if (staffMember?.id && !searchIds.includes(staffMember.id)) {
+      searchIds.push(staffMember.id);
+    }
+    if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+      searchIds.push(staffMember.userId);
+    }
+
     const q = query(
       collection(db, `businesses/${tenantId}/time_sessions`),
-      where('userId', '==', effectiveUserId),
+      where('userId', 'in', searchIds),
       orderBy('clockIn.timestamp', 'desc'),
       limit(50)
     );
@@ -196,7 +194,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       const fallbackUnsub = onSnapshot(fallbackQ, (snap) => {
         const filtered = snap.docs
           .map(doc => ({ id: doc.id, ...doc.data() } as any))
-          .filter(s => s.userId === effectiveUserId)
+          .filter(s => searchIds.includes(s.userId))
           .sort((a, b) => {
             const aTs = a.clockIn?.timestamp?.seconds ? a.clockIn.timestamp.seconds * 1000 : new Date(a.clockIn?.timestamp || 0).getTime();
             const bTs = b.clockIn?.timestamp?.seconds ? b.clockIn.timestamp.seconds * 1000 : new Date(b.clockIn?.timestamp || 0).getTime();
@@ -208,29 +206,121 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       unsub = fallbackUnsub;
     });
     return () => unsub();
-  }, [tenantId, effectiveUserId]);
+  }, [tenantId, effectiveUserId, staffMember?.id, staffMember?.userId]);
 
   // Track technician staff member record
   useEffect(() => {
     if (!tenantId || !effectiveUserId) return;
+
+    if (impersonatedStaff && impersonatedStaff.type === 'staff') {
+      const docRef = doc(db, `businesses/${tenantId}/staff`, impersonatedStaff.id);
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setStaffMember({ 
+            id: docSnap.id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    } else {
+      const q = query(
+        collection(db, `businesses/${tenantId}/staff`),
+        where('userId', '==', effectiveUserId)
+      );
+      const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          setStaffMember({ 
+            id: snap.docs[0].id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [tenantId, effectiveUserId, impersonatedStaff]);
+
+  // Dashboard Questions States & Actions
+  const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
+  const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+  const [replySubmitting, setReplySubmitting] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!tenantId || !staffMember?.id) {
+      setPendingQuestions([]);
+      return;
+    }
     const q = query(
-      collection(db, `businesses/${tenantId}/staff`),
-      where('userId', '==', effectiveUserId)
+      collection(db, `businesses/${tenantId}/dashboard_questions`),
+      where('staffId', '==', staffMember.id),
+      where('status', '==', 'pending')
     );
     const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        setStaffMember({ 
-          id: snap.docs[0].id, 
-          ...data,
-          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
-        });
-      } else {
-        setStaffMember(null);
-      }
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      list.sort((a: any, b: any) => {
+        const aTime = a.askedAt?.seconds ? a.askedAt.seconds * 1000 : new Date(a.askedAt || 0).getTime();
+        const bTime = b.askedAt?.seconds ? b.askedAt.seconds * 1000 : new Date(b.askedAt || 0).getTime();
+        return bTime - aTime;
+      });
+      setPendingQuestions(list);
+    }, (err) => {
+      console.error("Error loading pending questions:", err);
     });
     return () => unsub();
-  }, [tenantId, effectiveUserId]);
+  }, [tenantId, staffMember?.id]);
+
+  const handleReplyQuestion = async (questionId: string, shouldResolve: boolean) => {
+    const text = replyTexts[questionId]?.trim();
+    if (!text && !shouldResolve) {
+      toast.error("Please type a response first");
+      return;
+    }
+    setReplySubmitting(prev => ({ ...prev, [questionId]: true }));
+    try {
+      const updateData: any = {};
+      const senderName = staffMember?.firstName && staffMember?.lastName
+        ? `${staffMember.firstName} ${staffMember.lastName}`
+        : (user?.displayName || user?.email || 'Staff member');
+
+      if (text) {
+        updateData.replies = arrayUnion({
+          senderId: staffMember?.id || user?.uid || 'staff',
+          senderName,
+          message: text,
+          createdAt: new Date().toISOString()
+        });
+      }
+
+      if (shouldResolve) {
+        updateData.status = 'resolved';
+        updateData.repliedAt = serverTimestamp();
+        if (text) {
+          updateData.reply = text; // backward compatibility
+        }
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/dashboard_questions`, questionId), updateData);
+      toast.success(shouldResolve ? "Thank you! Question resolved." : "Reply message sent.");
+      setReplyTexts(prev => {
+        const copy = { ...prev };
+        delete copy[questionId];
+        return copy;
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to submit response");
+    } finally {
+      setReplySubmitting(prev => ({ ...prev, [questionId]: false }));
+    }
+  };
 
   // Track department record for weekly credit
   useEffect(() => {
@@ -254,7 +344,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
   const [isVehicleIntakeOpen, setIsVehicleIntakeOpen] = useState(false);
 
-  const { clockOutOfJob, isProcessing } = useJobClock(tenantId);
+
 
   const handleAssignVehicle = async (zoneId: string, vin: string, actionType: 'assign' | 'clear' | 'remove' | 'remove_job' = 'assign', jobId?: string) => {
     try {
@@ -357,61 +447,103 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       setTodos(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (err) => console.error("Todos listener error:", err));
 
+    const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), (snap) => {
+      setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Parts requests listener error:", err));
+
     return () => {
       unsubJobs();
       unsubZones();
       unsubVehicles();
       unsubTodos();
+      unsubParts();
     };
   }, [tenantId, effectiveUserId]);
 
   useEffect(() => {
     if (!tenantId || !activeSessionId) {
       setActiveJobIds([]);
+      setActiveSegments([]);
       return;
     }
     const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         const jobs = data.jobs || [];
-        const activeSegments = jobs.filter((j: any) => !j.end);
+        const activeSegs = jobs.filter((j: any) => !j.end);
+        setActiveSegments(activeSegs);
         
-        const activeIds = Array.from(new Set(activeSegments.map((j: any) => j.id))) as string[];
+        const activeIds = Array.from(new Set(activeSegs.map((j: any) => j.id))) as string[];
         setActiveJobIds(activeIds);
 
         const uniqueJobIds = Array.from(new Set(jobs.map((j: any) => j.id))) as string[];
         setSessionJobIds(uniqueJobIds);
       } else {
         setActiveJobIds([]);
+        setActiveSegments([]);
       }
     });
     return () => unsub();
   }, [tenantId, activeSessionId]);
 
-  const myZones = allZones.filter(z => 
-    z.assignedStaffIds?.includes(effectiveUserId) || 
-    (staffMember?.id && z.assignedStaffIds?.includes(staffMember.id))
-  );
+
 
   const myJobs = allActiveJobs.filter(job => {
-    const explicitlyAssigned = job.assignedStaffIds?.includes(effectiveUserId) || 
-      (staffMember?.id && job.assignedStaffIds?.includes(staffMember.id));
-    const implicitlyAssigned = myZones.some(z => z.currentJobId === job.id);
-    const isClockedIn = activeJobIds.includes(job.id);
-    const workedRecently = sessionJobIds.includes(job.id);
-    const taskAssigned = taskJobIds.includes(job.id);
-    
-    return explicitlyAssigned || implicitlyAssigned || isClockedIn || workedRecently || taskAssigned;
+    return myAssignedTasks.some(task => 
+      task.jobId === job.id && 
+      task.status !== 'completed' && 
+      task.status !== 'QC Complete' && 
+      task.status !== 'QC'
+    );
   });
+
+  const previousJobIds = (() => {
+    if (!myAssignedTasks || myAssignedTasks.length === 0) return [];
+    const allUserJobIds = Array.from(new Set(myAssignedTasks.map(t => t.jobId).filter(Boolean)));
+    const activeJobIds = myJobs.map(j => j.id);
+    return allUserJobIds.filter(id => !activeJobIds.includes(id));
+  })();
+
+  useEffect(() => {
+    if (!tenantId || previousJobIds.length === 0) {
+      setPreviousJobs([]);
+      return;
+    }
+
+    const idsToFetch = previousJobIds.slice(0, visiblePreviousCount);
+    
+    setLoadingPrevious(true);
+    const fetchJobs = async () => {
+      try {
+        const jobsData = await Promise.all(
+          idsToFetch.map(async (id) => {
+            const docRef = doc(db, `businesses/${tenantId}/jobs`, id);
+            const snap = await getDoc(docRef);
+            return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+          })
+        );
+        setPreviousJobs(jobsData.filter(Boolean));
+      } catch (e) {
+        console.error("Error fetching previous jobs:", e);
+      } finally {
+        setLoadingPrevious(false);
+      }
+    };
+
+    fetchJobs();
+  }, [tenantId, previousJobIds.join(','), visiblePreviousCount]);
 
   const myCurrentTodos = todos.filter(t => {
     if (t.status === 'completed') return false;
 
-    const isAssigned = staffMember && (
-      t.assignedStaffIds?.includes(staffMember.id) ||
-      t.assignedToAllStaff ||
-      (staffMember.departmentId && t.assignedDepartmentIds?.includes(staffMember.departmentId))
-    );
+    const isAssigned = 
+      t.assignedStaffIds?.includes(effectiveUserId) ||
+      (staffMember && (
+        t.assignedStaffIds?.includes(staffMember.id) ||
+        (staffMember.userId && t.assignedStaffIds?.includes(staffMember.userId)) ||
+        t.assignedToAllStaff ||
+        (staffMember.departmentId && t.assignedDepartmentIds?.includes(staffMember.departmentId))
+      ));
     if (!isAssigned) return false;
 
     if (!t.dueDate) return false;
@@ -427,58 +559,6 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     return Math.max(0, e - s);
   };
 
-  const calculateSessionPayMs = (session: any) => {
-    const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
-    const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
-    
-    if (!session.jobs || session.jobs.length === 0) {
-      return totalMs - breakMs;
-    }
-
-    const taskActualTime: Record<string, number> = {};
-    const taskBookTime: Record<string, number> = {};
-    let unpaidMs = 0;
-
-    session.jobs.forEach((j: any, idx: number) => {
-      const key = j.taskId || `manual-${idx}-${j.name}`;
-      const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-      const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-      const segMs = Math.max(0, end - start);
-
-      const lowerName = (j.taskName || j.name || '').toLowerCase();
-      const isRework = lowerName.includes('rework') || lowerName.includes('failed qc') || lowerName.includes('failed qa');
-      const isDiag = lowerName.includes('diagnostic') || lowerName.includes('diag');
-      
-      let isTaskUnpaid = isRework || isDiag;
-      if (j.taskId) {
-        const t = myAssignedTasks.find(x => x.id === j.taskId);
-        if (t) {
-          isTaskUnpaid = t.isRework || t.status === 'Rework' || t.isDiagnostic || t.title?.toLowerCase().includes('diagnostic') || t.title?.toLowerCase().includes('diag');
-        }
-      }
-
-      if (isTaskUnpaid) {
-        unpaidMs += segMs;
-      } else {
-        taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
-        if (j.bookTime && j.bookTime > 0) {
-          taskBookTime[key] = j.bookTime * 3600000;
-        }
-      }
-    });
-
-    const workMs = Math.max(0, totalMs - breakMs - unpaidMs);
-
-    let adjustmentMs = 0;
-    Object.keys(taskBookTime).forEach(key => {
-      const actualMs = taskActualTime[key] || 0;
-      const bookMs = taskBookTime[key] || 0;
-      adjustmentMs += (bookMs - actualMs);
-    });
-
-    return Math.max(0, workMs + adjustmentMs);
-  };
-
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -488,15 +568,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   weekStart.setDate(weekStart.getDate() - daysToSubtract);
 
   let todayMs = 0;
-  let todayPayMs = 0;
   let todayBookMs = 0;
   let weekMs = 0;
-  let weekPayMs = 0;
-  let weekBreakMs = 0;
-  let weekRegularHourlyMs = 0;
-
-  let totalBookMsOnBookTasks = 0;
-  let totalSpentMsOnBookTasks = 0;
 
   sessions?.forEach(session => {
     const sessionDate = session.clockIn.timestamp?.toDate 
@@ -507,7 +580,6 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
     const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
     const workMs = totalMs - breakMs;
-    const payMs = calculateSessionPayMs(session);
 
     let sessionBookMs = 0;
     if (session.jobs && session.jobs.length > 0) {
@@ -523,63 +595,11 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
     if (sessionDate.getTime() >= todayStart.getTime()) {
       todayMs += workMs;
-      todayPayMs += payMs;
       todayBookMs += sessionBookMs;
     }
 
     if (sessionDate.getTime() >= weekStart.getTime()) {
       weekMs += workMs;
-      weekPayMs += payMs;
-      weekBreakMs += breakMs;
-
-      if (session.jobs && session.jobs.length > 0) {
-        session.jobs.forEach((j: any) => {
-          const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-          const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-          const segMs = Math.max(0, end - start);
-          
-          const bookTime = Number(j.bookTime || 0);
-          if (bookTime === 0) {
-            const lowerName = (j.taskName || j.name || '').toLowerCase();
-            const isRework = lowerName.includes('rework') || lowerName.includes('failed qc') || lowerName.includes('failed qa');
-            const isDiag = lowerName.includes('diagnostic') || lowerName.includes('diag');
-            
-            let isTaskUnpaid = isRework || isDiag;
-            if (j.taskId) {
-              const t = myAssignedTasks.find(x => x.id === j.taskId);
-              if (t) {
-                isTaskUnpaid = t.isRework || t.status === 'Rework' || t.isDiagnostic || t.title?.toLowerCase().includes('diagnostic') || t.title?.toLowerCase().includes('diag');
-              }
-            }
-            
-            if (!isTaskUnpaid) {
-              weekRegularHourlyMs += segMs;
-            }
-          }
-        });
-      }
-
-      if (session.jobs && session.jobs.length > 0) {
-        const taskActualTime: Record<string, number> = {};
-        const taskBookTime: Record<string, number> = {};
-
-        session.jobs.forEach((j: any, idx: number) => {
-          const key = j.taskId || `manual-${idx}-${j.name}`;
-          const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-          const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-          const segMs = Math.max(0, end - start);
-
-          taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
-          if (j.bookTime && j.bookTime > 0) {
-            taskBookTime[key] = j.bookTime * 3600000;
-          }
-        });
-
-        Object.keys(taskBookTime).forEach(key => {
-          totalBookMsOnBookTasks += taskBookTime[key];
-          totalSpentMsOnBookTasks += taskActualTime[key];
-        });
-      }
     }
   });
 
@@ -588,10 +608,6 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     activeCreditMs = staffMember.payPeriodBookTimeCredit * 3600000;
   } else if (myDept?.weeklyBookTimeCredit && myDept.weeklyBookTimeCredit > 0) {
     activeCreditMs = myDept.weeklyBookTimeCredit * 3600000;
-  }
-
-  if (weekMs > 0 && activeCreditMs > 0) {
-    weekPayMs += activeCreditMs;
   }
 
   let doneBookHours = 0;
@@ -617,11 +633,6 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
   const totalBookHoursAvailable = doneBookHours + scheduledBookHours;
 
-  const payType = staffMember?.payType || 'hourly';
-  const displayPayHours = payType === 'flat_rate'
-    ? doneBookHours + (activeCreditMs / 3600000) + (weekRegularHourlyMs / 3600000)
-    : (weekPayMs / 3600000);
-
   const efficiency = weekMs > 0 
     ? (doneBookHours / (weekMs / 3600000)) * 100 
     : null;
@@ -643,16 +654,22 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       try {
         const q = query(
           collection(db, `businesses/${tenantId}/time_sessions`),
-          where('userId', '==', effectiveUserId),
-          where('status', 'in', ['active', 'on_break']),
-          orderBy('clockIn.timestamp', 'desc'),
-          limit(1)
+          where('status', 'in', ['active', 'on_break'])
         );
         
         const snap = await getDocs(q);
-        if (!snap.empty) {
-          const session = snap.docs[0].data();
-          const sessionId = snap.docs[0].id;
+        const searchIds = [effectiveUserId];
+        if (staffMember?.id && !searchIds.includes(staffMember.id)) {
+          searchIds.push(staffMember.id);
+        }
+        if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+          searchIds.push(staffMember.userId);
+        }
+
+        const filteredDocs = snap.docs.filter(d => searchIds.includes(d.data().userId));
+        if (filteredDocs.length > 0) {
+          const session = filteredDocs[0].data();
+          const sessionId = filteredDocs[0].id;
           
           let newStatus: ClockStatus = 'clocked_in';
           let newStartTime = Date.now();
@@ -679,7 +696,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     };
 
     syncStatus();
-  }, [effectiveUserId, tenantId]);
+  }, [effectiveUserId, tenantId, staffMember?.id, staffMember?.userId]);
 
   // Timer update
   useEffect(() => {
@@ -1075,30 +1092,58 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Period Pay Hours</span>
-          <span className="font-mono text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
-            {displayPayHours.toFixed(2)}h
-          </span>
+      {clockStatus === 'clocked_in' && activeSegments.length > 0 && (
+        <div className="space-y-2 border-t border-zinc-150 dark:border-zinc-800/80 pt-3 animate-in fade-in">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Active Job Punches</span>
+          <div className="space-y-2">
+            {activeSegments.map((seg, idx) => (
+              <div 
+                key={`${seg.id}-${seg.taskId || 'job'}-${idx}`}
+                className="flex items-center justify-between p-2.5 bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-100 dark:border-indigo-500/10 rounded-xl"
+              >
+                <div 
+                  className="min-w-0 pr-2 cursor-pointer hover:opacity-85 transition-opacity flex-1"
+                  onClick={() => navigate(`/business/${tenantId}/job/${seg.id}`)}
+                >
+                  <span className="text-xs font-bold text-zinc-850 dark:text-zinc-200 block truncate hover:text-indigo-500 hover:underline">
+                    {seg.name}
+                  </span>
+                  {seg.taskName && (
+                    <span className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 block truncate">
+                      🔧 {seg.taskName}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={async () => {
+                    await clockOutOfJob(seg.id, seg.taskId || undefined);
+                  }}
+                  disabled={isJobClockingOut}
+                  className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer active:scale-95 shadow-sm shadow-rose-500/10"
+                >
+                  <Square className="w-2.5 h-2.5 fill-current" />
+                  Out
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="bg-zinc-55 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Actual On Clock</span>
-          <span className="font-mono text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
+      )}
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-zinc-55 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Hours Worked (Net)</span>
+          <span className="font-mono text-base font-black text-zinc-900 dark:text-white mt-0.5 block">
             {(weekMs / 3600000).toFixed(2)}h
           </span>
+          <span className="text-[9px] text-zinc-400 dark:text-zinc-500 block mt-0.5 leading-none">Clocked time minus breaks</span>
         </div>
-        <div className="bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Gross Clocked</span>
-          <span className="font-mono text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
-            {((weekMs + weekBreakMs) / 3600000).toFixed(2)}h
+        <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Book Time Completed</span>
+          <span className="font-mono text-base font-black text-indigo-650 dark:text-indigo-400 mt-0.5 block">
+            {doneBookHours.toFixed(2)}h
           </span>
-        </div>
-        <div className="bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60">
-          <span className="text-[10px] font-bold text-zinc-400 uppercase block">Breaks Logged</span>
-          <span className="font-mono text-sm font-black text-zinc-900 dark:text-white mt-0.5 block">
-            {(weekBreakMs / 3600000).toFixed(2)}h
-          </span>
+          <span className="text-[9px] text-zinc-400 dark:text-zinc-500 block mt-0.5 leading-none">Tasks completed this week</span>
         </div>
       </div>
 
@@ -1190,6 +1235,22 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   {selectedJob.status}
                 </span>
               </div>
+              {activeJobIds.includes(selectedJob.id) && (
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                  <span className="font-bold text-zinc-500">Clocked In:</span>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await clockOutOfJob(selectedJob.id);
+                    }}
+                    disabled={isJobClockingOut}
+                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer active:scale-95 hover:scale-[1.02]"
+                  >
+                    <Square className="w-2.5 h-2.5 fill-current" />
+                    Clock Out
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1702,92 +1763,116 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
             <Command className="w-6 h-6 text-indigo-500" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">Mission Control</h1>
+            <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">My Dashboard</h1>
             <p className="text-xs font-semibold text-zinc-500">
               Welcome back, <span className="text-zinc-700 dark:text-zinc-305 font-bold">{staffMember?.name || user?.displayName || user?.email || 'Technician'}</span>
             </p>
           </div>
         </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          {effectiveView === 'personalized' && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800/80">
-              {saveStatus === 'saving' && (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-                  <span className="text-zinc-500">Saving...</span>
-                </>
-              )}
-              {saveStatus === 'saved' && (
-                <>
-                  <Check className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-zinc-500">Saved</span>
-                </>
-              )}
-              {saveStatus === 'error' && (
-                <>
-                  <AlertTriangle className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
-                  <span className="text-rose-500 font-black">Save Error</span>
-                </>
-              )}
-            </div>
-          )}
-
-          {canCustomize && (
-            <div className="bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl flex border border-zinc-200 dark:border-zinc-800">
-              <button
-                onClick={() => {
-                  setViewMode('classic');
-                  triggerSave(layout, cardStates, 'classic');
-                }}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                  viewMode === 'classic'
-                    ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-805 dark:hover:text-zinc-300"
-                )}
-              >
-                Classic
-              </button>
-              <button
-                onClick={() => {
-                  setViewMode('personalized');
-                  triggerSave(layout, cardStates, 'personalized');
-                }}
-                className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
-                  viewMode === 'personalized'
-                    ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-300"
-                )}
-              >
-                Personalized
-              </button>
-            </div>
-          )}
-
-          {effectiveView === 'personalized' && (
-            <button
-              onClick={() => setIsManageCardsOpen(!isManageCardsOpen)}
-              className={cn(
-                "p-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-xl shadow-sm transition-all cursor-pointer",
-                isManageCardsOpen && "ring-2 ring-indigo-500/50 border-indigo-500"
-              )}
-              title="Manage Dashboard Cards"
-            >
-              <Settings className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-            </button>
-          )}
-
-          <button
-            onClick={toggleFullscreen}
-            className="px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-          >
-            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-            {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-          </button>
-        </div>
       </div>
+      )}
+
+      {/* Dashboard Questions for Staff */}
+      {(!propViewMode || propViewMode === 'jobs') && pendingQuestions.length > 0 && (
+        <div className="space-y-4">
+          {pendingQuestions.map(q => {
+            const repliesList: any[] = [];
+            if (q.replies && Array.isArray(q.replies)) {
+              repliesList.push(...q.replies);
+            } else if (q.reply) {
+              repliesList.push({
+                senderId: q.staffId || 'staff',
+                senderName: 'Staff Member',
+                message: q.reply,
+                createdAt: q.repliedAt?.toDate 
+                  ? q.repliedAt.toDate().toISOString() 
+                  : new Date(q.repliedAt || 0).toISOString()
+              });
+            }
+
+            return (
+              <div 
+                key={q.id}
+                className="bg-gradient-to-r from-indigo-500/[0.03] via-violet-500/[0.03] to-purple-500/[0.03] border-2 border-indigo-500/30 dark:border-indigo-500/20 rounded-3xl p-6 shadow-xl shadow-indigo-500/5 animate-in slide-in-from-top-4 duration-500 space-y-4"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-600/20 shrink-0">
+                    <HelpCircle className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div className="space-y-1 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                        Question from {q.askedBy}
+                      </span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                      <span className="text-[10px] font-bold text-amber-500 uppercase tracking-wide">
+                        Pending Action
+                      </span>
+                    </div>
+                    <h3 className="text-base font-extrabold text-zinc-900 dark:text-white leading-relaxed whitespace-pre-wrap">
+                      {q.question}
+                    </h3>
+                  </div>
+                </div>
+
+                {/* Replies Thread */}
+                {repliesList.length > 0 && (
+                  <div className="bg-zinc-50/50 dark:bg-zinc-950/40 p-4 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/40 space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
+                    {repliesList.map((reply, idx) => {
+                      const isMe = reply.senderId === (staffMember?.id || user?.uid);
+                      const replyDate = reply.createdAt 
+                        ? new Date(reply.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                        : '';
+                      return (
+                        <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1`}>
+                          <div className={`px-4 py-2.5 rounded-2xl text-sm max-w-[85%] font-semibold ${
+                            isMe 
+                              ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-tr-none' 
+                              : 'bg-indigo-600 text-white rounded-tl-none'
+                          }`}>
+                            <p className="leading-relaxed whitespace-pre-wrap">{reply.message}</p>
+                          </div>
+                          <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-bold px-1 uppercase tracking-tight">
+                            {reply.senderName} • {replyDate}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Reply Input Form */}
+                <div className="flex flex-col gap-3 pt-2">
+                  <textarea
+                    value={replyTexts[q.id] || ''}
+                    onChange={(e) => setReplyTexts(prev => ({ ...prev, [q.id]: e.target.value }))}
+                    placeholder="Write a response..."
+                    rows={2}
+                    className="w-full px-4 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all resize-none text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 font-semibold shadow-inner"
+                  />
+                  <div className="flex flex-col sm:flex-row justify-end gap-2.5">
+                    <button
+                      onClick={() => handleReplyQuestion(q.id, false)}
+                      disabled={replySubmitting[q.id] || !replyTexts[q.id]?.trim()}
+                      className="px-5 py-3 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-850 disabled:opacity-40 rounded-2xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      {replySubmitting[q.id] && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Send Message
+                    </button>
+                    <button
+                      onClick={() => handleReplyQuestion(q.id, true)}
+                      disabled={replySubmitting[q.id]}
+                      className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white rounded-2xl text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                    >
+                      {replySubmitting[q.id] && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Mark OK & Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {/* Manage Cards Settings Panel */}
@@ -1891,51 +1976,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                 </div>
               </div>
          
-              {/* Quick Actions Row */}
-              <div className={cn(
-                "grid grid-cols-4 gap-2 md:gap-4 max-w-4xl",
-                isFullscreen ? "mb-2" : "mb-4 md:mb-8"
-              )}>
-                <button 
-                  onClick={() => setIsIntakeOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm cursor-pointer"
-                >
-                  <div className="p-2 md:p-3 bg-indigo-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
-                    <Package className="w-4 h-4 md:w-6 md:h-6 text-indigo-500" />
-                  </div>
-                  <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Receive<br className="md:hidden" /> Package</span>
-                </button>
 
-                <button 
-                  onClick={() => setIsIssueOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-rose-200 dark:hover:border-rose-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm cursor-pointer"
-                >
-                  <div className="p-2 md:p-3 bg-rose-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
-                    <AlertTriangle className="w-4 h-4 md:w-6 md:h-6 text-rose-500" />
-                  </div>
-                  <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Log<br className="md:hidden" /> Issue</span>
-                </button>
-
-                <button 
-                  onClick={() => setIsPartRequestOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-amber-50 dark:hover:bg-amber-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-amber-200 dark:hover:border-amber-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm cursor-pointer"
-                >
-                  <div className="p-2 md:p-3 bg-amber-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
-                    <Wrench className="w-4 h-4 md:w-6 md:h-6 text-amber-505" />
-                  </div>
-                  <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Request<br className="md:hidden" /> Part</span>
-                </button>
-
-                <button 
-                  onClick={() => setIsVehicleIntakeOpen(true)}
-                  className="flex flex-col items-center justify-center gap-1.5 md:gap-3 p-2 md:p-4 bg-white dark:bg-zinc-900 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-emerald-200 dark:hover:border-emerald-500/30 rounded-2xl md:rounded-3xl transition-all group shadow-sm cursor-pointer"
-                >
-                  <div className="p-2 md:p-3 bg-emerald-500/10 rounded-xl md:rounded-2xl group-hover:scale-110 transition-transform">
-                    <CarFront className="w-4 h-4 md:w-6 md:h-6 text-emerald-505" />
-                  </div>
-                  <span className="font-bold text-[10px] md:text-sm text-zinc-900 dark:text-white text-center leading-tight">Vehicle<br className="md:hidden" /> Intake</span>
-                </button>
-              </div>
             </>
           )}
                 {/* Timeclock Activity & History Feed */}
@@ -1959,10 +2000,6 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                     <div>
                       <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Today's Worked</span>
                       <span className="font-mono text-sm font-black text-zinc-800 dark:text-white mt-0.5 block">{formatDuration(todayMs)}</span>
-                    </div>
-                    <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
-                      <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider block">Today's Pay Hours</span>
-                      <span className="font-mono text-sm font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">{formatDuration(todayPayMs)}</span>
                     </div>
                     <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
                       <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider block">Today's Book Time</span>
@@ -2062,51 +2099,32 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* Card 1: Period Pay Hours */}
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Period Pay Hours</span>
-                    <span className="font-mono text-xl font-black text-indigo-600 dark:text-indigo-400 mt-1 block">
-                      {displayPayHours.toFixed(2)}h
-                    </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Estimated pay hours</span>
-                  </div>
-
-                  {/* Card 2: Actual Clocked */}
-                  <div className="bg-zinc-50 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Actual Clocked</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Card 1: Actual Clocked */}
+                  <div className="bg-zinc-55 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Hours Worked (Net)</span>
                     <span className="font-mono text-xl font-black text-zinc-850 dark:text-white mt-1 block">
                       {(weekMs / 3600000).toFixed(2)}h
                     </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Net time on clock</span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Clocked in time minus breaks</span>
                   </div>
 
-                  {/* Card 3: Completed Book Time */}
+                  {/* Card 2: Completed Book Time */}
                   <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
                     <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Time Completed</span>
-                    <span className="font-mono text-xl font-black text-amber-600 dark:text-amber-400 mt-1 block">
+                    <span className="font-mono text-xl font-black text-indigo-650 dark:text-indigo-400 mt-1 block">
                       {doneBookHours.toFixed(2)}h
                     </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Flat rate completed</span>
+                    <span className="text-[9px] text-zinc-400 mt-1 block">Tasks completed this week</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between text-xs text-zinc-500 border-t border-zinc-100 dark:border-zinc-800/80 pt-3 gap-2">
                   <div className="flex items-center gap-4">
-                    <span>
-                      <strong className="text-zinc-700 dark:text-zinc-300">Gross Clocked:</strong> {((weekMs + weekBreakMs) / 3600000).toFixed(2)}h
-                    </span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-                    <span>
-                      <strong className="text-zinc-700 dark:text-zinc-300">Breaks Logged:</strong> {(weekBreakMs / 3600000).toFixed(2)}h
-                    </span>
                     {activeCreditMs > 0 && (
-                      <>
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
-                        <span>
-                          <strong className="text-zinc-700 dark:text-zinc-300">Period Credit:</strong> {(activeCreditMs / 3600000).toFixed(2)}h
-                        </span>
-                      </>
+                      <span>
+                        <strong className="text-zinc-700 dark:text-zinc-300">Period Credit:</strong> {(activeCreditMs / 3600000).toFixed(2)}h
+                      </span>
                     )}
                   </div>
                   <span className="text-[10px] text-zinc-405 font-bold uppercase tracking-wider">
@@ -2123,7 +2141,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                     ⚠️ Official Payroll Notice
                   </p>
                   <p className="text-xs text-zinc-605 dark:text-zinc-400 font-semibold mt-1">
-                    Logged clock-ins and durations are active workspace reports and are not official payroll hours until verified and approved by the administration.
+                    This is alpha software and not official payroll. Please clock in and log in to tasks here and on the QuickBooks tablet in the shop. Try to be on the same task on both systems so we can verify that this is working correctly before we switch. Thank you!
                   </p>
                 </div>
               </div>
@@ -2272,7 +2290,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
             {/* My Active Jobs */}
             {(!propViewMode || propViewMode === 'jobs') && (
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm animate-in fade-in duration-350">
+              <>
+                <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm animate-in fade-in duration-350">
               <div className="flex items-center gap-3 mb-4 md:mb-6">
                 <div className="p-2 md:p-2.5 bg-indigo-500/10 rounded-xl">
                   <Briefcase className="w-5 h-5 md:w-6 md:h-6 text-indigo-505" />
@@ -2291,40 +2310,17 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   </div>
                 ) : (
                   myJobs.map(job => {
-                    const jobTasks = myAssignedTasks.filter(t => t.jobId === job.id);
-                    
-                    let jobTotalBookHours = 0;
-                    let jobDoneBookHours = 0;
-                    jobTasks.forEach(t => {
-                      const bt = Number(t.bookTime || 0);
-                      jobTotalBookHours += bt;
-                      if (t.status === 'QC Complete' || t.status === 'QC' || t.status === 'completed') {
-                        jobDoneBookHours += bt;
-                      }
-                    });
-
-                    let jobBookMsEarned = 0;
-                    let jobSpentMsOnBookTasks = 0;
-
-                    sessions?.forEach(session => {
-                      if (session.jobs && session.jobs.length > 0) {
-                        session.jobs.forEach((j: any) => {
-                          if (j.id === job.id && j.bookTime && j.bookTime > 0) {
-                            const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-                            const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : null;
-                            if (end) {
-                              const duration = Math.max(0, end - start);
-                              jobSpentMsOnBookTasks += duration;
-                              jobBookMsEarned += j.bookTime * 3600000;
-                            }
-                          }
-                        });
-                      }
-                    });
-
-                    const jobEfficiency = jobSpentMsOnBookTasks >= 10 * 60 * 1050
-                      ? (jobBookMsEarned / jobSpentMsOnBookTasks) * 100
+                    const blockersArr = Array.isArray(job.blockers) ? job.blockers : [];
+                    const activeBlockers = blockersArr.filter((b: any) => b && b.status === 'active');
+                    const vehicle = (job.vehicleId && job.vehicleId !== 'N/A') 
+                      ? vehicles.find(v => v.id === job.vehicleId || v.vin === job.vehicleId)
                       : null;
+
+                    const relevantParts = partsRequests.filter(pr => pr.jobId === job.id);
+                    const pendingParts = relevantParts.filter(pr => pr.status?.toLowerCase() === 'pending').length;
+                    const orderedParts = relevantParts.filter(pr => pr.status?.toLowerCase() === 'ordered').length;
+                    const receivedParts = relevantParts.filter(pr => pr.status?.toLowerCase() === 'received').length;
+                    const totalPartsRequests = pendingParts + orderedParts + receivedParts;
 
                     return (
                       <div 
@@ -2340,72 +2336,102 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                         className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-955 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
                       >
                         <div className="flex-1 min-w-0 pr-4">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className="text-xs font-black text-indigo-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
                               {job.status}
                             </span>
-                            {activeJobIds.includes(job.id) && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500 animate-pulse">
-                                Clocked In
+                            {activeBlockers.length > 0 && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 text-rose-600 border border-rose-500/20 animate-pulse">
+                                ⚠️ Blocked
                               </span>
                             )}
-                            {(!job.assignedStaffIds?.includes(effectiveUserId) && !allZones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && !activeJobIds.includes(job.id)) && (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
-                                Recent Activity
+                            {totalPartsRequests > 0 ? (
+                              <span className={cn(
+                                "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1",
+                                receivedParts > 0 && pendingParts === 0 && orderedParts === 0
+                                  ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/20"
+                                  : "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400 dark:border-amber-500/20"
+                              )}>
+                                <Package className="w-2.5 h-2.5" />
+                                Parts: {pendingParts}/{orderedParts}/{receivedParts}
                               </span>
+                            ) : (
+                              vehicle && (
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                                  vehicle.isWithCustomer ? 'bg-blue-500/10 text-blue-600 border-blue-500/20 dark:text-blue-400 dark:border-blue-500/20' :
+                                  vehicle.departedAt ? 'bg-zinc-500/10 text-zinc-500 border-zinc-500/20' :
+                                  vehicle.arrivedAt ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20 dark:text-emerald-400 dark:border-emerald-500/20' :
+                                  'bg-zinc-500/10 text-zinc-500 border-zinc-500/20'
+                                }`}>
+                                  {vehicle.isWithCustomer ? 'With Customer' :
+                                   vehicle.departedAt ? 'Departed' :
+                                   vehicle.arrivedAt ? 'On-Site' :
+                                   'Not Arrived'}
+                                </span>
+                              )
                             )}
+
+                            {(() => {
+                              const isAssignedToJob = job.assignedStaffIds?.includes(effectiveUserId) ||
+                                (staffMember?.id && job.assignedStaffIds?.includes(staffMember.id)) ||
+                                (staffMember?.userId && job.assignedStaffIds?.includes(staffMember.userId));
+                              return (!isAssignedToJob && !allZones.some(z => z.currentJobId === job.id) && sessionJobIds.includes(job.id) && !activeJobIds.includes(job.id)) && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-500/10 text-zinc-500 border border-zinc-500/20">
+                                  Recent Activity
+                                </span>
+                              );
+                            })()}
                           </div>
                           <h3 className="font-black text-zinc-900 dark:text-white text-lg leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
                           {job.customerName && (
                             <p className="text-sm font-bold text-zinc-500 mt-1">{job.customerName}</p>
                           )}
-                          
-                          {jobTotalBookHours > 0 && (
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2.5 py-1 rounded-xl border border-amber-500/20 shadow-sm">
-                                <Award className="w-3.5 h-3.5 text-amber-505" />
-                                {jobDoneBookHours.toFixed(1)}/{jobTotalBookHours.toFixed(1)}hr Completed
-                              </span>
-                              
-                              {jobEfficiency !== null && (
-                                <span className={cn(
-                                  "inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-xl border shadow-sm",
-                                  jobEfficiency >= 100 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" :
-                                  jobEfficiency >= 90 ? "bg-zinc-500/10 text-zinc-650 dark:text-zinc-400 border-zinc-500/20" :
-                                  "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
-                                )}>
-                                  <TrendingUp className="w-3.5 h-3.5" />
-                                  {jobEfficiency.toFixed(0)}% Eff
-                                </span>
-                              )}
+                          {activeBlockers.length > 0 && (
+                            <div className="text-xs font-semibold text-rose-600 dark:text-rose-400 mt-1.5 flex items-center gap-1.5 bg-rose-500/5 px-2.5 py-1.5 rounded-xl border border-rose-500/10 w-max max-w-full">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0 animate-bounce" />
+                              <span className="truncate">Blocked: {activeBlockers.map((b: any) => b.message).join(', ')}</span>
                             </div>
                           )}
+                          {(() => {
+                            const jobTasks = myAssignedTasks.filter(t => t.jobId === job.id);
+                            const totalTasks = jobTasks.length;
+                            if (totalTasks === 0) return null;
+                            const completedTasks = jobTasks.filter(t => t.status === 'completed' || t.status === 'QC' || t.status === 'QC Complete').length;
+                            const pct = Math.round((completedTasks / totalTasks) * 100);
+                            return (
+                              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                                <div className="flex items-center gap-1 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                                  <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
+                                  <span>{completedTasks} / {totalTasks} Tasks ({pct}%)</span>
+                                </div>
+                                <div className="w-20 h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden shrink-0">
+                                  <div 
+                                    className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          
 
-                          {job.scheduledArrivalTime && (
-                            <p className="text-[10px] font-bold text-indigo-500 mt-2.5 flex items-center gap-1 uppercase tracking-widest">
-                              <Clock className="w-3 h-3" />
-                              ETA: {(() => {
-                                const date = typeof job.scheduledArrivalTime?.toDate === 'function' 
-                                  ? job.scheduledArrivalTime.toDate() 
-                                  : new Date(job.scheduledArrivalTime);
-                                return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-                              })()}
-                            </p>
-                          )}
+
+                          {(() => {
+                            const jobTasks = myAssignedTasks.filter(t => t.jobId === job.id);
+                            const incompleteTasks = jobTasks.filter(t => t.status !== 'completed' && t.status !== 'QC' && t.status !== 'QC Complete');
+                            const remainingBookTime = incompleteTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
+                            return (
+                              <p className="text-[10px] font-bold text-indigo-500 mt-2 flex items-center gap-1 uppercase tracking-widest">
+                                <Clock className="w-3.5 h-3.5" />
+                                Book Time Remaining: {remainingBookTime.toFixed(1)} hrs
+                              </p>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <div className="flex flex-col items-end gap-1.5">
-                            {activeJobIds.includes(job.id) && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); clockOutOfJob(job.id); }}
-                                disabled={isProcessing}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 hover:bg-rose-200 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
-                              >
-                                <Timer className="w-3.5 h-3.5" />
-                                Clock Out
-                              </button>
-                            )}
+
                             
                             {(() => {
                               const zone = allZones.find(z => z.currentJobId === job.id);
@@ -2425,6 +2451,19 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                               );
                             })()}
                           </div>
+                          {activeJobIds.includes(job.id) && (
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                await clockOutOfJob(job.id);
+                              }}
+                              disabled={isJobClockingOut}
+                              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-55 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer active:scale-95 hover:scale-[1.02] z-10 shrink-0 shadow-sm shadow-rose-500/10"
+                            >
+                              <Square className="w-3 h-3 fill-current" />
+                              Clock Out
+                            </button>
+                          )}
                           <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
                         </div>
                       </div>
@@ -2433,7 +2472,76 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                 )}
               </div>
             </div>
-            )}
+
+            {/* Previous Jobs */}
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm animate-in fade-in duration-350 mt-6">
+              <div className="flex items-center gap-3 mb-4 md:mb-6">
+                <div className="p-2 md:p-2.5 bg-zinc-100 dark:bg-zinc-800 rounded-xl">
+                  <History className="w-5 h-5 md:w-6 md:h-6 text-zinc-500" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-zinc-900 dark:text-white">Previous Jobs</h2>
+                  <p className="text-xs text-zinc-500 font-medium">Jobs you have worked on that have no active tasks remaining</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {previousJobs.length === 0 ? (
+                  <div className="p-12 text-center bg-zinc-50 dark:bg-zinc-950/50 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800/50">
+                    <History className="w-8 h-8 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-zinc-500">No previous job history found.</p>
+                  </div>
+                ) : (
+                  previousJobs.map(job => (
+                    <div 
+                      key={job.id}
+                      onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                      className="w-full cursor-pointer text-left bg-zinc-50 dark:bg-zinc-955 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-200 dark:hover:border-indigo-500/30 rounded-2xl p-4 transition-all group flex items-center justify-between"
+                    >
+                      <div className="flex-1 min-w-0 pr-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">{job.jobNumber ? `#${job.jobNumber}` : 'JOB'}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${getStatusColor(job.status)}`}>
+                            {job.status}
+                          </span>
+                        </div>
+                        <h3 className="font-black text-zinc-900 dark:text-white text-lg leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{job.title}</h3>
+                        {job.customerName && (
+                          <p className="text-sm font-bold text-zinc-500 mt-1">{job.customerName}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-700 group-hover:text-indigo-500 transition-colors" />
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {previousJobIds.length > previousJobs.length && (
+                  <div className="pt-4 flex justify-center">
+                    <button
+                      onClick={() => setVisiblePreviousCount(prev => prev + 5)}
+                      disabled={loadingPrevious}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-bold transition-all border border-zinc-200 dark:border-zinc-700 active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
+                      {loadingPrevious ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          Load More Previous Jobs
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
 
             {/* Device Settings */}
             {propViewMode === 'device' && (

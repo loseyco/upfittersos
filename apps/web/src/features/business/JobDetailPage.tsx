@@ -30,7 +30,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
   
-  const canClockOthers = isSuperAdmin || permissions['tasks.clock_others'] === true;
+  const canClockOthers = false;
   
   const [staffMember, setStaffMember] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
@@ -53,28 +53,46 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   // Track technician staff member record
   useEffect(() => {
     if (!tenantId || !effectiveUserId) return;
-    const q = query(
-      collection(db, `businesses/${tenantId}/staff`),
-      where('userId', '==', effectiveUserId)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        setStaffMember({ 
-          id: snap.docs[0].id, 
-          ...data,
-          name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
-        });
-      } else {
-        setStaffMember(null);
-      }
-    });
-    return () => unsub();
-  }, [tenantId, effectiveUserId]);
 
-  // Track all staff members for clock-others mapping
+    if (impersonatedStaff && impersonatedStaff.type === 'staff') {
+      const docRef = doc(db, `businesses/${tenantId}/staff`, impersonatedStaff.id);
+      const unsub = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setStaffMember({ 
+            id: docSnap.id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    } else {
+      const q = query(
+        collection(db, `businesses/${tenantId}/staff`),
+        where('userId', '==', effectiveUserId)
+      );
+      const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          setStaffMember({ 
+            id: snap.docs[0].id, 
+            ...data,
+            name: `${data.firstName || ''} ${data.lastName || ''}`.trim()
+          });
+        } else {
+          setStaffMember(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [tenantId, effectiveUserId, impersonatedStaff]);
+
+  // Track all staff members for clock-others mapping and UID resolution
   useEffect(() => {
-    if (!tenantId || !canClockOthers) return;
+    if (!tenantId) return;
     const unsub = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
       setAllStaff(snap.docs
         .map(d => {
@@ -88,7 +106,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         .filter(s => !s.isArchived && !s.fireDate && s.departmentId));
     });
     return () => unsub();
-  }, [tenantId, canClockOthers]);
+  }, [tenantId]);
 
   const { clockIntoJob, clockOutOfJob, isProcessing: isClockingIn } = useJobClock(tenantId);
   
@@ -203,11 +221,16 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   }, [jobId, tenantId]);
 
   const isUserClockedIntoTask = (userId: string, taskId: string, staffName?: string) => {
+    const staffRec = allStaff.find(s => s.id === userId || s.userId === userId);
+    const searchIds = [userId];
+    if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+    if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
     return timeLogs.some(session => {
       const isSessionActive = session.status === 'active' || session.status === 'on_break';
       if (!isSessionActive) return false;
 
-      const matchesUid = session.userId === userId;
+      const matchesUid = searchIds.includes(session.userId);
       const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
       const targetName = (staffName || '').toLowerCase().trim();
       const matchesName = targetName && sessionName && (sessionName === targetName);
@@ -219,13 +242,18 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
 
   const handleClockOther = async (targetUid: string, targetName: string, taskId: string, taskTitle: string, action: 'in' | 'out') => {
     try {
+      const staffRec = allStaff.find(s => s.id === targetUid || s.userId === targetUid);
+      const searchIds = [targetUid];
+      if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+      if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
       const q = query(
         collection(db, `businesses/${tenantId}/time_sessions`),
         where('status', 'in', ['active', 'on_break'])
       );
       const snap = await getDocs(q);
       const activeSession = snap.empty ? null : snap.docs.map(d => ({ id: d.id, ...d.data() as any })).find(session => {
-        const matchesUid = session.userId === targetUid;
+        const matchesUid = searchIds.includes(session.userId);
         const sessionName = (session.userName || session.staffName || '').toLowerCase().trim();
         const targetLower = (targetName || '').toLowerCase().trim();
         const matchesName = targetLower && sessionName && (sessionName === targetLower);
@@ -242,6 +270,8 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         } catch (err) {
           console.warn('Could not fetch task bookTime', err);
         }
+
+        const sessionUserId = staffRec?.userId || targetUid;
 
         if (activeSession) {
           const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
@@ -279,7 +309,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           toast.success(`Clocked ${targetName} into ${taskTitle}`);
         } else {
           await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
-            userId: targetUid,
+            userId: sessionUserId,
             userName: targetName,
             clockIn: {
               timestamp: serverTimestamp(),
@@ -375,7 +405,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           if (snap.empty) {
             await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
               title: 'General',
-              description: 'General shop work and cleanup',
+              description: 'General clock in to job when no task clock in here',
               bookTime: 0,
               status: 'pending',
               tenantId: tenantId,
@@ -433,9 +463,17 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     );
     
     const unsub = onSnapshot(q, (snap) => {
+      const searchIds = [effectiveUserId];
+      if (staffMember?.id && !searchIds.includes(staffMember.id)) {
+        searchIds.push(staffMember.id);
+      }
+      if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+        searchIds.push(staffMember.userId);
+      }
+
       const activeSession = snap.docs.find(d => {
         const data = d.data();
-        const matchesUid = data.userId === effectiveUserId;
+        const matchesUid = searchIds.includes(data.userId);
         const sessionName = (data.userName || data.staffName || '').toLowerCase().trim();
         const targetName = (staffMember?.name || '').toLowerCase().trim();
         const matchesName = targetName && sessionName && (sessionName === targetName);
@@ -455,7 +493,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       console.error("Session sync listener error:", err);
     });
     return () => unsub();
-  }, [tenantId, effectiveUserId, staffMember?.name]);
+  }, [tenantId, effectiveUserId, staffMember?.name, staffMember?.userId, staffMember?.id]);
 
   // Fetch Zones
   useEffect(() => {
@@ -978,8 +1016,15 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
       (staffMember?.id && (
         task.assignedStaffIds?.includes(staffMember.id) || 
         task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
+      )) ||
+      (staffMember?.userId && (
+        task.assignedStaffIds?.includes(staffMember.userId) || 
+        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
       ));
-    return task.title === 'General' || isAssigned || (permissions['jobs.qc'] && task.status === 'QC');
+    const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
+    const isClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
+                         isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
+    return task.title === 'General' || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
   });
 
   const nonGeneralTasks = visibleTasks.filter(t => t.title !== 'General');
@@ -1167,15 +1212,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   );
 
   const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
-  const hasAccess = isSuperAdmin || permissions['jobs.view'] || canPerformQC || tasks.some(task => {
-    const isAssigned = task.assignedStaffIds?.includes(effectiveUserId) || 
-      task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
-      (staffMember?.id && (
-        task.assignedStaffIds?.includes(staffMember.id) || 
-        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
-      ));
-    return !!isAssigned;
-  });
+  const hasAccess = isSuperAdmin || permissions['jobs.view'] || canPerformQC || !!staffMember;
 
   if (!hasAccess) {
     return (
@@ -1835,13 +1872,17 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                   }).map(task => {
                                     const loggedMs = getTaskLoggedMs(task.id);
                                     const isAssigned = task.title === 'General' || 
-                                                      isSuperAdmin || 
-                                                      task.assignedStaffIds?.includes(effectiveUserId) || 
-                                                      task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
-                                                      (staffMember?.id && (
-                                                        task.assignedStaffIds?.includes(staffMember.id) || 
-                                                        task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
-                                                      ));
+                                                       isSuperAdmin || 
+                                                       task.assignedStaffIds?.includes(effectiveUserId) || 
+                                                       task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
+                                                       (staffMember?.id && (
+                                                         task.assignedStaffIds?.includes(staffMember.id) || 
+                                                         task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
+                                                       )) ||
+                                                       (staffMember?.userId && (
+                                                         task.assignedStaffIds?.includes(staffMember.userId) || 
+                                                         task.assignedStaff?.some((s: any) => s.uid === staffMember.userId || s.id === staffMember.userId)
+                                                       ));
                                     const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
                                     const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                                                           isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
@@ -1938,7 +1979,13 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 </span>
                                               )}
                                             </div>
-                                            {task.description && <p className="text-xs text-zinc-500 mb-2">{task.description}</p>}
+                                            {task.description && (
+                                              <p className="text-xs text-zinc-500 mb-2">
+                                                {task.title === 'General' && task.description === 'General shop work and cleanup'
+                                                  ? 'General clock in to job when no task clock in here'
+                                                  : task.description}
+                                              </p>
+                                            )}
                                             
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
                                               {task.title !== 'General' && task.status !== 'QC' && (
@@ -2004,7 +2051,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                           </div>
 
                                           <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0 w-full md:w-auto">
-                                            {(isAssigned || canClockOthers) && (
+                                             {(isAssigned || isUnassigned || canClockOthers) && (
                                               <>
                                                 {isCurrentTask ? (
                                                   <button 
@@ -2081,9 +2128,9 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 )}
                                               </>
                                             )}
-                                            {!isAssigned && task.status !== 'QC' && task.status !== 'QC Complete' && (
+                                            {!isAssigned && task.assignedStaff && task.assignedStaff.length > 0 && task.status !== 'QC' && task.status !== 'QC Complete' && (
                                               <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-4 py-2 border border-zinc-200 dark:border-zinc-800 rounded-xl">
-                                                Assigned to {task.assignedStaff?.[0]?.name || 'Technician'}
+                                                Assigned to {task.assignedStaff[0].name}
                                               </span>
                                             )}
                                             <button
@@ -2103,8 +2150,14 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                             <span className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mr-1">Clock Staff:</span>
                                             <div className="flex flex-wrap gap-2">
                                               {task.assignedStaff.map((staff: any) => {
-                                                const staffUid = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.userId || staff.id || staff.uid;
-                                                const resolvedStaffName = allStaff.find(s => s.id === staff.id || s.userId === staff.id || s.id === staff.uid || s.userId === staff.uid)?.name || staff.name;
+                                                const staffUid = allStaff.find(s => 
+                                                   (staff.id && (s.id === staff.id || s.userId === staff.id)) || 
+                                                   (staff.uid && (s.id === staff.uid || s.userId === staff.uid))
+                                                 )?.userId || staff.id || staff.uid;
+                                                 const resolvedStaffName = allStaff.find(s => 
+                                                   (staff.id && (s.id === staff.id || s.userId === staff.id)) || 
+                                                   (staff.uid && (s.id === staff.uid || s.userId === staff.uid))
+                                                 )?.name || staff.name;
 
                                                 const isClockedIn = isUserClockedIntoTask(staffUid, task.id, resolvedStaffName);
 

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { submitAuditLog } from '../../lib/logging/audit';
-import { LogOut, User as UserIcon, Sun, Moon } from 'lucide-react';
+import { LogOut, User as UserIcon, Sun, Moon, Menu } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useThemeStore } from '../../lib/theme/store';
 import { useQuery } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import { MasqueradeSelector } from '../../features/business/MasqueradeSelector';
 import { Eye, ShieldAlert } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export function TopNav() {
+export function TopNav({ onMenuClick }: { onMenuClick?: () => void }) {
   const { user, isSuperAdmin, tenantId: storeTenantId, permissions, impersonatedStaff, stopImpersonating } = useAuthStore();
   const params = useParams();
   let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : storeTenantId;
@@ -28,6 +28,10 @@ export function TopNav() {
   const navigate = useNavigate();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMasqueradeOpen, setIsMasqueradeOpen] = useState(false);
+
+
+
+
 
   const canMasquerade = isSuperAdmin || permissions['staff.manage'];
 
@@ -76,6 +80,15 @@ export function TopNav() {
   return (
     <div className="h-16 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center justify-between px-3 sm:px-6 sticky top-0 z-50 transition-colors gap-2">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="lg:hidden p-1.5 -ml-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg active:scale-95 transition-all shrink-0"
+            title="Open Menu"
+          >
+            <Menu className="w-5.5 h-5.5" />
+          </button>
+        )}
         <img 
           src={business?.logoUrl || "/favicon.png"} 
           alt={`${business?.name || 'UpFittersOS'} Icon`} 
@@ -133,6 +146,8 @@ export function TopNav() {
             Stop Sharing
           </button>
         )}
+
+
 
         <button
           onClick={toggleTheme}

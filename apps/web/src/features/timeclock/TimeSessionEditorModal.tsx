@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { doc, updateDoc, serverTimestamp, collection, query, where, getDocs, writeBatch, addDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs, writeBatch, addDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { X, Save, Trash2, AlertCircle, Clock } from 'lucide-react';
+import { X, Save, Trash2, AlertCircle, Clock, Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface TimeSession {
@@ -57,6 +57,108 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const [breaks, setBreaks] = useState(session.breaks || []);
   const [jobs, setJobs] = useState(session.jobs || []);
 
+  const [requestDetails, setRequestDetails] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchRequest = async () => {
+      let activeId = requestId;
+      if (!activeId) {
+        try {
+          const q = query(
+            collection(db, `businesses/${tenantId}/time_edit_requests`),
+            where('sessionId', '==', session.id),
+            where('status', '==', 'pending')
+          );
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            activeId = snap.docs[0].id;
+          }
+        } catch (err) {
+          console.warn("Error querying request:", err);
+        }
+      }
+
+      if (activeId) {
+        try {
+          const reqSnap = await getDoc(doc(db, `businesses/${tenantId}/time_edit_requests`, activeId));
+          if (reqSnap.exists()) {
+            setRequestDetails({ id: reqSnap.id, ...reqSnap.data() });
+          }
+        } catch (err) {
+          console.warn("Error loading request doc:", err);
+        }
+      }
+    };
+
+    fetchRequest();
+  }, [tenantId, session.id, requestId]);
+
+  const formatDatetimeDisplay = (ts: any) => {
+    if (!ts) return 'Active Shift';
+    try {
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      if (isNaN(d.getTime())) return 'Active Shift';
+      return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch {
+      return 'Active Shift';
+    }
+  };
+
+  const getDurationString = (start: any, end: any) => {
+    if (!start) return '';
+    try {
+      const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
+      const e = end ? (end.toDate ? end.toDate().getTime() : new Date(end).getTime()) : null;
+      if (isNaN(s)) return '';
+      if (!e || isNaN(e)) return 'Active';
+      const ms = Math.max(0, e - s);
+      const hours = Math.floor(ms / 3600000);
+      const minutes = Math.floor((ms % 3600000) / 60000);
+      return `${hours}h ${minutes}m`;
+    } catch {
+      return '';
+    }
+  };
+
+  const getDurationDiffBadge = (origStart: any, origEnd: any, propStart: any, propEnd: any) => {
+    if (!origStart || !propStart) return null;
+    try {
+      const oS = origStart.toDate ? origStart.toDate().getTime() : new Date(origStart).getTime();
+      const oE = origEnd ? (origEnd.toDate ? origEnd.toDate().getTime() : new Date(origEnd).getTime()) : null;
+      const pS = propStart.toDate ? propStart.toDate().getTime() : new Date(propStart).getTime();
+      const pE = propEnd ? (propEnd.toDate ? propEnd.toDate().getTime() : new Date(propEnd).getTime()) : null;
+      if (isNaN(oS) || isNaN(pS)) return null;
+      
+      if (!oE || !pE) return null;
+      
+      const origMs = Math.max(0, oE - oS);
+      const propMs = Math.max(0, pE - pS);
+      const diffMs = propMs - origMs;
+      
+      if (Math.abs(diffMs) < 60000) return null;
+      
+      const hours = Math.floor(Math.abs(diffMs) / 3600000);
+      const minutes = Math.floor((Math.abs(diffMs) % 3600000) / 60000);
+      const diffStr = `${hours > 0 ? `${hours}h ` : ''}${minutes}m`;
+      
+      if (diffMs > 0) {
+        return (
+          <span className="bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
+            +{diffStr} (Increase)
+          </span>
+        );
+      } else {
+        return (
+          <span className="bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap">
+            -{diffStr} (Decrease)
+          </span>
+        );
+      }
+    } catch {
+      return null;
+    }
+  };
+
   const formatDatetimeLocal = (dateVal: any) => {
     if (!dateVal) return '';
     try {
@@ -81,15 +183,32 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   }, [session]);
 
   const handleReject = async () => {
-    if (!requestId) return;
+    const activeId = requestId || requestDetails?.id;
+    if (!activeId) return;
     setIsSubmitting(true);
     try {
-      const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, requestId);
+      const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, activeId);
       await updateDoc(requestRef, {
         status: 'rejected',
         resolvedAt: serverTimestamp(),
-        resolvedBy: 'admin'
+        resolvedBy: user!.displayName || user!.email || 'admin'
       });
+
+      // Log activity to the live timeline
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'time_session',
+        title: 'Correction Rejected',
+        message: `Rejected time correction request for ${session.userName || 'Technician'}`,
+        timestamp: serverTimestamp(),
+        severity: 'error',
+        author: user!.displayName || user!.email || 'Admin',
+        metadata: {
+          requestId: activeId,
+          sessionId: session.id,
+          technicianName: session.userName || ''
+        }
+      });
+
       toast.success("Correction request rejected");
       onSaved();
       onClose();
@@ -179,6 +298,10 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           userName: user!.displayName || user!.email,
           note: 'Staff updated session details directly (needs verification)',
           status: 'pending',
+          originalClockIn: session.clockIn.timestamp,
+          originalClockOut: session.clockOut?.timestamp || null,
+          proposedClockIn: new Date(clockIn),
+          proposedClockOut: clockOut ? new Date(clockOut) : null,
           updatedAt: serverTimestamp()
         };
 
@@ -190,13 +313,45 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         } else {
           await updateDoc(snap.docs[0].ref, requestData);
         }
-      } else if (requestId) {
-        const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, requestId);
-        await updateDoc(requestRef, {
-          status: 'approved',
-          resolvedAt: serverTimestamp(),
-          resolvedBy: user!.displayName || user!.email || 'admin'
-        });
+      } else {
+        const activeId = requestId || requestDetails?.id;
+        if (activeId) {
+          const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, activeId);
+          await updateDoc(requestRef, {
+            status: 'approved',
+            resolvedAt: serverTimestamp(),
+            resolvedBy: user!.displayName || user!.email || 'admin'
+          });
+
+          // Log activity for approved request
+          await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+            type: 'time_session',
+            title: 'Correction Approved',
+            message: `Approved time correction request for ${session.userName || 'Technician'}`,
+            timestamp: serverTimestamp(),
+            severity: 'success',
+            author: user!.displayName || user!.email || 'Admin',
+            metadata: {
+              requestId: activeId,
+              sessionId: session.id,
+              technicianName: session.userName || ''
+            }
+          });
+        } else {
+          // Log standard admin edit (no request associated)
+          await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+            type: 'time_session',
+            title: 'Timecard Updated',
+            message: `Updated and verified time entry for ${session.userName || 'Technician'}`,
+            timestamp: serverTimestamp(),
+            severity: 'info',
+            author: user!.displayName || user!.email || 'Admin',
+            metadata: {
+              sessionId: session.id,
+              technicianName: session.userName || ''
+            }
+          });
+        }
       }
 
       toast.success(isAdmin ? "Time session updated and verified" : "Time session updated (needs verification)");
@@ -263,13 +418,106 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         </div>
 
         <div className="p-6 max-h-[70vh] overflow-y-auto no-scrollbar space-y-8">
-          {requestId && (
-            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-bold text-amber-800 dark:text-amber-200 uppercase tracking-tight">Correction Request Associated</p>
-                <p className="text-xs text-amber-700 dark:text-amber-400 mt-1 italic">Approving this edit will automatically resolve the pending request.</p>
+          {(requestId || requestDetails) && (
+            <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5 space-y-4 animate-in fade-in duration-300 shadow-inner">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-500/10 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+                  <div>
+                    <p className="text-sm font-black text-amber-800 dark:text-amber-200 uppercase tracking-wider">
+                      Pending Correction Request
+                    </p>
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-tight mt-0.5">
+                      Reviewing technician's suggested changes
+                    </p>
+                  </div>
+                </div>
+                {requestDetails && getDurationDiffBadge(
+                  requestDetails.originalClockIn,
+                  requestDetails.originalClockOut,
+                  requestDetails.proposedClockIn,
+                  requestDetails.proposedClockOut
+                )}
               </div>
+
+              {requestDetails && (
+                <div className="space-y-4">
+                  {requestDetails.note && (
+                    <div className="bg-white/80 dark:bg-zinc-950/40 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80">
+                      <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase block tracking-widest">Technician Note / Explanation</span>
+                      <p className="text-xs font-semibold text-zinc-850 dark:text-zinc-200 italic mt-1.5 leading-relaxed">
+                        "{requestDetails.note}"
+                      </p>
+                    </div>
+                  )}
+
+                  {/* High Contrast Side-by-Side Comparison */}
+                  {(requestDetails.originalClockIn || requestDetails.originalClockOut) && (
+                    <div className="space-y-2">
+                      <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase tracking-widest block ml-1">
+                        Timecard Shift Comparison
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {/* Original (Was) */}
+                        <div className="bg-rose-500/5 dark:bg-rose-500/10 border border-rose-500/20 dark:border-rose-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 bg-rose-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                            Original (Was)
+                          </div>
+                          
+                          <div className="space-y-2.5 pt-1">
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
+                              <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                {formatDatetimeDisplay(requestDetails.originalClockIn)}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
+                              <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                {formatDatetimeDisplay(requestDetails.originalClockOut)}
+                              </span>
+                            </div>
+                            <div className="border-t border-rose-500/10 pt-2 flex justify-between items-center">
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
+                              <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400 line-through text-right">
+                                {getDurationString(requestDetails.originalClockIn, requestDetails.originalClockOut)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Proposed (Wants) */}
+                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 dark:border-emerald-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 bg-emerald-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider animate-pulse">
+                            Proposed (Wants)
+                          </div>
+                          
+                          <div className="space-y-2.5 pt-1">
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
+                              <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
+                                {formatDatetimeDisplay(requestDetails.proposedClockIn)}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
+                              <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
+                                {formatDatetimeDisplay(requestDetails.proposedClockOut)}
+                              </span>
+                            </div>
+                            <div className="border-t border-emerald-500/10 pt-2 flex justify-between items-center">
+                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
+                              <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 text-right">
+                                {getDurationString(requestDetails.proposedClockIn, requestDetails.proposedClockOut)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -445,11 +693,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         </div>
 
         <div className="p-6 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row gap-3">
-          {requestId && (
+          {(requestId || requestDetails?.id) && (
             <button 
               disabled={isSubmitting}
               onClick={handleReject}
-              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50"
+              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
             >
               Reject Request
             </button>
@@ -464,15 +712,29 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             <button 
               disabled={isSubmitting || !clockIn}
               onClick={handleSave}
-              className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50"
+              className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
+                (requestId || requestDetails?.id)
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
+              }`}
             >
-              {isSubmitting ? 'Saving...' : <><Save className="w-4 h-4" /> Save Changes</>}
+              {isSubmitting ? (
+                'Processing...'
+              ) : (requestId || requestDetails?.id) ? (
+                <>
+                  <Check className="w-4 h-4" /> Approve & Save Request
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" /> Save Changes
+                </>
+              )}
             </button>
             {isAdmin && (
               <button 
                 disabled={isSubmitting}
                 onClick={handleDelete}
-                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50"
+                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
                 title="Delete Entry"
               >
                 <Trash2 className="w-4 h-4" />

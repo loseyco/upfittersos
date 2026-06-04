@@ -3978,78 +3978,36 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!canManageTasks) return;
-
-
-
-
-
-
-
-    if (!confirm('Are you sure you want to delete this task?')) return;
-
-
-
-
-
-
-
-    try {
-
-
-
-
-
-
-
-      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId));
-
-
-
-
-
-
-
-      toast.success('Task deleted');
-
-
-
-
-
-
-
-    } catch (err) {
-
-
-
-
-
-
-
-      console.error(err);
-
-
-
-
-
-
-
-      toast.error('Failed to delete task');
-
-
-
-
-
-
-
-    }
-
-
-
-
-
-
-
+    if (!canManageTasks) return;
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      // Clock out any active sessions on this task
+      const activeSessionsToUpdate = timeLogs.filter(session => {
+        const isSessionActive = session.status === 'active' || session.status === 'on_break';
+        if (!isSessionActive) return false;
+        return (session.jobs || []).some((j: any) => !j.end && j.id === job.id && j.taskId === taskId);
+      });
+
+      for (const session of activeSessionsToUpdate) {
+        const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+        const updatedJobs = (session.jobs || []).map((j: any) => {
+          if (!j.end && j.id === job.id && j.taskId === taskId) {
+            return { ...j, end: new Date() };
+          }
+          return j;
+        });
+        await updateDoc(sessionRef, {
+          jobs: updatedJobs,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId));
+      toast.success('Task deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete task');
+    }
   };
 
 
@@ -5891,6 +5849,8 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
+        readyForCustomerAt: formData.status === 'Ready for Customer' ? (job.readyForCustomerAt || new Date()) : (['Active', 'Open', 'Ready for QC'].includes(formData.status) ? null : (job.readyForCustomerAt || null)),
+        completedAt: ['Completed', 'Closed'].includes(formData.status) ? (job.completedAt || new Date()) : (['Active', 'Open', 'Ready for QC'].includes(formData.status) ? null : (job.completedAt || null)),
         updatedAt: new Date()
 
 
@@ -14863,78 +14823,36 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!canManageTasks) return;
-
-
-
-
-
-
-
-    if (!confirm('Are you sure you want to delete this task?')) return;
-
-
-
-
-
-
-
-    try {
-
-
-
-
-
-
-
-      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId));
-
-
-
-
-
-
-
-      toast.success('Task deleted');
-
-
-
-
-
-
-
-    } catch (err) {
-
-
-
-
-
-
-
-      console.error(err);
-
-
-
-
-
-
-
-      toast.error('Failed to delete task');
-
-
-
-
-
-
-
-    }
-
-
-
-
-
-
-
+    if (!canManageTasks) return;
+    if (!confirm('Are you sure you want to delete this task?')) return;
+    try {
+      // Clock out any active sessions on this task
+      const activeSessionsToUpdate = timeLogs.filter(session => {
+        const isSessionActive = session.status === 'active' || session.status === 'on_break';
+        if (!isSessionActive) return false;
+        return (session.jobs || []).some((j: any) => !j.end && j.id === job.id && j.taskId === taskId);
+      });
+
+      for (const session of activeSessionsToUpdate) {
+        const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+        const updatedJobs = (session.jobs || []).map((j: any) => {
+          if (!j.end && j.id === job.id && j.taskId === taskId) {
+            return { ...j, end: new Date() };
+          }
+          return j;
+        });
+        await updateDoc(sessionRef, {
+          jobs: updatedJobs,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${job.id}/tasks`, taskId));
+      toast.success('Task deleted');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to delete task');
+    }
   };
 
 
@@ -16766,6 +16684,8 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
+        readyForCustomerAt: formData.status === 'Ready for Customer' ? (job.readyForCustomerAt || new Date()) : (['Active', 'Open', 'Ready for QC'].includes(formData.status) ? null : (job.readyForCustomerAt || null)),
+        completedAt: ['Completed', 'Closed'].includes(formData.status) ? (job.completedAt || new Date()) : (['Active', 'Open', 'Ready for QC'].includes(formData.status) ? null : (job.completedAt || null)),
         updatedAt: new Date()
 
 

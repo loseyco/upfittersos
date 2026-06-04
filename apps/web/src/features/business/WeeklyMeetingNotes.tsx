@@ -1,0 +1,1124 @@
+import { useState, useEffect } from 'react';
+import { collection, query, orderBy, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase/config';
+import { 
+  ClipboardList, Plus, Trash2, Printer, Sparkles, Save, Calendar, RefreshCw
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuthStore } from '../../lib/auth/store';
+import { cn } from '../../lib/utils';
+
+interface MeetingData {
+  id: string;
+  meetingDate: string;
+  salesPipeline: {
+    leads: string[];
+    prospecting: string[];
+    waitingApproval: string[];
+    approved: string[];
+  };
+  openSalesOrders: {
+    days1to30: string[];
+    days31to60: string[];
+  };
+  serviceWork: {
+    inProgress: string[];
+    needToStart: string[];
+    incoming: string[];
+    needToSchedule: string[];
+  };
+  buildSchedule: {
+    inShop: string[];
+    incomingCompletion: string[];
+  };
+  orders: {
+    neededJobCompletions: string[];
+    neededUpcomingJobs: string[];
+    restockOrders: string[];
+  };
+  misc: string[];
+  notes: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+const createEmptyMeetingData = (dateStr: string): MeetingData => ({
+  id: dateStr,
+  meetingDate: dateStr,
+  salesPipeline: {
+    leads: ['', '', ''],
+    prospecting: ['', '', ''],
+    waitingApproval: ['', '', '', ''],
+    approved: ['', '', '']
+  },
+  openSalesOrders: {
+    days1to30: ['', '', ''],
+    days31to60: ['', '', '']
+  },
+  serviceWork: {
+    inProgress: ['', '', ''],
+    needToStart: ['', '', ''],
+    incoming: ['', '', ''],
+    needToSchedule: ['', '', '']
+  },
+  buildSchedule: {
+    inShop: ['', '', '', '', '', '', '', '', '', ''],
+    incomingCompletion: ['', '', '', '', '', '', '', '', '', '']
+  },
+  orders: {
+    neededJobCompletions: ['', '', ''],
+    neededUpcomingJobs: ['', '', ''],
+    restockOrders: ['', '', '']
+  },
+  misc: ['', '', ''],
+  notes: ''
+});
+
+export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
+  const { permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || permissions['office.view'];
+
+  const [meetingsList, setMeetingsList] = useState<{ id: string; meetingDate: string }[]>([]);
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+  const [meetingData, setMeetingData] = useState<MeetingData | null>(null);
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [isAutoPopulating, setIsAutoPopulating] = useState(false);
+  const [meetingsLoading, setMeetingsLoading] = useState(true);
+  const [showDatePickerModal, setShowDatePickerModal] = useState(false);
+  const [newMeetingDate, setNewMeetingDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  // Load meeting dates list
+  useEffect(() => {
+    if (!tenantId) return;
+
+    const q = query(
+      collection(db, `businesses/${tenantId}/weekly_meetings`),
+      orderBy('meetingDate', 'desc')
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      const dates = snap.docs.map(d => ({
+        id: d.id,
+        meetingDate: d.data().meetingDate || d.id
+      }));
+      setMeetingsList(dates);
+      setMeetingsLoading(false);
+
+      // Auto-select latest meeting if none selected
+      if (dates.length > 0 && !selectedMeetingId) {
+        setSelectedMeetingId(dates[0].id);
+      } else if (dates.length === 0 && !selectedMeetingId) {
+        // Create an initial template for today's date if no meetings exist at all
+        const todayStr = new Date().toISOString().split('T')[0];
+        setSelectedMeetingId(todayStr);
+        setMeetingData(createEmptyMeetingData(todayStr));
+      }
+    }, (err) => {
+      console.error("Error fetching weekly meetings list:", err);
+      setMeetingsLoading(false);
+    });
+
+    return () => unsub();
+  }, [tenantId]);
+
+  // Load selected meeting document
+  useEffect(() => {
+    if (!tenantId || !selectedMeetingId) return;
+
+    const loadMeeting = async () => {
+      try {
+        const docRef = doc(db, `businesses/${tenantId}/weekly_meetings`, selectedMeetingId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          setMeetingData({ id: snap.id, ...snap.data() } as MeetingData);
+        } else {
+          // If doc doesn't exist yet, seed it with template
+          setMeetingData(createEmptyMeetingData(selectedMeetingId));
+        }
+      } catch (err) {
+        console.error("Error loading meeting details:", err);
+        toast.error("Failed to load meeting details");
+      }
+    };
+
+    loadMeeting();
+  }, [tenantId, selectedMeetingId]);
+
+  // Handle Input Changes
+  const handleListChange = (
+    section: 'salesPipeline' | 'openSalesOrders' | 'serviceWork' | 'buildSchedule' | 'orders' | 'misc',
+    subSection: string | null,
+    index: number,
+    value: string
+  ) => {
+    if (!meetingData) return;
+
+    setMeetingData((prev: any) => {
+      if (!prev) return null;
+      const copy = { ...prev };
+      
+      if (section === 'misc') {
+        const list = [...(copy.misc || [])];
+        list[index] = value;
+        copy.misc = list;
+      } else if (subSection) {
+        const secCopy = { ...copy[section] };
+        const subList = [...(secCopy[subSection] || [])];
+        subList[index] = value;
+        secCopy[subSection] = subList;
+        copy[section] = secCopy;
+      }
+      
+      return copy;
+    });
+  };
+
+  // Add Item Line
+  const handleAddItem = (
+    section: 'salesPipeline' | 'openSalesOrders' | 'serviceWork' | 'buildSchedule' | 'orders' | 'misc',
+    subSection: string | null
+  ) => {
+    if (!meetingData) return;
+
+    setMeetingData((prev: any) => {
+      if (!prev) return null;
+      const copy = { ...prev };
+
+      if (section === 'misc') {
+        copy.misc = [...(copy.misc || []), ''];
+      } else if (subSection) {
+        const secCopy = { ...copy[section] };
+        secCopy[subSection] = [...(secCopy[subSection] || []), ''];
+        copy[section] = secCopy;
+      }
+
+      return copy;
+    });
+  };
+
+  // Remove Item Line
+  const handleRemoveItem = (
+    section: 'salesPipeline' | 'openSalesOrders' | 'serviceWork' | 'buildSchedule' | 'orders' | 'misc',
+    subSection: string | null,
+    index: number
+  ) => {
+    if (!meetingData) return;
+
+    setMeetingData((prev: any) => {
+      if (!prev) return null;
+      const copy = { ...prev };
+
+      if (section === 'misc') {
+        const list = [...(copy.misc || [])];
+        list.splice(index, 1);
+        copy.misc = list;
+      } else if (subSection) {
+        const secCopy = { ...copy[section] };
+        const subList = [...(secCopy[subSection] || [])];
+        subList.splice(index, 1);
+        secCopy[subSection] = subList;
+        copy[section] = secCopy;
+      }
+
+      return copy;
+    });
+  };
+
+  // Save Notes
+  const handleSaveNotes = async () => {
+    if (!tenantId || !meetingData) return;
+    setIsSaving(true);
+
+    try {
+      const docRef = doc(db, `businesses/${tenantId}/weekly_meetings`, meetingData.id);
+      await setDoc(docRef, {
+        ...meetingData,
+        updatedAt: serverTimestamp(),
+        createdAt: meetingData.createdAt || serverTimestamp()
+      }, { merge: true });
+
+      toast.success("Meeting notes saved successfully");
+    } catch (err: any) {
+      console.error("Save error:", err);
+      toast.error(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Delete Notes
+  const handleDeleteMeeting = async (id: string, date: string) => {
+    if (!canManage) return;
+    if (!window.confirm(`Are you sure you want to permanently delete the meeting notes for ${date}?`)) return;
+
+    try {
+      await deleteDoc(doc(db, `businesses/${tenantId}/weekly_meetings`, id));
+      toast.success("Meeting notes deleted");
+      if (selectedMeetingId === id) {
+        setSelectedMeetingId(meetingsList.find(m => m.id !== id)?.id || null);
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+      toast.error("Failed to delete meeting notes");
+    }
+  };
+
+  // Create New Meeting Notes
+  const handleCreateNewMeeting = () => {
+    setShowDatePickerModal(false);
+    setSelectedMeetingId(newMeetingDate);
+    setMeetingData(createEmptyMeetingData(newMeetingDate));
+    toast.info(`Created template for ${newMeetingDate}. Press Save to persist.`);
+  };
+
+  // Smart Auto-Populate from system jobs and zones
+  const handleAutoPopulate = async () => {
+    if (!tenantId || !meetingData) return;
+    setIsAutoPopulating(true);
+
+    try {
+      // 1. Fetch active jobs, zones, and vehicles in parallel
+      const [jobsSnap, zonesSnap, vehiclesSnap] = await Promise.all([
+        getDocs(collection(db, `businesses/${tenantId}/jobs`)),
+        getDocs(collection(db, `businesses/${tenantId}/zones`)),
+        getDocs(collection(db, `businesses/${tenantId}/vehicles`))
+      ]);
+
+      const jobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const zones = zonesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const vehicles = vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+      const activeJobs = jobs.filter((j: any) => j.status !== 'Closed' && j.status !== 'Completed');
+
+      // Helper to match vehicle display
+      const getVehicleLabel = (job: any) => {
+        if (!job.vehicleId) return '';
+        const vehicle = vehicles.find((v: any) => v.vin === job.vehicleId || v.id === job.vehicleId);
+        return vehicle 
+          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() 
+          : job.vehicleId;
+      };
+
+      // 2. Build Schedule: In Shop
+      // Find all occupied bay zones
+      const bayZones = zones.filter(z => z.type === 'bay' && !z.isArchived);
+      const inShopList: string[] = [];
+      bayZones.forEach(zone => {
+        const targetJobId = zone.currentJobId;
+        const targetVin = zone.currentVehicleVin;
+        let job = activeJobs.find((j: any) => j.id === targetJobId);
+        if (!job && targetVin) {
+          job = activeJobs.find((j: any) => j.vehicleId === targetVin || j.vehicleVin === targetVin);
+        }
+        if (job) {
+          const veh = getVehicleLabel(job);
+          const completionDate = job.expectedFinishTime 
+            ? new Date(job.expectedFinishTime.seconds ? job.expectedFinishTime.seconds * 1000 : job.expectedFinishTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' })
+            : 'No ETA';
+          inShopList.push(`${zone.name}: #${job.jobNumber || ''} - ${job.title} (${veh}) [ETA: ${completionDate}]`);
+        }
+      });
+      // Pad to 10 slots
+      while (inShopList.length < 10) inShopList.push('');
+
+      // 3. Build Schedule: Incoming upon Completion
+      // Jobs with status 'Ready for QC' or 'QC' or scheduled but not on-site/not in bay
+      const qcJobs = activeJobs.filter((j: any) => j.status === 'Ready for QC' || j.status === 'QC');
+      const incomingCompletionList = qcJobs.map((job: any) => {
+        const veh = getVehicleLabel(job);
+        return `#${job.jobNumber || ''} - ${job.title} (${veh}) - Ready for QC`;
+      });
+      // Pad to 10 slots
+      while (incomingCompletionList.length < 10) incomingCompletionList.push('');
+
+      // 4. Service Work: In Progress
+      // Jobs that are active and not in Closed/Completed, containing Service/Repair in description/title, or assigned to a technician
+      const serviceJobs = activeJobs.filter((j: any) => 
+        String(j.title || '').toLowerCase().includes('service') || 
+        String(j.title || '').toLowerCase().includes('repair') ||
+        (j.assignedStaff && j.assignedStaff.length > 0)
+      );
+
+      const serviceInProgress = serviceJobs
+        .filter((j: any) => j.status === 'Active' || j.status === 'In Progress')
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+        });
+      while (serviceInProgress.length < 3) serviceInProgress.push('');
+
+      // 5. Service Work: Need to Start
+      const serviceNeedToStart = serviceJobs
+        .filter((j: any) => j.status === 'Open' || j.status === 'Scheduled')
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+        });
+      while (serviceNeedToStart.length < 3) serviceNeedToStart.push('');
+
+      // 6. Service Work: Incoming
+      // Jobs with scheduled arrival time in the future
+      const now = new Date();
+      const serviceIncoming = activeJobs
+        .filter((j: any) => {
+          if (!j.scheduledArrivalTime) return false;
+          const arrDate = new Date(j.scheduledArrivalTime.seconds ? j.scheduledArrivalTime.seconds * 1000 : j.scheduledArrivalTime);
+          return arrDate > now;
+        })
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          const dateStr = new Date(j.scheduledArrivalTime.seconds ? j.scheduledArrivalTime.seconds * 1000 : j.scheduledArrivalTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
+          return `#${j.jobNumber || ''} - ${j.title} (${veh}) [Arr: ${dateStr}]`;
+        });
+      while (serviceIncoming.length < 3) serviceIncoming.push('');
+
+      // 7. Service Work: Need to Schedule
+      const serviceNeedToSchedule = activeJobs
+        .filter((j: any) => j.status === 'Open' && !j.scheduledArrivalTime && !j.scheduledStartDate)
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+        });
+      while (serviceNeedToSchedule.length < 3) serviceNeedToSchedule.push('');
+
+      // 8. Open Sales Orders: 1 - 30 Days
+      // Jobs created in the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const days1to30List = activeJobs
+        .filter((j: any) => {
+          if (!j.createdAt) return false;
+          const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
+          return created >= thirtyDaysAgo;
+        })
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+        });
+      while (days1to30List.length < 3) days1to30List.push('');
+
+      // 9. Open Sales Orders: 31 - 60 Days
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      const days31to60List = activeJobs
+        .filter((j: any) => {
+          if (!j.createdAt) return false;
+          const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
+          return created >= sixtyDaysAgo && created < thirtyDaysAgo;
+        })
+        .slice(0, 3)
+        .map((j: any) => {
+          const veh = getVehicleLabel(j);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+        });
+      while (days31to60List.length < 3) days31to60List.push('');
+
+      // Update State
+      setMeetingData((prev: any) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          buildSchedule: {
+            inShop: inShopList,
+            incomingCompletion: incomingCompletionList
+          },
+          serviceWork: {
+            ...prev.serviceWork,
+            inProgress: serviceInProgress,
+            needToStart: serviceNeedToStart,
+            incoming: serviceIncoming,
+            needToSchedule: serviceNeedToSchedule
+          },
+          openSalesOrders: {
+            days1to30: days1to30List,
+            days31to60: days31to60List
+          }
+        };
+      });
+
+      toast.success("Successfully imported active jobs into meeting notes!");
+    } catch (err: any) {
+      console.error("Auto populate error:", err);
+      toast.error(`Auto-populate failed: ${err.message}`);
+    } finally {
+      setIsAutoPopulating(false);
+    }
+  };
+
+  // Open browser print interface
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Format date display
+  const formatDate = (dateStr: string) => {
+    try {
+      const [year, month, day] = dateStr.split('-');
+      const d = new Date(Number(year), Number(month) - 1, Number(day));
+      return d.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
+  if (meetingsLoading) {
+    return (
+      <div className="h-full flex items-center justify-center p-12 text-zinc-400">
+        <RefreshCw className="w-8 h-8 animate-spin text-indigo-500 mr-3" />
+        Loading weekly meeting logs...
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col lg:flex-row bg-zinc-50 dark:bg-zinc-950 font-sans select-none relative overflow-hidden">
+      
+      {/* ----------------------------------------------------
+          SIDEBAR: PAST MEETINGS & SELECTION
+      ---------------------------------------------------- */}
+      <div className="w-full lg:w-64 bg-white dark:bg-zinc-900 border-b lg:border-b-0 lg:border-r border-zinc-200 dark:border-zinc-800 p-4 flex flex-col gap-4 no-print shrink-0">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+            <ClipboardList className="w-4 h-4 text-indigo-500" />
+            Weekly Notes
+          </h2>
+          <button
+            onClick={() => setShowDatePickerModal(true)}
+            className="p-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition active:scale-95 shadow-sm"
+            title="Create New Meeting Notes"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto no-scrollbar max-h-48 lg:max-h-none space-y-1">
+          {meetingsList.length === 0 ? (
+            <div className="p-4 text-center text-xs text-zinc-400 italic">No meetings saved yet.</div>
+          ) : (
+            meetingsList.map((m) => {
+              const isActive = selectedMeetingId === m.id;
+              return (
+                <div 
+                  key={m.id}
+                  className={cn(
+                    "flex items-center justify-between px-3 py-2.5 rounded-xl transition duration-200 group/item cursor-pointer",
+                    isActive 
+                      ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" 
+                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800/40 text-zinc-700 dark:text-zinc-300"
+                  )}
+                  onClick={() => setSelectedMeetingId(m.id)}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+                    <span className="text-xs font-bold truncate leading-none">{m.meetingDate}</span>
+                  </div>
+                  {canManage && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteMeeting(m.id, m.meetingDate);
+                      }}
+                      className="p-1 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 opacity-0 group-hover/item:opacity-100 transition-opacity rounded"
+                      title="Delete notes"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ----------------------------------------------------
+          MAIN DOCUMENT WORKBOARD
+      ---------------------------------------------------- */}
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar relative min-w-0">
+        
+        {/* Editor Floating Actions Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm mb-6 no-print">
+          <div>
+            <h2 className="text-lg font-black text-zinc-900 dark:text-white flex items-center gap-2">
+              Meeting Notes Editor
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Editing notes for: <strong className="text-indigo-500">{selectedMeetingId || '--'}</strong>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleAutoPopulate}
+              disabled={isAutoPopulating || !meetingData}
+              className="flex items-center gap-1.5 px-4.5 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-750 dark:text-zinc-300 rounded-xl text-xs font-black transition shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
+              title="Pull active jobs and vehicles into meeting sheets"
+            >
+              {isAutoPopulating ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              )}
+              Auto-Populate
+            </button>
+
+            <button
+              onClick={handlePrint}
+              disabled={!meetingData}
+              className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-black transition shadow-sm active:scale-95 shrink-0"
+              title="Print layout matching PDF template"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Print Notes
+            </button>
+
+            <button
+              onClick={handleSaveNotes}
+              disabled={isSaving || !meetingData}
+              className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-md active:scale-95 disabled:opacity-50 shrink-0"
+            >
+              {isSaving ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              Save Notes
+            </button>
+          </div>
+        </div>
+
+        {/* ----------------------------------------------------
+            THE WEEKLY MEETING PRINT WRAPPER
+        ---------------------------------------------------- */}
+        {meetingData ? (
+          <div className="print-container w-full max-w-4xl mx-auto space-y-12">
+            
+            {/* ================= PAGE 1 ================= */}
+            <div className="print-page bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm rounded-3xl p-6 sm:p-12 text-zinc-900 dark:text-zinc-100 flex flex-col justify-between">
+              
+              {/* Header */}
+              <div className="border-b-4 border-zinc-900 pb-4 mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <h1 className="text-3xl font-extrabold uppercase tracking-widest text-zinc-900 dark:text-white">
+                  Weekly Meeting
+                </h1>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Meeting Date</p>
+                  <p className="text-lg font-black text-indigo-600 dark:text-indigo-400">{formatDate(meetingData.meetingDate)}</p>
+                </div>
+              </div>
+
+              {/* Sections Container */}
+              <div className="flex-1 space-y-8">
+                
+                {/* 1. Sales Pipeline */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Sales Pipe Line
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pl-4">
+                    
+                    {/* Leads */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Leads</h3>
+                      <BulletListEditor 
+                        items={meetingData.salesPipeline.leads} 
+                        onChange={(idx, val) => handleListChange('salesPipeline', 'leads', idx, val)}
+                        onAdd={() => handleAddItem('salesPipeline', 'leads')}
+                        onRemove={(idx) => handleRemoveItem('salesPipeline', 'leads', idx)}
+                      />
+                    </div>
+
+                    {/* Prospecting */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Prospecting</h3>
+                      <BulletListEditor 
+                        items={meetingData.salesPipeline.prospecting} 
+                        onChange={(idx, val) => handleListChange('salesPipeline', 'prospecting', idx, val)}
+                        onAdd={() => handleAddItem('salesPipeline', 'prospecting')}
+                        onRemove={(idx) => handleRemoveItem('salesPipeline', 'prospecting', idx)}
+                      />
+                    </div>
+
+                    {/* Waiting on approval */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Waiting on approval / Follow up on</h3>
+                      <BulletListEditor 
+                        items={meetingData.salesPipeline.waitingApproval} 
+                        onChange={(idx, val) => handleListChange('salesPipeline', 'waitingApproval', idx, val)}
+                        onAdd={() => handleAddItem('salesPipeline', 'waitingApproval')}
+                        onRemove={(idx) => handleRemoveItem('salesPipeline', 'waitingApproval', idx)}
+                      />
+                    </div>
+
+                    {/* Approved */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Approved</h3>
+                      <BulletListEditor 
+                        items={meetingData.salesPipeline.approved} 
+                        onChange={(idx, val) => handleListChange('salesPipeline', 'approved', idx, val)}
+                        onAdd={() => handleAddItem('salesPipeline', 'approved')}
+                        onRemove={(idx) => handleRemoveItem('salesPipeline', 'approved', idx)}
+                      />
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 2. Open Sales Orders */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Open Sales Orders
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pl-4">
+                    
+                    {/* 1-30 Days */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">1 - 30 Days</h3>
+                      <BulletListEditor 
+                        items={meetingData.openSalesOrders.days1to30} 
+                        onChange={(idx, val) => handleListChange('openSalesOrders', 'days1to30', idx, val)}
+                        onAdd={() => handleAddItem('openSalesOrders', 'days1to30')}
+                        onRemove={(idx) => handleRemoveItem('openSalesOrders', 'days1to30', idx)}
+                      />
+                    </div>
+
+                    {/* 31-60 Days */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">31 - 60 Days</h3>
+                      <BulletListEditor 
+                        items={meetingData.openSalesOrders.days31to60} 
+                        onChange={(idx, val) => handleListChange('openSalesOrders', 'days31to60', idx, val)}
+                        onAdd={() => handleAddItem('openSalesOrders', 'days31to60')}
+                        onRemove={(idx) => handleRemoveItem('openSalesOrders', 'days31to60', idx)}
+                      />
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 3. Service Work (Part 1 - Here in-progress) */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Service Work
+                  </h2>
+                  <div className="pl-4">
+                    <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Here in-progress</h3>
+                    <BulletListEditor 
+                      items={meetingData.serviceWork.inProgress} 
+                      onChange={(idx, val) => handleListChange('serviceWork', 'inProgress', idx, val)}
+                      onAdd={() => handleAddItem('serviceWork', 'inProgress')}
+                      onRemove={(idx) => handleRemoveItem('serviceWork', 'inProgress', idx)}
+                    />
+                  </div>
+                </div>
+
+              </div>
+              
+              <div className="text-[9px] text-zinc-400 dark:text-zinc-500 text-center mt-8 border-t border-zinc-100 dark:border-zinc-800 pt-2 no-print">
+                📄 Page 1 of 3 (Sales Pipeline & Open Sales Orders)
+              </div>
+            </div>
+
+            {/* ================= PAGE 2 ================= */}
+            <div className="print-page bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm rounded-3xl p-6 sm:p-12 text-zinc-900 dark:text-zinc-100 flex flex-col justify-between">
+              <div className="flex-1 space-y-8">
+                
+                {/* Service Work (Continued) */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Service Work (Continued)
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pl-4">
+                    
+                    {/* Here need to start */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Here need to start</h3>
+                      <BulletListEditor 
+                        items={meetingData.serviceWork.needToStart} 
+                        onChange={(idx, val) => handleListChange('serviceWork', 'needToStart', idx, val)}
+                        onAdd={() => handleAddItem('serviceWork', 'needToStart')}
+                        onRemove={(idx) => handleRemoveItem('serviceWork', 'needToStart', idx)}
+                      />
+                    </div>
+
+                    {/* Incoming */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Incoming</h3>
+                      <BulletListEditor 
+                        items={meetingData.serviceWork.incoming} 
+                        onChange={(idx, val) => handleListChange('serviceWork', 'incoming', idx, val)}
+                        onAdd={() => handleAddItem('serviceWork', 'incoming')}
+                        onRemove={(idx) => handleRemoveItem('serviceWork', 'incoming', idx)}
+                      />
+                    </div>
+
+                    {/* Need to Schedule */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Need to Schedule</h3>
+                      <BulletListEditor 
+                        items={meetingData.serviceWork.needToSchedule} 
+                        onChange={(idx, val) => handleListChange('serviceWork', 'needToSchedule', idx, val)}
+                        onAdd={() => handleAddItem('serviceWork', 'needToSchedule')}
+                        onRemove={(idx) => handleRemoveItem('serviceWork', 'needToSchedule', idx)}
+                      />
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 4. Build Schedule */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Build Schedule
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pl-4">
+                    
+                    {/* In shop / Completion date / Current Times */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">In shop / Completion date / Current Times</h3>
+                      <BulletListEditor 
+                        items={meetingData.buildSchedule.inShop} 
+                        onChange={(idx, val) => handleListChange('buildSchedule', 'inShop', idx, val)}
+                        onAdd={() => handleAddItem('buildSchedule', 'inShop')}
+                        onRemove={(idx) => handleRemoveItem('buildSchedule', 'inShop', idx)}
+                      />
+                    </div>
+
+                    {/* Incoming upon Completion */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Incoming upon Completion</h3>
+                      <BulletListEditor 
+                        items={meetingData.buildSchedule.incomingCompletion} 
+                        onChange={(idx, val) => handleListChange('buildSchedule', 'incomingCompletion', idx, val)}
+                        onAdd={() => handleAddItem('buildSchedule', 'incomingCompletion')}
+                        onRemove={(idx) => handleRemoveItem('buildSchedule', 'incomingCompletion', idx)}
+                      />
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="text-[9px] text-zinc-400 dark:text-zinc-500 text-center mt-8 border-t border-zinc-100 dark:border-zinc-800 pt-2 no-print">
+                📄 Page 2 of 3 (Service Work & Build Schedule)
+              </div>
+            </div>
+
+            {/* ================= PAGE 3 ================= */}
+            <div className="print-page bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm rounded-3xl p-6 sm:p-12 text-zinc-900 dark:text-zinc-100 flex flex-col justify-between">
+              <div className="flex-1 space-y-8">
+                
+                {/* 5. Orders */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Orders
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pl-4">
+                    
+                    {/* Needed for job completions */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Needed for job completions</h3>
+                      <BulletListEditor 
+                        items={meetingData.orders.neededJobCompletions} 
+                        onChange={(idx, val) => handleListChange('orders', 'neededJobCompletions', idx, val)}
+                        onAdd={() => handleAddItem('orders', 'neededJobCompletions')}
+                        onRemove={(idx) => handleRemoveItem('orders', 'neededJobCompletions', idx)}
+                      />
+                    </div>
+
+                    {/* Needed for upcoming jobs */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Needed for upcoming jobs</h3>
+                      <BulletListEditor 
+                        items={meetingData.orders.neededUpcomingJobs} 
+                        onChange={(idx, val) => handleListChange('orders', 'neededUpcomingJobs', idx, val)}
+                        onAdd={() => handleAddItem('orders', 'neededUpcomingJobs')}
+                        onRemove={(idx) => handleRemoveItem('orders', 'neededUpcomingJobs', idx)}
+                      />
+                    </div>
+
+                    {/* Restock Orders needed */}
+                    <div>
+                      <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-2">Restock Orders needed</h3>
+                      <BulletListEditor 
+                        items={meetingData.orders.restockOrders} 
+                        onChange={(idx, val) => handleListChange('orders', 'restockOrders', idx, val)}
+                        onAdd={() => handleAddItem('orders', 'restockOrders')}
+                        onRemove={(idx) => handleRemoveItem('orders', 'restockOrders', idx)}
+                      />
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 6. Misc. */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-4 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Misc.
+                  </h2>
+                  <div className="pl-4">
+                    <BulletListEditor 
+                      items={meetingData.misc} 
+                      onChange={(idx, val) => handleListChange('misc', null, idx, val)}
+                      onAdd={() => handleAddItem('misc', null)}
+                      onRemove={(idx) => handleRemoveItem('misc', null, idx)}
+                      symbol="-"
+                    />
+                  </div>
+                </div>
+
+                {/* 7. Notes */}
+                <div>
+                  <h2 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider flex items-center gap-2 mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                    <span className="w-2 h-2 rounded-full bg-zinc-900 dark:bg-zinc-400" />
+                    Notes
+                  </h2>
+                  <textarea
+                    value={meetingData.notes || ''}
+                    onChange={(e) => setMeetingData(prev => prev ? ({ ...prev, notes: e.target.value }) : null)}
+                    placeholder="Type meeting notes/actions here..."
+                    className="w-full min-h-[160px] p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl outline-none focus:border-indigo-500 font-medium text-xs dark:text-white leading-relaxed resize-y placeholder:italic"
+                  />
+                </div>
+
+              </div>
+
+              <div className="text-[9px] text-zinc-400 dark:text-zinc-500 text-center mt-8 border-t border-zinc-100 dark:border-zinc-800 pt-2 no-print">
+                📄 Page 3 of 3 (Orders, Misc & Notes)
+              </div>
+            </div>
+
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-12 text-center rounded-2xl">
+            <ClipboardList className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-4" />
+            <h3 className="font-bold text-zinc-900 dark:text-white text-base">Select or Create Meeting</h3>
+            <p className="text-zinc-500 text-xs mt-2">Select a date from the weekly list or click "+" to start fresh.</p>
+          </div>
+        )}
+
+      </div>
+
+      {/* ----------------------------------------------------
+          DATE PICKER MODAL
+      ---------------------------------------------------- */}
+      {showDatePickerModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-200 no-print" onClick={() => setShowDatePickerModal(false)}>
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden max-w-xs w-full animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-zinc-150 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-between">
+              <h3 className="font-black text-sm text-zinc-900 dark:text-white uppercase tracking-wider">New Meeting Date</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <input
+                type="date"
+                value={newMeetingDate}
+                onChange={(e) => setNewMeetingDate(e.target.value)}
+                className="w-full p-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none text-xs font-bold text-center dark:text-white cursor-pointer"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDatePickerModal(false)}
+                  className="flex-1 py-2.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold rounded-xl text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateNewMeeting}
+                  className="flex-1 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-500/20"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------
+          PRINT STYLESHEET
+      ---------------------------------------------------- */}
+      <style>{`
+        @media print {
+          /* Hide non-print containers */
+          .no-print, header, aside, .no-print * {
+            display: none !important;
+          }
+          
+          body, html, #root {
+            background: white !important;
+            color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            font-size: 10.5pt !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Force exact pagination */
+          .print-page {
+            page-break-after: always !important;
+            page-break-inside: avoid !important;
+            background: white !important;
+            color: black !important;
+            padding: 0.8cm !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            min-height: 27.5cm !important; /* Matches standard US Letter height minus margins */
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            box-sizing: border-box !important;
+          }
+
+          .print-page:last-of-type {
+            page-break-after: avoid !important;
+          }
+
+          /* Input formatting for clean underline print layout */
+          .print-input {
+            border: none !important;
+            border-bottom: 1.5px solid #000 !important;
+            background: transparent !important;
+            color: black !important;
+            font-size: 10.5pt !important;
+            font-weight: bold !important;
+            padding: 1px 0 !important;
+            width: 100% !important;
+          }
+
+          .print-bullet-line {
+            display: flex !important;
+            align-items: center !important;
+            margin-bottom: 4px !important;
+          }
+
+          .print-bullet-symbol {
+            font-weight: bold !important;
+            margin-right: 8px !important;
+            color: black !important;
+            font-size: 11pt !important;
+          }
+
+          /* Header Styling */
+          .print-page h1 {
+            color: black !important;
+            font-size: 20pt !important;
+            font-weight: 800 !important;
+          }
+
+          .print-page h2 {
+            color: black !important;
+            font-size: 11pt !important;
+            font-weight: 800 !important;
+            border-bottom: 2px solid #000 !important;
+            padding-bottom: 2px !important;
+            margin-top: 15px !important;
+          }
+
+          .print-page h3 {
+            color: black !important;
+            font-size: 9pt !important;
+            font-weight: 800 !important;
+            margin-bottom: 6px !important;
+          }
+
+          .grid {
+            display: grid !important;
+          }
+          
+          .grid-cols-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 1.5cm !important;
+          }
+          
+          .grid-cols-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 1.2cm !important;
+          }
+
+          /* Print Action Line buttons removal */
+          .print-action-btn {
+            display: none !important;
+          }
+
+          textarea {
+            border: 1.5px solid #000 !important;
+            background: transparent !important;
+            color: black !important;
+            border-radius: 0 !important;
+            width: 100% !important;
+            min-height: 250px !important;
+            padding: 8px !important;
+            font-size: 10.5pt !important;
+          }
+        }
+      `}</style>
+
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// BULLET LIST EDITOR WIDGET
+// ----------------------------------------------------
+interface BulletListEditorProps {
+  items: string[];
+  onChange: (index: number, value: string) => void;
+  onAdd: () => void;
+  onRemove: (index: number) => void;
+  symbol?: string;
+}
+
+function BulletListEditor({ items = [], onChange, onAdd, onRemove, symbol = '■' }: BulletListEditorProps) {
+  return (
+    <div className="space-y-1.5">
+      {items.map((item, idx) => (
+        <div key={idx} className="print-bullet-line flex items-center gap-2 group/line">
+          <span className="print-bullet-symbol text-[10px] font-black text-indigo-500/80 shrink-0 select-none">
+            {symbol === '■' ? '■' : '•'}
+          </span>
+          <input
+            type="text"
+            value={item}
+            onChange={(e) => onChange(idx, e.target.value)}
+            className="print-input flex-1 px-2 py-1 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-250/30 dark:border-zinc-800 rounded-lg text-xs font-semibold focus:border-indigo-500 outline-none text-zinc-850 dark:text-white"
+            placeholder="..."
+          />
+          <button
+            type="button"
+            onClick={() => onRemove(idx)}
+            className="print-action-btn opacity-0 group-hover/line:opacity-100 p-1 text-zinc-400 hover:text-rose-500 transition-opacity rounded shrink-0"
+            title="Delete line"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="print-action-btn flex items-center gap-1 text-[10px] font-bold text-indigo-500 hover:text-indigo-600 transition pl-5 pt-1"
+      >
+        <Plus className="w-3 h-3" /> Add Line
+      </button>
+    </div>
+  );
+}

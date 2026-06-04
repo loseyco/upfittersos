@@ -231,7 +231,17 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
           const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
           const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
           const workMs = totalMs - breakMs;
-          const payMs = calculateSessionPayMs(session, staffMember?.payType);
+          const bookMs = (() => {
+            if (!session.jobs || session.jobs.length === 0) return 0;
+            const taskBookTime: Record<string, number> = {};
+            session.jobs.forEach((j: any, idx: number) => {
+              const key = j.taskId || `manual-${idx}-${j.name}`;
+              if (j.bookTime && j.bookTime > 0) {
+                taskBookTime[key] = j.bookTime * 3600000;
+              }
+            });
+            return Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
+          })();
           const request = getRequestForSession(session.id);
 
           return (
@@ -294,7 +304,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                 </div>
                 <div className="text-right sm:text-left">
                   <span className="text-[10px] uppercase font-bold text-indigo-500 block tracking-wider">Book Time</span>
-                  <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">{formatDuration(payMs)}</span>
+                  <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">{formatDuration(bookMs)}</span>
                 </div>
                 
                 <button 
@@ -350,6 +360,21 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                           status: 'pending',
                           createdAt: serverTimestamp()
                         });
+
+                        // Log activity to the live timeline
+                        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+                          type: 'time_session',
+                          title: 'Correction Requested',
+                          message: `Requested clock correction: "${editNote.slice(0, 60)}${editNote.length > 60 ? '...' : ''}"`,
+                          timestamp: serverTimestamp(),
+                          severity: 'warning',
+                          author: user!.displayName || user!.email || 'Technician',
+                          metadata: {
+                            sessionId: requestingEdit,
+                            note: editNote
+                          }
+                        });
+
                         toast.success("Correction request submitted");
                         setRequestingEdit(null);
                         setEditNote('');

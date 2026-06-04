@@ -56,7 +56,7 @@ const calculateTenantEfficiency = async (tenantId: string) => {
                 totalLoggedMs += sessionClockedMs;
                 userStats[uId].loggedMs += sessionClockedMs;
 
-                let hasBookedJob = false;
+                let sessionEfficiencyLoggedMs = 0;
                 const sessionJobs = session.jobs || [];
                 sessionJobs.forEach((j: any) => {
                     if (!j.id) return;
@@ -64,15 +64,15 @@ const calculateTenantEfficiency = async (tenantId: string) => {
                     const jobDoc = jobs.find((job: any) => job.id === j.id);
                     const estimatedHours = jobDoc?.estimatedHours ? parseFloat(jobDoc.estimatedHours) : 0;
                     
-                    if (estimatedHours > 0) {
-                        hasBookedJob = true;
-                        userStats[uId].jobsTouched.add(j.id);
-                    }
-                    
                     // Track individual segment duration in jobStats
                     const startTs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
                     const endTs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : nowTime;
                     const duration = Math.max(0, endTs - startTs);
+
+                    if (estimatedHours > 0) {
+                        sessionEfficiencyLoggedMs += duration;
+                        userStats[uId].jobsTouched.add(j.id);
+                    }
                     
                     if (!jobStats[j.id]) {
                         jobStats[j.id] = {
@@ -84,10 +84,8 @@ const calculateTenantEfficiency = async (tenantId: string) => {
                     jobStats[j.id].loggedMs += duration;
                 });
 
-                if (hasBookedJob) {
-                    efficiencyLoggedMs += sessionClockedMs;
-                    userStats[uId].efficiencyLoggedMs += sessionClockedMs;
-                }
+                efficiencyLoggedMs += sessionEfficiencyLoggedMs;
+                userStats[uId].efficiencyLoggedMs += sessionEfficiencyLoggedMs;
             });
 
             let totalBookMs = 0;

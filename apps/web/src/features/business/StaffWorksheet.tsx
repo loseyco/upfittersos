@@ -52,7 +52,7 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
   const [jobsList, setJobsList] = useState<any[]>([]);
   const [sessions, setSessions] = useState<TimeSession[]>([]);
   const [zonesList, setZonesList] = useState<any[]>([]);
-  const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
+
   
   // Excel Column Resizing State
   const [colWidths, setColWidths] = useState<Record<string, number>>({
@@ -141,61 +141,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
     };
   }, [tenantId]);
 
-  // Active Job IDs that we need tasks for
-  const activeJobIds = useMemo(() => {
-    const ids = new Set<string>();
-    sessions.forEach(s => {
-      if (s.status !== 'completed') {
-        const activeJob = s.jobs?.find(j => !j.end);
-        if (activeJob && activeJob.id && activeJob.id !== 'none') {
-          ids.add(activeJob.id);
-        }
-      }
-    });
-    return Array.from(ids);
-  }, [sessions]);
 
-  // Subscribe to tasks for each active jobId
-  useEffect(() => {
-    if (!tenantId || activeJobIds.length === 0) {
-      setTasksMap({});
-      return;
-    }
 
-    const unsubs = activeJobIds.map(jobId => {
-      const q = query(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`));
-      return onSnapshot(q, (snap) => {
-        const jobTasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-        setTasksMap(prev => ({
-          ...prev,
-          [jobId]: jobTasks
-        }));
-      }, (err) => {
-        console.warn(`Could not subscribe to tasks for job ${jobId}:`, err);
-      });
-    });
 
-    return () => {
-      unsubs.forEach(unsub => unsub());
-    };
-  }, [tenantId, activeJobIds]);
-
-  const getTasksForStaffAndJob = (staffMember: StaffMember, jobId: string) => {
-    const jobTasks = tasksMap[jobId] || [];
-    const effectiveUserId = staffMember.userId || staffMember.id;
-    
-    return jobTasks.filter((task: any) => {
-      const isAssigned = 
-        task.assignedStaffIds?.includes(effectiveUserId) || 
-        task.assignedStaffIds?.includes(staffMember.id) ||
-        task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
-        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id);
-      
-      if (task.title === 'General' || task.title === 'general') return true;
-
-      return isAssigned;
-    });
-  };
 
   // Keep live time ticking every minute
   useEffect(() => {
@@ -549,48 +497,7 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
     }
   };
 
-  // Switch task name inline for a specific jobId segment
-  const handleTaskChangeSelect = async (activeSession: TimeSession, jobId: string, taskId: string, taskName: string) => {
-    if (!canManage) return;
-    try {
-      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
-      const sessionSnap = await getDoc(sessionRef);
-      if (!sessionSnap.exists()) return;
 
-      const sessionData = sessionSnap.data();
-      const jobs = [...(sessionData.jobs || [])];
-
-      const activeJob = jobs.find((j: any) => !j.end && j.id === jobId);
-      if (!activeJob) {
-        toast.error('Technician is not currently clocked into this active Job.');
-        return;
-      }
-
-      let bookTime = 0;
-      if (taskId && taskId !== 'none') {
-        try {
-          const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
-          if (taskSnap.exists()) {
-            bookTime = parseFloat(taskSnap.data().bookTime) || 0;
-          }
-        } catch (err) {
-          console.warn('Could not fetch task bookTime', err);
-        }
-      }
-
-      activeJob.taskId = taskId === 'none' ? null : taskId;
-      activeJob.taskName = taskName || null;
-      activeJob.bookTime = bookTime;
-
-      await updateDoc(sessionRef, {
-        jobs,
-        updatedAt: serverTimestamp()
-      });
-      toast.success(`Switched active task to "${taskName}"`);
-    } catch (err: any) {
-      toast.error(`Task update failed: ${err.message}`);
-    }
-  };
 
   // Clock Out All Active Technicians
   const handleClockOutAll = async () => {
@@ -985,37 +892,13 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
                       ) : (
                         <div className="flex flex-col gap-1.5 w-full">
                           {activeJobSegments.map((segment: any, sIdx: number) => {
-                            const assignedTasks = getTasksForStaffAndJob(staff, segment.id);
                             const activeTaskId = segment.taskId || 'none';
 
                             return (
-                              <div key={`${segment.id}-${sIdx}`} className="flex items-center gap-1.5 w-full h-7">
-                                <select
-                                  value={activeTaskId}
-                                  onChange={(e) => {
-                                    const selectedId = e.target.value;
-                                    if (selectedId === 'none') {
-                                      handleTaskChangeSelect(activeSession!, segment.id, 'none', 'General');
-                                    } else {
-                                      const selectedTask = assignedTasks.find(t => t.id === selectedId);
-                                      handleTaskChangeSelect(activeSession!, segment.id, selectedId, selectedTask?.title || 'Task');
-                                    }
-                                  }}
-                                  disabled={!canManage}
-                                  className="flex-1 bg-transparent border-none outline-none focus:ring-0 focus:border-0 font-bold p-1 text-xs text-zinc-850 dark:text-zinc-350 dark:bg-zinc-900 rounded cursor-pointer truncate"
-                                >
-                                  <option value="none">General / Unassigned</option>
-                                  {assignedTasks.map(t => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.title}
-                                    </option>
-                                  ))}
-                                  {activeTaskId !== 'none' && !assignedTasks.some(t => t.id === activeTaskId) && (
-                                    <option value={activeTaskId}>
-                                      {segment.taskName || 'Active Task'}
-                                    </option>
-                                  )}
-                                </select>
+                              <div key={`${segment.id}-${sIdx}`} className="flex items-center justify-between gap-1.5 w-full h-7 px-1">
+                                <span className="font-bold text-xs text-zinc-850 dark:text-zinc-350 truncate">
+                                  {activeTaskId === 'none' ? 'General / Unassigned' : (segment.taskName || 'Active Task')}
+                                </span>
                                 {activeTaskId && activeTaskId !== 'none' && (
                                   <button
                                     onClick={() => navigate(`/business/${tenantId}/task/${segment.id}/${activeTaskId}`)}

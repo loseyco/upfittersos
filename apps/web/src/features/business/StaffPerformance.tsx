@@ -802,11 +802,14 @@ function StaffActivityTimeline({ tenantId, staffName, staffId }: { tenantId: str
   );
 }
 
-export function StaffLink({ name, tenantId, className }: { name: string, tenantId: string, className?: string }) {
+export function StaffLink({ name, tenantId, staffId, className }: { name: string, tenantId: string, staffId?: string, className?: string }) {
   if (!name || name === 'System') return <span className={className}>{name}</span>;
+  const to = staffId 
+    ? `/business/${tenantId}/staff/${staffId}`
+    : `/business/${tenantId}/performance?staffName=${encodeURIComponent(name)}`;
   return (
     <Link 
-      to={`/business/${tenantId}/performance?staffName=${encodeURIComponent(name)}`}
+      to={to}
       className={cn("hover:text-indigo-600 hover:underline transition-all cursor-pointer font-bold", className)}
     >
       {name}
