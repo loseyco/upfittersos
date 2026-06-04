@@ -360,7 +360,27 @@ export function QRRedirector() {
           handleFallback();
         });
       } else {
-        handleFallback();
+        // Fallback tenant is undefined (anonymous scan in the wild)
+        // Run collectionGroup query directly to resolve the tenant ID
+        const stickersQuery = query(collectionGroup(db, 'qr_stickers'), where('id', '==', sid));
+        getDocs(stickersQuery).then((groupSnap) => {
+          if (!groupSnap.empty) {
+            const stickerDoc = groupSnap.docs[0];
+            const data = stickerDoc.data();
+            const computedTenantId = data.tenantId || stickerDoc.ref.parent.parent?.id;
+            if (computedTenantId) {
+              processStickerData(data, computedTenantId);
+            } else {
+              toast.error("Sticker has no associated tenant.");
+              setResolving(false);
+            }
+          } else {
+            handleFallback();
+          }
+        }).catch((err) => {
+          console.error("CollectionGroup lookup failed:", err);
+          handleFallback();
+        });
       }
     } else {
       // Fallback if no params are supplied

@@ -38,6 +38,7 @@ import { QRManager } from './QRManager';
 import { StaffManager, DepartmentsPage } from './StaffManager';
 import { StaffProfilePage } from './StaffProfilePage';
 import { ReportsManager } from './ReportsManager';
+import { AuditManager } from './AuditManager';
 import { StaffPerformance } from './StaffPerformance';
 import { JobsManager } from './JobsManager';
 import { CustomersManager } from './CustomersManager';
@@ -119,7 +120,8 @@ export function TenantDashboard() {
     part_request: 'Add Part / Request',
     vehicle_intake: 'Vehicle Intake',
     log_issue: 'Log Feedback & Incidents',
-    weekly_meeting: 'Weekly Meeting Notes'
+    weekly_meeting: 'Weekly Meeting Notes',
+    audit: 'Weekly Audit'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -375,6 +377,12 @@ export function TenantDashboard() {
             {activeTab === 'reports' && (
               <PermissionGate permission="reports.view">
                 <ReportsManager tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'audit' && (
+              <PermissionGate permission="reports.view">
+                <AuditManager tenantId={tenantId!} />
               </PermissionGate>
             )}
 
