@@ -64,22 +64,7 @@ export function TutorialModal() {
     }
   }, [isOpen, activeTabId, tenantId, user]);
 
-  // Fetch unique views (visible only to Admin)
-  const { data: views = [] } = useQuery({
-    queryKey: ['tutorial-views', tenantId, activeTabId],
-    queryFn: async () => {
-      if (!tenantId || !activeTabId) return [];
-      const q = fsQuery(
-        collection(db, `businesses/${tenantId}/tutorial_views`),
-        where('tutorialId', '==', activeTabId)
-      );
-      const snap = await getDocs(q);
-      return snap.docs.map(doc => doc.data() as any);
-    },
-    enabled: !!tenantId && !!activeTabId && !!isAdmin
-  });
 
-  const uniqueViewsExcludingMe = views.filter((v: any) => v.userId !== user?.uid).length;
 
   // Lock scrolling on main page when modal is open
   useBodyScrollLock(isOpen);
@@ -226,20 +211,7 @@ export function TutorialModal() {
               </div>
             </div>
 
-            {/* Telemetry Log (Visible to Admin Only) */}
-            {isAdmin && (
-              <div className="mt-6 pt-4 border-t border-zinc-150 dark:border-zinc-850 text-[10px] text-zinc-550 dark:text-zinc-450 flex items-center justify-between gap-4 bg-zinc-50/50 dark:bg-zinc-950/10 p-3.5 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-200">
-                <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500">
-                  Admin Stats (Views Tracker):
-                </p>
-                <div className="flex items-center gap-4">
-                  <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450">
-                    Unique Views: <strong className="text-sm font-black text-indigo-650 dark:text-indigo-400 font-mono">{views.length}</strong>
-                    <span className="text-[10px] text-zinc-400 dark:text-zinc-550 font-bold ml-1.5">({uniqueViewsExcludingMe} excluding yours)</span>
-                  </p>
-                </div>
-              </div>
-            )}
+
 
             {/* Bottom Actions */}
             <div className="border-t border-zinc-100 dark:border-zinc-850 pt-5 flex items-center justify-between gap-4">
