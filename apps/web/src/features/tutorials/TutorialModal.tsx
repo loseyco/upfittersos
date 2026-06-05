@@ -14,7 +14,7 @@ export function TutorialModal() {
   const { isOpen, activeTabId, closeTutorial } = useTutorialStore();
   const navigate = useNavigate();
   const { tenantId } = useParams();
-  const { user, permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions } = useAuthStore();
   
   // Fetch Business Settings for Timeclock config
   const { data: business } = useQuery({
