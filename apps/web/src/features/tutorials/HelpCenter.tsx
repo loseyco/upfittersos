@@ -3,9 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, ArrowRight, BookOpen, Clock, 
   HelpCircle, Check, Play, GraduationCap, RefreshCw,
-  QrCode, MapPin
+  QrCode, MapPin, ShieldCheck, AlertTriangle
 } from 'lucide-react';
 import { SLIDE_TUTORIALS } from './slideTutorialsData';
+import { getTutorialsData } from './tutorialsData';
+import { ITEMS } from '../business/BusinessSidebar';
+import { resolvePermissions } from '../../lib/auth/permissions';
+import type { PermissionKey } from '../../lib/auth/permissions';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc, query as fsQuery, collection, where, getDocs, setDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
@@ -76,14 +80,65 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
   const selectedTutorialId = activeTab.replace('help_', '');
   const currentTutorial = SLIDE_TUTORIALS.find(t => t.id === selectedTutorialId);
 
+  // Fetch unique views (visible only to Admin)
+  const { data: views = [] } = useQuery({
+    queryKey: ['tutorial-views', tenantId, selectedTutorialId],
+    queryFn: async () => {
+      if (!tenantId || !selectedTutorialId) return [];
+      const q = fsQuery(
+        collection(db, `businesses/${tenantId}/tutorial_views`),
+        where('tutorialId', '==', selectedTutorialId)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(doc => doc.data() as any);
+    },
+    enabled: !!tenantId && !!selectedTutorialId && !!isAdmin
+  });
+
+  // Fetch departments (visible only to Admin)
+  const { data: departments = [] } = useQuery({
+    queryKey: ['runner-departments', tenantId],
+    queryFn: async () => {
+      if (!tenantId) return [];
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/departments`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
+    },
+    enabled: !!tenantId && !!isAdmin
+  });
+
+  const tutorialsDataMap = getTutorialsData(business, staffMember, permissions);
+  const currentDocGuide = tutorialsDataMap[selectedTutorialId];
+
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [completed, setCompleted] = useState(false);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
 
-  // Reset slide index when tutorial changes
+  // Reset indices when activeTab changes
   useEffect(() => {
     setCurrentSlideIndex(0);
     setCompleted(false);
+    setActiveSectionIndex(0);
   }, [activeTab]);
+
+  // Record a unique view when this guide is opened
+  useEffect(() => {
+    if (selectedTutorialId && tenantId && user && selectedTutorialId !== 'overview') {
+      const recordView = async () => {
+        try {
+          const docId = `${user.uid}_${selectedTutorialId}`;
+          const docRef = doc(db, `businesses/${tenantId}/tutorial_views`, docId);
+          await setDoc(docRef, {
+            userId: user.uid,
+            tutorialId: selectedTutorialId,
+            viewedAt: serverTimestamp()
+          }, { merge: true });
+        } catch (e) {
+          console.warn("Failed to record page/tutorial view:", e);
+        }
+      };
+      recordView();
+    }
+  }, [selectedTutorialId, tenantId, user]);
 
   const handleStartTutorial = (id: string) => {
     navigate(`/business/${tenantId}/help_${id}`);
@@ -153,6 +208,191 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
     }
   };
 
+  if (currentDocGuide && activeTab !== 'help_overview') {
+    const sections = currentDocGuide.sections;
+    const currentSection = sections[activeSectionIndex] || sections[0];
+
+    const sidebarItem = ITEMS.find(item => item.id === selectedTutorialId);
+    const requiredPermissions: string[] = [];
+    if (sidebarItem?.permission) {
+      requiredPermissions.push(sidebarItem.permission);
+    }
+    if (sidebarItem?.permissions) {
+      requiredPermissions.push(...sidebarItem.permissions);
+    }
+
+    // Find which departments inherit permissions to view this page
+    const allowedDepts = requiredPermissions.length === 0
+      ? ['Everyone (Public Access)']
+      : departments
+          .filter((dept: any) => requiredPermissions.some(p => dept.permissions?.[p as PermissionKey] === true))
+          .map((dept: any) => dept.name || 'Unnamed Department');
+
+    // Find which staff members have access
+    const allowedStaff = requiredPermissions.length === 0
+      ? ['Everyone']
+      : (allStaff || [])
+          .filter((st: any) => {
+            const dept = departments.find((d: any) => d.id === st.departmentId);
+            const resolved: any = resolvePermissions(dept?.permissions, st.individualPermissions);
+            return requiredPermissions.some(p => resolved[p] === true);
+          })
+          .map((st: any) => `${st.firstName || ''} ${st.lastName || ''}`.trim() || st.email)
+          .filter(Boolean);
+
+    const uniqueViewsExcludingMe = views.filter((v: any) => v.userId !== user?.uid).length;
+
+    return (
+      <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in duration-300">
+        {/* Header */}
+        <div className="flex items-start gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-6">
+          <button
+            onClick={handleBackToOverview}
+            className="p-2 border border-zinc-205 dark:border-zinc-800 hover:bg-zinc-150 dark:hover:bg-zinc-850 text-zinc-550 dark:text-zinc-400 rounded-xl transition-all cursor-pointer active:scale-95 shrink-0"
+            title="Back to all tutorials"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="p-1 bg-indigo-500/10 text-indigo-500 rounded-lg">
+                <GraduationCap className="w-4 h-4 text-indigo-500" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                {currentDocGuide.category} Guide
+              </span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-black text-zinc-900 dark:text-white tracking-tight">
+              {currentDocGuide.title}
+            </h1>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
+              {currentDocGuide.description}
+            </p>
+          </div>
+        </div>
+
+        {/* Main Content Layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Left Sidebar Menu */}
+          <div className="lg:col-span-3 space-y-2 lg:sticky lg:top-4 bg-zinc-50 dark:bg-zinc-900/40 p-4 border border-zinc-200 dark:border-zinc-800 rounded-3xl">
+            <p className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest px-2 mb-3">
+              Guide Sections
+            </p>
+            <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible no-scrollbar pb-2 lg:pb-0">
+              {sections.map((section, idx) => {
+                const isActive = idx === activeSectionIndex;
+                const SectionIcon = section.icon || HelpCircle;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setActiveSectionIndex(idx)}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all shrink-0 lg:w-full active:scale-95 border lg:border-0 ${
+                      isActive
+                        ? "bg-indigo-600 text-white font-bold shadow-md shadow-indigo-650/10"
+                        : "bg-white dark:bg-zinc-900 lg:bg-transparent lg:dark:bg-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-205 border-zinc-200 dark:border-zinc-800"
+                    }`}
+                  >
+                    <SectionIcon className={`w-4 h-4 shrink-0 ${isActive ? "text-white" : "text-zinc-400"}`} />
+                    <span className="text-xs font-semibold truncate">{section.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Content Pane */}
+          <div className="lg:col-span-9 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-sm min-h-[400px] flex flex-col justify-between">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeSectionIndex}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.15 }}
+                className="space-y-6 flex-1"
+              >
+                <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-850 pb-4">
+                  <div className="p-2.5 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                    {React.createElement(currentSection.icon || HelpCircle, { className: "w-5 h-5" })}
+                  </div>
+                  <h3 className="text-lg font-black text-zinc-900 dark:text-white tracking-tight">
+                    {currentSection.title}
+                  </h3>
+                </div>
+
+                <div className="text-sm font-semibold text-zinc-600 dark:text-zinc-350 leading-relaxed space-y-4">
+                  {currentSection.content}
+                </div>
+              </motion.div>
+            </AnimatePresence>
+
+            {/* Access Control & Telemetry Bar (Visible to Admin Only) */}
+            {isAdmin && (
+              <div className="mt-6 pt-4 border-t border-zinc-150 dark:border-zinc-800 text-[10px] text-zinc-550 dark:text-zinc-400 flex flex-wrap items-center justify-between gap-4 bg-zinc-50/50 dark:bg-zinc-950/20 p-3.5 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-200">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Page Access Permissions
+                  </p>
+                  <div className="space-y-0.5 font-medium leading-relaxed">
+                    <p className="truncate">
+                      <strong className="text-zinc-700 dark:text-zinc-305">Departments:</strong>{' '}
+                      {allowedDepts.length > 0 ? allowedDepts.join(', ') : 'None (Strict Overrides Only)'}
+                    </p>
+                    <p className="truncate">
+                      <strong className="text-zinc-700 dark:text-zinc-305">Staff Members:</strong>{' '}
+                      {allowedStaff.length > 0 ? allowedStaff.join(', ') : 'None (Role-Based Only)'}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="text-right space-y-0.5 shrink-0">
+                  <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500">Telemetry Log</p>
+                  <p className="text-sm font-black text-indigo-650 dark:text-indigo-400 font-mono">
+                    {views.length} Unique View{views.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-[9px] text-zinc-400 dark:text-zinc-550 font-bold">
+                    ({uniqueViewsExcludingMe} excluding yours)
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Navigation Controls */}
+            <div className="border-t border-zinc-105 dark:border-zinc-850 pt-5 mt-6 flex items-center justify-between gap-4 shrink-0 flex-wrap">
+              <button
+                disabled={activeSectionIndex === 0}
+                onClick={() => setActiveSectionIndex(prev => prev - 1)}
+                className="px-4 py-2 border border-zinc-200 dark:border-zinc-800 text-zinc-650 dark:text-zinc-450 hover:bg-zinc-50 dark:hover:bg-zinc-850 disabled:opacity-40 disabled:hover:bg-transparent rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95"
+              >
+                Previous Section
+              </button>
+              
+              <span className="text-[10px] font-extrabold text-zinc-455 dark:text-zinc-500 uppercase tracking-widest">
+                Section {activeSectionIndex + 1} of {sections.length}
+              </span>
+
+              {activeSectionIndex < sections.length - 1 ? (
+                <button
+                  onClick={() => setActiveSectionIndex(prev => prev + 1)}
+                  className="px-5 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-indigo-500/10 transition-all cursor-pointer active:scale-95"
+                >
+                  Next Section
+                </button>
+              ) : (
+                <button
+                  onClick={handleBackToOverview}
+                  className="px-5 py-2 bg-zinc-900 hover:bg-zinc-850 dark:bg-white dark:hover:bg-zinc-100 text-white dark:text-zinc-900 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-sm"
+                >
+                  Back to Academy
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentTutorial || activeTab === 'help_overview') {
     // Render Catalog/Overview of all PowerPoint tutorials
     return (
@@ -215,6 +455,46 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
 
                   <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
                     <Play className="w-3.5 h-3.5" /> Start Slideshow
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* System & Feature Guides */}
+        <div className="space-y-4 pt-6 border-t border-zinc-200 dark:border-zinc-800">
+          <h2 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-wider">System & Feature Guides</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {Object.entries(tutorialsDataMap).map(([id, guide]) => {
+              const GuideIcon = guide.sections[0]?.icon || BookOpen;
+              return (
+                <div 
+                  key={id}
+                  onClick={() => navigate(`/business/${tenantId}/help_${id}`)}
+                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 dark:hover:border-indigo-500/30 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer flex flex-col justify-between h-56 hover:-translate-y-0.5 active:scale-[0.99]"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="p-2.5 bg-indigo-500/10 text-indigo-655 dark:text-indigo-400 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
+                        <GuideIcon className="w-5 h-5" />
+                      </div>
+                      <div className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-indigo-500/5 text-indigo-600 dark:text-indigo-405 border-indigo-500/20">
+                        {guide.category}
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        {guide.title}
+                      </h3>
+                      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450 mt-1.5 leading-relaxed line-clamp-2">
+                        {guide.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
+                    <BookOpen className="w-3.5 h-3.5" /> Read Documentation
                   </div>
                 </div>
               );
