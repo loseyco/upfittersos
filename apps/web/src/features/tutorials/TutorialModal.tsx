@@ -16,8 +16,6 @@ export function TutorialModal() {
   const { tenantId } = useParams();
   const { user, permissions, isSuperAdmin } = useAuthStore();
   
-  const isAdmin = isSuperAdmin || permissions?.['settings.manage'] || permissions?.['staff.manage'];
-
   // Fetch Business Settings for Timeclock config
   const { data: business } = useQuery({
     queryKey: ['business-settings', tenantId],
