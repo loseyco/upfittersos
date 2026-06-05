@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, HelpCircle, GraduationCap, BookOpen, ShieldCheck } from 'lucide-react';
+import { X, HelpCircle, GraduationCap, BookOpen } from 'lucide-react';
 import { useTutorialStore } from './useTutorialStore';
 import { getTutorialsData } from './tutorialsData';
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock';
@@ -9,9 +9,6 @@ import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, doc, getDoc, setDoc, serverTimestamp, query as fsQuery, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { resolvePermissions } from '../../lib/auth/permissions';
-import type { PermissionKey } from '../../lib/auth/permissions';
-import { ITEMS } from '../business/BusinessSidebar';
  
 export function TutorialModal() {
   const { isOpen, activeTabId, closeTutorial } = useTutorialStore();
@@ -81,56 +78,6 @@ export function TutorialModal() {
     },
     enabled: !!tenantId && !!activeTabId && !!isAdmin
   });
-
-  // Fetch departments (visible only to Admin)
-  const { data: departments = [] } = useQuery({
-    queryKey: ['runner-departments', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return [];
-      const snap = await getDocs(collection(db, `businesses/${tenantId}/departments`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
-    },
-    enabled: !!tenantId && !!isAdmin
-  });
-
-  // Fetch staff list (visible only to Admin)
-  const { data: staffList = [] } = useQuery({
-    queryKey: ['business-staff-list', tenantId],
-    queryFn: async () => {
-      if (!tenantId) return [];
-      const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as any);
-    },
-    enabled: !!tenantId && !!isAdmin
-  });
-
-  const sidebarItem = ITEMS.find(item => item.id === activeTabId);
-  const requiredPermissions: string[] = [];
-  if (sidebarItem?.permission) {
-    requiredPermissions.push(sidebarItem.permission);
-  }
-  if (sidebarItem?.permissions) {
-    requiredPermissions.push(...sidebarItem.permissions);
-  }
-
-  // Find which departments inherit permissions to view this page
-  const allowedDepts = requiredPermissions.length === 0
-    ? ['Everyone (Public Access)']
-    : departments
-        .filter((dept: any) => requiredPermissions.some(p => dept.permissions?.[p as PermissionKey] === true))
-        .map((dept: any) => dept.name || 'Unnamed Department');
-
-  // Find which staff members have access
-  const allowedStaff = requiredPermissions.length === 0
-    ? ['Everyone']
-    : staffList
-        .filter((st: any) => {
-          const dept = departments.find((d: any) => d.id === st.departmentId);
-          const resolved: any = resolvePermissions(dept?.permissions, st.individualPermissions);
-          return requiredPermissions.some(p => resolved[p] === true);
-        })
-        .map((st: any) => `${st.firstName || ''} ${st.lastName || ''}`.trim() || st.email)
-        .filter(Boolean);
 
   const uniqueViewsExcludingMe = views.filter((v: any) => v.userId !== user?.uid).length;
 
