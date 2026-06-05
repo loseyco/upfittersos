@@ -299,8 +299,9 @@ export function TimeClockBar() {
     }
 
     try {
-      // Find the staff record to get the actual full name!
+      // Find the staff record to get the actual full name and pay type!
       let actualName = user!.displayName || user!.email || 'Technician';
+      let resolvedPayType = 'hourly';
       if (tenantId) {
         const staffQuery = query(
           collection(db, `businesses/${tenantId}/staff`),
@@ -310,6 +311,16 @@ export function TimeClockBar() {
         if (!staffSnap.empty) {
           const sd = staffSnap.docs[0].data();
           actualName = `${sd.firstName || ''} ${sd.lastName || ''}`.trim() || actualName;
+          
+          if (sd.payType && sd.payType !== 'inherit') {
+            resolvedPayType = sd.payType;
+          } else if (sd.departmentId) {
+            const deptRef = doc(db, `businesses/${tenantId}/departments`, sd.departmentId);
+            const deptSnap = await getDoc(deptRef);
+            if (deptSnap.exists()) {
+              resolvedPayType = deptSnap.data().defaultPayType || 'hourly';
+            }
+          }
         }
       }
 
@@ -317,6 +328,7 @@ export function TimeClockBar() {
         userId: user!.uid,
         userName: actualName,
         staffName: actualName,
+        payType: resolvedPayType,
         clockIn: {
           timestamp: serverTimestamp(),
           ...loc

@@ -9,6 +9,7 @@ interface TimeSession {
   id: string;
   userId: string;
   userName?: string;
+  payType?: string;
   clockIn: {
     timestamp: any;
     location?: string;
@@ -36,6 +37,10 @@ interface TimeSession {
     bookTime?: number;
   }>;
   status: string;
+  verificationStatus?: string;
+  manuallyEdited?: boolean;
+  lastEditedBy?: string;
+  lastEditedById?: string;
 }
 
 interface TimeSessionEditorModalProps {
@@ -259,8 +264,31 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       const updates: any = {
         'clockIn.timestamp': new Date(clockIn),
         isRemote,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        manuallyEdited: true,
+        lastEditedBy: user!.displayName || user!.email || 'Admin',
+        lastEditedById: user!.uid
       };
+
+      if (!session.payType) {
+        try {
+          const staffSnap = await getDoc(doc(db, `businesses/${tenantId}/staff`, session.userId));
+          if (staffSnap.exists()) {
+            const sd = staffSnap.data();
+            if (sd.payType && sd.payType !== 'inherit') {
+              updates.payType = sd.payType;
+            } else if (sd.departmentId) {
+              const deptRef = doc(db, `businesses/${tenantId}/departments`, sd.departmentId);
+              const deptSnap = await getDoc(deptRef);
+              if (deptSnap.exists()) {
+                updates.payType = deptSnap.data().defaultPayType || 'hourly';
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to resolve payType for legacy session edit:", err);
+        }
+      }
 
       if (clockOut) {
         updates['clockOut.timestamp'] = new Date(clockOut);
@@ -327,7 +355,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
             type: 'time_session',
             title: 'Correction Approved',
-            message: `Approved time correction request for ${session.userName || 'Technician'}`,
+            message: `Approved time correction request for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`,
             timestamp: serverTimestamp(),
             severity: 'success',
             author: user!.displayName || user!.email || 'Admin',
@@ -342,7 +370,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
             type: 'time_session',
             title: 'Timecard Updated',
-            message: `Updated and verified time entry for ${session.userName || 'Technician'}`,
+            message: `Manually updated and verified time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`,
             timestamp: serverTimestamp(),
             severity: 'info',
             author: user!.displayName || user!.email || 'Admin',

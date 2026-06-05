@@ -580,6 +580,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       assignedStaff: initialStaff,
       assignedStaffIds: initialStaff.map(s => s.id),
       bookTime: 0,
+      payBasis: 'book_time',
       status: 'pending',
       departmentId: initialDepartmentId || ''
     };
@@ -1190,23 +1191,36 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                           {/* 5. Book Time */}
                           <div className="w-full relative">
                             {task.title !== 'General' ? (
-                              <div className={`flex items-center rounded-xl px-2 shadow-sm relative transition-all duration-350 ${
-                                task.bookTime === 0
-                                  ? 'bg-rose-500/10 dark:bg-rose-500/20 border-2 border-rose-500 ring-2 ring-rose-500/20 animate-pulse'
-                                  : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800'
-                              }`}>
-                                <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Book Hrs</div>
-                                <input 
-                                  type="number" 
-                                  step="0.1"
-                                  value={task.bookTime}
-                                  onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
-                                  className={`w-full bg-transparent border-none p-2 text-xs font-bold focus:ring-0 text-center transition-colors ${
+                              <div className="flex flex-col gap-1 w-full">
+                                <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Pay Basis</div>
+                                <select
+                                  value={task.payBasis || 'book_time'}
+                                  onChange={e => updateTaskField(task.id, 'payBasis', e.target.value)}
+                                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2 py-1.5 text-[10px] font-bold text-zinc-700 dark:text-zinc-300 focus:ring-0 focus:outline-none cursor-pointer"
+                                >
+                                  <option value="book_time">Book Time</option>
+                                  <option value="hourly">Hourly Task</option>
+                                </select>
+                                {task.payBasis !== 'hourly' && (
+                                  <div className={`flex items-center rounded-xl px-2 shadow-sm relative transition-all duration-350 ${
                                     task.bookTime === 0
-                                      ? 'text-rose-500 dark:text-rose-450 font-black'
-                                      : 'text-indigo-600 dark:text-indigo-400'
-                                  }`}
-                                />
+                                      ? 'bg-rose-500/10 dark:bg-rose-500/20 border-2 border-rose-500 ring-2 ring-rose-500/20 animate-pulse'
+                                      : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800'
+                                  }`}>
+                                    <input 
+                                      type="number" 
+                                      step="0.1"
+                                      value={task.bookTime}
+                                      onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
+                                      className={`w-full bg-transparent border-none p-1.5 text-xs font-bold focus:ring-0 text-center transition-colors ${
+                                        task.bookTime === 0
+                                          ? 'text-rose-500 dark:text-rose-450 font-black'
+                                          : 'text-indigo-600 dark:text-indigo-400'
+                                      }`}
+                                      placeholder="Hrs"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             ) : <div/>}
                           </div>

@@ -37,6 +37,7 @@ import { VehicleDetailPage } from './VehicleDetailPage';
 import { QRManager } from './QRManager';
 import { StaffManager, DepartmentsPage } from './StaffManager';
 import { StaffProfilePage } from './StaffProfilePage';
+import { OrgChartPage } from './OrgChartPage';
 import { ReportsManager } from './ReportsManager';
 import { AuditManager } from './AuditManager';
 import { StaffPerformance } from './StaffPerformance';
@@ -52,6 +53,7 @@ import { DepartmentDashboard } from './DepartmentDashboard';
 import { BayMonitor } from './BayMonitor';
 import { ParkingMonitor } from './ParkingMonitor';
 import { QuickBooksSyncPage } from './QuickBooksSyncPage';
+import { QuickBooksAudit } from './QuickBooksAudit';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
 import { TaskDetailPage } from './TaskDetailPage';
@@ -67,6 +69,9 @@ import { PartsWorksheet } from './PartsWorksheet';
 import { JobsWorksheet } from './JobsWorksheet';
 import { ProgressDigest } from './ProgressDigest';
 import { WeeklyMeetingNotes } from './WeeklyMeetingNotes';
+import { TutorialModal } from '../tutorials/TutorialModal';
+import { HelpCenter } from '../tutorials/HelpCenter';
+import { SOPCenter } from '../sops/SOPCenter';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -87,6 +92,7 @@ export function TenantDashboard() {
     morning_meeting: 'Morning Meeting Board',
     settings: 'Settings',
     staff: 'Staff',
+    org_chart: 'Org Chart',
     reports: 'Reports',
     performance: 'Performance',
     schedule: 'Staff Roster',
@@ -121,7 +127,12 @@ export function TenantDashboard() {
     vehicle_intake: 'Vehicle Intake',
     log_issue: 'Log Feedback & Incidents',
     weekly_meeting: 'Weekly Meeting Notes',
-    audit: 'Weekly Audit'
+    audit: 'Weekly Audit',
+    help_overview: 'Help Center',
+    help_clocking_in_out: 'Clocking In & Out Guide',
+    help_breaks_lunches: 'Breaks & Lunches Guide',
+    sop_overview: 'SOP Workflows',
+    qb_health_audit: 'Data Health Audit'
   };
 
   const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -203,6 +214,7 @@ export function TenantDashboard() {
     'mission_control',
     'settings',
     'staff',
+    'org_chart',
     'departments',
     'device_settings',
     'package_intake',
@@ -229,14 +241,23 @@ export function TenantDashboard() {
       )}
 
       <GlobalJobModal tenantId={tenantId!} />
+      <TutorialModal />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && <TimeClockBar />}
-        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && <TopNav onMenuClick={() => setIsSidebarOpen(true)} />}
+        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && (
+          <div className="print-hidden shrink-0">
+            <TimeClockBar />
+          </div>
+        )}
+        {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && (
+          <div className="print-hidden shrink-0">
+            <TopNav onMenuClick={() => setIsSidebarOpen(true)} />
+          </div>
+        )}
 
         <main className={`flex-1 overflow-y-auto ${(activeTab === 'bay_monitor' || activeTab === 'timeclock_monitor' || activeTab === 'parking_monitor') ? 'p-0' : 'p-4 md:p-8'} no-scrollbar`}>
           {impersonatedStaff && (
-            <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300">
+            <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300 print-hidden">
               <div className="flex items-center gap-4">
                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
                   <ShieldAlert className="w-5 h-5 text-white" />
@@ -310,6 +331,14 @@ export function TenantDashboard() {
               <UserMissionControl tenantId={tenantId!} viewMode="device" />
             )}
 
+            {activeTab.startsWith('help_') && (
+              <HelpCenter activeTab={activeTab} />
+            )}
+
+            {activeTab.startsWith('sop_') && (
+              <SOPCenter activeTab={activeTab} />
+            )}
+
             {activeTab === 'package_intake' && (
               <PermissionGate permission="package_intake.use">
                 <PackageIntakeModal isPage={true} />
@@ -366,6 +395,10 @@ export function TenantDashboard() {
                   <StaffManager tenantId={tenantId!} />
                 </PermissionGate>
               )
+            )}
+
+            {activeTab === 'org_chart' && (
+              <OrgChartPage tenantId={tenantId!} />
             )}
 
             {activeTab === 'departments' && (
@@ -647,6 +680,12 @@ export function TenantDashboard() {
 
             {activeTab === 'qb_sync_status' && (
               <QuickBooksSyncPage tenantId={tenantId!} />
+            )}
+
+            {activeTab === 'qb_health_audit' && (
+              <PermissionGate permission="sync.view">
+                <QuickBooksAudit tenantId={tenantId!} />
+              </PermissionGate>
             )}
 
             {activeTab === 'qb_customers' && (

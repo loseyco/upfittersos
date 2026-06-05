@@ -11,6 +11,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { useNavigate } from 'react-router-dom';
+import { StaffLink } from './StaffPerformance';
 
 export function ControlBoard({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
@@ -676,7 +677,14 @@ export function ControlBoard({ tenantId }: { tenantId: string }) {
                                 {staff.firstName?.[0] || ''}{staff.lastName?.[0] || ''}
                               </div>
                               <div className="min-w-0">
-                                <h3 className="font-black text-sm text-zinc-900 dark:text-white truncate max-w-[120px]">{staff.name}</h3>
+                                <h3 className="font-black text-sm text-zinc-900 dark:text-white truncate max-w-[120px]">
+                                  <StaffLink 
+                                    name={staff.name} 
+                                    tenantId={tenantId} 
+                                    staffId={staff.id} 
+                                    className="hover:text-indigo-500 hover:underline text-zinc-900 dark:text-white" 
+                                  />
+                                </h3>
                                 <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider capitalize">{staff.payType?.replace('_', ' ') || 'hourly'}</p>
                               </div>
                             </div>

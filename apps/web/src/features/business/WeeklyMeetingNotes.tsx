@@ -278,18 +278,21 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
     setIsAutoPopulating(true);
 
     try {
-      // 1. Fetch active jobs, zones, and vehicles in parallel
-      const [jobsSnap, zonesSnap, vehiclesSnap] = await Promise.all([
+      // 1. Fetch active jobs, zones, vehicles, and departments in parallel
+      const [jobsSnap, zonesSnap, vehiclesSnap, deptsSnap] = await Promise.all([
         getDocs(collection(db, `businesses/${tenantId}/jobs`)),
         getDocs(collection(db, `businesses/${tenantId}/zones`)),
-        getDocs(collection(db, `businesses/${tenantId}/vehicles`))
+        getDocs(collection(db, `businesses/${tenantId}/vehicles`)),
+        getDocs(collection(db, `businesses/${tenantId}/departments`))
       ]);
 
       const jobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       const zones = zonesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       const vehicles = vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const departments = deptsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
       const activeJobs = jobs.filter((j: any) => j.status !== 'Closed' && j.status !== 'Completed');
+      const serviceDept = departments.find((d: any) => d.name?.toLowerCase() === 'service');
 
       // Helper to match vehicle display
       const getVehicleLabel = (job: any) => {
@@ -316,7 +319,7 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           const completionDate = job.expectedFinishTime 
             ? new Date(job.expectedFinishTime.seconds ? job.expectedFinishTime.seconds * 1000 : job.expectedFinishTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' })
             : 'No ETA';
-          inShopList.push(`${zone.name}: #${job.jobNumber || ''} - ${job.title} (${veh}) [ETA: ${completionDate}]`);
+          inShopList.push(`#${job.jobNumber || ''} - ${zone.name}: ${job.title} (${veh}) [ETA: ${completionDate}]`);
         }
       });
       // Pad to 10 slots
@@ -382,7 +385,8 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
         .slice(0, 3)
         .map((j: any) => {
           const veh = getVehicleLabel(j);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
+          const isService = serviceDept && j.departmentIds?.includes(serviceDept.id);
+          return `#${j.jobNumber || ''} - ${j.title} (${veh})${isService ? ' [Service]' : ' [Build]'}`;
         });
       while (serviceNeedToSchedule.length < 3) serviceNeedToSchedule.push('');
 

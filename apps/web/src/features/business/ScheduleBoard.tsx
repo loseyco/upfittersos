@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import { getDocs } from 'firebase/firestore';
 import { cn } from '../../lib/utils';
+import { StaffLink } from './StaffPerformance';
 
 
 interface WorkSchedule {
@@ -478,7 +479,15 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
                               const staff = staffList.find(s => s.id === staffId);
                               if (!staff) return null;
                               return (
-                                <div key={staffId} className="w-4 h-4 rounded-full bg-black/20 border border-white/10 flex items-center justify-center text-[7px] font-black text-white shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
+                                <div 
+                                  key={staffId} 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/business/${tenantId}/staff/${staffId}`);
+                                  }}
+                                  className="w-4 h-4 rounded-full bg-black/20 border border-white/10 flex items-center justify-center text-[7px] font-black text-white shadow-sm hover:bg-indigo-600 hover:scale-110 cursor-pointer transition-all" 
+                                  title={`${staff.firstName} ${staff.lastName}`}
+                                >
                                   {staff.firstName?.[0] || ''}{staff.lastName?.[0] || ''}
                                 </div>
                               );
@@ -1830,9 +1839,12 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 justify-between">
-                          <h3 className="font-bold text-xs text-zinc-900 dark:text-white truncate max-w-[80px]" title={row.name}>
-                            {row.name}
-                          </h3>
+                          <StaffLink 
+                            name={row.name} 
+                            tenantId={tenantId} 
+                            staffId={row.id} 
+                            className="font-bold text-xs text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 hover:underline truncate max-w-[80px]" 
+                          />
                           {liveStatusNode}
                         </div>
                         {dept && (

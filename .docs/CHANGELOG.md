@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.0.3] - 2026-06-05
+### Added
+- Created a comprehensive **Feature Tutorials & Slide presentation Help System**:
+  - Implemented an `Info` icon button next to all sidebar submenu items for immediate help popup.
+  - Implemented a **Help Center** hub in the main navigation with direct routing (`/business/:tenantId/help_*`).
+  - Added PowerPoint-style slide deck presentations in the Help Center featuring step progress indicators, Next/Prev buttons, slide counts, slide tips, and styled HTML preview mockups.
+  - Authored detailed slide tutorials for **Clocking In & Out** and **Breaks & Lunches** detailing security scans (rotating QR code), geolocation restrictions, task suspensions, shift timer calculations, and supervisor queries.
+  - Integrated "Read Full Tutorial" links in the inline help popup to route users to corresponding slide decks.
+  - Defined strict guidelines in `RULES.md` (Rule 20) ensuring future feature edits are accompanied by help system updates.
+
 ## [v0.0.2] - 2026-05-21
 ### Added
 - Integrated live clocked-in staff tracking on the **Bay Monitor** screen:

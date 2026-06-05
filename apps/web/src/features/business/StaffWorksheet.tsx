@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Search, FileSpreadsheet, LogOut, Coffee, ExternalLink, ChevronDown
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
@@ -745,7 +745,12 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
                           {(staff.firstName?.[0] || '') + (staff.lastName?.[0] || '') || 'T'}
                         </div>
                         <span className="truncate" title={`${staff.firstName || ''} ${staff.lastName || ''}`.trim() || 'Technician'}>
-                          {`${staff.firstName || ''} ${staff.lastName || ''}`.trim() || 'Technician'}
+                          <Link 
+                            to={`/business/${tenantId}/staff/${staff.id}`}
+                            className="hover:text-indigo-600 hover:underline text-zinc-900 dark:text-white"
+                          >
+                            {`${staff.firstName || ''} ${staff.lastName || ''}`.trim() || 'Technician'}
+                          </Link>
                         </span>
                         {staff.techNumber && (
                           <span className="text-[9px] text-zinc-400 font-extrabold bg-zinc-100 dark:bg-zinc-800/80 px-1 rounded ml-auto shrink-0">

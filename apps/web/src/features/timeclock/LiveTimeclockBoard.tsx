@@ -89,6 +89,7 @@ interface TimeSession {
   id: string;
   userId: string;
   userName?: string;
+  payType?: string;
   clockIn: { timestamp: any; location?: string; onSite?: boolean; };
   clockOut?: { timestamp: any; location?: string; onSite?: boolean; };
   breaks: Array<{ type: 'lunch' | 'normal'; start: any; end?: any; isPaid: boolean; }>;
@@ -112,12 +113,14 @@ interface StaffMember {
   individualSchedule?: WorkSchedule;
   isArchived?: boolean;
   fireDate?: any;
+  payType?: 'hourly' | 'salary' | 'flat_rate' | 'inherit';
 }
 
 interface Department {
   id: string;
   name: string;
   defaultSchedule?: WorkSchedule;
+  defaultPayType?: 'hourly' | 'salary' | 'flat_rate';
 }
 
 export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
@@ -232,10 +235,17 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
         });
         toast.success(`Resumed session for ${session.userName}`);
       } else if (action === 'clock_in') {
+        const staff = scheduleData?.staff?.find((s: any) => s.userId === session.userId || s.id === session.userId);
+        const dept = scheduleData?.departments?.find((d: any) => d.id === staff?.departmentId);
+        const resolvedPayType = staff?.payType && staff.payType !== 'inherit'
+          ? staff.payType
+          : (dept?.defaultPayType || 'hourly');
+
         await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
           userId: session.userId,
           userName: session.userName,
           staffName: session.userName,
+          payType: resolvedPayType,
           clockIn: {
             timestamp: serverTimestamp(),
             onSite: true,

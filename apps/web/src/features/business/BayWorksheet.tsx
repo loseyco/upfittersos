@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Search, Building2, ExternalLink, ChevronDown, Clock, MapPin, X
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
@@ -664,7 +664,15 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                                 title={fullName}
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
-                                <span className="truncate max-w-[80px]">{fullName.split(' ')[0]}</span>
+                                <span className="truncate max-w-[80px]">
+                                  <Link 
+                                    to={staff?.id ? `/business/${tenantId}/staff/${staff.id}` : `/business/${tenantId}/performance?staffName=${encodeURIComponent(fullName)}`}
+                                    className="hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {fullName.split(' ')[0]}
+                                  </Link>
+                                </span>
                                 {isBreak && <span className="text-[8px] font-black uppercase text-amber-500 ml-1 shrink-0">(Break)</span>}
                                 {canManage && (
                                   <button
@@ -922,7 +930,15 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                                 title={fullName}
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse shrink-0" />
-                                <span className="truncate max-w-[80px]">{fullName.split(' ')[0]}</span>
+                                <span className="truncate max-w-[80px]">
+                                  <Link 
+                                    to={staff?.id ? `/business/${tenantId}/staff/${staff.id}` : `/business/${tenantId}/performance?staffName=${encodeURIComponent(fullName)}`}
+                                    className="hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {fullName.split(' ')[0]}
+                                  </Link>
+                                </span>
                                 {isBreak && <span className="text-[8px] font-black uppercase text-amber-500 ml-1 shrink-0">(Break)</span>}
                                 {canManage && (
                                   <button

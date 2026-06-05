@@ -34,16 +34,19 @@ export function useJobClock(tenantId: string) {
         return;
       }
 
-      // Fetch book time of task if available
+      // Fetch task details if available
       let bookTime = 0;
+      let payBasis = 'book_time';
       if (taskId) {
         try {
           const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
           if (taskSnap.exists()) {
-            bookTime = parseFloat(taskSnap.data().bookTime) || 0;
+            const data = taskSnap.data();
+            bookTime = parseFloat(data.bookTime) || 0;
+            payBasis = data.payBasis || 'book_time';
           }
         } catch (err) {
-          console.warn('Could not fetch task bookTime', err);
+          console.warn('Could not fetch task details', err);
         }
       }
 
@@ -54,6 +57,7 @@ export function useJobClock(tenantId: string) {
         taskId: taskId || null,
         taskName: taskName || null,
         bookTime,
+        payBasis,
         start: new Date()
       });
 

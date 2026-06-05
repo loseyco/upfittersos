@@ -10,6 +10,7 @@ import {
 import { db } from '../../lib/firebase/config';
 import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
 import { cn } from '../../lib/utils';
+import { StaffLink } from './StaffPerformance';
 import { toast } from 'sonner';
 import { useWakeLock } from '../../hooks/useWakeLock';
 
@@ -768,7 +769,7 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
                             {seg.userName[0]}
                           </div>
                           <div>
-                            <p className="font-bold text-zinc-800 dark:text-zinc-200">{seg.userName}</p>
+                            <StaffLink name={seg.userName} tenantId={tenantId} staffId={seg.userId} className="font-bold text-zinc-800 dark:text-zinc-200 hover:text-indigo-650 dark:hover:text-indigo-400 hover:underline" />
                             <p className="text-[9px] text-zinc-400">Clocked in</p>
                           </div>
                         </div>
@@ -869,9 +870,12 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
                       <div className="w-5 h-5 rounded bg-emerald-500/10 text-emerald-600 flex items-center justify-center font-bold text-[9px]">
                         {task.completedByStaffName?.[0] || 'O'}
                       </div>
-                      <span className="font-bold text-zinc-650 dark:text-zinc-400">
-                        {task.completedByStaffName || 'Unknown Operator'}
-                      </span>
+                      <StaffLink 
+                        name={task.completedByStaffName || 'Unknown Operator'} 
+                        tenantId={tenantId} 
+                        staffId={task.completedByStaffId} 
+                        className="font-bold text-zinc-650 dark:text-zinc-400 hover:text-indigo-650 dark:hover:text-indigo-400 hover:underline" 
+                      />
                     </div>
 
                     <span className="text-[10px] font-bold text-zinc-400">

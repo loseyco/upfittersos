@@ -36,7 +36,7 @@ export function StaffSelector({
     if (!tenantId) return;
     const q = query(collection(db, `businesses/${tenantId}/staff`), orderBy('firstName', 'asc'));
     const unsub = onSnapshot(q, (snap) => {
-      setStaffList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => !s.isArchived && !s.fireDate && s.departmentId));
+      setStaffList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => !s.isArchived && !s.fireDate && s.departmentId && !s.isDeviceAccount));
     }, (err) => {
       console.error("Staff list listener error:", err);
     });

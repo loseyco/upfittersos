@@ -803,13 +803,49 @@ function StaffActivityTimeline({ tenantId, staffName, staffId }: { tenantId: str
 }
 
 export function StaffLink({ name, tenantId, staffId, className }: { name: string, tenantId: string, staffId?: string, className?: string }) {
+  const { data: allStaff } = useQuery({
+    queryKey: ['staff-list', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+    },
+    enabled: !staffId && !!tenantId,
+  });
+
   if (!name || name === 'System') return <span className={className}>{name}</span>;
-  const to = staffId 
-    ? `/business/${tenantId}/staff/${staffId}`
+
+  // Try to resolve staffId by matching name
+  let resolvedStaffId = staffId;
+  if (!resolvedStaffId && allStaff && name) {
+    const cleanName = name.trim().toLowerCase();
+    const match = allStaff.find((s: any) => {
+      if (s.isArchived) return false;
+      const first = (s.firstName || '').trim().toLowerCase();
+      const last = (s.lastName || '').trim().toLowerCase();
+      const display = (s.displayName || '').trim().toLowerCase();
+      const full = `${first} ${last}`.trim();
+      return (
+        cleanName === full ||
+        cleanName === display ||
+        cleanName === first ||
+        cleanName === last
+      );
+    });
+    if (match) {
+      resolvedStaffId = match.id;
+    }
+  }
+
+  const to = resolvedStaffId 
+    ? `/business/${tenantId}/staff/${resolvedStaffId}`
     : `/business/${tenantId}/performance?staffName=${encodeURIComponent(name)}`;
+
   return (
     <Link 
       to={to}
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
       className={cn("hover:text-indigo-600 hover:underline transition-all cursor-pointer font-bold", className)}
     >
       {name}

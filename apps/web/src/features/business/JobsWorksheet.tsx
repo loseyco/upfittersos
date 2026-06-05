@@ -9,11 +9,12 @@ import {
   AlertTriangle, Package, Plus, Maximize, Minimize,
   Mail, Share2, Check, Printer, FileText
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { LogoQRCode } from '../../components/LogoQRCode';
 
 interface StaffMember {
   id: string;
@@ -239,6 +240,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportModalTab, setReportModalTab] = useState<'filtered' | 'digest'>('filtered');
   const [businessName, setBusinessName] = useState('UpFittersOS');
+  const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
 
   // Fetch business details for report header
   useEffect(() => {
@@ -247,10 +249,12 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       try {
         const snap = await getDoc(doc(db, 'businesses', tenantId));
         if (snap.exists()) {
-          setBusinessName(snap.data().name || 'UpFittersOS');
+          const data = snap.data();
+          setBusinessName(data.name || 'UpFittersOS');
+          setBusinessLogo(data.logoUrl);
         }
       } catch (err) {
-        console.warn("Could not fetch business name for report header:", err);
+        console.warn("Could not fetch business details for report header:", err);
       }
     };
     fetchBusiness();
@@ -1488,11 +1492,17 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                               const displayName = staff ? `${staff.firstName || ''} ${staff.lastName || ''}`.trim() : session.userName || 'Tech';
                               const isBreak = session.status === 'on_break';
 
+                              const to = staff?.id 
+                                ? `/business/${tenantId}/staff/${staff.id}`
+                                : `/business/${tenantId}/performance?staffName=${encodeURIComponent(displayName)}`;
+
                               return (
-                                <div
+                                <Link
                                   key={session.id}
+                                  to={to}
+                                  onClick={(e) => e.stopPropagation()}
                                   className={cn(
-                                    "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black border shrink-0 leading-none",
+                                    "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-black border shrink-0 leading-none hover:text-indigo-600 hover:border-indigo-500/30 transition-all",
                                     isBreak
                                       ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
                                       : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
@@ -1501,7 +1511,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                 >
                                   <span className={cn("w-1.5 h-1.5 rounded-full bg-current shrink-0", !isBreak && "animate-pulse")} />
                                   <span>{displayInitials}</span>
-                                </div>
+                                </Link>
                               );
                             })
                           )}
@@ -1939,17 +1949,29 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                       className="bg-white text-zinc-900 p-8 rounded-2xl border border-zinc-200 shadow-md font-sans mx-auto max-w-[800px] space-y-6"
                     >
                       {/* Sheet Header */}
-                      <div className="border-b-2 border-indigo-900 pb-4 flex justify-between items-start">
+                      <div className="border-b-2 border-indigo-900 pb-4 flex justify-between items-center">
                         <div>
                           <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">SHOP JOBS STATUS REPORT</h1>
                           <p className="text-xs font-bold text-zinc-550 mt-1 uppercase tracking-wider">
                             {businessName} &bull; Worksheet Checklist Summary
                           </p>
+                          <div className="mt-2 flex items-center gap-1.5 text-zinc-500 font-semibold text-[10px] uppercase">
+                            <span>Report Date:</span>
+                            <span className="font-bold text-zinc-800 font-mono">
+                              {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
-                          <div className="text-xs font-bold font-mono">
-                            {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <div className="flex items-center gap-4 text-right">
+                          <div className="flex flex-col items-center gap-1 shrink-0">
+                            <LogoQRCode 
+                              value={`${window.location.origin}/business/${tenantId}/jobs_worksheet`}
+                              size={60}
+                              logoUrl={businessLogo}
+                              businessName={businessName}
+                              type="general"
+                            />
+                            <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest leading-none mt-1">Scan to open Worksheet</span>
                           </div>
                         </div>
                       </div>
@@ -2057,10 +2079,18 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                         activeCrewSessions.map(s => {
                                           const staff = staffList.find(st => st.userId === s.userId || st.id === s.userId);
                                           const name = staff ? `${staff.firstName} ${staff.lastName}` : s.userName || 'Tech';
+                                          const to = staff?.id 
+                                            ? `/business/${tenantId}/staff/${staff.id}`
+                                            : `/business/${tenantId}/performance?staffName=${encodeURIComponent(name)}`;
                                           return (
-                                            <span key={s.id} className="px-2 py-0.5 bg-zinc-100 rounded-full text-[9px] font-bold border border-zinc-200" title={name}>
+                                            <Link 
+                                              key={s.id} 
+                                              to={to}
+                                              className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full text-[9px] font-bold border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 hover:text-indigo-600 hover:border-indigo-500/30 transition-all" 
+                                              title={name}
+                                            >
                                               {name}
-                                            </span>
+                                            </Link>
                                           );
                                         })
                                       )}

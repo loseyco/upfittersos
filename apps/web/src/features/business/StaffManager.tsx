@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { GenericDataGrid } from './GenericDataGrid';
 import { 
   X, Edit2, UserPlus, Search, Archive, Mail, Phone, 
   Building2, Loader2, Save, ShieldCheck, Check,
   ShieldAlert, Trophy, Eye, Settings2, Calendar,
-  Trash2, Smile, Frown, ExternalLink, Users
+  Trash2, Smile, Frown, ExternalLink, Users, DollarSign
 } from 'lucide-react';
 import { StaffLink } from './StaffPerformance';
 import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc, getDocs, setDoc, query, where, onSnapshot } from 'firebase/firestore';
@@ -38,9 +38,10 @@ export interface StaffMember {
   jobTitle?: string;
   role?: string;
   payRate?: number;
-  payType?: 'hourly' | 'salary' | 'flat_rate';
+  payType?: 'hourly' | 'salary' | 'flat_rate' | 'inherit';
   individualPermissions?: PermissionSet;
   isArchived?: boolean;
+  isDeviceAccount?: boolean;
   tags?: string[];
   notes?: string;
   hireDate?: string;
@@ -61,6 +62,10 @@ export interface StaffMember {
   individualSchedule?: WorkSchedule;
   techNumber?: string;
   payPeriodBookTimeCredit?: number;
+  reportsToId?: string;
+  toolsResponsible?: string;
+  purchasingAuthority?: string;
+  backupStaffId?: string;
 }
 
 export interface Department {
@@ -69,6 +74,11 @@ export interface Department {
   permissions: PermissionSet;
   defaultSchedule?: WorkSchedule;
   weeklyBookTimeCredit?: number;
+  defaultReportsToId?: string;
+  defaultBackupStaffId?: string;
+  defaultPurchasingAuthority?: string;
+  defaultPayRate?: number;
+  defaultPayType?: 'hourly' | 'salary' | 'flat_rate';
 }
 
 export function StaffManager({ tenantId }: { tenantId: string }) {
@@ -101,7 +111,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
   });
 
   const handleFilter = (item: any) => {
-    if (item.isArchived && !showArchived) return false;
+    if ((item.isArchived || item.fireDate) && !showArchived) return false;
     
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -125,15 +135,22 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
                  row.notes?.includes('Imported via QBWC') || 
                  !!row.ListID || !!row.qb_ListID || 
                  !!row.quickbooksId;
-    const isArchivedBadge = row.isArchived ? (
+    const isArchivedBadge = row.isArchived || row.fireDate ? (
       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-zinc-500/10 text-zinc-600 dark:text-zinc-400 ring-1 ring-zinc-500/20 mr-2">
-        Archived
+        Inactive
+      </span>
+    ) : null;
+
+    const isDeviceBadge = row.isDeviceAccount ? (
+      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 ring-1 ring-indigo-500/20 mr-2">
+        Device
       </span>
     ) : null;
 
     return (
       <>
         {isArchivedBadge}
+        {isDeviceBadge}
         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ${
           isQB ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'
         }`}>
@@ -144,6 +161,39 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
   };
 
   const staffColumns = [
+    {
+      key: 'isArchived',
+      label: 'Active',
+      format: (val: any, row: any) => {
+        const isActive = !val && !row.fireDate;
+        return (
+          <div className="flex items-center justify-center animate-in fade-in" onClick={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={isActive}
+              onChange={async (e) => {
+                const newActive = e.target.checked;
+                try {
+                  const updates: any = { isArchived: !newActive };
+                  if (newActive) {
+                    updates.fireDate = null;
+                  } else {
+                    updates.fireDate = new Date().toISOString().split('T')[0];
+                  }
+                  await updateDoc(doc(db, `businesses/${tenantId}/staff`, row.id), updates);
+                  toast.success(`${row.firstName || 'Staff'} status updated`);
+                  queryClient.invalidateQueries({ queryKey: ['generic-grid', `businesses/${tenantId}/staff`] });
+                } catch (err) {
+                  console.error(err);
+                  toast.error(`Failed to update status`);
+                }
+              }}
+              className="w-4 h-4 rounded text-indigo-650 cursor-pointer"
+            />
+          </div>
+        );
+      }
+    },
     { 
       key: 'name', 
       label: 'Staff Member',
@@ -441,7 +491,26 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
     expectedHoursPerDay: 8
   });
   const [weeklyBookTimeCredit, setWeeklyBookTimeCredit] = useState<number>(dept?.weeklyBookTimeCredit || 0);
+  const [defaultReportsToId, setDefaultReportsToId] = useState(dept?.defaultReportsToId || '');
+  const [defaultBackupStaffId, setDefaultBackupStaffId] = useState(dept?.defaultBackupStaffId || '');
+  const [defaultPurchasingAuthority, setDefaultPurchasingAuthority] = useState(dept?.defaultPurchasingAuthority || '');
+  const [defaultPayRate, setDefaultPayRate] = useState<number>(dept?.defaultPayRate || 0);
+  const [defaultPayType, setDefaultPayType] = useState<'hourly' | 'salary' | 'flat_rate'>(dept?.defaultPayType || 'hourly');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { data: allStaff } = useQuery<StaffMember[]>({
+    queryKey: ['staff-list', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffMember));
+    }
+  });
+
+  const eligibleStaff = useMemo(() => {
+    return (allStaff || [])
+      .filter(s => !s.isArchived && !s.isDeviceAccount)
+      .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
+  }, [allStaff]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -453,6 +522,11 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
         permissions,
         defaultSchedule,
         weeklyBookTimeCredit: Number(weeklyBookTimeCredit) || 0,
+        defaultPayRate: Number(defaultPayRate) || 0,
+        defaultPayType: defaultPayType || 'hourly',
+        defaultReportsToId: defaultReportsToId || null,
+        defaultBackupStaffId: defaultBackupStaffId || null,
+        defaultPurchasingAuthority: defaultPurchasingAuthority || null,
         updatedAt: serverTimestamp()
       };
       if (dept?.id) {
@@ -507,6 +581,94 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
                 <span className="absolute right-6 top-1/2 -translate-y-1/2 text-xs font-black text-zinc-400 uppercase">Hours / Week</span>
               </div>
               <p className="text-xs text-zinc-400 mt-2">Every technician assigned to this department will receive this flat weekly book time credit as an automatic pay bonus, unless overridden on their individual staff profile.</p>
+            </div>
+
+            <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-5">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-indigo-500" />
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Department Pay Defaults</span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2">Default Pay Rate</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-bold">$</span>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      value={defaultPayRate} 
+                      onChange={e => setDefaultPayRate(Number(e.target.value))} 
+                      placeholder="0.00"
+                      className="w-full pl-8 pr-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all font-mono" 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2">Default Pay Type</label>
+                  <div className="relative">
+                    <select 
+                      value={defaultPayType} 
+                      onChange={e => setDefaultPayType(e.target.value as any)}
+                      className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                    >
+                      <option value="hourly">Hourly</option>
+                      <option value="salary">Salary</option>
+                      <option value="flat_rate">Flat Rate (Book Time)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-zinc-450 dark:text-zinc-500">
+                Staff members in this department will inherit these pay settings if their individual profile settings are configured to inherit (e.g. $0 pay rate or inherit pay type).
+              </p>
+            </div>
+
+            <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-5">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-500 animate-pulse" />
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Org & Escalation Defaults</span>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2">Default Manager / Reports To</label>
+                  <select 
+                    value={defaultReportsToId} 
+                    onChange={e => setDefaultReportsToId(e.target.value)}
+                    className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                  >
+                    <option value="">No Default Manager</option>
+                    {eligibleStaff.map(s => (
+                      <option key={s.id} value={s.id}>{`${s.firstName} ${s.lastName}`}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2">Default Backup Contact</label>
+                  <select 
+                    value={defaultBackupStaffId} 
+                    onChange={e => setDefaultBackupStaffId(e.target.value)}
+                    className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                  >
+                    <option value="">No Default Backup</option>
+                    {eligibleStaff.map(s => (
+                      <option key={s.id} value={s.id}>{`${s.firstName} ${s.lastName}`}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2">Default Decision & Purchase Authority</label>
+                <input 
+                  type="text" 
+                  value={defaultPurchasingAuthority} 
+                  onChange={e => setDefaultPurchasingAuthority(e.target.value)} 
+                  placeholder="e.g. Standard operational authority only"
+                  className="w-full px-5 py-3.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                />
+              </div>
             </div>
 
             <div>
@@ -1159,14 +1321,31 @@ export function StaffEditModal({
   const [jobTitle, setJobTitle] = useState(String(staff?.jobTitle || ''));
   const [role, setRole] = useState(String(staff?.role || ''));
   const [techNumber, setTechNumber] = useState(String(staff?.techNumber || ''));
-  const [payRate, setPayRate] = useState(staff?.payRate || 0);
-  const [payType, setPayType] = useState(staff?.payType || 'hourly');
+  const [payRate, setPayRate] = useState(staff?.payRate !== undefined ? staff.payRate : 0);
+  const [payType, setPayType] = useState(staff?.payType || 'inherit');
   const [payPeriodBookTimeCredit, setPayPeriodBookTimeCredit] = useState<number>(staff?.payPeriodBookTimeCredit || 0);
+  const [reportsToId, setReportsToId] = useState(String(staff?.reportsToId || ''));
+  const [purchasingAuthority, setPurchasingAuthority] = useState(String(staff?.purchasingAuthority || ''));
+  const [backupStaffId, setBackupStaffId] = useState(String(staff?.backupStaffId || ''));
   const [notes, setNotes] = useState(String(staff?.notes || ''));
   const [individualPermissions, setIndividualPermissions] = useState<PermissionSet>(staff?.individualPermissions || {});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'permissions' | 'schedule'>('details');
   const [individualSchedule, setIndividualSchedule] = useState<WorkSchedule | null>(staff?.individualSchedule || null);
+  const [isArchivedState, setIsArchivedState] = useState(!!staff?.isArchived);
+  const [isDeviceAccountState, setIsDeviceAccountState] = useState(!!staff?.isDeviceAccount);
+
+  const { data: allStaff } = useQuery<StaffMember[]>({
+    queryKey: ['staff-list', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StaffMember));
+    }
+  });
+
+  const eligibleManagers = (allStaff || [])
+    .filter(s => s.id !== staff?.id && !s.isArchived && !s.isDeviceAccount)
+    .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
 
   const selectedDept = departments.find(d => d.id === departmentId);
 
@@ -1214,8 +1393,13 @@ export function StaffEditModal({
           phone: String(emergencyPhone).trim(),
           relation: String(emergencyRelation).trim()
         },
+        reportsToId: reportsToId || null,
+        purchasingAuthority: String(purchasingAuthority).trim() || null,
+        backupStaffId: backupStaffId || null,
         individualPermissions,
         individualSchedule,
+        isArchived: isArchivedState,
+        isDeviceAccount: isDeviceAccountState,
         updatedAt: serverTimestamp()
       };
 
@@ -1240,6 +1424,9 @@ export function StaffEditModal({
             payPeriodBookTimeCredit: data.payPeriodBookTimeCredit,
             startDate: data.hireDate,
             notes: data.notes,
+            reportsToId: data.reportsToId,
+            purchasingAuthority: data.purchasingAuthority,
+            backupStaffId: data.backupStaffId,
             updatedAt: new Date().toISOString()
           }, { merge: true });
         }
@@ -1248,8 +1435,7 @@ export function StaffEditModal({
       } else {
         const docRef = await addDoc(collection(db, `businesses/${tenantId}/staff`), {
           ...data,
-          createdAt: serverTimestamp(),
-          isArchived: false
+          createdAt: serverTimestamp()
         });
 
         // Try to find a user with this email to link immediately
@@ -1270,6 +1456,9 @@ export function StaffEditModal({
             payPeriodBookTimeCredit: data.payPeriodBookTimeCredit,
             startDate: data.hireDate,
             notes: data.notes,
+            reportsToId: data.reportsToId,
+            purchasingAuthority: data.purchasingAuthority,
+            backupStaffId: data.backupStaffId,
             updatedAt: new Date().toISOString()
           }, { merge: true });
         }
@@ -1353,10 +1542,83 @@ export function StaffEditModal({
                     className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
                   />
                 </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-950 p-4.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                    <input
+                      type="checkbox"
+                      id="isActive"
+                      checked={!isArchivedState}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setIsArchivedState(!checked);
+                        if (checked) {
+                          setFireDate('');
+                        }
+                      }}
+                      className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <div>
+                      <label htmlFor="isActive" className="block text-xs font-black uppercase text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                        Active Staff Member
+                      </label>
+                      <p className="text-[9px] text-zinc-500 font-semibold mt-0.5">
+                        Inactive/Archived members cannot log in and are hidden from active rosters and tools.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 bg-zinc-50 dark:bg-zinc-950 p-4.5 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                    <input
+                      type="checkbox"
+                      id="isDeviceAccount"
+                      checked={isDeviceAccountState}
+                      onChange={e => setIsDeviceAccountState(e.target.checked)}
+                      className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <div>
+                      <label htmlFor="isDeviceAccount" className="block text-xs font-black uppercase text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                        System / Device Account
+                      </label>
+                      <p className="text-[9px] text-zinc-500 font-semibold mt-0.5">
+                        E.g. Raspberry Pi bay monitors. Hides them from org charts, rosters, and manager selectors.
+                      </p>
+                    </div>
+                  </div>
+                </div>
                   <div>
-                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Business Department</label>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest">Business Department</label>
+                      {departmentId && (() => {
+                        const deptObj = departments.find(d => d.id === departmentId);
+                        const hasDefaults = deptObj?.defaultReportsToId || deptObj?.defaultBackupStaffId || deptObj?.defaultPurchasingAuthority;
+                        return hasDefaults ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (deptObj.defaultReportsToId) setReportsToId(deptObj.defaultReportsToId);
+                              if (deptObj.defaultBackupStaffId) setBackupStaffId(deptObj.defaultBackupStaffId);
+                              if (deptObj.defaultPurchasingAuthority) setPurchasingAuthority(deptObj.defaultPurchasingAuthority);
+                              toast.success(`Applied defaults for ${deptObj.name}`);
+                            }}
+                            className="text-[10px] font-black text-indigo-650 dark:text-indigo-400 hover:underline uppercase tracking-wider transition-all"
+                          >
+                            Apply Defaults
+                          </button>
+                        ) : null;
+                      })()}
+                    </div>
                     <select 
-                      value={departmentId} onChange={e => setDepartmentId(e.target.value)}
+                      value={departmentId} 
+                      onChange={e => {
+                        const newDeptId = e.target.value;
+                        setDepartmentId(newDeptId);
+                        const matchedDept = departments.find(d => d.id === newDeptId);
+                        if (matchedDept) {
+                          if (matchedDept.defaultReportsToId) setReportsToId(matchedDept.defaultReportsToId);
+                          if (matchedDept.defaultBackupStaffId) setBackupStaffId(matchedDept.defaultBackupStaffId);
+                          if (matchedDept.defaultPurchasingAuthority) setPurchasingAuthority(matchedDept.defaultPurchasingAuthority);
+                        }
+                      }}
                       className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
                     >
                       <option value="">No Department Assigned</option>
@@ -1385,6 +1647,43 @@ export function StaffEditModal({
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Reports To (Manager / Supervisor)</label>
+                      <select 
+                        value={reportsToId} onChange={e => setReportsToId(e.target.value)}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                      >
+                        <option value="">No Direct Manager</option>
+                        {eligibleManagers.map(s => (
+                          <option key={s.id} value={s.id}>{`${s.firstName} ${s.lastName}`}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Backup / Alternate Contact</label>
+                      <select 
+                        value={backupStaffId} onChange={e => setBackupStaffId(e.target.value)}
+                        className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
+                      >
+                        <option value="">No Backup Assigned</option>
+                        {eligibleManagers.map(s => (
+                          <option key={s.id} value={s.id}>{`${s.firstName} ${s.lastName}`}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Decision / Purchasing Authority</label>
+                    <input 
+                      type="text" value={purchasingAuthority} onChange={e => setPurchasingAuthority(e.target.value)} 
+                      placeholder="e.g. Approve tool buys up to $500, Unlimited budget"
+                      className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                    />
+                    <p className="text-[10px] text-zinc-450 mt-1">What spending or decision limit does this staff member have?</p>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">In-House Tech Number</label>
                     <input 
@@ -1401,9 +1700,12 @@ export function StaffEditModal({
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400">$</span>
                         <input 
                           type="number" step="0.01" value={payRate} onChange={e => setPayRate(Number(e.target.value))} 
-                          className="w-full pl-8 pr-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
+                          className="w-full pl-8 pr-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all font-mono" 
                         />
                       </div>
+                      <p className="text-[9px] text-zinc-400 mt-1">
+                        {payRate === 0 && selectedDept?.defaultPayRate ? `Inherited: $${selectedDept.defaultPayRate.toFixed(2)}` : 'Set 0 to inherit department default.'}
+                      </p>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Pay Type</label>
@@ -1411,6 +1713,7 @@ export function StaffEditModal({
                         value={payType} onChange={e => setPayType(e.target.value as any)}
                         className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all appearance-none"
                       >
+                        <option value="inherit">Inherit ({selectedDept?.defaultPayType ? (selectedDept.defaultPayType === 'flat_rate' ? 'Flat Rate' : selectedDept.defaultPayType === 'salary' ? 'Salary' : 'Hourly') : 'Hourly'})</option>
                         <option value="hourly">Hourly</option>
                         <option value="salary">Salary</option>
                         <option value="flat_rate">Flat Rate (Book Time)</option>

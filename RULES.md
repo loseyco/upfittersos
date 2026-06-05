@@ -92,3 +92,8 @@ UpfittersOS is built for shop floors. We must design for harsh lightning, gloved
 - **Rule:** The platform UI must maintain a strictly professional, enterprise-grade tone. Slang, overly casual terminology, or internal developer jargon must never be exposed to the end-user.
 - **Agent Constraint:** When designing dashboards, alerts, or status indicators, always use formal business language (e.g., use "Extended Occupancy" instead of "Bay Hog", "Inactive Job" instead of "Stale Job", "Action Items" instead of "Bottlenecks").
 
+## 20. Feature Tutorials & Help System Updates
+- **Rule:** Any change, redesign, or addition to a feature or view MUST be reflected in the interactive help tutorials system.
+- **Implementation:** When modifying any page layout or functional behavior (e.g., changes to filters, buttons, workflows), the developer/agent MUST update or add the corresponding tutorial entries inside `apps/web/src/features/tutorials/tutorialsData.tsx`. Ensure all user actions, security tokens (such as rotating QR codes), or settings options are clearly and accurately explained to provide an up-to-date guide for shop technicians and admins.
+
+

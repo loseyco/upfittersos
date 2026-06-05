@@ -15,6 +15,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
 import { PartsRequestModal } from './PartsRequestModal';
+import { StaffLink } from './StaffPerformance';
 
 export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
@@ -1359,7 +1360,12 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                         <div key={contrib.name} className="p-3 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-100 dark:border-zinc-800 flex flex-col justify-between">
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">{contrib.name}</span>
+                              <StaffLink 
+                                name={contrib.name} 
+                                tenantId={tenantId} 
+                                staffId={contrib.userId} 
+                                className="font-bold text-sm text-zinc-950 dark:text-zinc-50 hover:text-indigo-600 hover:underline" 
+                              />
                               {contrib.isActive && (
                                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-500 text-[8px] font-black uppercase tracking-widest animate-pulse">
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -1397,7 +1403,12 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                             ) : (
                               <Square className="w-3.5 h-3.5 text-zinc-400 fill-zinc-400 shrink-0" />
                             )}
-                            <span className="font-bold text-xs text-zinc-800 dark:text-zinc-200">{seg.techName}</span>
+                             <StaffLink 
+                               name={seg.techName} 
+                               tenantId={tenantId} 
+                               staffId={seg.userId} 
+                               className="font-bold text-xs text-zinc-800 dark:text-zinc-200 hover:text-indigo-600 hover:underline" 
+                             />
                           </div>
                           <div className="flex items-center gap-4 text-xs">
                             <div className="text-zinc-500 text-[10px] font-medium text-right">

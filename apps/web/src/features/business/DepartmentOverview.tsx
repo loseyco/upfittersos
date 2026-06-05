@@ -10,6 +10,7 @@ import {
 import { db } from '../../lib/firebase/config';
 import { cn } from '../../lib/utils';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { StaffLink } from './StaffPerformance';
 
 interface DepartmentOverviewProps {
   tenantId: string;
@@ -687,7 +688,14 @@ export function DepartmentOverview({ tenantId, departmentName }: DepartmentOverv
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-sm text-zinc-900 dark:text-white truncate">{item.name}</span>
+                            <span className="font-extrabold text-sm text-zinc-900 dark:text-white truncate">
+                              <StaffLink 
+                                name={item.name} 
+                                tenantId={tenantId} 
+                                staffId={item.id} 
+                                className="hover:text-indigo-600 hover:underline" 
+                              />
+                            </span>
                             <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-widest rounded animate-pulse">On Task</span>
                           </div>
                           <p className="text-xs text-indigo-500 font-extrabold truncate mt-1">{item.activeTask.taskTitle}</p>
@@ -717,7 +725,14 @@ export function DepartmentOverview({ tenantId, departmentName }: DepartmentOverv
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-extrabold text-sm text-zinc-900 dark:text-white truncate">{item.name}</span>
+                            <span className="font-extrabold text-sm text-zinc-900 dark:text-white truncate">
+                              <StaffLink 
+                                name={item.name} 
+                                tenantId={tenantId} 
+                                staffId={item.id} 
+                                className="hover:text-indigo-600 hover:underline" 
+                              />
+                            </span>
                             <span className="px-1.5 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-500 text-[8px] font-black uppercase tracking-widest rounded">Clocked In</span>
                           </div>
                           <p className="text-xs text-zinc-400 dark:text-zinc-500 font-bold mt-1 italic">Idle / Not Clocked into Task</p>
@@ -743,7 +758,14 @@ export function DepartmentOverview({ tenantId, departmentName }: DepartmentOverv
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-zinc-500 dark:text-zinc-400 truncate">{item.name}</span>
+                            <span className="font-bold text-sm text-zinc-500 dark:text-zinc-400 truncate">
+                              <StaffLink 
+                                name={item.name} 
+                                tenantId={tenantId} 
+                                staffId={item.id} 
+                                className="hover:text-indigo-650 hover:underline" 
+                              />
+                            </span>
                             <span className="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-400 text-[8px] font-black uppercase tracking-widest rounded">Offline</span>
                           </div>
                           <p className="text-xs text-zinc-400/70 dark:text-zinc-600 font-bold mt-1 uppercase tracking-wider text-[10px]">{item.role}</p>

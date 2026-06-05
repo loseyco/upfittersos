@@ -27,6 +27,19 @@ import { DeviceSettings } from '../../components/DeviceSettings';
 import { TimeClockHistory } from '../timeclock/TimeClockHistory';
 import { useJobClock } from '../timeclock/useJobClock';
 
+const getPayrollWeekStart = (d: Date, weekEndDay: number) => {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const startDay = (weekEndDay + 1) % 7;
+  let diff = day - startDay;
+  if (diff < 0) diff += 7;
+  
+  const start = new Date(date);
+  start.setDate(date.getDate() - diff);
+  return start;
+};
+
 export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenantId: string; viewMode?: string }) {
   const navigate = useNavigate();
   const { user, impersonatedStaff, permissions = {}, isSuperAdmin } = useAuthStore();
@@ -37,6 +50,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [business, setBusiness] = useState<any>(null);
 
   // Authorization gating check
   const canCustomize = isSuperAdmin || !!permissions['dashboard.customize'];
@@ -400,6 +414,16 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   };
 
   useEffect(() => {
+    if (!tenantId || tenantId === 'GLOBAL') return;
+    const unsub = onSnapshot(doc(db, 'businesses', tenantId), (snap) => {
+      if (snap.exists()) {
+        setBusiness(snap.data());
+      }
+    });
+    return () => unsub();
+  }, [tenantId]);
+
+  useEffect(() => {
     if (!tenantId || !effectiveUserId) return;
 
     // Fetch All Jobs to allow deriving both direct and zone-based assignments
@@ -562,10 +586,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const weekStart = new Date(todayStart);
-  const day = weekStart.getDay();
-  const daysToSubtract = day === 0 ? 6 : day - 1;
-  weekStart.setDate(weekStart.getDate() - daysToSubtract);
+  const weekEndDay = business?.payrollWeekEndDay !== undefined ? Number(business.payrollWeekEndDay) : 0;
+  const weekStart = getPayrollWeekStart(todayStart, weekEndDay);
 
   let todayMs = 0;
   let todayBookMs = 0;

@@ -54,7 +54,8 @@ import {
 
 
 
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { StaffLink } from './StaffPerformance';
 
 
 
@@ -87,33 +88,6 @@ import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComp
 
 
 import { StaffSelector } from './StaffSelectionComponents';
-
-
-
-
-
-
-
-import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
-
-
-
-
-
-
-
-import { StaffLink } from './StaffPerformance';
-
-
-
-
-
-
-
-import { useAuthStore } from '../../lib/auth/store';
-import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
-
-
 
 
 
@@ -4711,175 +4685,46 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                             <div className="flex items-center gap-4 text-[10px] text-zinc-500 font-medium font-mono">
-
-
-
-
-
-
-
-                                <div className="flex items-center gap-1 group/book">
-
-
-
-
-
-
-
-                                   <Timer className="w-3 h-3 text-indigo-500 shrink-0" />
-
-
-
-
-
-
-
-                                   <span className="shrink-0">Book:</span>
-
-
-
-
-
-
-
-                                   <input
-
-
-
-
-
-
-
-                                     type="number"
-
-
-
-
-
-
-
-                                     step="0.1"
-
-
-
-
-
-
-
-                                     min="0"
-
-
-
-
-
-
-
-                                     defaultValue={task.bookTime || 0}
-
-
-
-
-
-
-
-                                     onBlur={(e) => {
-
-
-
-
-
-
-
-                                       const val = parseFloat(e.target.value) || 0;
-
-
-
-
-
-
-
-                                       if (val !== (task.bookTime || 0)) {
-
-
-
-
-
-
-
-                                         handleUpdateTask(task.id, { bookTime: val });
-
-
-
-
-
-
-
-                                       }
-
-
-
-
-
-
-
-                                     }}
-
-
-
-
-
-
-
-                                     onKeyDown={(e) => {
-
-
-
-
-
-
-
-                                       if (e.key === 'Enter') e.currentTarget.blur();
-
-
-
-
-
-
-
-                                     }}
-
-
-
-
-
-
-
-                                     className="w-10 px-1 py-0.5 -my-0.5 bg-transparent border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 focus:bg-white dark:focus:bg-zinc-800 focus:border-indigo-500 rounded outline-none transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-
-
-
-
-
-
-
-                                   />
-
-
-
-
-
-
-
-                                   <span className="shrink-0">h</span>
-
-
-
-
-
-
-
-                                </div>
+                             <div className="flex items-center flex-wrap gap-4 text-[10px] text-zinc-500 font-medium font-mono">
+                                <div className="flex items-center gap-1.5">
+                                  <select
+                                    value={task.payBasis || 'book_time'}
+                                    onChange={(e) => handleUpdateTask(task.id, { payBasis: e.target.value })}
+                                    className={cn(
+                                      "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border-none outline-none cursor-pointer",
+                                      (task.payBasis || 'book_time') === 'hourly' 
+                                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" 
+                                        : "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                                    )}
+                                  >
+                                    <option value="book_time">Book Time</option>
+                                    <option value="hourly">Hourly Task</option>
+                                  </select>
+                                </div>
+
+                                {(task.payBasis || 'book_time') === 'book_time' && (
+                                  <div className="flex items-center gap-1 group/book">
+                                     <Timer className="w-3 h-3 text-indigo-500 shrink-0" />
+                                     <span className="shrink-0">Book:</span>
+                                     <input
+                                       type="number"
+                                       step="0.1"
+                                       min="0"
+                                       defaultValue={task.bookTime || 0}
+                                       onBlur={(e) => {
+                                         const val = parseFloat(e.target.value) || 0;
+                                         if (val !== (task.bookTime || 0)) {
+                                           handleUpdateTask(task.id, { bookTime: val });
+                                         }
+                                       }}
+                                       onKeyDown={(e) => {
+                                         if (e.key === 'Enter') e.currentTarget.blur();
+                                       }}
+                                       className="w-10 px-1 py-0.5 -my-0.5 bg-transparent border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700 focus:bg-white dark:focus:bg-zinc-800 focus:border-indigo-500 rounded outline-none transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                     />
+                                     <span className="shrink-0">h</span>
+                                  </div>
+                                )}
 
 
 
@@ -7731,7 +7576,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                            {s.name}
+                            <StaffLink name={s.name} tenantId={tenantId} staffId={s.id} className="text-indigo-600 hover:text-indigo-800 hover:underline" />
 
 
 
@@ -10620,7 +10465,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                          <p className="font-bold text-xs text-zinc-900 dark:text-white truncate">{session.userName}</p>
+                          <StaffLink name={session.userName} tenantId={tenantId} staffId={session.userId} className="font-bold text-xs text-zinc-900 dark:text-white hover:text-indigo-600 hover:underline truncate block" />
 
 
 
@@ -18558,7 +18403,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                            {s.name}
+                            <StaffLink name={s.name} tenantId={tenantId} staffId={s.id} className="text-indigo-600 hover:text-indigo-800 hover:underline" />
 
 
 
@@ -21447,7 +21292,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                          <p className="font-bold text-xs text-zinc-900 dark:text-white truncate">{session.userName}</p>
+                          <StaffLink name={session.userName} tenantId={tenantId} staffId={session.userId} className="font-bold text-xs text-zinc-900 dark:text-white hover:text-indigo-600 hover:underline truncate block" />
 
 
 

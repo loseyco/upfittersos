@@ -20,6 +20,7 @@ import { ETAModal } from './ETAModal';
 import { SearchableSelect } from './SearchableSelect';
 import { TakeoffsSection } from './TakeoffsSection';
 import { LogoQRCode } from '../../components/LogoQRCode';
+import { StaffLink } from './StaffPerformance';
 
 export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
@@ -262,13 +263,16 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
 
       if (action === 'in') {
         let bookTime = 0;
+        let payBasis = 'book_time';
         try {
           const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
           if (taskSnap.exists()) {
-            bookTime = parseFloat(taskSnap.data().bookTime) || 0;
+            const data = taskSnap.data();
+            bookTime = parseFloat(data.bookTime) || 0;
+            payBasis = data.payBasis || 'book_time';
           }
         } catch (err) {
-          console.warn('Could not fetch task bookTime', err);
+          console.warn('Could not fetch task details', err);
         }
 
         const sessionUserId = staffRec?.userId || targetUid;
@@ -289,6 +293,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
             taskId: taskId || null,
             taskName: taskTitle || null,
             bookTime,
+            payBasis,
             start: new Date(),
             clockedByUid: user?.uid,
             clockedByName: user?.displayName || user?.email || 'Manager'
@@ -324,6 +329,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 taskId: taskId || null,
                 taskName: taskTitle || null,
                 bookTime,
+                payBasis,
                 start: new Date(),
                 clockedByUid: user?.uid,
                 clockedByName: user?.displayName || user?.email || 'Manager'
@@ -2714,6 +2720,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                   id: log.id,
                   timestamp: log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp),
                   staffName: log.staffName,
+                  staffId: log.staffId || log.userId || log.createdBy,
                   message: log.message,
                   type: log.type,
                   isManual: true
@@ -2729,6 +2736,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     timestamp: seg.start?.toDate ? seg.start.toDate() : new Date(seg.start),
                     endTimestamp: seg.end?.toDate ? seg.end.toDate() : (seg.end ? new Date(seg.end) : null),
                     staffName: session.staffName || session.userName || 'Unknown Staff',
+                    staffId: session.userId,
                     message: `worked on ${seg.taskName || 'General Labor'}`,
                     type: 'time_session',
                     isManual: false
@@ -2771,7 +2779,12 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-zinc-900 dark:text-white">
-                          <span className="font-bold">{event.staffName}</span>
+                          <StaffLink 
+                            name={event.staffName} 
+                            tenantId={tenantId} 
+                            staffId={event.staffId} 
+                            className="font-bold text-zinc-900 dark:text-white hover:text-indigo-600 hover:underline" 
+                          />
                           <span className="text-zinc-500"> {event.message}</span>
                         </p>
                         <div className="flex items-center gap-3 mt-1 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
@@ -3127,7 +3140,6 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     ) : (
                       <div className="divide-y divide-zinc-100">
                         {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete').map(t => {
-                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
                           const loggedMs = getTaskLoggedMs(t.id);
                           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
                           const bookHours = parseFloat(t.bookTime) || 0;
@@ -3140,7 +3152,23 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
                                 {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
-                                  <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">Assigned: {staffNames}</span>
+                                  <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">
+                                    Assigned: {(!t.assignedStaff || t.assignedStaff.length === 0) ? (
+                                      'Unassigned'
+                                    ) : (
+                                      t.assignedStaff.map((s: any, idx: number) => (
+                                        <span key={s.userId || s.id || idx}>
+                                          {idx > 0 && ', '}
+                                          <StaffLink 
+                                            name={s.name || s.displayName || 'Technician'} 
+                                            tenantId={tenantId} 
+                                            staffId={s.userId || s.id} 
+                                            className="hover:underline hover:text-indigo-700" 
+                                          />
+                                        </span>
+                                      ))
+                                    )}
+                                  </span>
                                   {t.title !== 'General' && bookHours > 0 && (
                                     <>
                                       <span className="text-zinc-300">•</span>
@@ -3176,7 +3204,6 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     ) : (
                       <div className="divide-y divide-zinc-100">
                         {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
-                          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
                           const loggedMs = getTaskLoggedMs(t.id);
                           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
                           const bookHours = parseFloat(t.bookTime) || 0;
@@ -3189,7 +3216,23 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                 <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
                                 {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
-                                  <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">Completed by: {staffNames}</span>
+                                  <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">
+                                    Completed by: {(!t.assignedStaff || t.assignedStaff.length === 0) ? (
+                                      'Unassigned'
+                                    ) : (
+                                      t.assignedStaff.map((s: any, idx: number) => (
+                                        <span key={s.userId || s.id || idx}>
+                                          {idx > 0 && ', '}
+                                          <StaffLink 
+                                            name={s.name || s.displayName || 'Technician'} 
+                                            tenantId={tenantId} 
+                                            staffId={s.userId || s.id} 
+                                            className="hover:underline hover:text-emerald-800" 
+                                          />
+                                        </span>
+                                      ))
+                                    )}
+                                  </span>
                                   {clockedHours === 0 ? (
                                     <>
                                       <span className="text-zinc-300">•</span>

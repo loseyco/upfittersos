@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
+import { StaffLink } from './StaffPerformance';
 import { 
   Users, Plus, Trash2, CheckCircle2, Circle, 
   RefreshCw, Search, Layout, Printer
@@ -576,7 +577,12 @@ export function MorningMeetingBoard({ tenantId }: { tenantId: string }) {
                             </div>
                             <div>
                               <h3 className="font-bold text-white text-sm tracking-tight leading-snug staff-name">
-                                {member.firstName} {member.lastName}
+                                <StaffLink 
+                                  name={`${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Technician'} 
+                                  tenantId={tenantId} 
+                                  staffId={member.id} 
+                                  className="hover:text-indigo-400 hover:underline text-white" 
+                                />
                               </h3>
                               <p className="text-[10px] font-bold text-zinc-550 uppercase tracking-wider staff-title">
                                 {member.jobTitle || "Technician"}

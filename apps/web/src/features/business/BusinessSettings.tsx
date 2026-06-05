@@ -40,6 +40,9 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     siteLng: initialData?.siteLng || '',
     siteRadius: initialData?.siteRadius || 500,
     logoUrl: initialData?.logoUrl || '',
+    // Payroll Settings
+    payrollWeekEndDay: initialData?.payrollWeekEndDay ?? 0,
+    payrollCycle: initialData?.payrollCycle || 'weekly',
     // Monitor Settings
     monitorUrgentThreshold: initialData?.monitorUrgentThreshold || 4,
     monitorStaleThreshold: initialData?.monitorStaleThreshold || 24,
@@ -81,6 +84,8 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         siteLng: initialData.siteLng || '',
         siteRadius: initialData.siteRadius || 500,
         logoUrl: initialData.logoUrl || '',
+        payrollWeekEndDay: initialData.payrollWeekEndDay ?? 0,
+        payrollCycle: initialData.payrollCycle || 'weekly',
         monitorUrgentThreshold: initialData.monitorUrgentThreshold || 4,
         monitorStaleThreshold: initialData.monitorStaleThreshold || 24,
         monitorColorBlocked: initialData.monitorColorBlocked || '#b91c1c',
@@ -99,8 +104,8 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     }
   }, [initialData]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
     setFormData(prev => ({ ...prev, [e.target.name]: value }));
   };
 
@@ -446,6 +451,46 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
                 <div>
                   <label className="block text-xs font-medium text-zinc-500 mb-1.5">Geofence Radius (meters)</label>
                   <input type="number" name="siteRadius" value={formData.siteRadius} onChange={handleChange} placeholder="500" className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white font-mono text-sm" />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-4 h-4 text-zinc-400" />
+                <label className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Payroll & Time Period Settings</label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">Payroll Week Ending Day</label>
+                  <select 
+                    name="payrollWeekEndDay" 
+                    value={formData.payrollWeekEndDay} 
+                    onChange={(e) => setFormData(prev => ({ ...prev, payrollWeekEndDay: Number(e.target.value) }))}
+                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white text-sm"
+                  >
+                    <option value={0}>Sunday (Week runs Monday to Sunday)</option>
+                    <option value={1}>Monday (Week runs Tuesday to Monday)</option>
+                    <option value={2}>Tuesday (Week runs Wednesday to Tuesday)</option>
+                    <option value={3}>Wednesday (Week runs Thursday to Wednesday)</option>
+                    <option value={4}>Thursday (Week runs Friday to Thursday)</option>
+                    <option value={5}>Friday (Week runs Saturday to Friday)</option>
+                    <option value={6}>Saturday (Week runs Sunday to Saturday)</option>
+                  </select>
+                  <p className="text-[11px] text-zinc-500 mt-1">Defines the boundaries for weekly and pay-period time calculations and reports.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5">Payroll Cycle Frequency</label>
+                  <select 
+                    name="payrollCycle" 
+                    value={formData.payrollCycle} 
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white text-sm"
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Bi-weekly (2 Weeks)</option>
+                  </select>
+                  <p className="text-[11px] text-zinc-500 mt-1">Specify how often employees are paid to customize the default audit views.</p>
                 </div>
               </div>
             </div>

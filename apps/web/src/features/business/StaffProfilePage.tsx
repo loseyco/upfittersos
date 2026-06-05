@@ -678,6 +678,56 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
                   </div>
                 </div>
 
+                {/* Reporting & Tools Card */}
+                <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
+                  <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
+                    <Users className="w-5 h-5 text-indigo-500" />
+                    <h3 className="font-bold text-zinc-900 dark:text-white">Reporting & Tools</h3>
+                  </div>
+                  <div className="space-y-3.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Manager / Reports To</span>
+                      {(() => {
+                        const managerId = staff?.reportsToId || department?.defaultReportsToId;
+                        const manager = staffList?.find(s => s.id === managerId);
+                        return manager ? (
+                          <button 
+                            onClick={() => navigate(`/business/${tenantId}/staff/${manager.id}`)}
+                            className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left"
+                          >
+                            {manager.firstName} {manager.lastName}
+                          </button>
+                        ) : (
+                          <span className="text-sm text-zinc-400 italic">No direct manager assigned</span>
+                        );
+                      })()}
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Backup / Alternate Contact</span>
+                      {(() => {
+                        const backupId = staff?.backupStaffId || department?.defaultBackupStaffId;
+                        const backup = staffList?.find(s => s.id === backupId);
+                        return backup ? (
+                          <button 
+                            onClick={() => navigate(`/business/${tenantId}/staff/${backup.id}`)}
+                            className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left"
+                          >
+                            {backup.firstName} {backup.lastName}
+                          </button>
+                        ) : (
+                          <span className="text-sm text-zinc-400 italic">No backup contact assigned</span>
+                        );
+                      })()}
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Decision & Purchase Authority</span>
+                      <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                        {staff?.purchasingAuthority || department?.defaultPurchasingAuthority || 'Standard operational authority only'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Uniform Sizes (Restricted) */}
                 {canViewSensitiveInfo && (
                   <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
@@ -778,11 +828,29 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
                     <div className="space-y-3.5 text-sm">
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Pay Rate</span>
-                        <span className="font-extrabold text-zinc-900 dark:text-white font-mono">${staff.payRate?.toFixed(2) || '0.00'}</span>
+                        <span className="font-extrabold text-zinc-900 dark:text-white font-mono">
+                          {(!staff.payRate || staff.payRate === 0) && department?.defaultPayRate ? (
+                            <span>
+                              ${Number(department.defaultPayRate).toFixed(2)}{' '}
+                              <span className="text-[9px] font-black uppercase text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded ml-1">Inherited</span>
+                            </span>
+                          ) : (
+                            `$${Number(staff.payRate || 0).toFixed(2)}`
+                          )}
+                        </span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Pay Type</span>
-                        <span className="font-bold text-zinc-800 dark:text-zinc-200 capitalize">{staff.payType || 'Hourly'}</span>
+                        <span className="font-bold text-zinc-850 dark:text-zinc-300 capitalize">
+                          {(!staff.payType || staff.payType === 'inherit') && department?.defaultPayType ? (
+                            <span>
+                              {department.defaultPayType === 'flat_rate' ? 'Flat Rate (Book Time)' : department.defaultPayType === 'salary' ? 'Salary' : 'Hourly'}{' '}
+                              <span className="text-[9px] font-black uppercase text-indigo-500 bg-indigo-500/10 px-1.5 py-0.5 rounded ml-1">Inherited</span>
+                            </span>
+                          ) : (
+                            staff.payType === 'flat_rate' ? 'Flat Rate (Book Time)' : staff.payType === 'salary' ? 'Salary' : (staff.payType || 'Hourly')
+                          )}
+                        </span>
                       </div>
                       <div className="flex justify-between items-center pt-2 border-t border-zinc-100 dark:border-zinc-800">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Book Time Allowance</span>

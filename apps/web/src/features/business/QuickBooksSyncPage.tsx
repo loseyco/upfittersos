@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, limit, onSnapshot, getCountFromServer, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase/config';
 import { 
-  Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle, Play, 
+  Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle, 
   Database, Users, UserCircle, Truck, Package, FileText, ShoppingCart,
   Download, Copy, ChevronDown, ChevronUp, Eye, Trash2
 } from 'lucide-react';
@@ -104,7 +104,7 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
   const { permissions, isSuperAdmin } = useAuthStore();
   const canManageSync = isSuperAdmin || permissions['sync.manage'];
 
-  const [isForceSyncing, setIsForceSyncing] = useState(false);
+  const [hideEmptySyncs, setHideEmptySyncs] = useState(true);
   const [queue, setQueue] = useState<any[]>([]);
   const [activities, setActivities] = useState<any[]>([]);
 
@@ -167,24 +167,7 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleForceSync = async () => {
-    if (!window.confirm('Are you sure you want to force a full historical sync? This will queue up all records to be downloaded again and may take a while to complete.')) {
-      return;
-    }
 
-    try {
-      setIsForceSyncing(true);
-      const apiBase = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
-      const res = await fetch(`${apiBase}/qbwc/force-sync?tenantId=${tenantId}`);
-      if (!res.ok) throw new Error('Failed to trigger sync');
-      toast.success('Force sync triggered successfully. The queue has been rebuilt.');
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to trigger force sync.');
-    } finally {
-      setIsForceSyncing(false);
-    }
-  };
 
   const handleDownloadQwc = async (customName?: string) => {
     try {
@@ -285,18 +268,25 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
     return `${m}m ${s}s processing`;
   };
 
-  // In-memory sorting and filtering for Queue History
-  const filteredQueue = queue
-    .filter(item => {
-      // Search filter
-      const matchesSearch = 
-        item.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.error && item.error.toLowerCase().includes(searchTerm.toLowerCase()));
-      
-      // Status filter
-      if (statusFilter === 'all') return matchesSearch;
-      return item.status === statusFilter && matchesSearch;
-    })
+    // In-memory sorting and filtering for Queue History
+    const filteredQueue = queue
+      .filter(item => {
+        // Search filter
+        const matchesSearch = 
+          item.action?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (item.error && item.error.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        // Status filter
+        const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
+  
+        // Hide empty syncs filter (defaults to true)
+        if (hideEmptySyncs && item.status === 'completed') {
+          const count = typeof item.recordsSynced === 'number' ? item.recordsSynced : countRecordsFromXml(item.response);
+          if (count === 0) return false;
+        }
+        
+        return matchesSearch && matchesStatus;
+      })
     .sort((a, b) => {
       const getMs = (item: any) => {
         const completed = item.completedAt;
@@ -361,15 +351,8 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
           </div>
         </div>
         
-        <button
-          onClick={handleForceSync}
-          disabled={isForceSyncing}
-          className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-colors disabled:opacity-50 shadow-lg shadow-emerald-500/20 whitespace-nowrap active:scale-95"
-        >
-          {isForceSyncing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          Force Full Sync
-        </button>
       </div>
+
 
       <QbCollectionStats tenantId={tenantId} />
 
@@ -553,7 +536,16 @@ export function QuickBooksSyncPage({ tenantId }: { tenantId: string }) {
           </div>
 
           {/* Search & Filters */}
-          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+          <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+            <label className="flex items-center gap-1.5 text-xs text-zinc-550 dark:text-zinc-400 font-bold cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={hideEmptySyncs}
+                onChange={(e) => setHideEmptySyncs(e.target.checked)}
+                className="rounded border-zinc-300 dark:border-zinc-800 text-indigo-650 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+              />
+              Hide Empty Syncs
+            </label>
             <input
               type="text"
               value={searchTerm}

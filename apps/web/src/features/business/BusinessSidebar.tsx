@@ -3,7 +3,8 @@ import {
   Home, Users, Briefcase, Layers, Map,
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck,
-  Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock
+  Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
+  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -11,22 +12,26 @@ import type { PermissionKey } from '../../lib/auth/permissions';
 import { useQuery } from '@tanstack/react-query';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
+import { useTutorialStore } from '../tutorials/useTutorialStore';
+import { TUTORIALS_DATA } from '../tutorials/tutorialsData';
+
 
 export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
 };
 
-const ITEMS: NavItem[] = [
+export const ITEMS: NavItem[] = [
   // Dashboard Hub
   { id: 'overview', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'dashboard' },
   { id: 'time_details', label: 'Time Clock', icon: Clock, hub: 'dashboard' },
   { id: 'device_settings', label: 'Device Settings', icon: Settings, hub: 'dashboard' },
+  { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'dashboard' },
 
 
   // Upfitters Dept
@@ -63,25 +68,24 @@ const ITEMS: NavItem[] = [
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
-  { id: 'weekly_meeting', label: 'Weekly Meeting', icon: ClipboardList, hub: 'office', permission: 'office.view' },
-  { id: 'audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'office', permission: 'reports.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
   { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },
   { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'bay_worksheet.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
-  { id: 'jobs', label: 'Jobs', icon: Briefcase, hub: 'office', permission: 'jobs.view' },
-  { id: 'customers', label: 'Customers', icon: Users, hub: 'office', permission: 'customers.view' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, hub: 'office', permission: 'vehicles.view' },
-  { id: 'vendors', label: 'Vendors', icon: Handshake, hub: 'office', permission: 'vendors.view' },
-  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'office', permission: 'foreman.view' },
-  { id: 'control_board', label: 'Control Board', icon: ClipboardList, hub: 'office', permission: 'jobs.view' },
-  { id: 'timeclock', label: 'Timeclock Logs', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
+  { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
   { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'office', permission: 'vehicles.view' },
+  { id: 'audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'office', permission: 'reports.view' },
+  { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   // { id: 'vehicle_intake', label: 'Vehicle Intake', icon: Car, hub: 'office', permission: 'vehicle_intake.use' },
 
   // Facility & Comm
+  { id: 'jobs', label: 'Jobs', icon: Briefcase, hub: 'facility', permission: 'jobs.view' },
+  { id: 'customers', label: 'Customers', icon: Users, hub: 'facility', permission: 'customers.view' },
+  { id: 'vehicles', label: 'Vehicles', icon: Car, hub: 'facility', permission: 'vehicles.view' },
+  { id: 'vendors', label: 'Vendors', icon: Handshake, hub: 'facility', permission: 'vendors.view' },
+  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'facility', permission: 'foreman.view' },
   { id: 'zones', label: 'Zones Config', icon: Layers, hub: 'facility', permission: 'facility.view' },
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
@@ -92,21 +96,31 @@ const ITEMS: NavItem[] = [
   { id: 'announcements', label: 'Announcements', icon: Megaphone, hub: 'facility', permission: 'communication.view' },
   { id: 'events', label: 'Events Calendar', icon: Calendar, hub: 'facility', permission: 'communication.view' },
   { id: 'feedback', label: 'Feedback & Bugs', icon: MessageSquare, hub: 'facility', permission: 'facility.view' },
+  { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'facility', permissions: ['facility.view', 'jobs.view', 'communication.view'] },
 
   // Admin & Sync
   { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'settings', permission: 'staff.view' },
   { id: 'departments', label: 'Departments Config', icon: Building2, hub: 'settings', permission: 'staff.view' },
   { id: 'settings', label: 'System Settings', icon: Settings, hub: 'settings', permission: 'settings.view' },
   { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'settings', permission: 'sync.view' },
+  { id: 'qb_health_audit', label: 'Data Health Audit', icon: ShieldCheck, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_items', label: 'QB Items', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
+
+  // Help Hub
+  { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help' },
+  { id: 'help_clocking_in_out', label: 'Clocking In/Out', icon: LogIn, hub: 'help' },
+  { id: 'help_breaks_lunches', label: 'Breaks & Lunches', icon: Pizza, hub: 'help' },
+
+  // SOP Hub
+  { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'sop' },
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings';
+  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop';
   label: string;
   icon: React.ElementType;
 };
@@ -122,6 +136,8 @@ const HUBS: HubType[] = [
   { id: 'fabrication', label: 'Fabrication', icon: Wrench },
   { id: 'harness', label: 'Harness Dept', icon: Layers },
   { id: 'facility', label: 'Facility', icon: Map },
+  { id: 'help', label: 'Help Center', icon: HelpCircle },
+  { id: 'sop', label: 'SOP Center', icon: Workflow },
   { id: 'settings', label: 'Admin & Sync', icon: Settings },
 ];
 
@@ -167,7 +183,7 @@ export function BusinessSidebar({
   });
 
   // Track the selected Hub (Tier 1)
-  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings'>(() => {
+  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop'>(() => {
     const activeItem = ITEMS.find(item => item.id === activeTab);
     return activeItem ? activeItem.hub : 'dashboard';
   });
@@ -237,7 +253,7 @@ export function BusinessSidebar({
     return visibleItems.filter(item => item.hub === hubId);
   };
 
-  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings', isOverlay = false) => {
+  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop', isOverlay = false) => {
     const hubItems = getSubmenuItemsForHub(hubId);
 
     // Extract unique groups
@@ -285,22 +301,38 @@ export function BusinessSidebar({
                 {groupItems.map(item => {
                   const isActive = activeTab === item.id;
                   return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setActiveTab(item.id);
-                        if (isOverlay) {
-                          setIsOpen(false);
-                        }
-                      }}
-                      className={`w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-95 text-left ${isActive
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-                        : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
-                        }`}
-                    >
-                      <item.icon className={`w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-white" : "text-zinc-500"}`} />
-                      <span className="text-xs font-semibold tracking-wide truncate">{item.label}</span>
-                    </button>
+                    <div key={item.id} className="flex items-center gap-1 w-full">
+                      <button
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          if (isOverlay) {
+                            setIsOpen(false);
+                          }
+                        }}
+                        className={`flex-1 flex items-center gap-3.5 px-3 py-2.5 rounded-xl transition-all duration-200 active:scale-95 text-left min-w-0 ${isActive
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                          : "text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/40"
+                          }`}
+                      >
+                        <item.icon className={`w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-white" : "text-zinc-500"}`} />
+                        <span className="text-xs font-semibold tracking-wide truncate">{item.label}</span>
+                      </button>
+                      {item.hub !== 'help' && item.hub !== 'sop' && !!TUTORIALS_DATA[item.id] && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            useTutorialStore.getState().openTutorial(item.id);
+                          }}
+                          className={`p-2 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all shrink-0 cursor-pointer active:scale-90 ${
+                            isActive ? 'text-zinc-300 hover:text-white' : ''
+                          }`}
+                          title={`How to use ${item.label}`}
+                        >
+                          <Info className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
