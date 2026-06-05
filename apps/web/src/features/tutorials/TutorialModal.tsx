@@ -279,32 +279,16 @@ export function TutorialModal() {
               </div>
             </div>
 
-            {/* Access Control & Telemetry Bar (Visible to Admin Only) */}
+            {/* Telemetry Log (Visible to Admin Only) */}
             {isAdmin && (
-              <div className="mt-6 pt-4 border-t border-zinc-150 dark:border-zinc-850 text-[10px] text-zinc-550 dark:text-zinc-400 flex flex-wrap items-center justify-between gap-4 bg-zinc-50/50 dark:bg-zinc-950/10 p-3.5 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-200">
-                <div className="space-y-1 min-w-0 flex-1">
-                  <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Page Access Permissions
-                  </p>
-                  <div className="space-y-0.5 font-medium leading-relaxed">
-                    <p className="truncate">
-                      <strong className="text-zinc-700 dark:text-zinc-300">Departments:</strong>{' '}
-                      {allowedDepts.length > 0 ? allowedDepts.join(', ') : 'None (Strict Overrides Only)'}
-                    </p>
-                    <p className="truncate">
-                      <strong className="text-zinc-700 dark:text-zinc-300">Staff Members:</strong>{' '}
-                      {allowedStaff.length > 0 ? allowedStaff.join(', ') : 'None (Role-Based Only)'}
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="text-right space-y-0.5 shrink-0">
-                  <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500">Telemetry Log</p>
-                  <p className="text-sm font-black text-indigo-650 dark:text-indigo-400 font-mono">
-                    {views.length} Unique View{views.length !== 1 ? 's' : ''}
-                  </p>
-                  <p className="text-[9px] text-zinc-400 dark:text-zinc-550 font-bold">
-                    ({uniqueViewsExcludingMe} excluding yours)
+              <div className="mt-6 pt-4 border-t border-zinc-150 dark:border-zinc-850 text-[10px] text-zinc-550 dark:text-zinc-450 flex items-center justify-between gap-4 bg-zinc-50/50 dark:bg-zinc-950/10 p-3.5 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-200">
+                <p className="font-extrabold uppercase tracking-wider text-zinc-450 dark:text-zinc-500">
+                  Admin Stats (Views Tracker):
+                </p>
+                <div className="flex items-center gap-4">
+                  <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450">
+                    Unique Views: <strong className="text-sm font-black text-indigo-650 dark:text-indigo-400 font-mono">{views.length}</strong>
+                    <span className="text-[10px] text-zinc-400 dark:text-zinc-550 font-bold ml-1.5">({uniqueViewsExcludingMe} excluding yours)</span>
                   </p>
                 </div>
               </div>
@@ -326,7 +310,7 @@ export function TutorialModal() {
                 }}
                 className="px-6 py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-lg shadow-indigo-550/15 transition-all cursor-pointer active:scale-95 flex items-center gap-2"
               >
-                <BookOpen className="w-4 h-4" /> Read Full Interactive Tutorial
+                <BookOpen className="w-4 h-4" /> Read Full Help Document
               </button>
             </div>
           </div>
