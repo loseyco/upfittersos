@@ -14,7 +14,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (user) {
         // Enforce Rule 2: loseyp@gmail.com is hardcoded as root platform operator
-        if (user.email === 'loseyp@gmail.com') {
+        if (user.email?.toLowerCase() === 'loseyp@gmail.com') {
           setSuperAdmin(true);
           setTenantId('GLOBAL');
           // Super admin gets all permissions
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const resolved = resolvePermissions(deptPermissions, staffData.individualPermissions);
                 
                 // Grant full tenant permissions to p.losey@saegrp.com
-                if (user.email === 'p.losey@saegrp.com') {
+                if (user.email?.toLowerCase() === 'p.losey@saegrp.com') {
                   const allPerms = Object.keys(PERMISSIONS).reduce((acc, key) => ({ ...acc, [key]: true }), {});
                   setPermissions(allPerms);
                 } else {

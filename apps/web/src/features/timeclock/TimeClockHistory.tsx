@@ -318,7 +318,11 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     </div>
   );
 
-  const isFlatRate = staffMember?.payType === 'flat_rate';
+  const resolvedPayType = staffMember?.payType && staffMember.payType !== 'inherit'
+    ? staffMember.payType
+    : (myDepartment?.defaultPayType || 'hourly');
+
+  const isFlatRate = resolvedPayType === 'flat_rate';
 
   let activeCreditMs = 0;
   if (staffMember?.payPeriodBookTimeCredit && staffMember.payPeriodBookTimeCredit > 0) {
@@ -344,7 +348,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     }
     if (sessionDate.getTime() >= todayStart.getTime()) {
       todayMs += workMs;
-      const payMs = calculateSessionPayMs(session, session.payType || staffMember?.payType);
+      const payMs = calculateSessionPayMs(session, session.payType || resolvedPayType);
       todayPayMs += payMs;
     }
   });
@@ -352,7 +356,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const sessionHourlyPayMs = sessions?.reduce((acc, session) => {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
     if (!sessionDate || sessionDate.getTime() < weekStart.getTime()) return acc;
-    const sPayType = session.payType || staffMember?.payType;
+    const sPayType = session.payType || resolvedPayType;
     return acc + calculateSessionPayMs(session, sPayType);
   }, 0) || 0;
 
@@ -382,7 +386,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Card 1: Today's Pay Hours */}
         <div className="bg-zinc-50 dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col justify-center">
-          <p className="text-xs font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-1">Today's Pay Hours</p>
+          <p className="text-xs font-bold text-zinc-405 dark:text-zinc-500 uppercase tracking-widest mb-1">Today's Pay Hours</p>
           <p className="text-2xl font-black text-zinc-850 dark:text-white font-mono flex items-center gap-2">
             <Timer className="w-5 h-5 text-indigo-500" />
             {(todayPayMs / 3600000).toFixed(2)}h
@@ -392,7 +396,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
         {/* Card 2: Week Pay Hours */}
         <div className="bg-indigo-50/50 dark:bg-indigo-950/10 p-4 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/30 flex flex-col justify-center relative group">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-1">Week Pay Hours</p>
+            <p className="text-xs font-bold text-indigo-505 uppercase tracking-widest mb-1">Week Pay Hours</p>
             <button
               onClick={() => setIsBreakdownOpen(!isBreakdownOpen)}
               className="p-1 text-zinc-400 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all cursor-pointer"
@@ -416,7 +420,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
               <Info className="w-4 h-4 text-indigo-505" /> Pay Formula & Calculations: {staffMember?.name || 'Technician'}
             </h5>
             <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 rounded">
-              Pay Type: {isFlatRate ? 'Flat-Rate' : staffMember?.payType === 'salary' ? 'Salary' : 'Hourly'}
+              Pay Type: {isFlatRate ? 'Flat-Rate' : resolvedPayType === 'salary' ? 'Salary' : 'Hourly'}
             </span>
           </div>
 
@@ -429,7 +433,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                   <p className="text-[10px] text-zinc-450 leading-relaxed mt-1">Clocked time spent on general/hourly tasks inside sessions, capped at total session work hours.</p>
                 </div>
                 <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">
-                  <span className="text-[9px] font-black text-indigo-505 uppercase tracking-widest block">Completed Book Time</span>
+                  <span className="text-[9px] font-black text-indigo-550 uppercase tracking-widest block">Completed Book Time</span>
                   <p className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">{(completedBookMs / 3600000).toFixed(2)}h</p>
                   <p className="text-[10px] text-zinc-450 leading-relaxed mt-1">Book hours earned from flat-rate tasks completed in this pay period.</p>
                 </div>
@@ -447,7 +451,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                 </span>
               </div>
             </div>
-          ) : staffMember?.payType === 'hourly' ? (
+          ) : resolvedPayType === 'hourly' ? (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-medium">
                 <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">

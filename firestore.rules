@@ -6,7 +6,7 @@ service cloud.firestore {
     function isTenant(tid) {
       return request.auth != null && (
         request.auth.token.tenantId == tid || 
-        (request.auth.token.email == 'monitor@saegrp.com' && tid == '7jlg4IA2G6lvDJ0S5Vbp')
+        (request.auth.token.get('email', '').lower() == 'monitor@saegrp.com' && tid == '7jlg4IA2G6lvDJ0S5Vbp')
       );
     }
 
@@ -152,7 +152,7 @@ service cloud.firestore {
       allow read, write: if request.auth != null && (
         request.auth.uid == userId || 
         isSuperAdmin() || 
-        request.auth.token.email == 'p.losey@saegrp.com'
+        request.auth.token.get('email', '').lower() == 'p.losey@saegrp.com'
       );
     }
     match /user_fcm_tokens/{userId} {
@@ -212,7 +212,7 @@ service cloud.firestore {
     // ============================================
     match /businesses/{tenantId} {
       allow read: if isTenant(tenantId) || isSuperAdmin();
-      allow write: if isBusinessOwner(tenantId) || isSuperAdmin() || request.auth.token.email == 'p.losey@saegrp.com';
+      allow write: if isBusinessOwner(tenantId) || isSuperAdmin() || request.auth.token.get('email', '').lower() == 'p.losey@saegrp.com';
       
       // V2 AUDIT LOGS (Tenant Scoped)
       match /audit_logs/{logId} {

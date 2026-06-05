@@ -401,7 +401,7 @@ qbwcRoutes.get('/config', async (req: Request, res: Response): Promise<any> => {
             const decodedToken = await admin.auth().verifyIdToken(token);
             
             // Check if superAdmin OR matching verified email bypass
-            const isSuperAdmin = decodedToken.superAdmin === true || decodedToken.email === 'p.losey@saegrp.com';
+            const isSuperAdmin = decodedToken.superAdmin === true || decodedToken.email?.toLowerCase() === 'p.losey@saegrp.com';
             
             // If not a super admin, block access if their account does not belong to the requested tenantId
             if (!isSuperAdmin && decodedToken.tenantId !== tenantId) {

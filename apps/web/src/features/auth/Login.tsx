@@ -32,14 +32,18 @@ export function Login() {
 
   if (authLoading) return null;
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
+    const formData = new FormData(e.currentTarget);
+    const submittedEmail = (formData.get('email') as string || email).trim();
+    const submittedPassword = formData.get('password') as string || password;
+
     try {
-      const creds = await signInWithEmailAndPassword(auth, email, password);
-      if (creds.user.email === 'loseyp@gmail.com') {
+      const creds = await signInWithEmailAndPassword(auth, submittedEmail, submittedPassword);
+      if (creds.user.email?.toLowerCase() === 'loseyp@gmail.com') {
         submitAuditLog('GLOBAL', { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
         navigate('/super-admin');
       } else {
@@ -68,7 +72,7 @@ export function Login() {
         prompt: 'select_account'
       });
       const creds = await signInWithPopup(auth, provider);
-      if (creds.user.email === 'loseyp@gmail.com') {
+      if (creds.user.email?.toLowerCase() === 'loseyp@gmail.com') {
         submitAuditLog('GLOBAL', { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'google.com' } });
         navigate('/super-admin');
       } else {
@@ -129,9 +133,12 @@ export function Login() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider ml-1 transition-colors">Email</label>
+              <label htmlFor="email" className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider ml-1 transition-colors">Email</label>
               <input
+                id="email"
+                name="email"
                 type="email"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-zinc-100 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
@@ -141,9 +148,12 @@ export function Login() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider ml-1 transition-colors">Password</label>
+              <label htmlFor="password" className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-wider ml-1 transition-colors">Password</label>
               <input
+                id="password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-zinc-100 dark:bg-zinc-950/50 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-zinc-900 dark:text-white placeholder-zinc-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"

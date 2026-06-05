@@ -376,6 +376,7 @@ exports.qbwcRoutes.get('/test-timestamp', async (req, res) => {
 });
 // Endpoint to generate .qwc file
 exports.qbwcRoutes.get('/config', async (req, res) => {
+    var _a;
     try {
         const tenantId = req.query.tenantId;
         if (!tenantId)
@@ -389,7 +390,7 @@ exports.qbwcRoutes.get('/config', async (req, res) => {
         try {
             const decodedToken = await admin.auth().verifyIdToken(token);
             // Check if superAdmin OR matching verified email bypass
-            const isSuperAdmin = decodedToken.superAdmin === true || decodedToken.email === 'p.losey@saegrp.com';
+            const isSuperAdmin = decodedToken.superAdmin === true || ((_a = decodedToken.email) === null || _a === void 0 ? void 0 : _a.toLowerCase()) === 'p.losey@saegrp.com';
             // If not a super admin, block access if their account does not belong to the requested tenantId
             if (!isSuperAdmin && decodedToken.tenantId !== tenantId) {
                 console.error(`QWC Generation Unauthorized - Token Tenant: ${decodedToken.tenantId}, Request Tenant: ${tenantId}`);

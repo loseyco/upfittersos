@@ -1,0 +1,65 @@
+Subject: Daily Update: New Features Live & Introducing UpfittersOS Academy!
+
+Hi,
+
+I have pushed a major round of updates live to the platform today. My focus was on enhancing time-tracking security, adding visual management tools (like an Org Chart and SOPs), and launching a comprehensive Help & Tutorial System designed to answer most user questions inline.
+
+Please log in to the live site at https://v2.upfittersos.com to explore the changes.
+
+Here is a summary of the main updates and pages you can view live today:
+
+1. UpfittersOS Academy (Help Center & Slide Tutorials)
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/help_overview
+- What was done: I built a PowerPoint-style slide deck training system directly into the platform.
+- Key Highlights:
+  * Includes step-by-step slide decks for Clocking In & Out (Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/help_clocking_in_out) and Breaks & Lunches (Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/help_breaks_lunches).
+  * Features Interactive Sandbox Mockups where staff can practice scanning security QR codes, simulating geofencing GPS checks, and entering breaks without affecting live payroll logs.
+  * Inline Help Buttons: I added a small Info (i) icon next to every single menu item in the sidebar. Clicking it immediately opens the corresponding feature guide so users can get their questions answered on the spot.
+
+2. Interactive Business Org Chart
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/org_chart
+- What was done: A visual, tree-based organizational chart mapping out the business hierarchy.
+- Key Highlights:
+  * Organizes staff dynamically by department (Upfitting, Parts, Office, etc.).
+  * Allows clicking any staff card to navigate directly to their detailed staff profile.
+  * Automatically filters out inactive QuickBooks staff profiles to keep the directory clean.
+
+3. SOP Center (Standard Operating Procedures)
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/sop_overview
+- What was done: A centralized portal to manage and run repeatable shop checklists and procedures.
+- Key Highlights:
+  * Includes an SOP Builder to create new procedures, an SOP Reader for reference, and an SOP Runner to execute active guides step-by-step.
+
+4. Payroll & Attendance Reports (Admin)
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/timeclock
+- What was done: Enhancements to the administrative timecard manager.
+- Key Highlights:
+  * Refined weekly log grids, anomaly flags (highlighting overnight or extreme shifts), and correction request management.
+  * Added full Print Preview / Print Layout Support to easily print out clean physical weekly timecard logs for Monday morning reviews.
+
+5. QuickBooks Sync & Variance Audit
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/qb_sync_status
+- What was done: Integration monitoring and variance auditing pages.
+- Key Highlights:
+  * Real-time status updates showing synchronization events for jobs, customers, and invoices.
+  * Features a Data Health Audit panel (Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/qb_health_audit) that flags sync mismatches, negative inventory items, and unlinked profiles.
+
+6. Geofencing & QR Scan Gating Configuration
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/qr_hub
+- What was done: Physical boundary gating and secure check-in validation.
+- Key Highlights:
+  * Configures the rotating security QR code shown on shop tablets.
+  * Restricts mobile check-ins to the physical geofence boundary around the shop unless the user has remote/offsite overrides.
+
+7. TV Morning Meeting & Progress Digest
+- Live Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/morning_meeting
+- What was done: Dashboards designed for display on shop TVs and tablets.
+- Key Highlights:
+  * Morning Meeting Board: Displays capacity, current active blockers, and parts status for daily team huddles.
+  * Today's Progress Digest (Link: https://v2.upfittersos.com/business/7jlg4IA2G6lvDJ0S5Vbp/progress_digest) shows real-time shop floor activity, pulsating neon active indicators for live crew members, and vehicle movements.
+
+Please take a look and try out the slide tutorials. Let me know if you have any questions or feedback!
+
+Best,
+
+[Your Name]
