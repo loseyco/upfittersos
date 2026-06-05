@@ -7,7 +7,7 @@ import {
   Trophy, Warehouse, Briefcase, 
   Clock, Package, Truck, Search,
   ChevronRight, Star, Zap, AlertCircle,
-  ArrowUpRight, User, Activity,
+  ArrowUpRight, Activity,
   Info, Maximize, Minimize, CheckCircle, Calendar, Play
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
@@ -60,7 +60,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
   const { permissions, isSuperAdmin } = useAuthStore();
   const canViewReports = isSuperAdmin || permissions['reports.view'];
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const staffNameParam = searchParams.get('staffName');
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -95,8 +95,8 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
   
   const [timeframe, setTimeframe] = useState<Timeframe>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [showActivity, setShowActivity] = useState(false);
 
   // Update tick every minute to refresh "live" durations
   useEffect(() => {
@@ -502,17 +502,17 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       .sort((a, b) => b.totalPoints - a.totalPoints);
   }, [rawData, timeframe, tick]);
 
-  // Sync selected staff from URL param
-  useEffect(() => {
-    if (staffNameParam && stats.length > 0) {
-      const found = stats.find(s => s.name.toLowerCase() === staffNameParam.toLowerCase());
-      if (found) {
-        setSelectedStaffId(found.id);
-        // We might want to switch timeframe to 'all' if they aren't found in current timeframe,
-        // but for now let's keep it simple.
-      }
-    }
+  // Derive selected staff ID from URL parameter
+  const selectedStaffId = useMemo(() => {
+    if (!staffNameParam || stats.length === 0) return null;
+    const found = stats.find(s => s.name.toLowerCase() === staffNameParam.toLowerCase());
+    return found ? found.id : null;
   }, [staffNameParam, stats]);
+
+  // Reset activity drawer when selection changes
+  useEffect(() => {
+    setShowActivity(false);
+  }, [selectedStaffId]);
 
   const filteredStats = stats.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -545,6 +545,73 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
     const h = Math.floor(mins / 60);
     const m = Math.round(mins % 60);
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  const peerComparison = useMemo(() => {
+    if (!selectedStaff || stats.length === 0) return null;
+
+    // Filter peers (staff in the same department)
+    const peers = stats.filter(s => s.department === selectedStaff.department);
+    // If no peers in department, fall back to all staff
+    const peerGroup = peers.length > 1 ? peers : stats;
+
+    const getMetricStats = (getValue: (s: StaffStats) => number) => {
+      const values = peerGroup.map(getValue).filter(v => !isNaN(v) && isFinite(v));
+      if (values.length === 0) return { min: 0, max: 0, avg: 0 };
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+      return { min, max, avg };
+    };
+
+    return {
+      timeLogged: getMetricStats(s => s.timeLogged),
+      bookTimeHours: getMetricStats(s => s.bookTimeHours),
+      efficiency: getMetricStats(s => s.actualJobMinutes > 0 ? (s.earnedJobMinutes / s.actualJobMinutes) * 100 : 0),
+      overtime: getMetricStats(s => s.overtimeMinutes),
+      tardy: getMetricStats(s => s.lateCount),
+      logistics: getMetricStats(s => s.moves + s.parts + s.shipments)
+    };
+  }, [selectedStaff, stats]);
+
+  const renderComparison = (
+    value: number, 
+    peerStats: { min: number; max: number; avg: number } | null | undefined,
+    formatVal: (v: number) => string
+  ) => {
+    if (!peerStats) return null;
+    const avg = peerStats.avg;
+    const isAboveAvg = value >= avg;
+    
+    return (
+      <div className="mt-3.5 pt-3 border-t border-zinc-200/60 dark:border-zinc-800/80 text-[10px] text-zinc-500 font-bold space-y-1.5 font-sans">
+        <div className="flex justify-between items-center text-[10px] text-zinc-400">
+          <span>Peer Group Comparison (Same Dept)</span>
+          <span className={cn(
+            "font-black px-1.5 py-0.5 rounded text-[8px] uppercase tracking-wider",
+            isAboveAvg 
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
+              : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+          )}>
+            {isAboveAvg ? 'Above Avg' : 'Below Avg'}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 bg-zinc-50 dark:bg-zinc-950 p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center font-mono text-[9px]">
+          <div>
+            <span className="text-[8px] text-zinc-500 dark:text-zinc-400 block font-sans uppercase font-bold tracking-wider">Min</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{formatVal(peerStats.min)}</span>
+          </div>
+          <div className="border-x border-zinc-200 dark:border-zinc-800">
+            <span className="text-[8px] text-indigo-500 block font-sans uppercase font-bold tracking-wider">Avg</span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{formatVal(peerStats.avg)}</span>
+          </div>
+          <div>
+            <span className="text-[8px] text-zinc-500 dark:text-zinc-400 block font-sans uppercase font-bold tracking-wider">Max</span>
+            <span className="text-zinc-700 dark:text-zinc-300">{formatVal(peerStats.max)}</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -628,307 +695,325 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* Leaderboard List */}
-        <div className="xl:col-span-2 space-y-4">
-          {filteredStats.length === 0 ? (
-            <div className="bg-white dark:bg-zinc-900 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 text-center">
-              <Zap className="w-12 h-12 text-zinc-200 dark:text-zinc-800 mx-auto mb-4" />
-              <p className="text-zinc-500 font-medium">No activity recorded for this timeframe.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredStats.map((staff, i) => (
+      </div>      {/* Leaderboard List - Expanded Collapsible Layout */}
+      <div className="space-y-4">
+        {filteredStats.length === 0 ? (
+          <div className="bg-white dark:bg-zinc-900 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 text-center">
+            <Zap className="w-12 h-12 text-zinc-200 dark:text-zinc-800 mx-auto mb-4" />
+            <p className="text-zinc-500 font-medium">No activity recorded for this timeframe.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filteredStats.map((staff, i) => {
+              const isExpanded = selectedStaffId === staff.id;
+              return (
                 <div 
                   key={staff.id}
-                  onClick={() => setSelectedStaffId(staff.id)}
                   className={cn(
-                    "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 flex items-center justify-between hover:border-indigo-500/50 hover:shadow-md transition-all cursor-pointer group",
-                    selectedStaffId === staff.id && "ring-2 ring-indigo-500 border-transparent shadow-lg"
+                    "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden hover:border-indigo-500/50 hover:shadow-md transition-all flex flex-col",
+                    isExpanded && "ring-2 ring-indigo-500 border-transparent shadow-lg"
                   )}
                 >
-                  <div className="flex items-center gap-5">
-                    <div className="relative">
-                      <div className={cn(
-                        "w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-sm",
-                        i === 0 ? "bg-amber-500 text-white" :
-                        i === 1 ? "bg-zinc-400 text-white" :
-                        i === 2 ? "bg-orange-400 text-white" :
-                        "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
-                      )}>
-                        {i + 1}
-                      </div>
-                      {i < 3 && (
-                        <div className="absolute -top-1.5 -right-1.5">
-                          <Star className={cn("w-4 h-4 fill-current", i === 0 ? "text-amber-500" : i === 1 ? "text-zinc-400" : "text-orange-400")} />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                        {staff.name}
-                        {i === 0 && <span className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">MVP</span>}
-                        {staff.overtimeMinutes > 0 && <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Overtime</span>}
-                        {staff.lateCount > 0 && canViewReports && <span className="text-[10px] bg-rose-500/10 text-rose-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Lates: {staff.lateCount}</span>}
-                      </h3>
-                      <p className="text-xs text-zinc-500">{staff.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-8">
-                    <div className="hidden md:grid grid-cols-5 gap-6 text-center">
-                      <div>
-                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Moves</p>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.moves}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Jobs</p>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.jobs}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Parts</p>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.parts}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Hours</p>
-                        <p className="text-sm font-bold text-zinc-900 dark:text-white">{(staff.timeLogged / 60).toFixed(1)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Efficiency</p>
-                        <p className={cn("text-sm font-bold", 
-                          staff.actualJobMinutes > 0 ? (
-                            (staff.earnedJobMinutes / staff.actualJobMinutes) > 1.1 ? "text-emerald-500" :
-                            (staff.earnedJobMinutes / staff.actualJobMinutes) < 0.9 ? "text-rose-500" :
-                            "text-amber-500"
-                          ) : "text-zinc-500"
+                  {/* Clickable Header Row */}
+                  <div 
+                    onClick={() => {
+                      const newParams = new URLSearchParams(searchParams);
+                      if (isExpanded) {
+                        newParams.delete('staffName');
+                      } else {
+                        newParams.set('staffName', staff.name);
+                      }
+                      setSearchParams(newParams);
+                    }}
+                    className="p-4 flex items-center justify-between cursor-pointer group select-none"
+                  >
+                    <div className="flex items-center gap-5">
+                      <div className="relative">
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl flex items-center justify-center text-lg font-bold shadow-sm",
+                          i === 0 ? "bg-amber-500 text-white" :
+                          i === 1 ? "bg-zinc-400 text-white" :
+                          i === 2 ? "bg-orange-400 text-white" :
+                          "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
                         )}>
-                          {staff.actualJobMinutes > 0 ? Math.round((staff.earnedJobMinutes / staff.actualJobMinutes) * 100) + '%' : '--'}
-                        </p>
+                          {i + 1}
+                        </div>
+                        {i < 3 && (
+                          <div className="absolute -top-1.5 -right-1.5">
+                            <Star className={cn("w-4 h-4 fill-current", i === 0 ? "text-amber-500" : i === 1 ? "text-zinc-400" : "text-orange-400")} />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                          {staff.name}
+                          {i === 0 && <span className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">MVP</span>}
+                          {staff.overtimeMinutes > 0 && <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Overtime</span>}
+                          {staff.lateCount > 0 && canViewReports && <span className="text-[10px] bg-rose-500/10 text-rose-600 px-1.5 py-0.5 rounded font-black uppercase tracking-tighter">Lates: {staff.lateCount}</span>}
+                        </h3>
+                        <p className="text-xs text-zinc-500">{staff.email}</p>
                       </div>
                     </div>
 
-                    <div className="text-right min-w-[100px] flex items-center justify-end gap-4">
+                    <div className="flex items-center gap-8">
+                      <div className="hidden md:grid grid-cols-5 gap-6 text-center">
+                        <div>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Moves</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.moves}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Jobs</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.jobs}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Parts</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.parts}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Hours</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{(staff.timeLogged / 60).toFixed(1)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Efficiency</p>
+                          <p className={cn("text-sm font-bold", 
+                            staff.actualJobMinutes > 0 ? (
+                              (staff.earnedJobMinutes / staff.actualJobMinutes) > 1.1 ? "text-emerald-500" :
+                              (staff.earnedJobMinutes / staff.actualJobMinutes) < 0.9 ? "text-rose-500" :
+                              "text-amber-500"
+                            ) : "text-zinc-500"
+                          )}>
+                            {staff.actualJobMinutes > 0 ? Math.round((staff.earnedJobMinutes / staff.actualJobMinutes) * 100) + '%' : '--'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right min-w-[100px] flex items-center justify-end gap-4">
+                        {canViewReports && (
+                          <div className="text-right">
+                            <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Score</p>
+                            <p className="text-xl font-black text-zinc-900 dark:text-white italic">{staff.totalPoints}</p>
+                          </div>
+                        )}
+                        <ChevronRight className={cn("w-5 h-5 text-zinc-300 transition-all duration-200", isExpanded ? "rotate-90 text-indigo-500" : "group-hover:translate-x-1")} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Detail Panel */}
+                  {isExpanded && selectedStaff && (
+                    <div className="border-t border-zinc-200 dark:border-zinc-800 p-6 space-y-8 bg-zinc-50/50 dark:bg-zinc-950/20 rounded-b-2xl animate-in slide-in-from-top duration-300">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* Left Column: Metrics Dashboard & Punctuality */}
+                        <div className="space-y-8">
+                          {/* Core Stats Dashboard */}
+                          <div className="space-y-4">
+                            <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.25em]">Core Stats Dashboard</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Clock className="w-5 h-5 text-emerald-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time on Clock</p>
+                                <p className="text-lg font-black text-zinc-900 dark:text-white italic">{formatMinsToHoursMins(selectedStaff.timeLogged)}</p>
+                                {renderComparison(selectedStaff.timeLogged, peerComparison?.timeLogged, formatMinsToHoursMins)}
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <CheckCircle className="w-5 h-5 text-indigo-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Book Time</p>
+                                <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.bookTimeHours.toFixed(1)}h</p>
+                                {renderComparison(selectedStaff.bookTimeHours, peerComparison?.bookTimeHours, (v) => `${v.toFixed(1)}h`)}
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Zap className="w-5 h-5 text-amber-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Job Efficiency</p>
+                                <p className="text-lg font-black text-zinc-900 dark:text-white italic">
+                                  {selectedStaff.actualJobMinutes > 0 
+                                    ? Math.round((selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100) + '%'
+                                    : '--'}
+                                </p>
+                                {selectedStaff.actualJobMinutes > 0 && renderComparison(
+                                  (selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100, 
+                                  peerComparison?.efficiency, 
+                                  (v) => `${Math.round(v)}%`
+                                )}
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Clock className="w-5 h-5 text-rose-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Overtime</p>
+                                <p className="text-lg font-black text-zinc-900 dark:text-white italic">{(selectedStaff.overtimeMinutes / 60).toFixed(1)}h</p>
+                                {renderComparison(selectedStaff.overtimeMinutes, peerComparison?.overtime, (v) => `${(v / 60).toFixed(1)}h`)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Shift Punctuality & Unscheduled Work */}
+                          <div className="space-y-4">
+                            <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.25em]">Shift Punctuality & Schedules</h4>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Calendar className="w-5 h-5 text-teal-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Early</p>
+                                <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeEarlyMins)}</p>
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Play className="w-5 h-5 text-purple-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Staying Late</p>
+                                <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeStayingLateMins)}</p>
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Tardy Count</p>
+                                <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{selectedStaff.lateCount} times</p>
+                                {renderComparison(selectedStaff.lateCount, peerComparison?.tardy, (v) => `${Math.round(v)}x`)}
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                                <Clock className="w-5 h-5 text-orange-500 mb-2" />
+                                <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Unscheduled Work</p>
+                                <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.unscheduledMins)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Breakdown Lists & Logistics */}
+                        <div className="space-y-6">
+                          {/* Task Completed Breakdown */}
+                          {completedTasksGrouped.length > 0 && (
+                            <div className="space-y-3">
+                              <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-450 uppercase tracking-[0.25em]">Tasks Completed By Department</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-1 no-scrollbar">
+                                {completedTasksGrouped.map(([type, count]) => (
+                                  <div key={type} className="flex justify-between items-center bg-white dark:bg-zinc-900 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{type} Board</span>
+                                    <span className="text-xs font-black bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 px-2 py-0.5 rounded-lg">{count} tasks</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}                           {/* Vehicles Worked On */}
+                          {topVehicles.length > 0 && (
+                            <div className="space-y-3 border-t border-zinc-200/60 dark:border-zinc-800/80 pt-6">
+                              <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-400 uppercase tracking-[0.25em]">Top Vehicles Serviced</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-1 no-scrollbar">
+                                {topVehicles.map(([vehicleName, stats]) => (
+                                  <div key={vehicleName} className="flex justify-between items-center bg-white dark:bg-zinc-900 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[150px]">{vehicleName}</span>
+                                    <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
+                                      <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-600 dark:text-zinc-400">{stats.count}x</span>
+                                      <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}                           {/* Customers Serviced */}
+                          {topCustomers.length > 0 && (
+                            <div className="space-y-3 border-t border-zinc-200/60 dark:border-zinc-800/80 pt-6">
+                              <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-400 uppercase tracking-[0.25em]">Top Customers Serviced</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[200px] overflow-y-auto pr-1 no-scrollbar">
+                                {topCustomers.map(([customerName, stats]) => (
+                                  <div key={customerName} className="flex justify-between items-center bg-white dark:bg-zinc-900 px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                                    <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[150px]">{customerName}</span>
+                                    <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
+                                      <span className="bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-600 dark:text-zinc-400">{stats.count}x</span>
+                                      <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}                           {/* Admin & Logistics Metrics */}
+                          <div className="space-y-3 border-t border-zinc-200/60 dark:border-zinc-800/80 pt-6">
+                            <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-400 uppercase tracking-[0.25em]">Admin & Logistics Actions</h4>
+                            <div className="grid grid-cols-3 gap-2.5">
+                              <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center">
+                                <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.moves}</p>
+                                <p className="text-[8px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1">Moves</p>
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center">
+                                <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.parts}</p>
+                                <p className="text-[8px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1">Parts Request</p>
+                              </div>
+                              <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 text-center">
+                                <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.shipments}</p>
+                                <p className="text-[8px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-widest mt-1">Shipments</p>
+                              </div>
+                            </div>
+                            {renderComparison(
+                              selectedStaff.moves + selectedStaff.parts + selectedStaff.shipments, 
+                              peerComparison?.logistics, 
+                              (v) => Math.round(v).toString()
+                            )}
+                          </div>                           {/* Percentile Rank & Management Insight */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-zinc-200/60 dark:border-zinc-800/80 pt-6">
+                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl text-white shadow-xl shadow-indigo-500/10">
+                              <div>
+                                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80">Ranked Performance</p>
+                                <p className="text-base font-black italic">Top {(stats.indexOf(selectedStaff) / stats.length * 100).toFixed(0)}% of Staff</p>
+                              </div>
+                              <ArrowUpRight className="w-5 h-5 opacity-50" />
+                            </div>
+
+                            {canViewReports && (
+                              <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col justify-center">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Info className="w-3.5 h-3.5 text-zinc-400" />
+                                  <h4 className="text-[8px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">Management Insight</h4>
+                                </div>
+                                <p className="text-[10px] text-zinc-600 dark:text-zinc-400 leading-normal font-semibold">
+                                  {selectedStaff.totalPoints > 100 
+                                    ? `${selectedStaff.name} shows exceptional engagement. Consider for leadership roles.` 
+                                    : `${selectedStaff.name} maintains steady output. Cross-department tasks can boost growth.`}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Collapsible Detailed Activity Timeline */}
                       {canViewReports && (
-                        <div className="text-right">
-                          <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-0.5">Score</p>
-                          <p className="text-xl font-black text-zinc-900 dark:text-white italic">{staff.totalPoints}</p>
+                        <div className="border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm bg-white dark:bg-zinc-900">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowActivity(!showActivity);
+                            }}
+                            className="w-full px-6 py-4 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-950/50 hover:bg-zinc-100/50 dark:hover:bg-zinc-900/50 transition-all font-sans"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-white dark:bg-zinc-800 rounded-xl shadow-sm border border-zinc-200/50 dark:border-zinc-700/50">
+                                <Activity className="w-4 h-4 text-indigo-500" />
+                              </div>
+                              <div className="text-left">
+                                <h4 className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                                  Detailed Activity History
+                                </h4>
+                                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-0.5">Click to view audit trail for {selectedStaff.name}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[8px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">Live Audit</span>
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              </div>
+                              <ChevronRight className={cn("w-4 h-4 text-zinc-400 transition-transform duration-200", showActivity && "rotate-90 text-indigo-500")} />
+                            </div>
+                          </button>
+                          
+                          {showActivity && (
+                            <div className="border-t border-zinc-150 dark:border-zinc-800/80 animate-in slide-in-from-top duration-300 bg-zinc-50/30 dark:bg-zinc-950/10">
+                              <StaffActivityTimeline tenantId={tenantId} staffName={selectedStaff.name} staffId={selectedStaff.id} />
+                            </div>
+                          )}
                         </div>
                       )}
-                      <ChevronRight className="w-5 h-5 text-zinc-300 group-hover:translate-x-1 transition-transform" />
                     </div>
-                  </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Selected Staff Detail View */}
-        <div className="space-y-6">
-          {selectedStaff ? (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm animate-in slide-in-from-right-4 duration-500 h-full space-y-6">
-              {/* Header */}
-              <div className="flex items-center gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-6">
-                <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-indigo-500/20">
-                  {selectedStaff.name[0]}
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white leading-tight">{selectedStaff.name}</h3>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mt-1">
-                    {rawData?.departments?.find(d => d.id === selectedStaff.department)?.name || 'Active Member'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Core Stats Scorecard */}
-              <div className="space-y-4">
-                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Core Stats Dashboard</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
-                    <Clock className="w-5 h-5 text-emerald-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time on Clock</p>
-                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{formatMinsToHoursMins(selectedStaff.timeLogged)}</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
-                    <CheckCircle className="w-5 h-5 text-indigo-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Book Time</p>
-                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.bookTimeHours.toFixed(1)}h</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
-                    <Zap className="w-5 h-5 text-amber-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Job Efficiency</p>
-                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">
-                      {selectedStaff.actualJobMinutes > 0 
-                        ? Math.round((selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100) + '%'
-                        : '--'}
-                    </p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
-                    <Clock className="w-5 h-5 text-rose-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Overtime</p>
-                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{(selectedStaff.overtimeMinutes / 60).toFixed(1)}h</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Shift Punctuality & Unscheduled Work */}
-              <div className="space-y-4 border-t border-zinc-100 dark:border-zinc-800 pt-6">
-                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Shift Punctuality & Schedules</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
-                    <Calendar className="w-5 h-5 text-teal-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Early</p>
-                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeEarlyMins)}</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
-                    <Play className="w-5 h-5 text-purple-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Staying Late</p>
-                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeStayingLateMins)}</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
-                    <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Tardy Count</p>
-                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{selectedStaff.lateCount} times</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
-                    <Clock className="w-5 h-5 text-orange-500 mb-2" />
-                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Unscheduled Work</p>
-                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.unscheduledMins)}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Task Completed Breakdown */}
-              {completedTasksGrouped.length > 0 && (
-                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
-                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Tasks Completed By Department</h4>
-                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
-                    {completedTasksGrouped.map(([type, count]) => (
-                      <div key={type} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
-                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{type} Board</span>
-                        <span className="text-xs font-black bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 px-2 py-0.5 rounded-lg">{count} tasks</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Vehicles Worked On */}
-              {topVehicles.length > 0 && (
-                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
-                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Top Vehicles Serviced</h4>
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 no-scrollbar">
-                    {topVehicles.map(([vehicleName, stats]) => (
-                      <div key={vehicleName} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
-                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[200px]">{vehicleName}</span>
-                        <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
-                          <span className="bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-650 dark:text-zinc-455">{stats.count}x</span>
-                          <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Customers Serviced */}
-              {topCustomers.length > 0 && (
-                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
-                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Top Customers Serviced</h4>
-                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 no-scrollbar">
-                    {topCustomers.map(([customerName, stats]) => (
-                      <div key={customerName} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
-                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[200px]">{customerName}</span>
-                        <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
-                          <span className="bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-650 dark:text-zinc-455">{stats.count}x</span>
-                          <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Admin & Logistics Metrics */}
-              <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
-                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Admin & Logistics Actions</h4>
-                <div className="grid grid-cols-3 gap-2.5">
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
-                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.moves}</p>
-                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Moves</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
-                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.parts}</p>
-                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Parts Request</p>
-                  </div>
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
-                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.shipments}</p>
-                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Shipments</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Percentile Rank */}
-              <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl text-white shadow-xl shadow-indigo-500/20">
-                  <div>
-                    <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80">Ranked Performance</p>
-                    <p className="text-lg font-black italic">Top {(stats.indexOf(selectedStaff) / stats.length * 100).toFixed(0)}% of Staff</p>
-                  </div>
-                  <ArrowUpRight className="w-6 h-6 opacity-50" />
-                </div>
-              </div>
-
-              {/* Management Insight */}
-              {canViewReports && (
-                <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                   <div className="flex items-center gap-3 mb-4">
-                      <Info className="w-4 h-4 text-zinc-400" />
-                      <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.25em]">Management Insight</h4>
-                   </div>
-                   <p className="text-xs text-zinc-650 dark:text-zinc-400 leading-relaxed font-semibold">
-                      {selectedStaff.totalPoints > 100 
-                        ? `${selectedStaff.name} is showing exceptional engagement across multiple departments. Strongly consider for pay progression or leadership responsibilities.` 
-                        : `${selectedStaff.name} is maintaining steady output in their primary role. Opportunity for growth in cross-departmental tasks.`}
-                   </p>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="bg-zinc-50 dark:bg-zinc-950/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 text-center h-full flex flex-col items-center justify-center">
-              <User className="w-12 h-12 text-zinc-200 dark:text-zinc-800 mb-4" />
-              <p className="text-sm font-bold text-zinc-450 uppercase tracking-widest">Select a staff member<br/>to view detailed stats</p>
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      {/* Staff Activity Timeline (History) */}
-      {selectedStaffId && canViewReports && (
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl overflow-hidden shadow-sm animate-in slide-in-from-bottom-8 duration-700">
-          <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-950/50">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white dark:bg-zinc-800 rounded-xl shadow-sm">
-                <Activity className="w-5 h-5 text-indigo-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-zinc-900 dark:text-white">Detailed Activity History</h3>
-                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Audit trail for {selectedStaff?.name}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Live Audit</span>
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            </div>
-          </div>
-          <div className="p-0">
-             <StaffActivityTimeline tenantId={tenantId} staffName={selectedStaff?.name || ''} staffId={selectedStaffId} />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
