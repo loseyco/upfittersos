@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, ArrowRight, BookOpen, Clock, 
   HelpCircle, Check, Play, GraduationCap, RefreshCw,
-  QrCode, MapPin, ShieldCheck, AlertTriangle
+  QrCode, MapPin, ShieldCheck, Search
 } from 'lucide-react';
 import { SLIDE_TUTORIALS } from './slideTutorialsData';
 import { getTutorialsData } from './tutorialsData';
@@ -112,6 +112,8 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [completed, setCompleted] = useState(false);
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
 
   // Reset indices when activeTab changes
   useEffect(() => {
@@ -394,6 +396,23 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
   }
 
   if (!currentTutorial || activeTab === 'help_overview') {
+    // Filter slide decks
+    const filteredSlides = SLIDE_TUTORIALS.filter(t => {
+      const matchesSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            t.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesCategory = selectedCategory === 'All' || selectedCategory === 'Interactive Slide Decks';
+      return matchesSearch && matchesCategory;
+    });
+
+    // Filter dynamic guides
+    const filteredGuides = Object.entries(tutorialsDataMap).filter(([, guide]) => {
+      const matchesSearch = guide.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                            guide.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            guide.sections.some(s => s.title.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesCategory = selectedCategory === 'All' || guide.category === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+
     // Render Catalog/Overview of all PowerPoint tutorials
     return (
       <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in duration-300">
@@ -421,86 +440,153 @@ export function HelpCenter({ activeTab }: HelpCenterProps) {
           </div>
         </div>
 
-        {/* Grid of Tutorials */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-wider">Available Slide Decks</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {SLIDE_TUTORIALS.map((t) => {
-              const TutorialIcon = t.icon;
-              return (
-                <div 
-                  key={t.id}
-                  onClick={() => handleStartTutorial(t.id)}
-                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 dark:hover:border-indigo-500/30 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer flex flex-col justify-between h-56 hover:-translate-y-0.5 active:scale-[0.99]"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="p-2.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
-                        <TutorialIcon className="w-5 h-5" />
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px] text-zinc-400 dark:text-zinc-550 font-bold uppercase tracking-wider">
-                        <Clock className="w-3.5 h-3.5" />
-                        {t.estimatedTime} read
-                      </div>
-                    </div>
-                    <div>
-                      <h3 className="text-base font-black text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        {t.title}
-                      </h3>
-                      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450 mt-1.5 leading-relaxed">
-                        {t.description}
-                      </p>
-                    </div>
-                  </div>
+        {/* Search & Filter Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-3xl shadow-sm">
+          {/* Search Input */}
+          <div className="relative flex-1 max-w-md w-full">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Search tutorials, features, or keywords..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-12 py-2 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-505 transition-all text-zinc-850 dark:text-zinc-150"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-450 hover:text-zinc-700 dark:hover:text-zinc-205 text-xs font-black uppercase tracking-wider active:scale-90 transition-all"
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
-                  <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
-                    <Play className="w-3.5 h-3.5" /> Start Slideshow
-                  </div>
-                </div>
+          {/* Category Tabs */}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 lg:pb-0 select-none w-full lg:w-auto">
+            {['All', 'Interactive Slide Decks', 'Technician Portal', 'Upfitters & Operations', 'Management & Office', 'System Settings'].map(cat => {
+              const isActive = selectedCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
+                    isActive
+                      ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/10"
+                      : "bg-zinc-50 dark:bg-zinc-950 hover:bg-zinc-105 dark:hover:bg-zinc-850 text-zinc-550 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
+                  }`}
+                >
+                  {cat}
+                </button>
               );
             })}
           </div>
         </div>
+
+        {/* Empty State placeholder */}
+        {filteredSlides.length === 0 && filteredGuides.length === 0 && (
+          <div className="text-center py-16 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-sm space-y-3 animate-in fade-in duration-300">
+            <HelpCircle className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto animate-pulse" />
+            <h3 className="text-base font-black text-zinc-900 dark:text-white uppercase tracking-wider">No Tutorials Found</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-450 max-w-sm mx-auto leading-relaxed font-semibold">
+              We couldn't find any guides matching "{searchQuery}" under the category "{selectedCategory}". Try clearing your filters or search keywords.
+            </p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedCategory('All');
+              }}
+              className="px-5 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer active:scale-95 shadow-md shadow-indigo-550/15"
+            >
+              Reset Filters
+            </button>
+          </div>
+        )}
+
+        {/* Grid of Slide Tutorials */}
+        {filteredSlides.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-wider">Available Slide Decks</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filteredSlides.map((t) => {
+                const TutorialIcon = t.icon;
+                return (
+                  <div 
+                    key={t.id}
+                    onClick={() => handleStartTutorial(t.id)}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 dark:hover:border-indigo-500/30 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer flex flex-col justify-between h-56 hover:-translate-y-0.5 active:scale-[0.99]"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="p-2.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
+                          <TutorialIcon className="w-5 h-5" />
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-450 dark:text-zinc-550 font-bold uppercase tracking-wider">
+                          <Clock className="w-3.5 h-3.5" />
+                          {t.estimatedTime} read
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          {t.title}
+                        </h3>
+                        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450 mt-1.5 leading-relaxed">
+                          {t.description}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
+                      <Play className="w-3.5 h-3.5" /> Start Slideshow
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* System & Feature Guides */}
-        <div className="space-y-4 pt-6 border-t border-zinc-200 dark:border-zinc-800">
-          <h2 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-wider">System & Feature Guides</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {Object.entries(tutorialsDataMap).map(([id, guide]) => {
-              const GuideIcon = guide.sections[0]?.icon || BookOpen;
-              return (
-                <div 
-                  key={id}
-                  onClick={() => navigate(`/business/${tenantId}/help_${id}`)}
-                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 dark:hover:border-indigo-500/30 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer flex flex-col justify-between h-56 hover:-translate-y-0.5 active:scale-[0.99]"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="p-2.5 bg-indigo-500/10 text-indigo-655 dark:text-indigo-400 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
-                        <GuideIcon className="w-5 h-5" />
+        {filteredGuides.length > 0 && (
+          <div className={`space-y-4 ${filteredSlides.length > 0 ? 'pt-6 border-t border-zinc-200 dark:border-zinc-800' : ''}`}>
+            <h2 className="text-lg font-black text-zinc-900 dark:text-white uppercase tracking-wider">System & Feature Guides</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filteredGuides.map(([id, guide]) => {
+                const GuideIcon = guide.sections[0]?.icon || BookOpen;
+                return (
+                  <div 
+                    key={id}
+                    onClick={() => navigate(`/business/${tenantId}/help_${id}`)}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 dark:hover:border-indigo-500/30 p-6 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer flex flex-col justify-between h-56 hover:-translate-y-0.5 active:scale-[0.99]"
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="p-2.5 bg-indigo-500/10 text-indigo-655 dark:text-indigo-400 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-colors duration-300">
+                          <GuideIcon className="w-5 h-5" />
+                        </div>
+                        <div className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-indigo-500/5 text-indigo-600 dark:text-indigo-405 border-indigo-500/20">
+                          {guide.category}
+                        </div>
                       </div>
-                      <div className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border bg-indigo-500/5 text-indigo-600 dark:text-indigo-405 border-indigo-500/20">
-                        {guide.category}
+                      <div>
+                        <h3 className="text-base font-black text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          {guide.title}
+                        </h3>
+                        <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450 mt-1.5 leading-relaxed line-clamp-2">
+                          {guide.description}
+                        </p>
                       </div>
                     </div>
-                    <div>
-                      <h3 className="text-base font-black text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        {guide.title}
-                      </h3>
-                      <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-450 mt-1.5 leading-relaxed line-clamp-2">
-                        {guide.description}
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
-                    <BookOpen className="w-3.5 h-3.5" /> Read Documentation
+                    <div className="flex items-center gap-2 text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-wider pt-4 border-t border-zinc-100 dark:border-zinc-850">
+                      <BookOpen className="w-3.5 h-3.5" /> Read Documentation
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Dynamic Staff Completion Logs (Visible only to Admin) */}
         {isAdmin && allStaff && allStaff.length > 0 && (

@@ -91,7 +91,7 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
   const [expandedAnomalyId, setExpandedAnomalyId] = useState<string | null>(null);
 
   // Fetch all QuickBooks collections and local mapping collections
-  const { data: rawData, isLoading } = useQuery({
+  const { data: rawData, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['qb-audit-raw-data', tenantId],
     queryFn: async () => {
       const collections = [
@@ -124,9 +124,16 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
         })
       );
 
-      return results.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.data }), {} as Record<string, any[]>);
+      const dataMap = results.reduce((acc, curr) => ({ ...acc, [curr.key]: curr.data }), {} as Record<string, any[]>);
+      return {
+        ...dataMap,
+        fetchedAt: new Date().toISOString()
+      } as any;
     },
-    enabled: !!tenantId && tenantId !== 'GLOBAL'
+    enabled: !!tenantId && tenantId !== 'GLOBAL',
+    staleTime: 24 * 60 * 60 * 1000, // Cache for 24 hours (1 day)
+    refetchOnWindowFocus: false,     // Don't refetch on window focus
+    refetchOnMount: false            // Don't refetch on component remount
   });
 
   const copyToClipboard = (text: string, label: string) => {
@@ -268,7 +275,7 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
         // Rule: Active Job with Missing Vehicle
         if (isActive) {
           // Find if native job is mapped and has a vehicleId
-          const nativeJob = jobs.find(j => j && (j.quickbooksId === job.id || j.id === job.id));
+          const nativeJob = jobs.find((j: any) => j && (j.quickbooksId === job.id || j.id === job.id));
           const hasVehicle = nativeJob?.vehicleId || job.vehicle || (job.qbCustomFields && (job.qbCustomFields.vin || job.qbCustomFields['VIN num']));
           if (!hasVehicle) {
             anomalies.push({
@@ -360,8 +367,8 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
 
         // Rule: Unresolved Technician
         if (entityRef) {
-          const hasStaff = staff.some(s => s && (s.quickbooksId === entityRef || s.id === entityRef)) ||
-                           qbEmployees.some(e => e && e.id === entityRef);
+          const hasStaff = staff.some((s: any) => s && (s.quickbooksId === entityRef || s.id === entityRef)) ||
+                           qbEmployees.some((e: any) => e && e.id === entityRef);
           if (!hasStaff) {
             anomalies.push({
               id: `time-unresolved-tech-${time.id}`,
@@ -377,8 +384,8 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
 
         // Rule: Unresolved Job
         if (customerRef) {
-          const hasJob = jobs.some(j => j && (j.quickbooksId === customerRef || j.id === customerRef)) ||
-                         qbJobs.some(j => j && j.id === customerRef);
+          const hasJob = jobs.some((j: any) => j && (j.quickbooksId === customerRef || j.id === customerRef)) ||
+                         qbJobs.some((j: any) => j && j.id === customerRef);
           if (!hasJob) {
             anomalies.push({
               id: `time-unresolved-job-${time.id}`,
@@ -624,7 +631,7 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
   return (
     <div className="space-y-6">
       {/* Page Title Header */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
         <div className="flex items-center gap-4">
           <div className="hidden md:flex w-14 h-14 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 rounded-2xl items-center justify-center shadow-sm">
             <ShieldCheck className="w-7 h-7 text-indigo-500" />
@@ -637,6 +644,27 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
               QuickBooks Data Health & Integration Discrepancies
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-4 self-start md:self-auto">
+          {rawData?.fetchedAt && (
+            <div className="text-left md:text-right">
+              <span className="text-[10px] font-black uppercase tracking-wider text-zinc-455 dark:text-zinc-500 block">
+                Last Audited
+              </span>
+              <span className="text-xs font-semibold text-zinc-650 dark:text-zinc-350">
+                {new Date(rawData.fetchedAt).toLocaleString()}
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-650 hover:bg-indigo-700 disabled:bg-indigo-650/60 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-indigo-550/15 active:scale-[0.97] cursor-pointer"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", isRefetching && "animate-spin")} />
+            {isRefetching ? 'Running Audit...' : 'Re-Run Audit'}
+          </button>
         </div>
       </div>
       {/* Header Dashboard Metrics */}

@@ -1,19 +1,6 @@
 const admin = require('firebase-admin');
 
-// Initialize firebase admin using the default credentials (usually serviceAccountKey.json or system credentials)
-try {
-  admin.initializeApp();
-} catch (e) {
-  // If already initialized or needs cert
-  try {
-    const serviceAccount = require('./serviceAccountKey.json');
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
-    });
-  } catch (err) {
-    console.error("Init Error:", err);
-  }
-}
+admin.initializeApp({ projectId: 'saegroup-c6487' });
 
 const db = admin.firestore();
 const tenantId = '7jlg4IA2G6lvDJ0S5Vbp';

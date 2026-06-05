@@ -1,14 +1,14 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, collectionGroup, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Trophy, Warehouse, Briefcase, 
   Clock, Package, Truck, Search,
   ChevronRight, Star, Zap, AlertCircle,
   ArrowUpRight, User, Activity,
-  Info, Maximize, Minimize
+  Info, Maximize, Minimize, CheckCircle, Calendar, Play
 } from 'lucide-react';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
@@ -44,6 +44,16 @@ interface StaffStats {
   earnedJobMinutes: number;
   actualJobMinutes: number;
   lastActivity?: any;
+
+  // New stats properties
+  bookTimeHours: number;
+  timeEarlyMins: number;
+  timeStayingLateMins: number;
+  unscheduledMins: number;
+  completedTasksCount: number;
+  tasksCompletedByType: Record<string, number>;
+  vehiclesWorkedOn: Record<string, { count: number; minutes: number }>;
+  customersServiced: Record<string, { count: number; minutes: number }>;
 }
 
 export function StaffPerformance({ tenantId }: { tenantId: string }) {
@@ -106,7 +116,9 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         { name: 'shipments', dateField: 'createdAt', authorField: 'createdByName', authorIdField: 'createdBy' },
         { name: 'time_sessions', dateField: 'clockIn.timestamp', authorField: 'userName', authorIdField: 'userId' },
         { name: 'staff', dateField: 'createdAt' },
-        { name: 'departments', dateField: 'createdAt' }
+        { name: 'departments', dateField: 'createdAt' },
+        { name: 'vehicles', dateField: 'createdAt' },
+        { name: 'customers', dateField: 'createdAt' }
       ];
 
       const results = await Promise.all(
@@ -125,7 +137,26 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         })
       );
 
-      return results.reduce((acc, curr) => ({ ...acc, [curr.name]: curr.data }), {} as Record<string, any[]>);
+      // Fetch all completed / QC tasks via collectionGroup
+      let tasksData: any[] = [];
+      try {
+        const qTasks = query(
+          collectionGroup(db, 'tasks'),
+          where('tenantId', '==', tenantId)
+        );
+        const snapTasks = await getDocs(qTasks);
+        tasksData = snapTasks.docs.map(doc => ({ 
+          id: doc.id, 
+          ...doc.data(), 
+          refPath: doc.ref.path 
+        }));
+      } catch (e) {
+        console.warn("Could not fetch tasks via collectionGroup", e);
+      }
+
+      const raw = results.reduce((acc, curr) => ({ ...acc, [curr.name]: curr.data }), {} as Record<string, any[]>);
+      raw.tasks = tasksData;
+      return raw;
     }
   });
 
@@ -152,10 +183,20 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       if (!val) return 0;
       if (val.toMillis) return val.toMillis();
       if (val.seconds) return val.seconds * 1000;
+      if (val._seconds) return val._seconds * 1000;
       return new Date(val).getTime();
     };
 
     const staffMap = new Map<string, StaffStats>();
+
+    // Helper to find staff by name if ID is missing (legacy data)
+    const findStaffByName = (name: string) => {
+      if (!name) return null;
+      return Array.from(staffMap.values()).find(s => 
+        s.name.toLowerCase() === name.toLowerCase() || 
+        s.name.toLowerCase().startsWith(name.toLowerCase())
+      );
+    };
 
     // Initialize staff map
     rawData.staff?.filter(s => !s.isArchived && !s.fireDate && s.departmentId).forEach(s => {
@@ -175,7 +216,17 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         lateCount: 0,
         earnedJobMinutes: 0,
         actualJobMinutes: 0,
-        lastActivity: null
+        lastActivity: null,
+
+        // New properties
+        bookTimeHours: 0,
+        timeEarlyMins: 0,
+        timeStayingLateMins: 0,
+        unscheduledMins: 0,
+        completedTasksCount: 0,
+        tasksCompletedByType: {},
+        vehiclesWorkedOn: {},
+        customersServiced: {}
       });
     });
 
@@ -191,14 +242,6 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         }
       });
     });
-
-    // Helper to find staff by name if ID is missing (legacy data)
-    const findStaffByName = (name: string) => {
-      if (!name) return null;
-      return Array.from(staffMap.values()).find(s => 
-        s.name === name || (s.name && s.name.startsWith(name))
-      );
-    };
 
     // Process Zone Assignments (Moves)
     rawData.zone_assignments?.forEach(a => {
@@ -260,7 +303,46 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       }
     });
 
-    // Process Time Sessions
+    // Process Completed Tasks (via Collection Group query)
+    rawData.tasks?.forEach(task => {
+      const isCompleted = task.status === 'completed' || task.status === 'QC' || task.status === 'QC Complete';
+      if (!isCompleted) return;
+
+      const completedTs = parseDate(task.qcCompletedAt || task.completedAt || task.updatedAt);
+      if (periodStart > 0 && completedTs < periodStart) return;
+
+      // Locate staff member
+      let staff = null;
+      if (task.completedByStaffId) {
+        staff = staffMap.get(task.completedByStaffId);
+      }
+      if (!staff && task.completedByStaffName) {
+        staff = findStaffByName(task.completedByStaffName);
+      }
+      if (!staff && task.completedBy) {
+        staff = findStaffByName(task.completedBy);
+      }
+
+      if (staff) {
+        staff.completedTasksCount++;
+        staff.bookTimeHours += Number(task.bookTime || 0);
+
+        // Group by department/type of the job
+        const pathParts = task.refPath ? task.refPath.split('/') : [];
+        const jobId = task.jobId || pathParts[3];
+
+        if (jobId) {
+          const job = rawData.jobs?.find(j => j.id === jobId);
+          const dept = rawData.departments?.find(d => d.id === job?.departmentId);
+          const category = dept?.name || job?.departmentName || 'General';
+          staff.tasksCompletedByType[category] = (staff.tasksCompletedByType[category] || 0) + 1;
+        } else {
+          staff.tasksCompletedByType['General'] = (staff.tasksCompletedByType['General'] || 0) + 1;
+        }
+      }
+    });
+
+    // Process Time Sessions (Attendance, Punctuality, Unscheduled work, Vehicles, Customers)
     rawData.time_sessions?.forEach(s => {
       const clockInTs = parseDate(s.clockIn?.timestamp);
       if (clockInTs < periodStart) return;
@@ -308,9 +390,42 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
           staff.lateCount++;
         }
 
+        // Shift punctuality: early clock-in, late clock-out, unscheduled time
+        const dayOfWeek = clockInDate.getDay() === 0 ? 7 : clockInDate.getDay();
+        const isScheduledDay = schedule.days?.includes(dayOfWeek);
+
+        if (isScheduledDay) {
+          const shiftStart = new Date(clockInDate);
+          shiftStart.setHours(schedHour, schedMin, 0, 0);
+
+          const [schedEndHour, schedEndMin] = (schedule.endTime || '17:00').split(':').map(Number);
+          const shiftEnd = new Date(clockInDate);
+          shiftEnd.setHours(schedEndHour, schedEndMin, 0, 0);
+
+          // Early clock-in (capped at 120 mins to filter anomalous sessions)
+          if (clockInTs < shiftStart.getTime()) {
+            const earlyDiff = (shiftStart.getTime() - clockInTs) / 60000;
+            staff.timeEarlyMins += Math.min(120, earlyDiff);
+          }
+
+          // Late clock-out (capped at 240 mins)
+          if (endTs > shiftEnd.getTime()) {
+            const lateDiff = (endTs - shiftEnd.getTime()) / 60000;
+            staff.timeStayingLateMins += Math.min(240, lateDiff);
+          }
+
+          // Unscheduled hours on scheduled days (worked before or after scheduled shift)
+          const workedBeforeShift = Math.max(0, (Math.min(endTs, shiftStart.getTime()) - clockInTs) / 60000);
+          const workedAfterShift = Math.max(0, (endTs - Math.max(clockInTs, shiftEnd.getTime())) / 60000);
+          staff.unscheduledMins += (workedBeforeShift + workedAfterShift);
+        } else {
+          // Worked on an unscheduled day (e.g. weekend shift)
+          staff.unscheduledMins += mins;
+        }
+
         staff.totalPoints += Math.floor(mins / 30) * 2; // 2 points per 30 mins worked
 
-        // Job Efficiency Calculation
+        // Job segments (Vehicles & Customers)
         s.jobs?.forEach((j: any) => {
           const start = parseDate(j.start);
           const end = j.end ? parseDate(j.end) : Date.now();
@@ -319,6 +434,8 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
           if (j.id && segMins > 0) {
             staff.actualJobMinutes += segMins;
             const jobDoc = rawData.jobs?.find(job => job.id === j.id);
+
+            // Calculate efficiency
             if (jobDoc?.estimatedHours && totalTimePerJob[j.id] > 0) {
               const estMins = jobDoc.estimatedHours * 60;
               const proratedEarned = (segMins / totalTimePerJob[j.id]) * estMins;
@@ -326,6 +443,34 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
             } else {
               // If no estimate, count as 100% efficient so it doesn't penalize them
               staff.earnedJobMinutes += segMins;
+            }
+
+            // Vehicles mapping
+            const vehicleDoc = rawData.vehicles?.find(v => v.id === jobDoc?.vehicleId || (jobDoc?.vehicleVin && v.vin === jobDoc.vehicleVin));
+            const vehicleName = vehicleDoc 
+              ? `${vehicleDoc.year || ''} ${vehicleDoc.make || ''} ${vehicleDoc.model || ''}`.trim() 
+              : (jobDoc?.vehicleTitle || 'General Job (No Vehicle)');
+            
+            if (vehicleName) {
+              if (!staff.vehiclesWorkedOn[vehicleName]) {
+                staff.vehiclesWorkedOn[vehicleName] = { count: 0, minutes: 0 };
+              }
+              staff.vehiclesWorkedOn[vehicleName].count++;
+              staff.vehiclesWorkedOn[vehicleName].minutes += segMins;
+            }
+
+            // Customers mapping
+            const customerDoc = rawData.customers?.find(c => c.id === jobDoc?.customerId);
+            const customerName = customerDoc
+              ? (customerDoc.name || customerDoc.displayName || customerDoc.CompanyName || customerDoc.FullName || '').trim()
+              : (jobDoc?.customerName || 'Internal / Stock');
+
+            if (customerName) {
+              if (!staff.customersServiced[customerName]) {
+                staff.customersServiced[customerName] = { count: 0, minutes: 0 };
+              }
+              staff.customersServiced[customerName].count++;
+              staff.customersServiced[customerName].minutes += segMins;
             }
           }
         });
@@ -375,6 +520,32 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
   );
 
   const selectedStaff = selectedStaffId ? stats.find(s => s.id === selectedStaffId) : null;
+
+  const topVehicles = useMemo(() => {
+    if (!selectedStaff?.vehiclesWorkedOn) return [];
+    return Object.entries(selectedStaff.vehiclesWorkedOn)
+      .sort((a, b) => b[1].minutes - a[1].minutes)
+      .slice(0, 5);
+  }, [selectedStaff]);
+
+  const topCustomers = useMemo(() => {
+    if (!selectedStaff?.customersServiced) return [];
+    return Object.entries(selectedStaff.customersServiced)
+      .sort((a, b) => b[1].minutes - a[1].minutes)
+      .slice(0, 5);
+  }, [selectedStaff]);
+
+  const completedTasksGrouped = useMemo(() => {
+    if (!selectedStaff?.tasksCompletedByType) return [];
+    return Object.entries(selectedStaff.tasksCompletedByType)
+      .sort((a, b) => b[1] - a[1]);
+  }, [selectedStaff]);
+
+  const formatMinsToHoursMins = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
 
   if (isLoading) {
     return (
@@ -558,76 +729,178 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         {/* Selected Staff Detail View */}
         <div className="space-y-6">
           {selectedStaff ? (
-            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm animate-in slide-in-from-right-4 duration-500 h-full">
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-indigo-600/20">
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm animate-in slide-in-from-right-4 duration-500 h-full space-y-6">
+              {/* Header */}
+              <div className="flex items-center gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-6">
+                <div className="w-16 h-16 bg-gradient-to-tr from-indigo-600 to-violet-500 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-lg shadow-indigo-500/20">
                   {selectedStaff.name[0]}
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{selectedStaff.name}</h3>
-                  <p className="text-sm text-zinc-500">{selectedStaff.department || 'Active Staff Member'}</p>
+                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white leading-tight">{selectedStaff.name}</h3>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mt-1">
+                    {rawData?.departments?.find(d => d.id === selectedStaff.department)?.name || 'Active Member'}
+                  </p>
                 </div>
               </div>
 
-              <div className="space-y-8">
-                <div>
-                  <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4">Performance Profile</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                      <Clock className="w-5 h-5 text-emerald-500 mb-2" />
-                      <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Overtime</p>
-                      <p className="text-lg font-black text-zinc-900 dark:text-white italic">{(selectedStaff.overtimeMinutes / 60).toFixed(1)}h</p>
-                    </div>
-                    {canViewReports && (
-                      <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                        <AlertCircle className="w-5 h-5 text-rose-500 mb-2" />
-                        <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Late Count</p>
-                        <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.lateCount}</p>
+              {/* Core Stats Scorecard */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Core Stats Dashboard</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
+                    <Clock className="w-5 h-5 text-emerald-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time on Clock</p>
+                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{formatMinsToHoursMins(selectedStaff.timeLogged)}</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
+                    <CheckCircle className="w-5 h-5 text-indigo-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Book Time</p>
+                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{selectedStaff.bookTimeHours.toFixed(1)}h</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
+                    <Zap className="w-5 h-5 text-amber-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Job Efficiency</p>
+                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">
+                      {selectedStaff.actualJobMinutes > 0 
+                        ? Math.round((selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100) + '%'
+                        : '--'}
+                    </p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-850">
+                    <Clock className="w-5 h-5 text-rose-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Overtime</p>
+                    <p className="text-lg font-black text-zinc-900 dark:text-white italic">{(selectedStaff.overtimeMinutes / 60).toFixed(1)}h</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Shift Punctuality & Unscheduled Work */}
+              <div className="space-y-4 border-t border-zinc-100 dark:border-zinc-800 pt-6">
+                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Shift Punctuality & Schedules</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
+                    <Calendar className="w-5 h-5 text-teal-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Early</p>
+                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeEarlyMins)}</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
+                    <Play className="w-5 h-5 text-purple-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Staying Late</p>
+                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.timeStayingLateMins)}</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
+                    <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Tardy Count</p>
+                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{selectedStaff.lateCount} times</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-155 dark:border-zinc-855">
+                    <Clock className="w-5 h-5 text-orange-500 mb-2" />
+                    <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Unscheduled Work</p>
+                    <p className="text-sm font-black text-zinc-800 dark:text-zinc-200">{formatMinsToHoursMins(selectedStaff.unscheduledMins)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Task Completed Breakdown */}
+              {completedTasksGrouped.length > 0 && (
+                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
+                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Tasks Completed By Department</h4>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 no-scrollbar">
+                    {completedTasksGrouped.map(([type, count]) => (
+                      <div key={type} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
+                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">{type} Board</span>
+                        <span className="text-xs font-black bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 px-2 py-0.5 rounded-lg">{count} tasks</span>
                       </div>
-                    )}
+                    ))}
                   </div>
                 </div>
+              )}
 
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em]">Contribution Breakdown</h4>
-                  <div className="space-y-4">
-                    <MetricProgress label="Job Efficiency %" value={selectedStaff.actualJobMinutes > 0 ? Math.round((selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) * 100) : 0} max={200} color={selectedStaff.actualJobMinutes > 0 && (selectedStaff.earnedJobMinutes / selectedStaff.actualJobMinutes) > 1.0 ? "bg-emerald-500" : "bg-amber-500"} />
-                    <MetricProgress label="Facility Moves" value={selectedStaff.moves} max={Math.max(...stats.map(s => s.moves))} color="bg-indigo-500" />
-                    <MetricProgress label="Job Management" value={selectedStaff.jobs} max={Math.max(...stats.map(s => s.jobs))} color="bg-emerald-500" />
-                    <MetricProgress label="Parts Handling" value={selectedStaff.parts} max={Math.max(...stats.map(s => s.parts))} color="bg-amber-500" />
-                    {canViewReports && <MetricProgress label="Overtime Logged (Mins)" value={Math.round(selectedStaff.overtimeMinutes)} max={Math.max(...stats.map(s => s.overtimeMinutes))} color="bg-rose-500" />}
+              {/* Vehicles Worked On */}
+              {topVehicles.length > 0 && (
+                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
+                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Top Vehicles Serviced</h4>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 no-scrollbar">
+                    {topVehicles.map(([vehicleName, stats]) => (
+                      <div key={vehicleName} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
+                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[200px]">{vehicleName}</span>
+                        <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
+                          <span className="bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-650 dark:text-zinc-455">{stats.count}x</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                <div className="pt-8 border-t border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center justify-between p-4 bg-indigo-600 rounded-2xl text-white shadow-xl shadow-indigo-500/20">
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80">Ranked Performance</p>
-                      <p className="text-lg font-black italic">Top {(stats.indexOf(selectedStaff) / stats.length * 100).toFixed(0)}% of Staff</p>
-                    </div>
-                    <ArrowUpRight className="w-6 h-6 opacity-50" />
+              {/* Customers Serviced */}
+              {topCustomers.length > 0 && (
+                <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
+                  <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Top Customers Serviced</h4>
+                  <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 no-scrollbar">
+                    {topCustomers.map(([customerName, stats]) => (
+                      <div key={customerName} className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-150 dark:border-zinc-855">
+                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 truncate max-w-[200px]">{customerName}</span>
+                        <div className="flex gap-2 items-center text-[10px] font-black text-zinc-500">
+                          <span className="bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 rounded-md text-zinc-650 dark:text-zinc-455">{stats.count}x</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{formatMinsToHoursMins(stats.minutes)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
+              )}
 
-                {canViewReports && (
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
-                     <div className="flex items-center gap-3 mb-4">
-                        <Info className="w-4 h-4 text-zinc-400" />
-                        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Management Insight</h4>
-                     </div>
-                     <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed font-medium">
-                        {selectedStaff.totalPoints > 100 
-                          ? `${selectedStaff.name} is showing exceptional engagement across multiple departments. Strongly consider for pay progression or leadership responsibilities.` 
-                          : `${selectedStaff.name} is maintaining steady output in their primary role. Opportunity for growth in cross-departmental tasks.`}
-                     </p>
+              {/* Admin & Logistics Metrics */}
+              <div className="space-y-3 border-t border-zinc-100 dark:border-zinc-800 pt-6">
+                <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-[0.25em]">Admin & Logistics Actions</h4>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
+                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.moves}</p>
+                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Moves</p>
                   </div>
-                )}
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
+                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.parts}</p>
+                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Parts Request</p>
+                  </div>
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3 rounded-xl border border-zinc-150 dark:border-zinc-850 text-center">
+                    <p className="text-[16px] font-black text-zinc-900 dark:text-white italic">{selectedStaff.shipments}</p>
+                    <p className="text-[8px] font-bold text-zinc-450 uppercase tracking-widest mt-1">Shipments</p>
+                  </div>
+                </div>
               </div>
+
+              {/* Percentile Rank */}
+              <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl text-white shadow-xl shadow-indigo-500/20">
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-80">Ranked Performance</p>
+                    <p className="text-lg font-black italic">Top {(stats.indexOf(selectedStaff) / stats.length * 100).toFixed(0)}% of Staff</p>
+                  </div>
+                  <ArrowUpRight className="w-6 h-6 opacity-50" />
+                </div>
+              </div>
+
+              {/* Management Insight */}
+              {canViewReports && (
+                <div className="bg-zinc-50 dark:bg-zinc-950 p-6 rounded-2xl border border-zinc-100 dark:border-zinc-800">
+                   <div className="flex items-center gap-3 mb-4">
+                      <Info className="w-4 h-4 text-zinc-400" />
+                      <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.25em]">Management Insight</h4>
+                   </div>
+                   <p className="text-xs text-zinc-650 dark:text-zinc-400 leading-relaxed font-semibold">
+                      {selectedStaff.totalPoints > 100 
+                        ? `${selectedStaff.name} is showing exceptional engagement across multiple departments. Strongly consider for pay progression or leadership responsibilities.` 
+                        : `${selectedStaff.name} is maintaining steady output in their primary role. Opportunity for growth in cross-departmental tasks.`}
+                   </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-zinc-50 dark:bg-zinc-950/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 text-center h-full flex flex-col items-center justify-center">
               <User className="w-12 h-12 text-zinc-200 dark:text-zinc-800 mb-4" />
-              <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest">Select a staff member<br/>to view detailed stats</p>
+              <p className="text-sm font-bold text-zinc-450 uppercase tracking-widest">Select a staff member<br/>to view detailed stats</p>
             </div>
           )}
         </div>
@@ -660,23 +933,6 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
   );
 }
 
-function MetricProgress({ label, value, max, color }: { label: string, value: number, max: number, color: string }) {
-  const percentage = max > 0 ? (value / max) * 100 : 0;
-  return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between items-end">
-        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{label}</p>
-        <p className="text-xs font-black text-zinc-900 dark:text-white">{value}</p>
-      </div>
-      <div className="h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-        <div 
-          className={cn("h-full transition-all duration-1000", color)} 
-          style={{ width: `${Math.max(percentage, 2)}%` }} 
-        />
-      </div>
-    </div>
-  );
-}
 
 function StaffActivityTimeline({ tenantId, staffName, staffId }: { tenantId: string, staffName: string, staffId: string }) {
   const [activities, setActivities] = useState<StaffActivity[]>([]);

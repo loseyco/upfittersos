@@ -4,7 +4,8 @@ import {
   AlertTriangle, MapPin, QrCode,
   ClipboardList, CheckSquare, Users, Activity, FileSpreadsheet,
   RefreshCw, AlertCircle, Download,
-  Calendar, Warehouse, Monitor, UserCog, Building2, Settings, BellRing
+  Calendar, Warehouse, Monitor, UserCog, Building2, Settings, BellRing,
+  HelpCircle, ShieldCheck, GraduationCap
 } from 'lucide-react';
 
 export interface TutorialSection {
@@ -13,11 +14,18 @@ export interface TutorialSection {
   content: React.ReactNode;
 }
 
+export interface QuickStep {
+  title: string;
+  description: string;
+  icon?: React.ComponentType<any>;
+}
+
 export interface Tutorial {
   title: string;
   description: string;
   category: string;
   sections: TutorialSection[];
+  quickSteps?: QuickStep[];
 }
 
 export const getTutorialsData = (business: any, staffMember: any, permissions: any): Record<string, Tutorial> => {
@@ -46,6 +54,23 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Attendance & Time Clock Guide",
       description: "Learn how to log your attendance, manage breaks, scan shop QR codes, resolve location geofencing, view flat-rate tasks, and submit corrections.",
       category: "Technician Portal",
+      quickSteps: [
+        {
+          title: "Clocking In & Out",
+          description: "Click the 'Clock In' button in the top bar to start your shift. Use 'Clock Out' when finished.",
+          icon: LogIn
+        },
+        {
+          title: "Log Rest & Lunch Breaks",
+          description: "Click lunch or break buttons. If on a task, your job timer is automatically suspended.",
+          icon: Pizza
+        },
+        {
+          title: "Verify Security & Geolocation",
+          description: "Scan the rotating shop QR code if required and stay within the geofenced radius.",
+          icon: MapPin
+        }
+      ],
       sections: [
         {
           title: "1. Clocking In and Out",
@@ -311,10 +336,22 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
         }
       ]
     },
-    overview: {
+    my_jobs_todos: {
       title: "My Jobs & Todos Dashboard",
       description: "Learn how to access your active job tasks, update vehicle status, check off checklist items, and submit feedback.",
       category: "Technician Portal",
+      quickSteps: [
+        {
+          title: "Review Assigned Jobs",
+          description: "Select active jobs from your dashboard to view tasks, vehicles, and parts status.",
+          icon: ClipboardList
+        },
+        {
+          title: "Complete Tasks & Checklists",
+          description: "Check off checklist items and submit completed flat-rate or book-time tasks.",
+          icon: CheckSquare
+        }
+      ],
       sections: [
         {
           title: "Jobs & Task Cards",
@@ -340,6 +377,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Live Timeclock Monitor Guide",
       description: "Learn how to view the active shop floor roster, current task allocations, and live clock statuses.",
       category: "Management & Office",
+      quickSteps: [
+        {
+          title: "Check Live Roster Status",
+          description: "Instantly see who is clocked in, on lunch, on break, or clocked out.",
+          icon: Users
+        },
+        {
+          title: "Monitor Active Job Tasks",
+          description: "See the exact job numbers and tasks currently allocated to each technician.",
+          icon: Activity
+        }
+      ],
       sections: [
         {
           title: "Roster Board",
@@ -365,6 +414,23 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Timecard & Payroll Management",
       description: "A guide for administrators to audit staff logs, adjust timestamps, verify geolocation maps, compare QuickBooks records, and export CSV reports.",
       category: "Management & Office",
+      quickSteps: [
+        {
+          title: "Audit Shift Logs",
+          description: "Adjust clock-in/out timestamps, manage corrections, and resolve shift anomalies.",
+          icon: FileSpreadsheet
+        },
+        {
+          title: "Compare QuickBooks Records",
+          description: "Perform side-by-side verification of UpfittersOS hours against QuickBooks records.",
+          icon: RefreshCw
+        },
+        {
+          title: "Export Payroll Summaries",
+          description: "Download employee CSV totals and segments for easy upload into payroll software.",
+          icon: Download
+        }
+      ],
       sections: [
         {
           title: "Auditing & Editing Logs",
@@ -408,6 +474,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Business Org Chart Guide",
       description: "Learn how the visual team hierarchy is organized and how department structures are defined.",
       category: "Management & Staff",
+      quickSteps: [
+        {
+          title: "Interactive Hierarchy Map",
+          description: "Browse the tree view of the business structure from leadership to departments.",
+          icon: Users
+        },
+        {
+          title: "View Staff Profile Details",
+          description: "Click any profile card to navigate directly to their detailed staff profile page.",
+          icon: UserCog
+        }
+      ],
       sections: [
         {
           title: "Interactive Hierarchy Map",
@@ -433,6 +511,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Operational Auditing & Diagnostics",
       description: "Learn how to monitor shop floor activities, review job blockers, and inspect missing parts.",
       category: "Management & Office",
+      quickSteps: [
+        {
+          title: "Track Shop Efficiency",
+          description: "Review net clocked shift hours vs completed task book hours and overall efficiency.",
+          icon: Activity
+        },
+        {
+          title: "Resolve Active Blockers",
+          description: "Inspect blocked jobs and pending parts to clear bottlenecks on the floor.",
+          icon: AlertTriangle
+        }
+      ],
       sections: [
         {
           title: "Operational Overview Dashboard",
@@ -467,6 +557,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "QuickBooks Sync Monitor Guide",
       description: "Learn how to monitor background sync events, trigger manual synchronizations, and validate data integrity.",
       category: "System Settings",
+      quickSteps: [
+        {
+          title: "Monitor Sync Statuses",
+          description: "Track background synchronizations for jobs, customers, items, and invoices.",
+          icon: RefreshCw
+        },
+        {
+          title: "Run Health Diagnostics",
+          description: "Validate data health and identify anomalies or negative inventory counts.",
+          icon: AlertCircle
+        }
+      ],
       sections: [
         {
           title: "Real-time Synchronization Monitoring",
@@ -492,6 +594,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Jobs Worksheet Guide",
       description: "Learn how to manage job tickets, update statuses, track active tasks, and assign technicians.",
       category: "Upfitters & Operations",
+      quickSteps: [
+        {
+          title: "Filter & Manage Jobs",
+          description: "Search jobs by number, customer, or VIN, and filter by shop floor status.",
+          icon: FileSpreadsheet
+        },
+        {
+          title: "Allocate Labor Tasks",
+          description: "Expand job rows to schedule tasks, set book hours, and assign technicians.",
+          icon: ClipboardList
+        }
+      ],
       sections: [
         {
           title: "Job Tracking Grid",
@@ -517,6 +631,13 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Schedule Board Guide",
       description: "Learn how to plan jobs on the calendar timeline, assign dates, and monitor deadlines.",
       category: "Upfitters & Operations",
+      quickSteps: [
+        {
+          title: "Visual Capacity Planning",
+          description: "Use the drag-and-drop Gantt timeline to schedule jobs on specific calendar dates.",
+          icon: Calendar
+        }
+      ],
       sections: [
         {
           title: "Calendar Planning View",
@@ -533,6 +654,13 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Staff Worksheet Guide",
       description: "Review daily technician allocations, clocked shifts, and productivity ratios.",
       category: "Upfitters & Operations",
+      quickSteps: [
+        {
+          title: "Technician Calendars",
+          description: "Inspect each technician's daily allocations side-by-side with clocked shift hours.",
+          icon: Users
+        }
+      ],
       sections: [
         {
           title: "Roster Productivity Board",
@@ -549,6 +677,13 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Bay Worksheet Guide",
       description: "Manage physical bay assignments, vehicle slots, and active crew allocations.",
       category: "Upfitters & Operations",
+      quickSteps: [
+        {
+          title: "Physical Bay Allocation",
+          description: "Map vehicle slots and crew assignments to physical shop bays.",
+          icon: Warehouse
+        }
+      ],
       sections: [
         {
           title: "Bay Roster & Crew Mapping",
@@ -565,6 +700,13 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Morning Meeting Board Guide",
       description: "Run productive daily huddles with a consolidated review dashboard.",
       category: "Upfitters & Operations",
+      quickSteps: [
+        {
+          title: "Review Shop Capacity",
+          description: "Use the TV huddle board to check blockers, parts, schedules, and active bay slots.",
+          icon: Monitor
+        }
+      ],
       sections: [
         {
           title: "Daily Huddle Screen",
@@ -581,6 +723,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Staff Directory Guide",
       description: "Manage employee files, department allocations, scheduling, and pay settings.",
       category: "System Settings",
+      quickSteps: [
+        {
+          title: "Manage Employee Files",
+          description: "Invite new staff, link Auth accounts, and configure permissions.",
+          icon: UserCog
+        },
+        {
+          title: "Configure Pay Settings",
+          description: "Assign custom hourly/flat-rate/salary pay bases and schedules.",
+          icon: Clock
+        }
+      ],
       sections: [
         {
           title: "Directory Management",
@@ -606,6 +760,13 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "Departments Config Guide",
       description: "Create and configure business departments, default permissions, and roles.",
       category: "System Settings",
+      quickSteps: [
+        {
+          title: "Manage Roles & Defaults",
+          description: "Define default hourly rates, pay basis, permissions, and budgets by department.",
+          icon: Building2
+        }
+      ],
       sections: [
         {
           title: "Department Profiles & Defaults",
@@ -622,6 +783,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "System Settings Guide",
       description: "Configure business identities, logo upload, geofencing boundary, notifications, and integrations.",
       category: "System Settings",
+      quickSteps: [
+        {
+          title: "Company Identity & Radiuses",
+          description: "Set business name, address, upload branding logo, and configure geofence radius.",
+          icon: Settings
+        },
+        {
+          title: "Notifications & Integrations",
+          description: "Enable global event alerts and connect third-party APIs.",
+          icon: BellRing
+        }
+      ],
       sections: [
         {
           title: "Identity & Physical Gating",
@@ -647,6 +820,18 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       title: "QR Label Hub Guide",
       description: "Generate and print tracking barcode stickers for vehicles, bays, and staff.",
       category: "Management & Office",
+      quickSteps: [
+        {
+          title: "Generate Barcode Stickers",
+          description: "Print physical QR tags for shop vehicles, bays, and technician profiles.",
+          icon: QrCode
+        },
+        {
+          title: "Track Scan Telemetry",
+          description: "Audit scan activity locations and times to evaluate shop workflow coverage.",
+          icon: Activity
+        }
+      ],
       sections: [
         {
           title: "Sticker Printing & Scanning",
@@ -655,6 +840,93 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
             <p className="text-xs text-zinc-550 dark:text-zinc-405 font-semibold leading-relaxed">
               Generate printable QR code stickers for vehicles, bays, and staff. Scans by mobile devices immediately pull up the corresponding job card, checklist, or profile page, and log scan telemetry.
             </p>
+          )
+        }
+      ]
+    },
+    help_system: {
+      title: "Help Center & AI Copilot Guide",
+      description: "Learn how the help system ensures data accuracy, and how to utilize our AI copilot to build, plan, and troubleshoot workflows.",
+      category: "System Documentation",
+      quickSteps: [
+        {
+          title: "Access Contextual Help",
+          description: "Click any menu 'i' icon to open a quick guide for the active page.",
+          icon: HelpCircle
+        },
+        {
+          title: "Read Detailed Manuals",
+          description: "Navigate to the Help Center to browse structured slide-decks and configs.",
+          icon: GraduationCap
+        },
+        {
+          title: "Collaborate with AI Copilot",
+          description: "Work with Gemini (Antigravity) to plan, build, and debug operational code.",
+          icon: ShieldCheck
+        }
+      ],
+      sections: [
+        {
+          title: "1. The Value of the Help Button",
+          icon: HelpCircle,
+          content: (
+            <div className="space-y-3">
+              <p>
+                The <strong>Help Button ("i" icon)</strong> located next to menu items throughout UpfittersOS is designed to prevent operational confusion by providing immediate, context-sensitive documentation.
+              </p>
+              <ul className="list-disc list-inside space-y-1.5 text-xs text-zinc-650 dark:text-zinc-400 font-semibold leading-relaxed">
+                <li><strong>No Page Context Swapping:</strong> Get quick breakdowns of current page features in a popup modal without losing your place.</li>
+                <li><strong>One-Click Deep Dive:</strong> Click <em>Read Full Tutorial</em> in the modal to load full-blown interactive documentation on the Help page.</li>
+                <li><strong>Single Source of Truth:</strong> Centralizing documentation here guarantees all team members reference the exact same standards.</li>
+              </ul>
+            </div>
+          )
+        },
+        {
+          title: "2. Real-Time Settings Accuracy",
+          icon: ShieldCheck,
+          content: (
+            <div className="space-y-3">
+              <p>
+                Unlike static employee handbooks, the help system evaluates the database in real-time to show instructions tailored to the shop's active configurations.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[10px] text-zinc-450 font-bold uppercase tracking-wider block">Physical Policies</span>
+                  <p className="text-xs text-zinc-550 dark:text-zinc-400 font-semibold mt-1">
+                    Shows whether Rest/Lunch breaks are paid, and maps exact geofencing radiuses and street addresses.
+                  </p>
+                </div>
+                <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-xl border border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[10px] text-zinc-450 font-bold uppercase tracking-wider block">Access Controls</span>
+                  <p className="text-xs text-zinc-550 dark:text-zinc-400 font-semibold mt-1">
+                    Gathers settings like QR verification requirements and displays personalized pay tracking cards.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )
+        },
+        {
+          title: "3. Planning & Building with the AI Copilot",
+          icon: GraduationCap,
+          content: (
+            <div className="space-y-3">
+              <p>
+                UpfittersOS is developed in partnership with <strong>Gemini (Antigravity)</strong>, an AI agent capable of writing code, analyzing logs, and planning software expansions.
+              </p>
+              <p className="text-xs text-zinc-555 dark:text-zinc-400 font-semibold leading-relaxed">
+                By maintaining detailed, accurate help documents, we allow the AI to quickly understand our business flows, leading to better feature designs, fewer code errors, and highly tailored analytics.
+              </p>
+              <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/40 text-xs font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-2.5">
+                <span className="w-6 h-6 bg-indigo-500/10 rounded-lg flex items-center justify-center shrink-0 font-bold text-sm">
+                  i
+                </span>
+                <span>
+                  The AI reads these guides to cross-reference software features, ensuring QuickBooks integrations and time calculations match our defined logic.
+                </span>
+              </div>
+            </div>
           )
         }
       ]

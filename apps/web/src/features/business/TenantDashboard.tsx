@@ -135,7 +135,11 @@ export function TenantDashboard() {
     qb_health_audit: 'Data Health Audit'
   };
 
-  const pageTitle = titleMap[activeTab] || activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const pageTitle = titleMap[activeTab] || (
+    activeTab.startsWith('help_') 
+      ? activeTab.replace('help_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + " Guide"
+      : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  );
   
   usePageTitle(pageTitle);
 

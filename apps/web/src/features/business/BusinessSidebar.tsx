@@ -111,9 +111,36 @@ export const ITEMS: NavItem[] = [
   { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
 
   // Help Hub
-  { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help' },
-  { id: 'help_clocking_in_out', label: 'Clocking In/Out', icon: LogIn, hub: 'help' },
-  { id: 'help_breaks_lunches', label: 'Breaks & Lunches', icon: Pizza, hub: 'help' },
+  { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },
+  
+  // Interactive Slide Decks
+  { id: 'help_clocking_in_out', label: 'Clocking In/Out (Slides)', icon: LogIn, hub: 'help', groupLabel: 'Interactive Slide Decks' },
+  { id: 'help_breaks_lunches', label: 'Breaks & Lunches (Slides)', icon: Pizza, hub: 'help', groupLabel: 'Interactive Slide Decks' },
+
+  // Technician Portal
+  { id: 'help_my_jobs_todos', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'help', groupLabel: 'Technician Portal' },
+  { id: 'help_time_details', label: 'Time Clock & Attendance', icon: Clock, hub: 'help', groupLabel: 'Technician Portal' },
+
+  // Upfitters & Operations
+  { id: 'help_jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
+  { id: 'help_job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'help', groupLabel: 'Upfitters & Operations' },
+  { id: 'help_staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
+  { id: 'help_bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
+  { id: 'help_morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'help', groupLabel: 'Upfitters & Operations' },
+
+  // Management & Office
+  { id: 'help_live_timeclock', label: 'Live Timeclock Monitor', icon: Clock, hub: 'help', groupLabel: 'Management & Office' },
+  { id: 'help_timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'help', groupLabel: 'Management & Office' },
+  { id: 'help_qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'help', groupLabel: 'Management & Office' },
+  { id: 'help_audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'help', groupLabel: 'Management & Office' },
+  { id: 'help_org_chart', label: 'Business Org Chart', icon: Users, hub: 'help', groupLabel: 'Management & Office' },
+
+  // System Settings
+  { id: 'help_staff', label: 'Staff Directory', icon: UserCog, hub: 'help', groupLabel: 'System Settings' },
+  { id: 'help_departments', label: 'Departments Config', icon: Building2, hub: 'help', groupLabel: 'System Settings' },
+  { id: 'help_settings', label: 'System Settings', icon: Settings, hub: 'help', groupLabel: 'System Settings' },
+  { id: 'help_qb_sync_status', label: 'QB Sync Monitor', icon: RefreshCw, hub: 'help', groupLabel: 'System Settings' },
+  { id: 'help_help_system', label: 'Help System & AI', icon: HelpCircle, hub: 'help', groupLabel: 'System Settings' },
 
   // SOP Hub
   { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'sop' },
@@ -184,6 +211,8 @@ export function BusinessSidebar({
 
   // Track the selected Hub (Tier 1)
   const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop'>(() => {
+    if (activeTab?.startsWith('help_')) return 'help';
+    if (activeTab?.startsWith('sop_')) return 'sop';
     const activeItem = ITEMS.find(item => item.id === activeTab);
     return activeItem ? activeItem.hub : 'dashboard';
   });
@@ -191,6 +220,8 @@ export function BusinessSidebar({
   // Keep Tier 1 active hub synchronized when activeTab changes
   useEffect(() => {
     setActiveHub(current => {
+      if (activeTab?.startsWith('help_')) return 'help';
+      if (activeTab?.startsWith('sop_')) return 'sop';
       const currentHubItems = ITEMS.filter(item => item.hub === current);
       const isTabInCurrentHub = currentHubItems.some(item => item.id === activeTab);
       
@@ -317,21 +348,26 @@ export function BusinessSidebar({
                         <item.icon className={`w-4 h-4 shrink-0 transition-transform duration-200 group-hover:scale-110 ${isActive ? "text-white" : "text-zinc-500"}`} />
                         <span className="text-xs font-semibold tracking-wide truncate">{item.label}</span>
                       </button>
-                      {item.hub !== 'help' && item.hub !== 'sop' && !!TUTORIALS_DATA[item.id] && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            useTutorialStore.getState().openTutorial(item.id);
-                          }}
-                          className={`p-2 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all shrink-0 cursor-pointer active:scale-90 ${
-                            isActive ? 'text-zinc-300 hover:text-white' : ''
-                          }`}
-                          title={`How to use ${item.label}`}
-                        >
-                          <Info className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      {(() => {
+                        const helpKey = item.id === 'overview' ? 'my_jobs_todos' : item.id;
+                        const hasTutorial = item.hub !== 'help' && item.hub !== 'sop' && !!TUTORIALS_DATA[helpKey];
+                        if (!hasTutorial) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              useTutorialStore.getState().openTutorial(helpKey);
+                            }}
+                            className={`p-2 rounded-xl text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-all shrink-0 cursor-pointer active:scale-90 ${
+                              isActive ? 'text-zinc-300 hover:text-white' : ''
+                            }`}
+                            title={`How to use ${item.label}`}
+                          >
+                            <Info className="w-3.5 h-3.5" />
+                          </button>
+                        );
+                      })()}
                     </div>
                   );
                 })}
