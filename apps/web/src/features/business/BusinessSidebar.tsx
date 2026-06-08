@@ -140,7 +140,7 @@ export const ITEMS: NavItem[] = [
   { id: 'help_departments', label: 'Departments Config', icon: Building2, hub: 'help', groupLabel: 'System Settings' },
   { id: 'help_settings', label: 'System Settings', icon: Settings, hub: 'help', groupLabel: 'System Settings' },
   { id: 'help_qb_sync_status', label: 'QB Sync Monitor', icon: RefreshCw, hub: 'help', groupLabel: 'System Settings' },
-  { id: 'help_help_system', label: 'Help System & AI', icon: HelpCircle, hub: 'help', groupLabel: 'System Settings' },
+  { id: 'help_help_system', label: 'Help System', icon: HelpCircle, hub: 'help', groupLabel: 'System Settings' },
 
   // SOP Hub
   { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'sop' },

@@ -1,11 +1,13 @@
 import { useState, Fragment } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { collection, query, orderBy, getDocs, limit } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, limit, getDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Clock, Calendar, Search, MapPin, Pizza, Coffee,
-  Download, AlertCircle, Edit2, AlertTriangle, Info
+  Download, AlertCircle, Edit2, AlertTriangle, Info,
+  UserCheck, UserX, LogIn, LogOut, RefreshCw, Activity
 } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
 import { WeeklyTimeclockReportModal } from './WeeklyTimeclockReportModal';
 import { StaffLink } from '../business/StaffPerformance';
@@ -196,8 +198,46 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const [filterType, setFilterType] = useState<'all' | 'remote' | 'active' | 'flagged'>('all');
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections'>('logs');
+  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity'>('logs');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+
+  const { data: activityLogs, isLoading: isLoadingLogs } = useQuery({
+    queryKey: ['admin-timeclock-activity-logs', tenantId],
+    queryFn: async () => {
+      const q = query(
+        collection(db, `businesses/${tenantId}/activity_feed`),
+        orderBy('timestamp', 'desc'),
+        limit(200)
+      );
+      const snap = await getDocs(q);
+      const allLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      // Filter in-memory for safety and speed to ensure we only get timeclock-related logs
+      return allLogs.filter(log => log.type === 'time_session');
+    }
+  });
+
+  const handleViewSessionFromLog = async (sessionId: string) => {
+    if (!sessionId) {
+      toast.error("No session associated with this log.");
+      return;
+    }
+    const resolveToast = toast.loading("Loading corresponding time session...");
+    try {
+      const docRef = doc(db, `businesses/${tenantId}/time_sessions`, sessionId);
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+        toast.dismiss(resolveToast);
+        setEditingSession({ id: snap.id, ...snap.data() } as TimeSession);
+      } else {
+        toast.error("The corresponding time session was not found (it may have been deleted).");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load time session.");
+    } finally {
+      toast.dismiss(resolveToast);
+    }
+  };
 
   const handleExportMainCSV = () => {
     try {
@@ -501,6 +541,16 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
               {pendingRequests.length + flaggedCount}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setViewMode('activity')}
+          className={`pb-3 text-xs font-black uppercase tracking-widest border-b-2 px-6 transition-all cursor-pointer flex items-center gap-2 ${
+            viewMode === 'activity'
+              ? 'border-indigo-500 text-indigo-600 dark:text-white'
+              : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-350'
+          }`}
+        >
+          <span>Manager Activity Logs</span>
         </button>
       </div>
 
@@ -1181,6 +1231,128 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
         </div>
       )}
 
+      {viewMode === 'activity' && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-zinc-150 dark:border-zinc-800 bg-zinc-50/30 dark:bg-zinc-950/20">
+              <h3 className="font-bold text-zinc-950 dark:text-white flex items-center gap-2">
+                <Activity className="w-5 h-5 text-indigo-500" />
+                Manager Activity & Overrides
+              </h3>
+              <p className="text-xs text-zinc-550 mt-1">Audit trail of all administrative adjustments, approvals, force clock actions, and manual timecard edits.</p>
+            </div>
+            
+            <div className="overflow-x-auto">
+              {isLoadingLogs ? (
+                <div className="p-12 text-center text-zinc-500">Loading audit logs...</div>
+              ) : activityLogs && activityLogs.length > 0 ? (
+                <table className="w-full text-sm text-left border-collapse">
+                  <thead className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-500 uppercase text-[10px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
+                    <tr>
+                      <th className="px-6 py-4">Timestamp</th>
+                      <th className="px-6 py-4">Action</th>
+                      <th className="px-6 py-4">Performed By</th>
+                      <th className="px-6 py-4">Target Technician</th>
+                      <th className="px-6 py-4">Log Message</th>
+                      <th className="px-6 py-4"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 font-medium">
+                    {activityLogs.map((log: any) => {
+                      const logDate = log.timestamp?.toDate ? log.timestamp.toDate() : new Date(log.timestamp);
+                      const formattedDate = isNaN(logDate.getTime()) 
+                        ? '--' 
+                        : logDate.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+                      const title = log.title || 'System Action';
+                      const message = log.message || '';
+                      const author = log.author || 'System';
+                      const technician = log.metadata?.technicianName || 'Staff Member';
+                      const sessionId = log.metadata?.sessionId;
+
+                      let badgeStyle = 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300';
+                      let ActionIcon = Clock;
+
+                      if (title.includes('Approved')) {
+                        badgeStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+                        ActionIcon = UserCheck;
+                      } else if (title.includes('Rejected')) {
+                        badgeStyle = 'bg-rose-500/10 text-rose-600 dark:text-rose-455 border border-rose-500/20';
+                        ActionIcon = UserX;
+                      } else if (title.includes('Clock Out')) {
+                        badgeStyle = 'bg-rose-500/10 text-rose-600 dark:text-rose-455 border border-rose-500/20';
+                        ActionIcon = LogOut;
+                      } else if (title.includes('Clock In')) {
+                        badgeStyle = 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20';
+                        ActionIcon = LogIn;
+                      } else if (title.includes('Break')) {
+                        badgeStyle = 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20';
+                        ActionIcon = Coffee;
+                      } else if (title.includes('Resume')) {
+                        badgeStyle = 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20';
+                        ActionIcon = RefreshCw;
+                      } else if (title.includes('Updated') || title.includes('Correction Requested')) {
+                        badgeStyle = 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20';
+                        ActionIcon = Edit2;
+                      }
+
+                      return (
+                        <tr 
+                          key={log.id} 
+                          onClick={() => sessionId && handleViewSessionFromLog(sessionId)}
+                          className={cn(
+                            "hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors",
+                            sessionId && "cursor-pointer group"
+                          )}
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                            {formattedDate}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={cn(
+                              "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 w-fit leading-none",
+                              badgeStyle
+                            )}>
+                              <ActionIcon className="w-3 h-3 shrink-0" />
+                              {title}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-zinc-700 dark:text-zinc-300 font-bold">
+                            {author}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-zinc-900 dark:text-white font-bold">
+                            {technician}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-zinc-550 dark:text-zinc-400 max-w-sm truncate" title={message}>
+                            {message}
+                          </td>
+                          <td className="px-6 py-4 text-right whitespace-nowrap">
+                            {sessionId && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewSessionFromLog(sessionId);
+                                }}
+                                className="p-2 text-zinc-300 group-hover:text-indigo-500 hover:bg-indigo-500/10 rounded-lg transition-all"
+                                title="Inspect Time Session"
+                              >
+                                <Info className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <div className="p-12 text-center text-zinc-500 italic font-medium">No manager activity logs found.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingSession && (
         <TimeSessionEditorModal
           tenantId={tenantId}
@@ -1193,6 +1365,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
           onSaved={() => {
             queryClient.invalidateQueries({ queryKey: ['admin-time-sessions'] });
             queryClient.invalidateQueries({ queryKey: ['admin-time-edit-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['admin-timeclock-activity-logs', tenantId] });
           }}
         />
       )}

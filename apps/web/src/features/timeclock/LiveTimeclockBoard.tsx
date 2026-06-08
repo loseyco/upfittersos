@@ -126,7 +126,7 @@ interface Department {
 export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions = {}, isSuperAdmin } = useAuthStore();
   const canManage = isSuperAdmin || permissions['timeclock.manage'];
   const [searchTerm, setSearchTerm] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -167,8 +167,29 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
           },
           breaks,
           jobs,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          manuallyClockedOut: true,
+          clockedOutBy: user?.displayName || user?.email || 'Manager',
+          clockedOutById: user?.uid || '',
+          lastEditedBy: user?.displayName || user?.email || 'Manager',
+          lastEditedById: user?.uid || '',
+          manuallyEdited: true
         });
+
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'time_session',
+          title: 'Force Clock Out',
+          message: `Force clocked out ${session.userName || 'Technician'} by ${user?.displayName || user?.email || 'Admin'}`,
+          timestamp: serverTimestamp(),
+          severity: 'warning',
+          author: user?.displayName || user?.email || 'Admin',
+          metadata: {
+            sessionId: session.id,
+            technicianName: session.userName || '',
+            action: 'clock_out'
+          }
+        });
+
         toast.success(`Clocked out ${session.userName}`);
       } else if (action === 'lunch' || action === 'break') {
         const type = action === 'lunch' ? 'lunch' : 'normal';
@@ -200,8 +221,26 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
           breaks,
           jobs,
           status: 'on_break',
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastEditedBy: user?.displayName || user?.email || 'Manager',
+          lastEditedById: user?.uid || '',
+          manuallyEdited: true
         });
+
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'time_session',
+          title: 'Force Break Start',
+          message: `Put ${session.userName || 'Technician'} on ${type} break by ${user?.displayName || user?.email || 'Admin'}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author: user?.displayName || user?.email || 'Admin',
+          metadata: {
+            sessionId: session.id,
+            technicianName: session.userName || '',
+            action: type
+          }
+        });
+
         toast.success(`Put ${session.userName} on ${type}`);
       } else if (action === 'resume') {
         const sessionSnap = await getDoc(sessionRef);
@@ -231,8 +270,26 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
           jobs,
           jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
           status: 'active',
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
+          lastEditedBy: user?.displayName || user?.email || 'Manager',
+          lastEditedById: user?.uid || '',
+          manuallyEdited: true
         });
+
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'time_session',
+          title: 'Force Resume',
+          message: `Resumed active status for ${session.userName || 'Technician'} by ${user?.displayName || user?.email || 'Admin'}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author: user?.displayName || user?.email || 'Admin',
+          metadata: {
+            sessionId: session.id,
+            technicianName: session.userName || '',
+            action: 'resume'
+          }
+        });
+
         toast.success(`Resumed session for ${session.userName}`);
       } else if (action === 'clock_in') {
         const staff = scheduleData?.staff?.find((s: any) => s.userId === session.userId || s.id === session.userId);
@@ -241,7 +298,7 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
           ? staff.payType
           : (dept?.defaultPayType || 'hourly');
 
-        await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
+        const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
           userId: session.userId,
           userName: session.userName,
           staffName: session.userName,
@@ -255,12 +312,34 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
           isRemote: false,
           status: 'active',
           breaks: [],
-          createdAt: serverTimestamp()
+          createdAt: serverTimestamp(),
+          manuallyClockedIn: true,
+          clockedInBy: user?.displayName || user?.email || 'Manager',
+          clockedInById: user?.uid || '',
+          lastEditedBy: user?.displayName || user?.email || 'Manager',
+          lastEditedById: user?.uid || '',
+          manuallyEdited: true
         });
+
+        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+          type: 'time_session',
+          title: 'Force Clock In',
+          message: `Force clocked in ${session.userName || 'Technician'} by ${user?.displayName || user?.email || 'Admin'}`,
+          timestamp: serverTimestamp(),
+          severity: 'info',
+          author: user?.displayName || user?.email || 'Admin',
+          metadata: {
+            sessionId: docRef.id,
+            technicianName: session.userName || '',
+            action: 'clock_in'
+          }
+        });
+
         toast.success(`Clocked in ${session.userName}`);
       }
 
       queryClient.invalidateQueries({ queryKey: ['live-time-sessions', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-timeclock-activity-logs', tenantId] });
     } catch (err: any) {
       toast.error(`Action failed: ${err.message}`);
     } finally {

@@ -1132,7 +1132,7 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           /* Hide app wrappers, sidebars, dashboard layout items */
-          header, sidebar, nav, footer, .print\\:hidden, button, select {
+          header, sidebar, nav, footer, .print-hidden, .print\\:hidden, button, select {
             display: none !important;
           }
           body {
@@ -1140,6 +1140,20 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
             color: black !important;
             margin: 0 !important;
             padding: 0 !important;
+          }
+          /* Override overflow-hidden and height-screen on layout elements during print */
+          html, body, #root, 
+          div.flex.h-screen, 
+          div.flex-1.flex.flex-col.min-w-0, 
+          main, 
+          main > div,
+          div.fixed.inset-0.z-50, 
+          div.fixed.inset-0.z-50 > div {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+            max-height: none !important;
+            position: relative !important;
           }
           .print-page {
             page-break-after: always !important;
@@ -1153,6 +1167,10 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
             justify-content: space-between !important;
             background: white !important;
             color: black !important;
+          }
+          .page-break {
+            page-break-before: always !important;
+            break-before: page !important;
           }
           /* Eliminate header gaps */
           div[class*="overflow-y-auto"] {

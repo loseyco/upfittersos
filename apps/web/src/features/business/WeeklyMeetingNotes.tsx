@@ -958,7 +958,7 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
       <style>{`
         @media print {
           /* Hide non-print containers */
-          .no-print, header, aside, .no-print * {
+          .no-print, header, aside, .no-print *, .print-hidden, .print\\:hidden {
             display: none !important;
           }
           
@@ -973,6 +973,19 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
             font-family: Arial, Helvetica, sans-serif !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+          }
+
+          /* Override overflow-hidden and height-screen on layout elements during print */
+          html, body, #root, 
+          div.flex.h-screen, 
+          div.flex-1.flex.flex-col.min-w-0, 
+          main, 
+          main > div {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+            max-height: none !important;
+            position: relative !important;
           }
 
           /* Force exact pagination */

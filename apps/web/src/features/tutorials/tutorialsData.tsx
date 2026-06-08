@@ -845,8 +845,8 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
       ]
     },
     help_system: {
-      title: "Help Center & AI Copilot Guide",
-      description: "Learn how the help system ensures data accuracy, and how to utilize our AI copilot to build, plan, and troubleshoot workflows.",
+      title: "Help Center Guide",
+      description: "Learn how the help system ensures data accuracy, and how to utilize our documentation to understand and troubleshoot workflows.",
       category: "System Documentation",
       quickSteps: [
         {
@@ -858,11 +858,6 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
           title: "Read Detailed Manuals",
           description: "Navigate to the Help Center to browse structured slide-decks and configs.",
           icon: GraduationCap
-        },
-        {
-          title: "Collaborate with AI Copilot",
-          description: "Work with Gemini (Antigravity) to plan, build, and debug operational code.",
-          icon: ShieldCheck
         }
       ],
       sections: [
@@ -903,28 +898,6 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
                     Gathers settings like QR verification requirements and displays personalized pay tracking cards.
                   </p>
                 </div>
-              </div>
-            </div>
-          )
-        },
-        {
-          title: "3. Planning & Building with the AI Copilot",
-          icon: GraduationCap,
-          content: (
-            <div className="space-y-3">
-              <p>
-                UpfittersOS is developed in partnership with <strong>Gemini (Antigravity)</strong>, an AI agent capable of writing code, analyzing logs, and planning software expansions.
-              </p>
-              <p className="text-xs text-zinc-555 dark:text-zinc-400 font-semibold leading-relaxed">
-                By maintaining detailed, accurate help documents, we allow the AI to quickly understand our business flows, leading to better feature designs, fewer code errors, and highly tailored analytics.
-              </p>
-              <div className="p-3.5 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-2xl border border-indigo-100/50 dark:border-indigo-900/40 text-xs font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-2.5">
-                <span className="w-6 h-6 bg-indigo-500/10 rounded-lg flex items-center justify-center shrink-0 font-bold text-sm">
-                  i
-                </span>
-                <span>
-                  The AI reads these guides to cross-reference software features, ensuring QuickBooks integrations and time calculations match our defined logic.
-                </span>
               </div>
             </div>
           )

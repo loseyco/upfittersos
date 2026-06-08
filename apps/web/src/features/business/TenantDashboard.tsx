@@ -98,7 +98,7 @@ export function TenantDashboard() {
     schedule: 'Staff Roster',
     job_schedule: 'Schedule',
     control_board: 'Control Board',
-    timeclock: 'Timeclock',
+    timeclock: 'Payroll & Attendance',
     live_timeclock: 'Live Timeclock',
     parts: 'Parts Dept',
     printed_parts: 'Print Farm',
