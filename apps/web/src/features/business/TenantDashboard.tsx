@@ -72,6 +72,7 @@ import { WeeklyMeetingNotes } from './WeeklyMeetingNotes';
 import { TutorialModal } from '../tutorials/TutorialModal';
 import { HelpCenter } from '../tutorials/HelpCenter';
 import { SOPCenter } from '../sops/SOPCenter';
+import { SalesCrmManager } from './sales/SalesCrmManager';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -103,6 +104,7 @@ export function TenantDashboard() {
     parts: 'Parts Dept',
     printed_parts: 'Print Farm',
     harness: 'Harness Dept',
+    sales: 'Sales & CRM',
     items: 'Parts Library',
     office: 'Office',
     customers: 'Customers',
@@ -477,6 +479,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'sales' && (
+              <PermissionGate permission="sales.view">
+                <SalesCrmManager tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'graphics' && (
               <PermissionGate permission="graphics.view">
                 <DepartmentDashboard 
@@ -620,7 +628,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'weekly_meeting' && (
-              <PermissionGate permission="office.view">
+              <PermissionGate permissions={["office.view", "foreman.view"]}>
                 <WeeklyMeetingNotes tenantId={tenantId!} />
               </PermissionGate>
             )}

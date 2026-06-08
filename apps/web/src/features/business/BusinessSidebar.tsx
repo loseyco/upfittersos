@@ -4,7 +4,7 @@ import {
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow
+  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -20,7 +20,7 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
@@ -41,6 +41,7 @@ export const ITEMS: NavItem[] = [
   { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'staff_worksheet.view' },
   { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'bay_worksheet.view' },
   { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'upfitters', permission: 'foreman.view' },
+  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'upfitters', permission: 'foreman.view' },
 
   // Parts Dept
   { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
@@ -65,6 +66,9 @@ export const ITEMS: NavItem[] = [
   // Harness Dept
   { id: 'harness', label: 'Overview', icon: Layers, hub: 'harness', permission: 'harness.view' },
 
+  // Sales Dept
+  { id: 'sales', label: 'Sales & CRM', icon: TrendingUp, hub: 'sales', permission: 'sales.view' },
+
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
@@ -77,6 +81,7 @@ export const ITEMS: NavItem[] = [
   // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
   { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'office', permission: 'vehicles.view' },
   { id: 'audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'office', permission: 'reports.view' },
+  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'office', permission: 'office.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   // { id: 'vehicle_intake', label: 'Vehicle Intake', icon: Car, hub: 'office', permission: 'vehicle_intake.use' },
 
@@ -147,7 +152,7 @@ export const ITEMS: NavItem[] = [
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop';
+  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop';
   label: string;
   icon: React.ElementType;
 };
@@ -162,6 +167,7 @@ const HUBS: HubType[] = [
   { id: 'fast', label: 'F.A.S.T', icon: Activity },
   { id: 'fabrication', label: 'Fabrication', icon: Wrench },
   { id: 'harness', label: 'Harness Dept', icon: Layers },
+  { id: 'sales', label: 'Sales Dept', icon: TrendingUp },
   { id: 'facility', label: 'Facility', icon: Map },
   { id: 'help', label: 'Help Center', icon: HelpCircle },
   { id: 'sop', label: 'SOP Center', icon: Workflow },
@@ -210,7 +216,7 @@ export function BusinessSidebar({
   });
 
   // Track the selected Hub (Tier 1)
-  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop'>(() => {
+  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop'>(() => {
     if (activeTab?.startsWith('help_')) return 'help';
     if (activeTab?.startsWith('sop_')) return 'sop';
     const activeItem = ITEMS.find(item => item.id === activeTab);
@@ -284,7 +290,7 @@ export function BusinessSidebar({
     return visibleItems.filter(item => item.hub === hubId);
   };
 
-  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'facility' | 'settings' | 'help' | 'sop', isOverlay = false) => {
+  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop', isOverlay = false) => {
     const hubItems = getSubmenuItemsForHub(hubId);
 
     // Extract unique groups

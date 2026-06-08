@@ -198,7 +198,9 @@ export function DebugPortal() {
       'timeclock.manage': true,
       'staff_worksheet.view': true,
       'bay_worksheet.view': true,
-      'parts_worksheet.view': true
+      'parts_worksheet.view': true,
+      'sales.view': true,
+      'sales.manage': true
     };
 
     const office: PermissionSet = {
@@ -225,7 +227,9 @@ export function DebugPortal() {
       'tasks.view': true,
       'tasks.manage': true,
       'whiteboards.view': true,
-      'whiteboards.manage': true
+      'whiteboards.manage': true,
+      'sales.view': true,
+      'sales.manage': true
     };
 
     return [
@@ -296,7 +300,8 @@ export function DebugPortal() {
       parts_worksheet: 'parts_worksheet.view',
       tasks: 'tasks.view',
       canvases: 'whiteboards.view',
-      vendors: 'vendors.view'
+      vendors: 'vendors.view',
+      sales: 'sales.view'
     };
 
     return {

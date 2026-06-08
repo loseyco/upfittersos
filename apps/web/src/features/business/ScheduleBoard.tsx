@@ -234,7 +234,7 @@ interface ScheduleBoardProps {
   tenantId: string;
 }
 
-function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now }: { job: any, tenantId: string, staffList: any[], zones: any[], sessions: any[], viewMode: 'bays' | 'staff', timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string, staffId?: string) => void, monitorSettings: any, partsRequests: any[], now: Date }) {
+function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now, isSequentialView }: { job: any, tenantId: string, staffList: any[], zones: any[], sessions: any[], viewMode: 'bays' | 'staff', timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string, staffId?: string) => void, monitorSettings: any, partsRequests: any[], now: Date, isSequentialView?: boolean }) {
   const navigate = useNavigate();
   const { data: partsInfo } = useJobPartsStatus(tenantId, job.id);
   
@@ -394,6 +394,94 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
   } else if (isFinished) {
     // If we have a split, we base the border on the finished color (emerald), but background will be a gradient
     customBgStyle.borderColor = '#059669'; // emerald-600 border
+  }
+
+  if (isSequentialView) {
+    const cardBgStyle = { ...customBgStyle };
+    if (isFinished) {
+      cardBgStyle.backgroundColor = '#10b981';
+      cardBgStyle.borderColor = '#059669';
+    }
+    
+    const start = new Date(startMs);
+    const end = endMs ? new Date(endMs) : projectWorkingHours(start, estimatedHours, schedule);
+    
+    const formatTime = (date: Date) => {
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    };
+    
+    return (
+      <div 
+        draggable
+        onDragStart={(e) => onDragStart(e, job)}
+        onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+        style={cardBgStyle}
+        className="relative h-20 w-72 shrink-0 rounded-xl border border-white/10 shadow-sm cursor-grab hover:shadow-md transition-all group overflow-hidden p-2 flex flex-col justify-between"
+      >
+        {/* Progress Background */}
+        <div className="absolute inset-0 bg-white/5 z-0 pointer-events-none" />
+        
+        <div className="relative z-10 flex flex-col h-full justify-between pointer-events-none">
+          <div className="flex items-start justify-between gap-1.5 min-w-0">
+            <div className="min-w-0 flex-1">
+              {job.customerName && (
+                <p className="text-[8px] text-white/70 font-black uppercase tracking-tight truncate mb-0.5">{job.customerName}</p>
+              )}
+              <h4 className="font-bold text-xs text-white truncate">
+                {job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title || 'Untitled'}
+              </h4>
+            </div>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnschedule(job.id, job._renderedRowKey);
+              }}
+              className="p-0.5 bg-black/20 hover:bg-red-500 text-white/50 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-colors z-20 pointer-events-auto shrink-0"
+              title="Unschedule Job"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+          
+          <div className="flex items-center justify-between text-[9px] text-white/80 font-bold mt-0.5">
+            <div className="flex items-center gap-1 min-w-0 text-[8.5px]">
+              <span className="truncate">
+                {formatDate(start)} {formatTime(start)} - {formatDate(end)} {formatTime(end)}
+              </span>
+            </div>
+            <span className="shrink-0 bg-black/25 px-1 rounded border border-white/5 text-[8.5px]">
+              {estimatedHours}h
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 text-[8px] font-black uppercase tracking-wider mt-0.5">
+            <div className="flex items-center gap-1 truncate">
+              {currentZone && (
+                <span className="bg-black/25 px-1 py-0.5 rounded border border-white/5 text-white/90">
+                  {currentZone.name}
+                </span>
+              )}
+              {actualTimeInfo.ms > 0 && (
+                <span className={cn(
+                  "px-1 py-0.5 rounded border flex items-center gap-0.5",
+                  actualTimeInfo.isActive ? "bg-emerald-500/25 text-emerald-300 border-emerald-500/40" : "bg-black/25 text-white/70 border-white/5"
+                )}>
+                  {actualTimeInfo.isActive ? 'Active' : 'Logged'}: {formatActualTime(actualTimeInfo.ms)}
+                </span>
+              )}
+            </div>
+            {partsInfo && partsInfo.status !== 'No Parts Needed' && (
+              <span className={hasPartsConflict ? 'text-red-400' : 'text-emerald-300'}>
+                {partsInfo.status === 'Ready' ? 'Parts Ready' : 'Parts Conflict'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -604,6 +692,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [unscheduledSearch, setUnscheduledSearch] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSequentialView, setIsSequentialView] = useState(false);
   const viewMode: any = 'staff';
 
 
@@ -951,17 +1040,18 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
           return a.isScheduled ? -1 : 1;
         }
         
-        // Tier 2: Clocked in today (isClockedIn)
-        if (a.isClockedIn !== b.isClockedIn) {
-          return a.isClockedIn ? -1 : 1;
-        }
-        
-        // Tier 3: Sort by department name
+        // Tier 2: Sort by department name
         if (a.deptName !== b.deptName) {
           if (a.deptName === 'Unassigned') return 1;
           if (b.deptName === 'Unassigned') return -1;
           return a.deptName.localeCompare(b.deptName);
         }
+        
+        // Tier 3: Clocked in today (isClockedIn)
+        if (a.isClockedIn !== b.isClockedIn) {
+          return a.isClockedIn ? -1 : 1;
+        }
+        
         // Tier 4: Sort alphabetically by name
         return a.name.localeCompare(b.name);
       });
@@ -982,22 +1072,6 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     const fromStaffId = e.dataTransfer.getData('fromStaffId');
     
     if (!jobId) return;
-
-    // Calculate dropped time based on X coordinate
-    const containerRect = e.currentTarget.getBoundingClientRect();
-    const dropX = e.clientX - containerRect.left;
-    
-    // We adjust by dragOffsetX so the start of the block lands where the mouse grabbed it
-    const adjustedX = Math.max(0, dropX - dragOffsetX);
-    
-    const hoursFromStart = adjustedX / zoomLevel;
-    
-    const newStartDate = new Date(timelineStart);
-    newStartDate.setTime(newStartDate.getTime() + (hoursFromStart * 60 * 60 * 1000));
-    
-    // Snap to nearest 15 minutes
-    const ms = 1000 * 60 * 15;
-    const snappedDate = new Date(Math.round(newStartDate.getTime() / ms) * ms);
 
     const job = jobs.find(j => j.id === jobId);
     let estimatedHours = parseFloat(job?.scheduledHours || job?.estimatedHours || '1');
@@ -1031,6 +1105,35 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       if (!schedule.days.includes(smDay)) {
         schedule.days = [...schedule.days, smDay];
       }
+    }
+
+    let snappedDate;
+    if (isSequentialView) {
+      const rowJobs = visualCascadedJobs.filter(j => j._renderedRowKey === rowId && j.id !== jobId);
+      if (rowJobs.length > 0) {
+        const maxEnd = Math.max(...rowJobs.map(j => j._visualEndMs));
+        snappedDate = new Date(maxEnd);
+      } else {
+        snappedDate = new Date(timelineStart);
+        const [startH, startM] = schedule.startTime.split(':').map(Number);
+        snappedDate.setHours(startH, startM, 0, 0);
+      }
+    } else {
+      // Calculate dropped time based on X coordinate
+      const containerRect = e.currentTarget.getBoundingClientRect();
+      const dropX = e.clientX - containerRect.left;
+      
+      // We adjust by dragOffsetX so the start of the block lands where the mouse grabbed it
+      const adjustedX = Math.max(0, dropX - dragOffsetX);
+      
+      const hoursFromStart = adjustedX / zoomLevel;
+      
+      const newStartDate = new Date(timelineStart);
+      newStartDate.setTime(newStartDate.getTime() + (hoursFromStart * 60 * 60 * 1000));
+      
+      // Snap to nearest 15 minutes
+      const ms = 1000 * 60 * 15;
+      snappedDate = new Date(Math.round(newStartDate.getTime() / ms) * ms);
     }
     
     const endDate = projectWorkingHours(snappedDate, estimatedHours, schedule);
@@ -1463,6 +1566,32 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         
         <div className="flex items-center gap-4">
 
+          {/* View Mode Toggle: Timeline vs Sequential */}
+          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-xl">
+            <button
+              onClick={() => setIsSequentialView(false)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-sm font-bold transition-all",
+                !isSequentialView 
+                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm" 
+                  : "text-zinc-650 dark:text-zinc-450 hover:bg-white/50 dark:hover:bg-zinc-800"
+              )}
+            >
+              Timeline
+            </button>
+            <button
+              onClick={() => setIsSequentialView(true)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-sm font-bold transition-all",
+                isSequentialView 
+                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm" 
+                  : "text-zinc-650 dark:text-zinc-450 hover:bg-white/50 dark:hover:bg-zinc-800"
+              )}
+            >
+              Sequential
+            </button>
+          </div>
+
           <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-xl">
             <button onClick={handlePrevDay} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
               <ChevronLeft className="w-4 h-4" />
@@ -1475,17 +1604,19 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
             </button>
           </div>
           
-          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-xl">
-            <button onClick={handleZoomOut} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <div className="px-2 text-xs font-bold text-zinc-500 min-w-[3rem] text-center">
-              {Math.round((zoomLevel / 60) * 100)}%
+          {!isSequentialView && (
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-xl">
+              <button onClick={handleZoomOut} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <div className="px-2 text-xs font-bold text-zinc-500 min-w-[3rem] text-center">
+                {Math.round((zoomLevel / 60) * 100)}%
+              </div>
+              <button onClick={handleZoomIn} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
+                <ZoomIn className="w-4 h-4" />
+              </button>
             </div>
-            <button onClick={handleZoomIn} className="p-2 hover:bg-white dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors">
-              <ZoomIn className="w-4 h-4" />
-            </button>
-          </div>
+          )}
 
           <button 
             onClick={() => {
@@ -1706,48 +1837,58 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
         {/* Timeline Grid */}
         <div className="flex-1 overflow-auto custom-scrollbar relative bg-white dark:bg-zinc-950" ref={scrollRef}>
-          <div className="w-max min-w-full min-h-full flex flex-col">
+          <div className={cn(
+            isSequentialView ? "w-full min-h-full flex flex-col" : "w-max min-w-full min-h-full flex flex-col"
+          )}>
             {/* Header Row (Time) */}
             <div className="sticky top-0 z-30 flex bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 shadow-sm shrink-0">
-            {/* Corner Cell */}
-            <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-4 flex items-end sticky left-0 z-40 bg-white dark:bg-zinc-950">
-              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-                {viewMode === 'bays' ? 'Bay' : 'Staff Member'}
-              </span>
-            </div>
-            
-            {/* Time Ticks */}
-            <div className="flex relative" style={{ width: `${dynamicTotalHours * zoomLevel}px` }}>
-              {timeHeaders.map((header, i) => (
-                <div 
-                  key={i} 
-                  className="shrink-0 border-r border-zinc-100 dark:border-zinc-800/50 p-2 relative flex flex-col justify-end"
-                  style={{ width: `${zoomLevel}px` }}
-                >
-                  {header.isNewDay && (
-                    <div className="absolute top-1 left-1 text-[10px] font-black uppercase text-indigo-500 tracking-wider whitespace-nowrap bg-white dark:bg-zinc-950 z-10 px-1 rounded shadow-sm border border-indigo-100 dark:border-indigo-900/30">
-                      {header.dayLabel}
-                    </div>
-                  )}
-                  <span className="text-[10px] font-bold text-zinc-500">{header.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Timeline Body Container */}
-          <div className="relative flex-1" onWheel={handleWheel}>
-            {/* Current Time Indicator Line */}
-            {currentTimePx > 0 && currentTimePx < (dynamicTotalHours * zoomLevel) && (
-              <div 
-                className="absolute top-0 bottom-0 w-px bg-red-500 z-20 shadow-[0_0_8px_rgba(239,68,68,0.6)] pointer-events-none"
-                style={{ left: `${currentTimePx + 192}px` }} // +192px for the row column width
-              >
-                <div className="absolute -top-3 -translate-x-1/2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full z-20">
-                  NOW
-                </div>
+              {/* Corner Cell */}
+              <div className="w-48 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-4 flex items-end sticky left-0 z-40 bg-white dark:bg-zinc-950">
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                  {viewMode === 'bays' ? 'Bay' : 'Staff Member'}
+                </span>
               </div>
-            )}
+              
+              {/* Time Ticks or Sequential Banner */}
+              {isSequentialView ? (
+                <div className="flex-1 p-4 flex items-center bg-zinc-50 dark:bg-zinc-900/30">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
+                    Jobs Queue (Sequential Order)
+                  </span>
+                </div>
+              ) : (
+                <div className="flex relative" style={{ width: `${dynamicTotalHours * zoomLevel}px` }}>
+                  {timeHeaders.map((header, i) => (
+                    <div 
+                      key={i} 
+                      className="shrink-0 border-r border-zinc-100 dark:border-zinc-800/50 p-2 relative flex flex-col justify-end"
+                      style={{ width: `${zoomLevel}px` }}
+                    >
+                      {header.isNewDay && (
+                        <div className="absolute top-1 left-1 text-[10px] font-black uppercase text-indigo-500 tracking-wider whitespace-nowrap bg-white dark:bg-zinc-950 z-10 px-1 rounded shadow-sm border border-indigo-100 dark:border-indigo-900/30">
+                          {header.dayLabel}
+                        </div>
+                      )}
+                      <span className="text-[10px] font-bold text-zinc-500">{header.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Timeline Body Container */}
+            <div className="relative flex-1" onWheel={handleWheel}>
+              {/* Current Time Indicator Line */}
+              {!isSequentialView && currentTimePx > 0 && currentTimePx < (dynamicTotalHours * zoomLevel) && (
+                <div 
+                  className="absolute top-0 bottom-0 w-px bg-red-500 z-20 shadow-[0_0_8px_rgba(239,68,68,0.6)] pointer-events-none"
+                  style={{ left: `${currentTimePx + 192}px` }} // +192px for the row column width
+                >
+                  <div className="absolute -top-3 -translate-x-1/2 bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full z-20">
+                    NOW
+                  </div>
+                </div>
+              )}
 
             {/* Rows */}
             {allRows.map((row) => {
@@ -1774,6 +1915,20 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                   j._visualEndMs >= now.getTime()
                 );
                 
+                const isScheduledBlocked = (() => {
+                  if (!scheduledNow) return false;
+                  const legacyBlocker = scheduledNow.blocker ? [{ message: scheduledNow.blocker, status: 'active' }] : [];
+                  const activeBlockers = (scheduledNow.blockers || legacyBlocker).filter((b: any) => b.status === 'active');
+                  return activeBlockers.length > 0 || scheduledNow.status === 'Blocked';
+                })();
+
+                const hasIncompleteTasksForScheduled = (() => {
+                  if (!scheduledNow) return false;
+                  const userTasks = tasks.filter(t => t.jobId === scheduledNow.id && t.assignedStaffIds?.includes(row.id));
+                  if (userTasks.length === 0) return true;
+                  return userTasks.some(t => !t.completedAt);
+                })();
+
                 if (staffSession && staffSession.status !== 'completed') {
                   const isBreak = staffSession.status === 'on_break';
                   const clockedJobId = activeJobSegment?.id;
@@ -1795,7 +1950,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                           On Schedule
                         </span>
                       );
-                    } else if (scheduledNow) {
+                    } else if (scheduledNow && !isScheduledBlocked && hasIncompleteTasksForScheduled) {
                       const scheduledJobNum = scheduledNow.jobNumber ? `#${scheduledNow.jobNumber}` : scheduledNow.title;
                       liveStatusNode = (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-500 text-[8px] font-black uppercase tracking-wider animate-pulse border border-orange-500/25 shrink-0" title={`Scheduled on ${scheduledJobNum}, but clocked into ${clockedJobNum} instead!`}>
@@ -1805,7 +1960,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                       );
                     } else {
                       liveStatusNode = (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-wider shrink-0" title={`Clocked into ${clockedJobNum} (unscheduled)`}>
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-wider shrink-0" title={`Clocked into ${clockedJobNum}`}>
                           Working: {clockedJobNum}
                         </span>
                       );
@@ -1837,14 +1992,14 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                       <div className="w-7 h-7 rounded-lg bg-indigo-500/10 flex items-center justify-center font-black text-indigo-500 dark:text-indigo-400 text-[10px] shrink-0">
                         {row.firstName?.[0] || ''}{row.lastName?.[0] || ''}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 justify-between">
-                          <StaffLink 
-                            name={row.name} 
-                            tenantId={tenantId} 
-                            staffId={row.id} 
-                            className="font-bold text-xs text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 hover:underline truncate max-w-[80px]" 
-                          />
+                      <div className="min-w-0 flex-1 flex flex-col gap-0.5 justify-center">
+                        <StaffLink 
+                          name={row.name} 
+                          tenantId={tenantId} 
+                          staffId={row.id} 
+                          className="font-bold text-xs text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 hover:underline truncate" 
+                        />
+                        <div className="flex items-center gap-1 flex-wrap">
                           {liveStatusNode}
                         </div>
                         {dept && (
@@ -1859,40 +2014,46 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                 
                 {/* Scrollable Timeline Track */}
                 <div 
-                  className="relative flex-1"
-                  style={{ width: `${dynamicTotalHours * zoomLevel}px`, minWidth: `${dynamicTotalHours * zoomLevel}px` }}
+                  className={cn(
+                    isSequentialView 
+                      ? "flex-grow flex items-center gap-3 px-4 overflow-x-auto min-w-0 scrollbar-thin" 
+                      : "relative flex-1"
+                  )}
+                  style={isSequentialView ? { height: '100%' } : { width: `${dynamicTotalHours * zoomLevel}px`, minWidth: `${dynamicTotalHours * zoomLevel}px` }}
                   onDrop={(e) => handleDropOnGrid(e, row.id)}
                   onDragOver={handleDragOver}
                 >
                   {/* Grid Lines */}
-                  <div className="absolute inset-0 flex pointer-events-none">
-                    {Array.from({ length: dynamicTotalHours }).map((_, i) => {
-                      const d = new Date(timelineStart);
-                      d.setHours(d.getHours() + i);
-                      
-                      let isWorkingHour = true;
-                      if (!isWorkingDay(d, schedule)) {
-                        isWorkingHour = false;
-                      } else {
-                        const startH = parseInt(schedule.startTime.split(':')[0], 10);
-                        const endH = parseInt(schedule.endTime.split(':')[0], 10);
-                        if (d.getHours() < startH || d.getHours() >= endH) {
+                  {!isSequentialView && (
+                    <div className="absolute inset-0 flex pointer-events-none">
+                      {Array.from({ length: dynamicTotalHours }).map((_, i) => {
+                        const d = new Date(timelineStart);
+                        d.setHours(d.getHours() + i);
+                        
+                        let isWorkingHour = true;
+                        if (!isWorkingDay(d, schedule)) {
                           isWorkingHour = false;
+                        } else {
+                          const startH = parseInt(schedule.startTime.split(':')[0], 10);
+                          const endH = parseInt(schedule.endTime.split(':')[0], 10);
+                          if (d.getHours() < startH || d.getHours() >= endH) {
+                            isWorkingHour = false;
+                          }
                         }
-                      }
 
-                      return (
-                        <div 
-                          key={i} 
-                          className={`border-r border-zinc-200 dark:border-zinc-800 h-full ${!isWorkingHour ? 'bg-zinc-100/50 dark:bg-zinc-900/50' : ''}`} 
-                          style={{ 
-                            width: `${zoomLevel}px`,
-                            backgroundImage: !isWorkingHour ? 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.02) 10px, rgba(0,0,0,0.02) 20px)' : 'none'
-                          }} 
-                        />
-                      );
-                    })}
-                  </div>
+                        return (
+                          <div 
+                            key={i} 
+                            className={`border-r border-zinc-200 dark:border-zinc-800 h-full ${!isWorkingHour ? 'bg-zinc-100/50 dark:bg-zinc-900/50' : ''}`} 
+                            style={{ 
+                              width: `${zoomLevel}px`,
+                              backgroundImage: !isWorkingHour ? 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.02) 10px, rgba(0,0,0,0.02) 20px)' : 'none'
+                            }} 
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Render Jobs for this Row */}
                   {visualCascadedJobs
@@ -1916,6 +2077,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                         monitorSettings={monitorSettings}
                         partsRequests={partsRequests}
                         now={now}
+                        isSequentialView={isSequentialView}
                       />
                   ))}
                 </div>

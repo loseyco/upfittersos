@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Play, Calendar, Users, ClipboardList, RefreshCw, Hammer, Wrench, User,
-  MapPin, Clock, ListChecks, ChevronRight, AlertCircle
+  MapPin, Clock, ListChecks, ChevronRight, AlertCircle, Printer
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy
@@ -412,6 +412,16 @@ export function DepartmentOverview({ tenantId, departmentName }: DepartmentOverv
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Dashboard</span>
             <span className="text-[10px] font-bold text-zinc-500">• {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
+
+          {departmentName.toLowerCase().includes('upfit') && (
+            <button 
+              onClick={() => navigate(`/business/${tenantId}/weekly_meeting`)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md transition-all flex items-center gap-2"
+            >
+              <Printer className="w-4 h-4" />
+              Weekly Notes
+            </button>
+          )}
 
           <button 
             onClick={toggleFullscreen}

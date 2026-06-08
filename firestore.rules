@@ -248,6 +248,12 @@ service cloud.firestore {
       match /canvases/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /sales_prospects/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /sales_activities/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /time_logs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }

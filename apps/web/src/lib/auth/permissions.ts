@@ -49,6 +49,8 @@ export const PERMISSIONS = {
   'part_request.use': 'Add Part / Part Request',
   'vehicle_intake.use': 'Perform Vehicle Intake',
   'incident_log.use': 'Log System Feedback & Incidents',
+  'sales.view': 'View Sales & CRM',
+  'sales.manage': 'Manage Sales & CRM',
   'dashboard.customize': 'Customize Personal Dashboard',
 } as const;
 

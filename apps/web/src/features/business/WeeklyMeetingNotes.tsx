@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, collectionGroup, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   ClipboardList, Plus, Trash2, Printer, Sparkles, Save, Calendar, RefreshCw
@@ -76,7 +76,7 @@ const createEmptyMeetingData = (dateStr: string): MeetingData => ({
 
 export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   const { permissions, isSuperAdmin } = useAuthStore();
-  const canManage = isSuperAdmin || permissions['office.view'];
+  const canManage = isSuperAdmin || permissions['office.view'] || permissions['foreman.view'];
 
   const [meetingsList, setMeetingsList] = useState<{ id: string; meetingDate: string }[]>([]);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
@@ -87,6 +87,92 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   const [meetingsLoading, setMeetingsLoading] = useState(true);
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [newMeetingDate, setNewMeetingDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  // Fetch active jobs and vehicles for auto-complete search
+  const [searchJobs, setSearchJobs] = useState<{ id: string; label: string }[]>([]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+
+    let rawJobs: any[] = [];
+    let vehicles: any[] = [];
+    let zones: any[] = [];
+    let allTasks: any[] = [];
+
+    const updateOptions = () => {
+      const worksheetJobs = rawJobs.filter(job => {
+        const jobTasks = allTasks.filter(t => t.jobId === job.id);
+        
+        // Exact filter matching JobsWorksheet.tsx
+        if (['Completed', 'Closed'].includes(job.status)) return false;
+
+        const resolvedLocationId = zones.find(z => z.currentJobId === job.id)?.id || job.bayId;
+        const hasBay = !!resolvedLocationId && resolvedLocationId !== 'none';
+        
+        const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+        const totalTasks = nonGeneralTasks.length;
+        const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
+        const hasTasksNeedingDone = totalTasks > completedTasks;
+        const hasQCNeedingDone = nonGeneralTasks.some(t => t.status === 'QC' || t.status === 'in_review');
+        const isReadyForCustomer = job.status === 'Ready for Customer';
+        const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
+
+        return hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
+      });
+
+      const options = worksheetJobs.map(job => {
+        const vehicle = vehicles.find(v => v.vin === job.vehicleId || v.id === job.vehicleId);
+        const vehLabel = vehicle 
+          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() 
+          : job.vehicleId || '';
+
+        const label = `#${job.jobNumber || ''} - ${job.title} ${vehLabel ? `(${vehLabel})` : ''}`.trim();
+        return { id: job.id, label };
+      });
+      setSearchJobs(options);
+    };
+
+    const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), (snap) => {
+      rawJobs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      updateOptions();
+    });
+
+    const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
+      vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      updateOptions();
+    });
+
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
+      zones = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      updateOptions();
+    });
+
+    // Listen to tasks across all jobs in this business
+    const qTasks = query(
+      collectionGroup(db, 'tasks'),
+      where('tenantId', '==', tenantId)
+    );
+    const unsubTasks = onSnapshot(qTasks, (snap) => {
+      const filteredDocs = snap.docs.filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`));
+      allTasks = filteredDocs.map(doc => {
+        const pathParts = doc.ref.path.split('/');
+        const jobId = pathParts[3];
+        return {
+          id: doc.id,
+          jobId,
+          ...(doc.data() as any)
+        };
+      });
+      updateOptions();
+    });
+
+    return () => {
+      unsubJobs();
+      unsubVehicles();
+      unsubZones();
+      unsubTasks();
+    };
+  }, [tenantId]);
 
   // Load meeting dates list
   useEffect(() => {
@@ -278,21 +364,69 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
     setIsAutoPopulating(true);
 
     try {
-      // 1. Fetch active jobs, zones, vehicles, and departments in parallel
-      const [jobsSnap, zonesSnap, vehiclesSnap, deptsSnap] = await Promise.all([
+      // 1. Fetch active jobs, zones, vehicles, departments, tasks, and parts requests in parallel
+      const [jobsSnap, zonesSnap, vehiclesSnap, deptsSnap, tasksSnap, partsSnap] = await Promise.all([
         getDocs(collection(db, `businesses/${tenantId}/jobs`)),
         getDocs(collection(db, `businesses/${tenantId}/zones`)),
         getDocs(collection(db, `businesses/${tenantId}/vehicles`)),
-        getDocs(collection(db, `businesses/${tenantId}/departments`))
+        getDocs(collection(db, `businesses/${tenantId}/departments`)),
+        getDocs(query(collectionGroup(db, 'tasks'), where('tenantId', '==', tenantId))),
+        getDocs(collection(db, `businesses/${tenantId}/parts_requests`))
       ]);
 
       const jobs = jobsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       const zones = zonesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       const vehicles = vehiclesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
       const departments = deptsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const partsRequests = partsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-      const activeJobs = jobs.filter((j: any) => j.status !== 'Closed' && j.status !== 'Completed');
+      const filteredTasksDocs = tasksSnap.docs.filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`));
+      const allTasks = filteredTasksDocs.map(doc => {
+        const pathParts = doc.ref.path.split('/');
+        const jobId = pathParts[3];
+        return {
+          id: doc.id,
+          jobId,
+          ...(doc.data() as any)
+        };
+      });
+
+      const activeJobs = jobs.filter(job => {
+        const jobTasks = allTasks.filter(t => t.jobId === job.id);
+        
+        // Exact filter matching JobsWorksheet.tsx
+        if (['Completed', 'Closed'].includes(job.status)) return false;
+
+        const resolvedLocationId = zones.find(z => z.currentJobId === job.id)?.id || job.bayId;
+        const hasBay = !!resolvedLocationId && resolvedLocationId !== 'none';
+        
+        const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+        const totalTasks = nonGeneralTasks.length;
+        const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
+        const hasTasksNeedingDone = totalTasks > completedTasks;
+        const hasQCNeedingDone = nonGeneralTasks.some(t => t.status === 'QC' || t.status === 'in_review');
+        const isReadyForCustomer = job.status === 'Ready for Customer';
+        const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
+
+        return hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
+      });
       const serviceDept = departments.find((d: any) => d.name?.toLowerCase() === 'service');
+      const upfitDept = departments.find((d: any) => d.name?.toLowerCase().includes('upfit'));
+
+      const isServiceJob = (job: any) => {
+        if (serviceDept && job.departmentIds?.includes(serviceDept.id)) return true;
+        if (upfitDept && job.departmentIds?.includes(upfitDept.id)) return false;
+        
+        const titleLower = String(job.title || '').toLowerCase();
+        const descLower = String(job.description || '').toLowerCase();
+        
+        const serviceKeywords = ['service', 'repair', 'diagnostic', 'diagnose', 'diagnosis', 'maintenance', 'warranty', 'diagnos', 'troubleshoot'];
+        return serviceKeywords.some(keyword => titleLower.includes(keyword) || descLower.includes(keyword));
+      };
+
+      // Separate builds vs service
+      const buildJobs = activeJobs.filter(j => !isServiceJob(j));
+      const serviceJobs = activeJobs.filter(j => isServiceJob(j));
 
       // Helper to match vehicle display
       const getVehicleLabel = (job: any) => {
@@ -303,125 +437,241 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           : job.vehicleId;
       };
 
+      // Helper to resolve exact physical location and sorting priority
+      const getZoneInfo = (job: any) => {
+        const zone = zones.find(z => 
+          z.currentJobId === job.id || 
+          (job.vehicleId && z.currentVehicleVin === job.vehicleId) ||
+          (job.bayId && (job.bayId === z.id || job.bayId === z.name))
+        );
+        if (!zone) return { label: '[Not Checked In]', score: 3 };
+        const isBay = zone.type === 'bay';
+        return {
+          label: `[${isBay ? 'Bay' : 'Parked'}: ${zone.name}]`,
+          score: isBay ? 1 : 2
+        };
+      };
+
       // 2. Build Schedule: In Shop
-      // Find all occupied bay zones
-      const bayZones = zones.filter(z => z.type === 'bay' && !z.isArchived);
-      const inShopList: string[] = [];
-      bayZones.forEach(zone => {
-        const targetJobId = zone.currentJobId;
-        const targetVin = zone.currentVehicleVin;
-        let job = activeJobs.find((j: any) => j.id === targetJobId);
-        if (!job && targetVin) {
-          job = activeJobs.find((j: any) => j.vehicleId === targetVin || j.vehicleVin === targetVin);
-        }
-        if (job) {
+      // Build/Upfit jobs that are either checked in or have active status
+      const inShopList = buildJobs
+        .filter((job: any) => {
+          const zoneInfo = getZoneInfo(job);
+          const isCheckedIn = zoneInfo.score < 3;
+          const isActive = ['Active', 'In Progress', 'Blocked'].includes(job.status);
+          return isCheckedIn || isActive;
+        })
+        .map((job: any) => {
           const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
           const completionDate = job.expectedFinishTime 
             ? new Date(job.expectedFinishTime.seconds ? job.expectedFinishTime.seconds * 1000 : job.expectedFinishTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' })
             : 'No ETA';
-          inShopList.push(`#${job.jobNumber || ''} - ${zone.name}: ${job.title} (${veh}) [ETA: ${completionDate}]`);
-        }
-      });
-      // Pad to 10 slots
+          const statusLabel = job.status || 'Active';
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${statusLabel}] [ETA: ${completionDate}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 12);
+
       while (inShopList.length < 10) inShopList.push('');
 
       // 3. Build Schedule: Incoming upon Completion
-      // Jobs with status 'Ready for QC' or 'QC' or scheduled but not on-site/not in bay
-      const qcJobs = activeJobs.filter((j: any) => j.status === 'Ready for QC' || j.status === 'QC');
-      const incomingCompletionList = qcJobs.map((job: any) => {
-        const veh = getVehicleLabel(job);
-        return `#${job.jobNumber || ''} - ${job.title} (${veh}) - Ready for QC`;
-      });
-      // Pad to 10 slots
+      // Upfitting/Build jobs with status 'Ready for QC', 'QC', or 'QC Complete'
+      const qcJobs = buildJobs.filter((j: any) => j.status === 'Ready for QC' || j.status === 'QC' || j.status === 'QC Complete');
+      const incomingCompletionList = qcJobs
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          const statusLabel = job.status || 'QC';
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${statusLabel}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 12);
+
       while (incomingCompletionList.length < 10) incomingCompletionList.push('');
 
       // 4. Service Work: In Progress
-      // Jobs that are active and not in Closed/Completed, containing Service/Repair in description/title, or assigned to a technician
-      const serviceJobs = activeJobs.filter((j: any) => 
-        String(j.title || '').toLowerCase().includes('service') || 
-        String(j.title || '').toLowerCase().includes('repair') ||
-        (j.assignedStaff && j.assignedStaff.length > 0)
-      );
-
+      // Service jobs that are active (Active, In Progress, Blocked)
       const serviceInProgress = serviceJobs
-        .filter((j: any) => j.status === 'Active' || j.status === 'In Progress')
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
-        });
+        .filter((j: any) => j.status === 'Active' || j.status === 'In Progress' || j.status === 'Blocked')
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          const statusLabel = job.status || 'Active';
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${statusLabel}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 8);
+
       while (serviceInProgress.length < 3) serviceInProgress.push('');
 
       // 5. Service Work: Need to Start
+      // Service jobs that are physically on-site (checked into a bay/parking spot) but not yet active
       const serviceNeedToStart = serviceJobs
-        .filter((j: any) => j.status === 'Open' || j.status === 'Scheduled')
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
-        });
+        .filter((job: any) => {
+          const isPending = job.status === 'Open' || job.status === 'Scheduled';
+          const zoneInfo = getZoneInfo(job);
+          const isHere = zoneInfo.score < 3;
+          return isPending && isHere;
+        })
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${job.status || 'Pending'}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 8);
+
       while (serviceNeedToStart.length < 3) serviceNeedToStart.push('');
 
       // 6. Service Work: Incoming
-      // Jobs with scheduled arrival time in the future
+      // Service jobs scheduled to arrive in the future
       const now = new Date();
-      const serviceIncoming = activeJobs
+      const serviceIncoming = serviceJobs
         .filter((j: any) => {
           if (!j.scheduledArrivalTime) return false;
           const arrDate = new Date(j.scheduledArrivalTime.seconds ? j.scheduledArrivalTime.seconds * 1000 : j.scheduledArrivalTime);
           return arrDate > now;
         })
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          const dateStr = new Date(j.scheduledArrivalTime.seconds ? j.scheduledArrivalTime.seconds * 1000 : j.scheduledArrivalTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
-          return `#${j.jobNumber || ''} - ${j.title} (${veh}) [Arr: ${dateStr}]`;
-        });
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          const dateStr = new Date(job.scheduledArrivalTime.seconds ? job.scheduledArrivalTime.seconds * 1000 : job.scheduledArrivalTime).toLocaleDateString([], { month: '2-digit', day: '2-digit' });
+          const locStr = zoneInfo.score < 3 ? ` ${zoneInfo.label}` : ' [Incoming]';
+          return `#${job.jobNumber || ''} -${locStr} ${job.title} (${veh}) [Arr: ${dateStr}]`;
+        })
+        .slice(0, 8);
+
       while (serviceIncoming.length < 3) serviceIncoming.push('');
 
       // 7. Service Work: Need to Schedule
-      const serviceNeedToSchedule = activeJobs
-        .filter((j: any) => j.status === 'Open' && !j.scheduledArrivalTime && !j.scheduledStartDate)
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          const isService = serviceDept && j.departmentIds?.includes(serviceDept.id);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})${isService ? ' [Service]' : ' [Build]'}`;
-        });
+      // Service jobs that are open but have no scheduled arrival/start times and are not checked in
+      const serviceNeedToSchedule = serviceJobs
+        .filter((job: any) => {
+          const zoneInfo = getZoneInfo(job);
+          const isNotCheckedIn = zoneInfo.score === 3;
+          const isNotScheduled = !job.scheduledArrivalTime && !job.scheduledStartDate;
+          return job.status === 'Open' && isNotCheckedIn && isNotScheduled;
+        })
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          return `#${job.jobNumber || ''} - [Needs Schedule] ${job.title} (${veh})`;
+        })
+        .slice(0, 8);
+
       while (serviceNeedToSchedule.length < 3) serviceNeedToSchedule.push('');
 
-      // 8. Open Sales Orders: 1 - 30 Days
-      // Jobs created in the last 30 days
+      // 8. Open Sales Orders: 1 - 30 Days (Builds only)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const days1to30List = activeJobs
+      const days1to30List = buildJobs
         .filter((j: any) => {
           if (!j.createdAt) return false;
           const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
           return created >= thirtyDaysAgo;
         })
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
-        });
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          const statusLabel = job.status || 'Active';
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${statusLabel}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 6);
+
       while (days1to30List.length < 3) days1to30List.push('');
 
-      // 9. Open Sales Orders: 31 - 60 Days
+      // 9. Open Sales Orders: 31 - 60 Days (Builds only)
       const sixtyDaysAgo = new Date();
       sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-      const days31to60List = activeJobs
+      const days31to60List = buildJobs
         .filter((j: any) => {
           if (!j.createdAt) return false;
           const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
           return created >= sixtyDaysAgo && created < thirtyDaysAgo;
         })
-        .slice(0, 3)
-        .map((j: any) => {
-          const veh = getVehicleLabel(j);
-          return `#${j.jobNumber || ''} - ${j.title} (${veh})`;
-        });
+        .map((job: any) => {
+          const veh = getVehicleLabel(job);
+          const zoneInfo = getZoneInfo(job);
+          const statusLabel = job.status || 'Active';
+          return {
+            text: `#${job.jobNumber || ''} - ${zoneInfo.label} ${job.title} (${veh}) [${statusLabel}]`,
+            score: zoneInfo.score
+          };
+        })
+        .sort((a, b) => a.score - b.score)
+        .map(item => item.text)
+        .slice(0, 6);
+
       while (days31to60List.length < 3) days31to60List.push('');
+
+      // 10. Parts requests lists
+      const activeParts = partsRequests.filter((p: any) => !p.isArchived && (p.status === 'pending' || p.status === 'ordered'));
+      
+      const getPartsLabel = (req: any) => {
+        const qty = req.quantity || 1;
+        const urgencyStr = req.urgency === 'urgent' ? '[URGENT] ' : '';
+        const statusStr = req.status === 'ordered' ? '[Ordered] ' : '[Pending] ';
+        
+        if (req.jobId && req.jobId !== 'none') {
+          const job = jobs.find((j: any) => j.id === req.jobId);
+          if (job) {
+            const veh = getVehicleLabel(job);
+            const jobNumStr = job.jobNumber ? `#${job.jobNumber} ` : '';
+            return `${urgencyStr}${statusStr}${qty}x ${req.partName} (${jobNumStr}${job.title} - ${veh})`;
+          }
+        }
+        return `${urgencyStr}${statusStr}${qty}x ${req.partName} (Restock - Req by ${req.requestedBy || 'Staff'})`;
+      };
+
+      const inShopJobIds = new Set<string>();
+      jobs.forEach((j: any) => {
+        if (['Completed', 'Closed'].includes(j.status)) return;
+        const zoneInfo = getZoneInfo(j);
+        const isCheckedIn = zoneInfo.score < 3;
+        const isActive = ['Active', 'In Progress', 'Blocked'].includes(j.status);
+        if (isCheckedIn || isActive) {
+          inShopJobIds.add(j.id);
+        }
+      });
+
+      const neededJobCompletionsList = activeParts
+        .filter((p: any) => p.jobId && p.jobId !== 'none' && inShopJobIds.has(p.jobId))
+        .map(p => getPartsLabel(p))
+        .slice(0, 6);
+      while (neededJobCompletionsList.length < 3) neededJobCompletionsList.push('');
+
+      const neededUpcomingJobsList = activeParts
+        .filter((p: any) => p.jobId && p.jobId !== 'none' && !inShopJobIds.has(p.jobId))
+        .map(p => getPartsLabel(p))
+        .slice(0, 6);
+      while (neededUpcomingJobsList.length < 3) neededUpcomingJobsList.push('');
+
+      const restockOrdersList = activeParts
+        .filter((p: any) => !p.jobId || p.jobId === 'none')
+        .map(p => getPartsLabel(p))
+        .slice(0, 6);
+      while (restockOrdersList.length < 3) restockOrdersList.push('');
 
       // Update State
       setMeetingData((prev: any) => {
@@ -442,6 +692,11 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           openSalesOrders: {
             days1to30: days1to30List,
             days31to60: days31to60List
+          },
+          orders: {
+            neededJobCompletions: neededJobCompletionsList,
+            neededUpcomingJobs: neededUpcomingJobsList,
+            restockOrders: restockOrdersList
           }
         };
       });
@@ -952,6 +1207,12 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
+      <datalist id="weekly-meeting-jobs-list">
+        {searchJobs.map((sj, idx) => (
+          <option key={sj.id || idx} value={sj.label} />
+        ))}
+      </datalist>
+
       {/* ----------------------------------------------------
           PRINT STYLESHEET
       ---------------------------------------------------- */}
@@ -962,57 +1223,80 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
             display: none !important;
           }
           
-          body, html, #root {
+          /* Force plain white paper format and remove layout backgrounds/borders/shadows */
+          body, html, #root,
+          .h-screen,
+          .overflow-hidden,
+          div.flex,
+          div.flex-1,
+          main,
+          .print-container {
             background: white !important;
+            background-color: white !important;
             color: black !important;
+            border: none !important;
+            border-width: 0px !important;
+            box-shadow: none !important;
             margin: 0 !important;
             padding: 0 !important;
             width: 100% !important;
+            max-width: 100% !important;
             height: auto !important;
-            font-size: 10.5pt !important;
-            font-family: Arial, Helvetica, sans-serif !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Override overflow-hidden and height-screen on layout elements during print */
-          html, body, #root, 
-          div.flex.h-screen, 
-          div.flex-1.flex.flex-col.min-w-0, 
-          main, 
-          main > div {
-            display: block !important;
-            height: auto !important;
+            min-height: 0 !important;
             overflow: visible !important;
             max-height: none !important;
-            position: relative !important;
+            position: static !important;
+            display: block !important;
           }
 
-          /* Force exact pagination */
+          /* Force exact pagination on print pages */
           .print-page {
             page-break-after: always !important;
             page-break-inside: avoid !important;
             background: white !important;
+            background-color: white !important;
             color: black !important;
-            padding: 0.8cm !important;
+            padding: 1cm !important;
             border: none !important;
-            border-radius: 0 !important;
+            border-width: 0px !important;
+            border-style: none !important;
+            border-radius: 0px !important;
             box-shadow: none !important;
-            min-height: 27.5cm !important; /* Matches standard US Letter height minus margins */
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: space-between !important;
+            min-height: 23.5cm !important;
+            width: 100% !important;
             box-sizing: border-box !important;
+            display: block !important;
+            position: relative !important;
           }
 
           .print-page:last-of-type {
             page-break-after: avoid !important;
           }
 
+          /* Force all print-page content text to black */
+          .print-page h1,
+          .print-page h2,
+          .print-page h3,
+          .print-page p,
+          .print-page span,
+          .print-page input,
+          .print-page textarea,
+          .print-bullet-symbol {
+            color: black !important;
+            -webkit-text-fill-color: black !important;
+          }
+
+          /* Hide input placeholders when printing */
+          input::placeholder {
+            color: transparent !important;
+            opacity: 0 !important;
+            -webkit-text-fill-color: transparent !important;
+          }
+
           /* Input formatting for clean underline print layout */
           .print-input {
             border: none !important;
-            border-bottom: 1.5px solid #000 !important;
+            border-bottom: 1.5px solid black !important;
             background: transparent !important;
             color: black !important;
             font-size: 10.5pt !important;
@@ -1034,24 +1318,29 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
             font-size: 11pt !important;
           }
 
+          /* Header & Section Underlines */
+          .print-page div.border-b-4 {
+            border-bottom: 4px solid black !important;
+          }
+
+          .print-page h2.border-b {
+            border-bottom: 1.5px solid black !important;
+            padding-bottom: 2px !important;
+            margin-top: 15px !important;
+          }
+
           /* Header Styling */
           .print-page h1 {
-            color: black !important;
             font-size: 20pt !important;
             font-weight: 800 !important;
           }
 
           .print-page h2 {
-            color: black !important;
             font-size: 11pt !important;
             font-weight: 800 !important;
-            border-bottom: 2px solid #000 !important;
-            padding-bottom: 2px !important;
-            margin-top: 15px !important;
           }
 
           .print-page h3 {
-            color: black !important;
             font-size: 9pt !important;
             font-weight: 800 !important;
             margin-bottom: 6px !important;
@@ -1077,7 +1366,7 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           }
 
           textarea {
-            border: 1.5px solid #000 !important;
+            border: 1.5px solid black !important;
             background: transparent !important;
             color: black !important;
             border-radius: 0 !important;
@@ -1114,6 +1403,7 @@ function BulletListEditor({ items = [], onChange, onAdd, onRemove, symbol = '■
           </span>
           <input
             type="text"
+            list="weekly-meeting-jobs-list"
             value={item}
             onChange={(e) => onChange(idx, e.target.value)}
             className="print-input flex-1 px-2 py-1 bg-zinc-50 dark:bg-zinc-950/60 border border-zinc-250/30 dark:border-zinc-800 rounded-lg text-xs font-semibold focus:border-indigo-500 outline-none text-zinc-850 dark:text-white"
