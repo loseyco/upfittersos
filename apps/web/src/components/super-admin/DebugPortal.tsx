@@ -411,7 +411,7 @@ export function DebugPortal() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed left-0 top-1/2 -translate-y-1/2 z-50 bg-zinc-900/95 hover:bg-zinc-800 hover:text-white text-zinc-400 w-5 h-16 rounded-r-md border border-l-0 border-zinc-800 shadow-md transition-all duration-300 hover:w-6 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="fixed left-0 top-1/2 -translate-y-1/2 z-50 bg-zinc-900/95 hover:bg-zinc-800 hover:text-white text-zinc-400 w-5 h-16 rounded-r-md border border-l-0 border-zinc-800 shadow-md transition-all duration-300 hover:w-6 flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-indigo-500/50 print-hidden no-print"
           title="Open Debug Portal"
         >
           <ChevronRight size={14} />
@@ -426,7 +426,7 @@ export function DebugPortal() {
             animate={{ x: 0 }}
             exit={{ x: '-100%' }}
             transition={{ type: 'spring', damping: 26, stiffness: 190 }}
-            className="fixed top-0 bottom-0 left-0 z-[999] w-[420px] max-w-[95vw] bg-zinc-950/98 backdrop-blur-md border-r border-zinc-800 shadow-2xl flex flex-col font-sans select-text text-zinc-200"
+            className="fixed top-0 bottom-0 left-0 z-[999] w-[420px] max-w-[95vw] bg-zinc-950/98 backdrop-blur-md border-r border-zinc-800 shadow-2xl flex flex-col font-sans select-text text-zinc-200 print-hidden no-print"
           >
             {/* Collapse toggle tab on the outer edge of the open drawer */}
             <button

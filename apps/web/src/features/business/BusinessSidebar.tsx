@@ -418,7 +418,7 @@ export function BusinessSidebar({
 
       <aside className={`
         fixed inset-y-0 left-0 z-[100] w-[296px] bg-zinc-950 border-r border-zinc-800/60
-        transform transition-transform duration-300 ease-in-out lg:hidden flex
+        transform transition-transform duration-300 ease-in-out lg:hidden flex print-hidden no-print
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
       `}>
         {/* Tier 1 - Primary Mobile Hubs */}
@@ -469,7 +469,7 @@ export function BusinessSidebar({
       {/* 💻 DESKTOP DUAL SIDEBAR                                                   */}
       {/* ========================================================================= */}
       <aside className={`
-        hidden lg:flex h-screen sticky top-0 z-40 select-none shrink-0 border-r border-zinc-900 bg-zinc-950 transition-all duration-300
+        hidden lg:flex h-screen sticky top-0 z-40 select-none shrink-0 border-r border-zinc-900 bg-zinc-950 transition-all duration-300 print-hidden no-print
         ${isPinned ? "w-[316px]" : "w-[76px]"}
       `}>
         {/* Tier 1 Column (Slim Persistent Icons) */}

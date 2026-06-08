@@ -634,25 +634,22 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       )}
     >
       <Toaster position="top-right" richColors theme="system" closeButton />
-      <div className={cn(
-        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
-        !isFullscreen && "sm:-mt-20"
-      )}>
-        {isFullscreen && (
+      {isFullscreen && (
+        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10">
           <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Staff Performance</span>
             <span className="text-[10px] font-bold text-zinc-500">• Updated {new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
-        )}
-        <button 
-          onClick={toggleFullscreen}
-          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
-        >
-          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-        </button>
-      </div>
+          <button 
+            onClick={toggleFullscreen}
+            className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2"
+          >
+            <Minimize className="w-4 h-4" />
+            Exit Full Screen
+          </button>
+        </div>
+      )}
       {/* Header & Filters */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
         <div className="flex items-center gap-4">
@@ -675,7 +672,7 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
               placeholder="Filter staff..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none w-64"
+              className="pl-10 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none w-64 dark:text-white"
             />
           </div>
 
@@ -694,6 +691,16 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
               </button>
             ))}
           </div>
+
+          {!isFullscreen && (
+            <button 
+              onClick={toggleFullscreen}
+              className="hidden sm:flex px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-sm transition-all items-center justify-center gap-2 cursor-pointer h-10 shrink-0"
+            >
+              <Maximize className="w-4 h-4" />
+              Full Screen
+            </button>
+          )}
         </div>
       </div>      {/* Leaderboard List - Expanded Collapsible Layout */}
       <div className="space-y-4">

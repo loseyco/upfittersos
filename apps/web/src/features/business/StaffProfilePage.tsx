@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   collection, doc, getDoc, getDocs, query, where, 
@@ -67,6 +67,7 @@ interface TimeSession {
 
 export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staffId: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { user, permissions, isSuperAdmin } = useAuthStore();
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -87,14 +88,20 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
   const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
   const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
 
-  // Set active tab from query parameter on mount if present (e.g., ?tab=messages)
+  // Set active tab and chat user from query parameters on path/search changes (e.g., ?tab=messages&chatUser=xxx)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(location.search);
     const tabParam = params.get('tab');
     if (tabParam === 'messages' || tabParam === 'overview' || tabParam === 'timeline' || tabParam === 'timeclock') {
       setActiveTab(tabParam as any);
     }
-  }, []);
+    const chatUserParam = params.get('chatUser');
+    if (chatUserParam) {
+      setActiveChatUserId(chatUserParam);
+    }
+  }, [location.search]);
+
+
 
   // Fetch the viewed staff member
   const { data: staff, isLoading: loadingStaff } = useQuery<StaffMember | null>({
@@ -159,6 +166,30 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
   const canViewSensitiveInfo = isAdmin || isSelf;
 
   // Q&A System removed as direct messaging is used
+
+  // Mark unread messages as read when viewing them
+  useEffect(() => {
+    if (activeTab !== 'messages' || !myStaffRecord?.id || !directMessages.length) return;
+
+    const partnerId = isSelf ? activeChatUserId : staffId;
+    if (!partnerId) return;
+
+    const unreadMessages = directMessages.filter(
+      msg => msg.recipientId === myStaffRecord.id && msg.senderId === partnerId && !msg.isRead
+    );
+
+    if (unreadMessages.length > 0) {
+      unreadMessages.forEach(async (msg) => {
+        try {
+          await updateDoc(doc(db, `businesses/${tenantId}/staff_direct_messages`, msg.id), {
+            isRead: true
+          });
+        } catch (err) {
+          console.error("Failed to mark message as read:", err);
+        }
+      });
+    }
+  }, [activeTab, myStaffRecord?.id, directMessages, isSelf, activeChatUserId, staffId, tenantId]);
 
   // Real-time manager incident logs subscription
   const [incidentLogs, setIncidentLogs] = useState<any[]>([]);
@@ -1249,7 +1280,10 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
                         return (
                           <button
                             key={conv.partnerId}
-                            onClick={() => setActiveChatUserId(conv.partnerId)}
+                            onClick={() => {
+                              setActiveChatUserId(conv.partnerId);
+                              navigate(`/business/${tenantId}/staff/${staffId}?tab=messages&chatUser=${conv.partnerId}`, { replace: true });
+                            }}
                             className={cn(
                               "w-full p-4 flex flex-col items-start gap-1 text-left transition-colors",
                               isActive 

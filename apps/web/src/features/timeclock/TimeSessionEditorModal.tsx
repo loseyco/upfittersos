@@ -125,7 +125,14 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
     }
   };
 
-  const getDurationDiffBadge = (origStart: any, origEnd: any, propStart: any, propEnd: any) => {
+  const getDurationDiffBadge = (
+    origStart: any, 
+    origEnd: any, 
+    propStart: any, 
+    propEnd: any,
+    origBreaks?: any[],
+    propBreaks?: any[]
+  ) => {
     if (!origStart || !propStart) return null;
     try {
       const oS = origStart.toDate ? origStart.toDate().getTime() : new Date(origStart).getTime();
@@ -137,8 +144,22 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       if (!oE || !pE) return null;
       
       const origMs = Math.max(0, oE - oS);
+      const origBreakMs = (origBreaks || []).reduce((acc: number, b: any) => {
+        const start = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+        const end = b.end ? (b.end.toDate ? b.end.toDate().getTime() : new Date(b.end).getTime()) : Date.now();
+        return acc + Math.max(0, end - start);
+      }, 0);
+      const origNetMs = Math.max(0, origMs - origBreakMs);
+
       const propMs = Math.max(0, pE - pS);
-      const diffMs = propMs - origMs;
+      const propBreakMs = (propBreaks || []).reduce((acc: number, b: any) => {
+        const start = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+        const end = b.end ? (b.end.toDate ? b.end.toDate().getTime() : new Date(b.end).getTime()) : Date.now();
+        return acc + Math.max(0, end - start);
+      }, 0);
+      const propNetMs = Math.max(0, propMs - propBreakMs);
+
+      const diffMs = propNetMs - origNetMs;
       
       if (Math.abs(diffMs) < 60000) return null;
       
@@ -162,6 +183,37 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
     } catch {
       return null;
     }
+  };
+
+  const formatTimeDisplay = (ts: any) => {
+    if (!ts) return '';
+    try {
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
+
+  const formatBreakDisplay = (b: any) => {
+    if (!b || !b.start) return 'Invalid break';
+    const typeLabel = b.type === 'lunch' ? 'Lunch' : 'Break';
+    const startStr = formatTimeDisplay(b.start);
+    const endStr = b.end ? formatTimeDisplay(b.end) : 'Active';
+    const durationStr = getDurationString(b.start, b.end);
+    return `${typeLabel}: ${startStr} - ${endStr} (${durationStr})`;
+  };
+
+  const formatJobDisplay = (j: any) => {
+    if (!j) return 'Invalid job';
+    const nameStr = j.name || 'Unnamed Job';
+    const taskNameStr = j.taskName ? ` (${j.taskName})` : '';
+    const bookTimeStr = j.bookTime ? ` [Book: ${j.bookTime}h]` : '';
+    const startStr = formatTimeDisplay(j.start);
+    const endStr = j.end ? formatTimeDisplay(j.end) : 'Active';
+    const durationStr = getDurationString(j.start, j.end);
+    return `${nameStr}${taskNameStr}: ${startStr} - ${endStr} (${durationStr})${bookTimeStr}`;
   };
 
   const formatDatetimeLocal = (dateVal: any) => {
@@ -189,10 +241,35 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
   const handleReject = async () => {
     const activeId = requestId || requestDetails?.id;
-    if (!activeId) return;
+    if (!activeId || !requestDetails) return;
     setIsSubmitting(true);
     try {
       const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, activeId);
+      
+      // Revert the session to original values
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+      const updates: any = {
+        verificationStatus: 'verified',
+        updatedAt: serverTimestamp(),
+      };
+
+      if (requestDetails.originalClockIn) {
+        updates['clockIn.timestamp'] = requestDetails.originalClockIn;
+      }
+      if (requestDetails.originalClockOut !== undefined) {
+        updates['clockOut.timestamp'] = requestDetails.originalClockOut;
+        updates.status = requestDetails.originalClockOut ? 'completed' : 'active';
+      }
+      if (requestDetails.originalBreaks !== undefined) {
+        updates.breaks = requestDetails.originalBreaks;
+      }
+      if (requestDetails.originalJobs !== undefined) {
+        updates.jobs = requestDetails.originalJobs;
+        updates.jobIds = Array.from(new Set(requestDetails.originalJobs.map((j: any) => j.id)));
+      }
+
+      await updateDoc(sessionRef, updates);
+
       await updateDoc(requestRef, {
         status: 'rejected',
         resolvedAt: serverTimestamp(),
@@ -214,10 +291,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         }
       });
 
-      toast.success("Correction request rejected");
+      toast.success("Correction request rejected and session reverted");
       onSaved();
       onClose();
     } catch (e) {
+      console.error(e);
       toast.error("Failed to reject request");
     } finally {
       setIsSubmitting(false);
@@ -330,6 +408,10 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           originalClockOut: session.clockOut?.timestamp || null,
           proposedClockIn: new Date(clockIn),
           proposedClockOut: clockOut ? new Date(clockOut) : null,
+          originalBreaks: session.breaks || [],
+          proposedBreaks: breaks,
+          originalJobs: session.jobs || [],
+          proposedJobs: jobs,
           updatedAt: serverTimestamp()
         };
 
@@ -464,88 +546,181 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                   requestDetails.originalClockIn,
                   requestDetails.originalClockOut,
                   requestDetails.proposedClockIn,
-                  requestDetails.proposedClockOut
+                  requestDetails.proposedClockOut,
+                  requestDetails.originalBreaks,
+                  requestDetails.proposedBreaks || (requestDetails.originalBreaks === undefined ? session.breaks : undefined)
                 )}
               </div>
 
-              {requestDetails && (
-                <div className="space-y-4">
-                  {requestDetails.note && (
-                    <div className="bg-white/80 dark:bg-zinc-950/40 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80">
-                      <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase block tracking-widest">Technician Note / Explanation</span>
-                      <p className="text-xs font-semibold text-zinc-850 dark:text-zinc-200 italic mt-1.5 leading-relaxed">
-                        "{requestDetails.note}"
-                      </p>
-                    </div>
-                  )}
+              {requestDetails && (() => {
+                const originalBreaks = requestDetails.originalBreaks;
+                const proposedBreaks = requestDetails.proposedBreaks || (originalBreaks === undefined ? session.breaks : undefined);
+                const originalJobs = requestDetails.originalJobs;
+                const proposedJobs = requestDetails.proposedJobs || (originalJobs === undefined ? session.jobs : undefined);
 
-                  {/* High Contrast Side-by-Side Comparison */}
-                  {(requestDetails.originalClockIn || requestDetails.originalClockOut) && (
-                    <div className="space-y-2">
-                      <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase tracking-widest block ml-1">
-                        Timecard Shift Comparison
-                      </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {/* Original (Was) */}
-                        <div className="bg-rose-500/5 dark:bg-rose-500/10 border border-rose-500/20 dark:border-rose-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
-                          <div className="absolute top-0 right-0 bg-rose-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">
-                            Original (Was)
-                          </div>
-                          
-                          <div className="space-y-2.5 pt-1">
-                            <div>
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
-                              <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
-                                {formatDatetimeDisplay(requestDetails.originalClockIn)}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
-                              <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
-                                {formatDatetimeDisplay(requestDetails.originalClockOut)}
-                              </span>
-                            </div>
-                            <div className="border-t border-rose-500/10 pt-2 flex justify-between items-center">
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
-                              <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400 line-through text-right">
-                                {getDurationString(requestDetails.originalClockIn, requestDetails.originalClockOut)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                return (
+                  <div className="space-y-4">
+                    {requestDetails.note && (
+                      <div className="bg-white/80 dark:bg-zinc-900/40 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80">
+                        <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase block tracking-widest">Technician Note / Explanation</span>
+                        <p className="text-xs font-semibold text-zinc-850 dark:text-zinc-200 italic mt-1.5 leading-relaxed">
+                          "{requestDetails.note}"
+                        </p>
+                      </div>
+                    )}
 
-                        {/* Proposed (Wants) */}
-                        <div className="bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 dark:border-emerald-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
-                          <div className="absolute top-0 right-0 bg-emerald-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider animate-pulse">
-                            Proposed (Wants)
+                    {/* High Contrast Side-by-Side Comparison */}
+                    {(requestDetails.originalClockIn || requestDetails.originalClockOut) && (
+                      <div className="space-y-2">
+                        <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase tracking-widest block ml-1">
+                          Timecard Shift Comparison
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* Original (Was) */}
+                          <div className="bg-rose-500/5 dark:bg-rose-500/10 border border-rose-500/20 dark:border-rose-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 bg-rose-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider">
+                              Original (Was)
+                            </div>
+                            
+                            <div className="space-y-2.5 pt-1">
+                              <div>
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
+                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                  {formatDatetimeDisplay(requestDetails.originalClockIn)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
+                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                  {formatDatetimeDisplay(requestDetails.originalClockOut)}
+                                </span>
+                              </div>
+
+                              {originalBreaks !== undefined ? (
+                                originalBreaks.length > 0 ? (
+                                  <div className="border-t border-rose-500/10 pt-2.5 space-y-1">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
+                                    {originalBreaks.map((b: any, idx: number) => (
+                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 line-through block leading-tight">
+                                        • {formatBreakDisplay(b)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="border-t border-rose-500/10 pt-2.5">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 line-through block leading-tight">None</span>
+                                  </div>
+                                )
+                              ) : (
+                                <div className="border-t border-rose-500/10 pt-2.5">
+                                  <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
+                                  <span className="font-mono text-[10px] text-zinc-500 italic block leading-tight">Not captured (legacy)</span>
+                                </div>
+                              )}
+
+                              {originalJobs !== undefined ? (
+                                originalJobs.length > 0 ? (
+                                  <div className="border-t border-rose-500/10 pt-2.5 space-y-1">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
+                                    {originalJobs.map((j: any, idx: number) => (
+                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 line-through block leading-tight">
+                                        • {formatJobDisplay(j)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="border-t border-rose-500/10 pt-2.5">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 line-through block leading-tight">None</span>
+                                  </div>
+                                )
+                              ) : (
+                                <div className="border-t border-rose-500/10 pt-2.5">
+                                  <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
+                                  <span className="font-mono text-[10px] text-zinc-500 italic block leading-tight">Not captured (legacy)</span>
+                                </div>
+                              )}
+
+                              <div className="border-t border-rose-500/10 pt-2 flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
+                                <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400 line-through text-right">
+                                  {getDurationString(requestDetails.originalClockIn, requestDetails.originalClockOut)}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          
-                          <div className="space-y-2.5 pt-1">
-                            <div>
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
-                              <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
-                                {formatDatetimeDisplay(requestDetails.proposedClockIn)}
-                              </span>
+
+                          {/* Proposed (Wants) */}
+                          <div className="bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 dark:border-emerald-500/10 rounded-2xl p-4 space-y-3 relative overflow-hidden">
+                            <div className="absolute top-0 right-0 bg-emerald-500/10 px-3 py-1 rounded-bl-xl text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider animate-pulse">
+                              Proposed (Wants)
                             </div>
-                            <div>
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
-                              <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
-                                {formatDatetimeDisplay(requestDetails.proposedClockOut)}
-                              </span>
-                            </div>
-                            <div className="border-t border-emerald-500/10 pt-2 flex justify-between items-center">
-                              <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
-                              <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 text-right">
-                                {getDurationString(requestDetails.proposedClockIn, requestDetails.proposedClockOut)}
-                              </span>
+                            
+                            <div className="space-y-2.5 pt-1">
+                              <div>
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
+                                <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
+                                  {formatDatetimeDisplay(requestDetails.proposedClockIn)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
+                                <span className="font-mono font-black text-xs text-emerald-600 dark:text-emerald-400">
+                                  {formatDatetimeDisplay(requestDetails.proposedClockOut)}
+                                </span>
+                              </div>
+
+                              {proposedBreaks !== undefined ? (
+                                proposedBreaks.length > 0 ? (
+                                  <div className="border-t border-emerald-500/10 pt-2.5 space-y-1">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
+                                    {proposedBreaks.map((b: any, idx: number) => (
+                                      <span key={idx} className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block leading-tight">
+                                        • {formatBreakDisplay(b)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="border-t border-emerald-500/10 pt-2.5">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 block leading-tight">None</span>
+                                  </div>
+                                )
+                              ) : null}
+
+                              {proposedJobs !== undefined ? (
+                                proposedJobs.length > 0 ? (
+                                  <div className="border-t border-emerald-500/10 pt-2.5 space-y-1">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
+                                    {proposedJobs.map((j: any, idx: number) => (
+                                      <span key={idx} className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block leading-tight">
+                                        • {formatJobDisplay(j)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="border-t border-emerald-500/10 pt-2.5">
+                                    <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 block leading-tight">None</span>
+                                  </div>
+                                )
+                              ) : null}
+
+                              <div className="border-t border-emerald-500/10 pt-2 flex justify-between items-center">
+                                <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
+                                <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 text-right">
+                                  {getDurationString(requestDetails.proposedClockIn, requestDetails.proposedClockOut)}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

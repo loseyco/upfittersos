@@ -535,7 +535,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
               : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300'
           }`}
         >
-          <span>Needs Correction</span>
+          <span>Needs Reviewed/Request</span>
           {(pendingRequests.length + flaggedCount) > 0 && (
             <span className="bg-amber-500 text-white font-black text-[9px] px-1.5 py-0.5 rounded-full">
               {pendingRequests.length + flaggedCount}
@@ -1363,8 +1363,8 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
             setActiveRequestId(undefined);
           }}
           onSaved={() => {
-            queryClient.invalidateQueries({ queryKey: ['admin-time-sessions'] });
-            queryClient.invalidateQueries({ queryKey: ['admin-time-edit-requests'] });
+            queryClient.invalidateQueries({ queryKey: ['admin-time-sessions', tenantId] });
+            queryClient.invalidateQueries({ queryKey: ['admin-time-edit-requests', tenantId] });
             queryClient.invalidateQueries({ queryKey: ['admin-timeclock-activity-logs', tenantId] });
           }}
         />

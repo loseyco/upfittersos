@@ -86,3 +86,11 @@
     letter-spacing: 0.05em !important;
   }
 }
+
+@media print {
+  .print-hidden,
+  .no-print {
+    display: none !important;
+  }
+}
+

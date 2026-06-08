@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
@@ -26,6 +26,8 @@ export function TimeClockBar() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [staffMember, setStaffMember] = useState<any>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const lastProcessedMessageId = useRef<string | null>(null);
+  const mountTime = useRef<number>(Date.now());
 
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
   useEffect(() => {
@@ -66,17 +68,55 @@ export function TimeClockBar() {
       return;
     }
     const q = query(
-      collection(db, `businesses/${tenantId}/dashboard_questions`),
-      where('staffId', '==', staffMember.id),
-      where('status', '==', 'pending')
+      collection(db, `businesses/${tenantId}/staff_direct_messages`),
+      where('recipientId', '==', staffMember.id),
+      where('isRead', '==', false)
     );
     const unsub = onSnapshot(q, (snap) => {
       setUnreadCount(snap.size);
+      
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          const id = change.doc.id;
+          
+          // Get timestamp
+          let ts = Date.now();
+          if (data.createdAt) {
+            ts = data.createdAt.toDate ? data.createdAt.toDate().getTime() : new Date(data.createdAt).getTime();
+          }
+          
+          // Only show toast for new messages received after mounting (with a 5s buffer)
+          if (ts < mountTime.current - 5000) return;
+          if (id === lastProcessedMessageId.current) return;
+          
+          lastProcessedMessageId.current = id;
+          
+          // Check if we are already actively viewing this chat to suppress the toast
+          const urlParams = new URLSearchParams(window.location.search);
+          const isViewingThisChat = 
+            (window.location.pathname.includes(`/staff/${staffMember.id}`) && urlParams.get('tab') === 'messages' && urlParams.get('chatUser') === data.senderId) ||
+            (window.location.pathname.includes(`/staff/${data.senderId}`) && urlParams.get('tab') === 'messages');
+             
+          if (isViewingThisChat) return;
+          
+          // Show toast notification
+          toast.info(`New message from ${data.senderName || 'Staff'}`, {
+            description: data.message,
+            duration: 6000,
+            position: 'top-right',
+            action: {
+              label: 'View',
+              onClick: () => navigate(`/business/${tenantId}/staff/${data.senderId}?tab=messages`)
+            }
+          });
+        }
+      });
     }, (err) => {
-      console.error("TimeClockBar: error loading pending questions count:", err);
+      console.error("TimeClockBar: error loading pending messages count:", err);
     });
     return () => unsub();
-  }, [tenantId, staffMember?.id]);
+  }, [tenantId, staffMember?.id, navigate]);
 
   // Fetch Business Settings for Timeclock config
   const { data: settings } = useQuery({
@@ -600,9 +640,9 @@ export function TimeClockBar() {
         {/* Chat Icon Button */}
         {staffMember?.id && unreadCount > 0 && (
           <button
-            onClick={() => navigate(`/business/${tenantId}/overview`)}
+            onClick={() => navigate(`/business/${tenantId}/staff/${staffMember.id}?tab=messages`)}
             className="relative p-2 sm:p-2.5 bg-rose-500/10 dark:bg-rose-500/25 border border-rose-500/20 rounded-xl text-rose-600 dark:text-rose-450 hover:bg-rose-500/20 transition-all active:scale-[0.95] flex items-center justify-center shrink-0 cursor-pointer shadow-sm animate-bounce"
-            title="You have pending questions to respond to!"
+            title="You have unread direct messages!"
           >
             <MessageSquare className="w-4.5 h-4.5" />
             <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white shadow-sm shadow-rose-500/20 border border-white dark:border-zinc-950">

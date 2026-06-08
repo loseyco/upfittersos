@@ -11,7 +11,8 @@ import {
   CarFront, Search, Command, MapPin, 
   TrendingUp, CheckSquare, GripVertical, ChevronUp, 
   ChevronDown, EyeOff, Settings, Plus, Check, Coffee, Pizza, 
-  LogIn, Square, Play, Loader2, Activity, History, HelpCircle
+  LogIn, Square, Play, Loader2, Activity, History, HelpCircle,
+  MessageSquare
 } from 'lucide-react';
 import { ZoneDetailsModal } from './ZoneModals';
 import { PackageIntakeModal } from './PackageIntakeModal';
@@ -261,6 +262,47 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       return () => unsub();
     }
   }, [tenantId, effectiveUserId, impersonatedStaff]);
+
+  const [unreadDms, setUnreadDms] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!tenantId || !staffMember?.id) {
+      setUnreadDms([]);
+      return;
+    }
+    const q = query(
+      collection(db, `businesses/${tenantId}/staff_direct_messages`),
+      where('recipientId', '==', staffMember.id),
+      where('isRead', '==', false)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      list.sort((a: any, b: any) => {
+        const aTime = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt || 0).getTime();
+        const bTime = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt || 0).getTime();
+        return bTime - aTime;
+      });
+      setUnreadDms(list);
+    }, (err) => {
+      console.warn("UserMissionControl: error loading unread DMs:", err);
+      // Fallback query if index is not ready yet
+      const fallbackQ = query(
+        collection(db, `businesses/${tenantId}/staff_direct_messages`),
+        where('recipientId', '==', staffMember.id),
+        where('isRead', '==', false)
+      );
+      onSnapshot(fallbackQ, (fallbackSnap) => {
+        const sorted = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .sort((a, b) => {
+            const aTime = a.createdAt?.seconds ? a.createdAt.seconds * 1000 : new Date(a.createdAt || 0).getTime();
+            const bTime = b.createdAt?.seconds ? b.createdAt.seconds * 1000 : new Date(b.createdAt || 0).getTime();
+            return bTime - aTime;
+          });
+        setUnreadDms(sorted);
+      });
+    });
+    return () => unsub();
+  }, [tenantId, staffMember?.id]);
 
   // Dashboard Questions States & Actions
   const [pendingQuestions, setPendingQuestions] = useState<any[]>([]);
@@ -581,6 +623,26 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
     const e = end ? (end.toDate ? end.toDate().getTime() : new Date(end).getTime()) : currentTime;
     return Math.max(0, e - s);
+  };
+
+  const formatTimeAgo = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : (timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp));
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    
+    if (seconds < 60) {
+      return 'just now';
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    }
+    const days = Math.floor(hours / 24);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
   };
 
   const todayStart = new Date();
@@ -1794,6 +1856,65 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       </div>
       )}
 
+      {/* Unread Direct Messages Notification on Dashboard */}
+      {(!propViewMode || propViewMode === 'jobs') && unreadDms.length > 0 && (
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-emerald-500/[0.03] via-teal-500/[0.03] to-cyan-500/[0.03] border-2 border-emerald-500/30 dark:border-emerald-500/20 rounded-3xl p-4 sm:p-6 shadow-xl shadow-emerald-500/5 animate-in slide-in-from-top-4 duration-500 space-y-4">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="p-2.5 sm:p-3 bg-emerald-600 rounded-2xl text-white shadow-lg shadow-emerald-600/20 shrink-0">
+                <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
+              </div>
+              <div className="space-y-1 flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400">
+                    New Messages
+                  </span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  <span className="text-[10px] font-bold text-emerald-605 dark:text-emerald-400 uppercase tracking-wide">
+                    Action Required
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-zinc-900 dark:text-white leading-relaxed">
+                  You have {unreadDms.length} unread direct message{unreadDms.length > 1 ? 's' : ''} from your team members.
+                </h3>
+                
+                {/* List of last messages per sender */}
+                <div className="mt-3 divide-y divide-zinc-200/50 dark:divide-zinc-800/40 bg-white/50 dark:bg-zinc-900/40 rounded-2xl border border-zinc-150 dark:border-zinc-800 p-1">
+                  {Object.values(
+                    unreadDms.reduce((acc, msg) => {
+                      if (!acc[msg.senderId]) {
+                        acc[msg.senderId] = msg;
+                      }
+                      return acc;
+                    }, {} as Record<string, any>)
+                  ).map((msg: any) => (
+                    <div key={msg.id} className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white/40 dark:bg-zinc-900/40 rounded-xl hover:bg-white/60 dark:hover:bg-zinc-900/60 transition-colors m-1">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center flex-wrap gap-1">
+                          <span>{msg.senderName}</span>
+                          {msg.createdAt && (
+                            <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 normal-case tracking-normal">
+                              • {formatTimeAgo(msg.createdAt)}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 break-words whitespace-pre-wrap italic mt-1">"{msg.message}"</p>
+                      </div>
+                      <button
+                        onClick={() => navigate(`/business/${tenantId}/staff/${msg.senderId}?tab=messages`)}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shrink-0 w-full sm:w-auto text-center"
+                      >
+                        Reply
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dashboard Questions for Staff */}
       {(!propViewMode || propViewMode === 'jobs') && pendingQuestions.length > 0 && (
         <div className="space-y-4">
@@ -2189,7 +2310,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
           <div className="max-w-4xl space-y-6">
             {/* My Todos */}
-            {(!propViewMode || propViewMode === 'jobs') && myCurrentTodos.length > 0 && (
+            {false && (!propViewMode || propViewMode === 'jobs') && myCurrentTodos.length > 0 && (
               <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-4 md:p-6 shadow-sm border-t-rose-500/30 dark:border-t-rose-500/20 border-t-4 animate-in fade-in duration-350">
                 <div className="flex items-center justify-between mb-4 md:mb-6">
                   <div className="flex items-center gap-3">

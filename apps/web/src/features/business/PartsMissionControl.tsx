@@ -613,32 +613,22 @@ export function PartsMissionControl() {
       )}
     >
       <Toaster position="top-right" richColors theme="system" closeButton />
-      <div className={cn(
-        "flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10",
-        !isFullscreen && "sm:-mt-20"
-      )}>
-        {isFullscreen && (
+      {isFullscreen && (
+        <div className="flex flex-col sm:flex-row items-center justify-end gap-3 w-full relative z-10">
           <div className="mr-auto flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
             <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
             <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Live Parts Mission Control</span>
             <span className="text-[10px] font-bold text-zinc-500">• Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
-        )}
-        <button 
-          onClick={toggleFullscreen}
-          className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2 cursor-pointer"
-        >
-          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-          {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-        </button>
-        <button 
-          onClick={() => setIsIntakeOpen(true)}
-          className="w-full sm:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95 cursor-pointer"
-        >
-          <Package className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-          RECEIVE PACKAGE
-        </button>
-      </div>
+          <button 
+            onClick={toggleFullscreen}
+            className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-lg transition-all items-center justify-center gap-2 cursor-pointer"
+          >
+            <Minimize className="w-4 h-4" />
+            Exit Full Screen
+          </button>
+        </div>
+      )}
 
       <PackageIntakeModal 
         isOpen={isIntakeOpen}
@@ -662,6 +652,24 @@ export function PartsMissionControl() {
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Parts Mission Control</h1>
           <p className="text-zinc-500 text-sm mt-1">Manage requests, track shipments, and intake packages.</p>
         </div>
+        {!isFullscreen && (
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
+            <button 
+              onClick={toggleFullscreen}
+              className="hidden sm:flex w-full sm:w-auto px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-sm font-bold rounded-xl shadow-sm transition-all items-center justify-center gap-2 cursor-pointer"
+            >
+              <Maximize className="w-4 h-4" />
+              Full Screen
+            </button>
+            <button 
+              onClick={() => setIsIntakeOpen(true)}
+              className="w-full sm:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 group active:scale-95 cursor-pointer"
+            >
+              <Package className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+              RECEIVE PACKAGE
+            </button>
+          </div>
+        )}
       </div>
 
       {/* KPI Header - updated with M2 Dark Glassmorphic visual theme */}

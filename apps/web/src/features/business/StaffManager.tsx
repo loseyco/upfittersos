@@ -265,6 +265,7 @@ export function StaffManager({ tenantId }: { tenantId: string }) {
           columns={staffColumns}
           localFilter={handleFilter}
           onRowClick={(row) => navigate(`/business/${tenantId}/staff/${row.id}`)}
+          hideSearch
         />
 
 

@@ -577,14 +577,20 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
 
       while (serviceNeedToSchedule.length < 3) serviceNeedToSchedule.push('');
 
-      // 8. Open Sales Orders: 1 - 30 Days (Builds only)
+      // 8. Open Sales Orders: 1 - 30 Days (Builds only - not yet in shop)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const days1to30List = buildJobs
         .filter((j: any) => {
           if (!j.createdAt) return false;
           const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
-          return created >= thirtyDaysAgo;
+          if (created < thirtyDaysAgo) return false;
+
+          // Exclude if already in shop
+          const zoneInfo = getZoneInfo(j);
+          const isCheckedIn = zoneInfo.score < 3;
+          const isActive = ['Active', 'In Progress', 'Blocked'].includes(j.status);
+          return !isCheckedIn && !isActive;
         })
         .map((job: any) => {
           const veh = getVehicleLabel(job);
@@ -601,14 +607,20 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
 
       while (days1to30List.length < 3) days1to30List.push('');
 
-      // 9. Open Sales Orders: 31 - 60 Days (Builds only)
+      // 9. Open Sales Orders: 31 - 60 Days (Builds only - not yet in shop)
       const sixtyDaysAgo = new Date();
       sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
       const days31to60List = buildJobs
         .filter((j: any) => {
           if (!j.createdAt) return false;
           const created = new Date(j.createdAt.seconds ? j.createdAt.seconds * 1000 : j.createdAt);
-          return created >= sixtyDaysAgo && created < thirtyDaysAgo;
+          if (created < sixtyDaysAgo || created >= thirtyDaysAgo) return false;
+
+          // Exclude if already in shop
+          const zoneInfo = getZoneInfo(j);
+          const isCheckedIn = zoneInfo.score < 3;
+          const isActive = ['Active', 'In Progress', 'Blocked'].includes(j.status);
+          return !isCheckedIn && !isActive;
         })
         .map((job: any) => {
           const veh = getVehicleLabel(job);

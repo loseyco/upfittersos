@@ -16,14 +16,16 @@ export function GenericDataGrid({
   localFilter,
   columns: propColumns,
   onRowClick,
-  dbOrderBy
+  dbOrderBy,
+  hideSearch = false
 }: { 
   collectionPath: string, 
   title?: string, 
   localFilter?: (item: any) => boolean,
   columns?: DataColumn[],
   onRowClick?: (row: any) => void,
-  dbOrderBy?: { field: string, direction: 'asc' | 'desc' }
+  dbOrderBy?: { field: string, direction: 'asc' | 'desc' },
+  hideSearch?: boolean
 }) {
   const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -285,24 +287,28 @@ export function GenericDataGrid({
 
       {/* Toolbar */}
       <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="relative max-w-md w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Search loaded columns..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-zinc-400 font-bold outline-none"
-          />
-          {searchTerm && (
-            <button 
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
+        {!hideSearch ? (
+          <div className="relative max-w-md w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Search loaded columns..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-zinc-400 font-bold outline-none"
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div />
+        )}
 
         <div className="flex items-center gap-2" ref={colMenuRef}>
           <div className="text-sm text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider text-xs">
