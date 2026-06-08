@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { collection, query, where, updateDoc, doc, serverTimestamp, onSnapshot, writeBatch, orderBy, limit, collectionGroup, deleteField } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
-import { Calendar as CalendarIcon, Car, AlertCircle, GripHorizontal, RefreshCw, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, Minimize, X, Search, Edit2, MapPin } from 'lucide-react';
+import { Calendar as CalendarIcon, Car, AlertCircle, GripHorizontal, RefreshCw, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, Minimize, X, Search, Edit2, MapPin, Printer } from 'lucide-react';
 import { useJobPartsStatus } from './hooks/useJobPartsStatus';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -453,7 +453,7 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
               </span>
             </div>
             <span className="shrink-0 bg-black/25 px-1 rounded border border-white/5 text-[8.5px]">
-              {estimatedHours}h
+              {Number(estimatedHours.toFixed(1))}h
             </span>
           </div>
 
@@ -611,7 +611,7 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
                         title="Click to set custom scheduled hours override"
                       >
                         <Edit2 className="w-2.5 h-2.5 shrink-0 text-white/70" />
-                        {estimatedHours}h {job.scheduledHours ? 'Override' : 'Book Time'}
+                        {Number(estimatedHours.toFixed(1))}h {job.scheduledHours ? 'Override' : 'Book Time'}
                       </span>
                       {partsInfo && partsInfo.status !== 'No Parts Needed' && (
                         <span className={hasPartsConflict ? 'text-red-500 font-black' : 'text-emerald-400 font-black'}>
@@ -1554,7 +1554,85 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
   return (
     <div id="schedule-board-container" className="h-[calc(100vh-140px)] flex flex-col animate-in fade-in duration-500 bg-white dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between p-6 shrink-0 border-b border-zinc-200 dark:border-zinc-800">
+      <style>{`
+        @media print {
+          /* Setup landscape layout and page boundaries */
+          @page {
+            margin: 0.5in !important;
+            size: landscape !important;
+          }
+          
+          body, html, #root, #schedule-board-container, main, div {
+            height: auto !important;
+            min-height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            width: auto !important;
+            min-width: auto !important;
+            max-width: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            color: black !important;
+          }
+          
+          /* Hide sidebar, top clock bar, top navbar, backlog panel, and top header toolbar */
+          aside, nav, header, .print-hidden, [id*="sidebar"], [class*="sidebar"], [class*="Sidebar"], [class*="TopNav"], [class*="TimeClockBar"] {
+            display: none !important;
+          }
+          
+          body {
+            background-color: white !important;
+            color: black !important;
+          }
+          
+          /* Force exact backgrounds and text colors to preserve status colors */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          /* Force grid tracks to wrap and layout naturally instead of scrolling */
+          div[class*="overflow-x-auto"], div[class*="overflow-y-auto"] {
+            overflow: visible !important;
+            display: flex !important;
+            flex-wrap: wrap !important;
+            height: auto !important;
+            gap: 8px !important;
+          }
+
+          /* Remove track scroll container widths */
+          div[class*="scrollbar-thin"] {
+            width: 100% !important;
+            min-width: 100% !important;
+          }
+
+          /* Adjust rows to print without cropping */
+          div[class*="group h-24"] {
+            height: auto !important;
+            min-height: 6.5rem !important;
+            page-break-inside: avoid !important;
+            border-bottom: 1px solid #e2e8f0 !important;
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
+          }
+
+          /* Ensure left tech column is nicely structured and styled */
+          div.w-48 {
+            position: relative !important;
+            left: auto !important;
+            border-right: 1px solid #e2e8f0 !important;
+            background: #f8fafc !important;
+            color: #0f172a !important;
+          }
+        }
+      `}</style>
+      <div className="flex items-center justify-between p-6 shrink-0 border-b border-zinc-200 dark:border-zinc-800 print-hidden">
         <div className="flex items-center gap-3">
           <div className="p-2.5 bg-indigo-500/10 rounded-xl">
             <CalendarIcon className="w-6 h-6 text-indigo-500" />
@@ -1619,6 +1697,15 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
           )}
 
           <button 
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold transition-all"
+            title="Print Schedule"
+          >
+            <Printer className="w-4 h-4" />
+            <span className="hidden lg:inline text-sm">Print</span>
+          </button>
+
+          <button 
             onClick={() => {
               const elem = document.getElementById('schedule-board-container');
               if (elem) {
@@ -1629,7 +1716,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                 }
               }
             }}
-            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold transition-all"
+            className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-500/10 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-650 dark:text-indigo-400 rounded-xl font-bold transition-all"
             title={isFullscreen ? "Exit Full Screen" : "Toggle Full Screen"}
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -1652,7 +1739,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar: Unscheduled Backlog */}
         <div 
-          className="w-72 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 flex flex-col"
+          className="w-72 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 flex flex-col print-hidden"
           onDrop={handleDropOnSidebar}
           onDragOver={handleDragOver}
         >
@@ -1816,10 +1903,10 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                                   ? "bg-emerald-500/10 text-emerald-500 border-emerald-550/20"
                                   : "bg-indigo-500/10 text-indigo-500 border-indigo-500/20"
                               }`}
-                              title={`${ts.name}: ${ts.hours}h of assigned tasks (${isStaffScheduled ? 'Scheduled' : 'Unscheduled'})`}
+                              title={`${ts.name}: ${Number(ts.hours.toFixed(1))}h of assigned tasks (${isStaffScheduled ? 'Scheduled' : 'Unscheduled'})`}
                             >
-                              <span className={`w-1 h-1 rounded-full shrink-0 ${isStaffScheduled ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
-                              {ts.initials} ({ts.hours}h)
+                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isStaffScheduled ? 'bg-emerald-500' : 'bg-indigo-500'}`} />
+                              {ts.initials} ({Number(ts.hours.toFixed(1))}h)
                             </div>
                           );
                         })
@@ -1827,7 +1914,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                         <span className="text-zinc-400 italic">Unassigned</span>
                       )}
                     </div>
-                    <span className="text-zinc-500">{job.estimatedHours || 0}h Book Time</span>
+                    <span className="text-zinc-500">{Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h Book Time</span>
                   </div>
                 </div>
             );
