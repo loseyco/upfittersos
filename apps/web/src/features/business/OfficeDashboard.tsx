@@ -99,7 +99,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
 
     const qReceivedParts = query(
       collection(db, `businesses/${tenantId}/parts_requests`),
-      where('status', 'in', ['ordered', 'received', 'fulfilled', 'delivered'])
+      where('status', 'in', ['ordered', 'received', 'fulfilled', 'delivered', 'inventoried'])
     );
     const unsubReceivedParts = onSnapshot(qReceivedParts, snap => {
       setReceivedParts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -199,13 +199,13 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
   const counts = {
     arriving: baseReceived.filter(i => i.status === 'ordered').length,
     received: baseReceived.filter(i => i.status === 'received').length,
-    delivered: baseReceived.filter(i => i.status === 'delivered' || i.status === 'fulfilled').length,
+    delivered: baseReceived.filter(i => i.status === 'delivered' || i.status === 'fulfilled' || i.status === 'inventoried').length,
   };
 
   const allReceived = baseReceived.filter(item => {
     if (activeFilter === 'arriving' && item.status !== 'ordered') return false;
     if (activeFilter === 'received' && item.status !== 'received') return false;
-    if (activeFilter === 'delivered' && !(item.status === 'delivered' || item.status === 'fulfilled')) return false;
+    if (activeFilter === 'delivered' && !(item.status === 'delivered' || item.status === 'fulfilled' || item.status === 'inventoried')) return false;
     
     return true;
   }).sort((a, b) => {

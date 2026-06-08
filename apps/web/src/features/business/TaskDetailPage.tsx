@@ -1652,6 +1652,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                       <span className={cn(
                         "px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest",
                         part.status === 'delivered' || part.status === 'fulfilled' ? "bg-indigo-500/10 text-indigo-600 animate-in fade-in" :
+                        part.status === 'inventoried' ? "bg-purple-500/10 text-purple-650 animate-in fade-in" :
                         part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
                         part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
                         "bg-amber-500/10 text-amber-600"

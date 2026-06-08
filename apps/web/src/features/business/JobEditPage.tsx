@@ -1514,11 +1514,13 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                             <h4 className="text-sm font-bold text-zinc-900 dark:text-white truncate">{part.partName}</h4>
                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest shrink-0 ${
                               part.status === 'delivered' || part.status === 'fulfilled' ? "bg-indigo-500/10 text-indigo-600" :
+                              part.status === 'inventoried' ? "bg-purple-500/10 text-purple-650" :
                               part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
                               part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
                               "bg-amber-500/10 text-amber-600"
                             }`}>
-                              {part.status === 'delivered' || part.status === 'fulfilled' ? "with vehicle" : part.status}
+                              {part.status === 'delivered' || part.status === 'fulfilled' ? "with vehicle" : 
+                               part.status === 'inventoried' ? "inventoried" : part.status}
                             </span>
                           </div>
                           <p className="text-[10px] text-zinc-500 truncate">

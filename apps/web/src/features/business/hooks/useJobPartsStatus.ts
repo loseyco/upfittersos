@@ -65,7 +65,7 @@ export function useJobPartsStatus(tenantId: string | undefined, jobId: string | 
         return;
       }
 
-      const receivedParts = reqs.filter(p => p.status === 'received' || p.status === 'fulfilled').length;
+      const receivedParts = reqs.filter(p => p.status === 'received' || p.status === 'fulfilled' || p.status === 'delivered' || p.status === 'inventoried').length;
       
       if (receivedParts === totalParts) {
         setPartsInfo({ status: 'Ready', latestEta: null, totalParts, receivedParts });

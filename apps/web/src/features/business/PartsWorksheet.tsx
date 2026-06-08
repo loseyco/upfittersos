@@ -23,7 +23,7 @@ interface PartsRequest {
   requestedBy: string;
   requestedById?: string;
   urgency: 'normal' | 'urgent';
-  status: 'pending' | 'ordered' | 'received' | 'fulfilled' | 'delivered' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'fulfilled' | 'delivered' | 'cancelled' | 'inventoried';
   notes?: string;
   quantity?: number;
   createdAt: any;
@@ -253,7 +253,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
         title: `Part Status Changed`,
         message: `Part "${prevData?.partName}" marked as ${newStatus.toUpperCase()}`,
         timestamp: serverTimestamp(),
-        severity: newStatus === 'received' || newStatus === 'fulfilled' || newStatus === 'delivered' ? 'success' : 'info',
+        severity: newStatus === 'received' || newStatus === 'fulfilled' || newStatus === 'delivered' || newStatus === 'inventoried' ? 'success' : 'info',
         author: user?.displayName || user?.email?.split('@')[0] || 'System'
       });
 
@@ -377,7 +377,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
   const handleArchiveCompleted = async () => {
     if (!canManage) return;
     const completedRequests = requestsList.filter(r => 
-      !r.isArchived && (r.status === 'received' || r.status === 'fulfilled' || r.status === 'delivered' || r.status === 'cancelled')
+      !r.isArchived && (r.status === 'received' || r.status === 'fulfilled' || r.status === 'delivered' || r.status === 'cancelled' || r.status === 'inventoried')
     );
 
     if (completedRequests.length === 0) {
@@ -441,13 +441,13 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
 
       // 4. Status Filter
       if (statusFilter === 'active') {
-        return r.status !== 'fulfilled' && r.status !== 'delivered' && r.status !== 'cancelled';
+        return r.status !== 'fulfilled' && r.status !== 'delivered' && r.status !== 'cancelled' && r.status !== 'inventoried';
       }
       if (statusFilter === 'pending') return r.status === 'pending';
       if (statusFilter === 'ordered') return r.status === 'ordered';
       if (statusFilter === 'received') return r.status === 'received';
       if (statusFilter === 'completed') {
-        return r.status === 'received' || r.status === 'fulfilled' || r.status === 'delivered' || r.status === 'cancelled';
+        return r.status === 'received' || r.status === 'fulfilled' || r.status === 'delivered' || r.status === 'cancelled' || r.status === 'inventoried';
       }
 
       return true;
@@ -462,6 +462,8 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
         return 'bg-[hsl(142,76%,36%)]/10 text-[hsl(142,70%,40%)] border border-[hsl(142,76%,36%)]/20';
       case 'received':
         return 'bg-[hsl(160,84%,40%)]/10 text-[hsl(160,84%,35%)] border border-[hsl(160,84%,40%)]/20';
+      case 'inventoried':
+        return 'bg-[hsl(260,80%,55%)]/10 text-[hsl(260,80%,50%)] border border-[hsl(260,80%,55%)]/20';
       case 'ordered':
         return 'bg-[hsl(217,91%,60%)]/10 text-[hsl(217,91%,55%)] border border-[hsl(217,91%,60%)]/20';
       case 'cancelled':
@@ -715,7 +717,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
                   rowHighlightClass = 'bg-amber-500/[0.03] dark:bg-amber-500/[0.015] hover:bg-amber-500/[0.07] dark:hover:bg-amber-500/[0.04]';
                 } else if (request.status === 'ordered') {
                   rowHighlightClass = 'bg-blue-500/[0.03] dark:bg-blue-500/[0.015] hover:bg-blue-500/[0.07] dark:hover:bg-blue-500/[0.04]';
-                } else if (request.status === 'received' || request.status === 'fulfilled' || request.status === 'delivered') {
+                } else if (request.status === 'received' || request.status === 'fulfilled' || request.status === 'delivered' || request.status === 'inventoried') {
                   rowHighlightClass = 'bg-emerald-500/[0.03] dark:bg-emerald-500/[0.015] hover:bg-emerald-500/[0.07] dark:hover:bg-emerald-500/[0.04]';
                 } else {
                   rowHighlightClass = 'hover:bg-zinc-50 dark:hover:bg-zinc-900/40';
@@ -860,6 +862,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
                         <option value="pending" className="bg-white dark:bg-zinc-900 text-amber-600 font-bold">REQUESTED</option>
                         <option value="ordered" className="bg-white dark:bg-zinc-900 text-blue-600 font-bold">ORDERED</option>
                         <option value="received" className="bg-white dark:bg-zinc-900 text-emerald-600 font-bold">RECEIVED</option>
+                        <option value="inventoried" className="bg-white dark:bg-zinc-900 text-purple-650 font-bold">INVENTORIED</option>
                         <option value="delivered" className="bg-white dark:bg-zinc-900 text-emerald-700 font-bold">WITH VEHICLE</option>
                         <option value="cancelled" className="bg-white dark:bg-zinc-900 text-rose-600 font-bold">CANCELLED</option>
                       </select>

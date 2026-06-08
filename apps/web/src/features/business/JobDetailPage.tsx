@@ -1282,7 +1282,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
     // Generate tasks lists
     const completedTasksList = tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete');
     const incompleteTasksList = tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete');
-    const missingPartsList = parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled');
+    const missingPartsList = parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried');
 
     const doneHtml = completedTasksList.length === 0 
       ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">No tasks completed yet.</td></tr>'
@@ -2633,11 +2633,13 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                           <span className={cn(
                             "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest",
                             part.status === 'delivered' || part.status === 'fulfilled' ? "bg-indigo-500/10 text-indigo-600" :
+                            part.status === 'inventoried' ? "bg-purple-500/10 text-purple-650" :
                             part.status === 'received' ? "bg-emerald-500/10 text-emerald-600" :
                             part.status === 'ordered' ? "bg-blue-500/10 text-blue-600" :
                             "bg-amber-500/10 text-amber-600"
                           )}>
-                            {part.status === 'delivered' || part.status === 'fulfilled' ? "with vehicle" : part.status}
+                            {part.status === 'delivered' || part.status === 'fulfilled' ? "with vehicle" : 
+                             part.status === 'inventoried' ? "inventoried" : part.status}
                           </span>
                         </div>
                         <p className="text-[10px] text-zinc-500 truncate">
@@ -2659,15 +2661,26 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                           </button>
                         )}
                         {part.status === 'received' && (
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePartStatusChange(part.id, 'delivered');
-                            }}
-                            className="px-2 py-1 bg-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-sm"
-                          >
-                            With Vehicle
-                          </button>
+                          <div className="flex gap-1.5">
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePartStatusChange(part.id, 'delivered');
+                              }}
+                              className="px-2 py-1 bg-indigo-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-sm"
+                            >
+                              With Vehicle
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePartStatusChange(part.id, 'inventoried');
+                              }}
+                              className="px-2 py-1 bg-purple-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 transition-all shadow-sm"
+                            >
+                              Inventoried
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3063,11 +3076,11 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       <Wrench className="w-3.5 h-3.5" />
                       Missing / Pending Parts
                     </h2>
-                    {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').length === 0 ? (
+                    {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried').length === 0 ? (
                       <p className="text-xs text-zinc-400 italic">No parts pending requests.</p>
                     ) : (
                       <div className="divide-y divide-zinc-100">
-                        {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled').map(p => (
+                        {parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried').map(p => (
                           <div key={p.id} className="py-2.5 flex justify-between items-center gap-4">
                             <div>
                               <h4 className="text-xs font-bold text-zinc-800">{p.partName}</h4>

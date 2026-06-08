@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { StaffLink } from './StaffPerformance';
 import { motion, AnimatePresence } from 'framer-motion';
 
-type RequestStatus = 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled';
+type RequestStatus = 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled' | 'inventoried';
 type ShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'exception' | 'received';
 
 interface QuickBooksPO {
@@ -592,6 +592,7 @@ export function PartsMissionControl() {
       case 'fulfilled':
       case 'received':
       case 'delivered': return 'bg-[hsl(142,76%,36%)]/15 text-[hsl(142,70%,45%)] ring-1 ring-[hsl(142,76%,36%)]/30';
+      case 'inventoried': return 'bg-[hsl(260,80%,55%)]/15 text-[hsl(260,80%,60%)] ring-1 ring-[hsl(260,80%,55%)]/30';
       case 'ordered':
       case 'in_transit':
       case 'out_for_delivery': return 'bg-[hsl(217,91%,60%)]/15 text-[hsl(217,91%,65%)] ring-1 ring-[hsl(217,91%,60%)]/30';
@@ -1133,8 +1134,8 @@ export function PartsMissionControl() {
             {(() => {
               const filteredRequests = requests.filter(r => 
                 showHistory 
-                  ? (r.status === 'fulfilled' || r.status === 'cancelled')
-                  : (r.status !== 'fulfilled' && r.status !== 'cancelled')
+                  ? (r.status === 'fulfilled' || r.status === 'cancelled' || r.status === 'inventoried')
+                  : (r.status !== 'fulfilled' && r.status !== 'cancelled' && r.status !== 'inventoried')
               );
 
               if (filteredRequests.length === 0) {
@@ -1300,17 +1301,31 @@ export function PartsMissionControl() {
                               </button>
                             )}
                             {request.status === 'received' && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'fulfilled'); }}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20 transition-all cursor-pointer"
-                              >
-                                <CheckCircle className="w-3 h-3" />
-                                MARK WITH VEHICLE
-                              </button>
+                              <div className="flex-1 flex gap-1.5">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'fulfilled'); }}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/20 transition-all cursor-pointer"
+                                >
+                                  <CheckCircle className="w-3 h-3" />
+                                  MARK WITH VEHICLE
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleUpdateStatus(request.id, 'inventoried'); }}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-purple-500/10 text-purple-600 hover:bg-purple-500/20 transition-all cursor-pointer"
+                                >
+                                  <Package className="w-3.5 h-3.5" />
+                                  MARK INVENTORIED
+                                </button>
+                              </div>
                             )}
                             {request.status === 'fulfilled' && (
                               <div className="flex-1 text-center text-[10px] font-bold text-emerald-600/50 py-1.5">
                                 ✓ WITH VEHICLE
+                              </div>
+                            )}
+                            {request.status === 'inventoried' && (
+                              <div className="flex-1 text-center text-[10px] font-bold text-purple-600/50 py-1.5">
+                                ✓ INVENTORIED
                               </div>
                             )}
                             {(request.status === 'pending' || request.status === 'ordered') && (

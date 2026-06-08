@@ -190,6 +190,7 @@ export function PartsRequestModal({
                 <option value="ordered">Ordered</option>
                 <option value="received">Received</option>
                 <option value="delivered">With Vehicle</option>
+                <option value="inventoried">Inventoried</option>
               </select>
             </div>
           )}

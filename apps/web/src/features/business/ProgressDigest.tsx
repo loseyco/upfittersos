@@ -26,7 +26,7 @@ interface PartsRequest {
   partName?: string;
   partNumber?: string;
   description?: string;
-  status: 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled';
+  status: 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled' | 'inventoried';
   qty?: number;
 }
 
@@ -255,7 +255,10 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
       const jobParts = partsRequests.filter(p => p.jobId === job.id);
       const requestedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'requested').length;
       const orderedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'ordered').length;
-      const receivedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'received' || (p.status || '').toLowerCase() === 'fulfilled').length;
+      const receivedCount = jobParts.filter(p => {
+        const status = (p.status || '').toLowerCase();
+        return status === 'received' || status === 'fulfilled' || status === 'inventoried';
+      }).length;
       
       if (requestedCount > 0) {
         sections.missingParts.push({

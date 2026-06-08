@@ -48,20 +48,22 @@ describe('useJobPartsStatus Real-time Sync Hook', () => {
     expect(screen.getByTestId('receivedParts').textContent).toBe('0');
   });
 
-  it('renders Ready when all parts are received or fulfilled', async () => {
+  it('renders Ready when all parts are received, fulfilled, delivered, or inventoried', async () => {
     render(<TestComponent tenantId="test-tenant" jobId="job-1" />);
 
     await act(async () => {
       globalThis.__emitSnapshot('businesses/test-tenant/parts_requests', [
         { id: 'req-1', jobId: 'job-1', status: 'received', partName: 'Part A' },
         { id: 'req-2', jobId: 'job-1', status: 'fulfilled', partName: 'Part B' },
+        { id: 'req-3', jobId: 'job-1', status: 'delivered', partName: 'Part C' },
+        { id: 'req-4', jobId: 'job-1', status: 'inventoried', partName: 'Part D' },
       ]);
       globalThis.__emitSnapshot('businesses/test-tenant/shipments', []);
     });
 
     expect(screen.getByTestId('status').textContent).toBe('Ready');
-    expect(screen.getByTestId('totalParts').textContent).toBe('2');
-    expect(screen.getByTestId('receivedParts').textContent).toBe('2');
+    expect(screen.getByTestId('totalParts').textContent).toBe('4');
+    expect(screen.getByTestId('receivedParts').textContent).toBe('4');
   });
 
   it('renders Blocked when a pending request is missing a shipment or ETA', async () => {

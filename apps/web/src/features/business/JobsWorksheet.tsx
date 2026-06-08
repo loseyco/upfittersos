@@ -779,7 +779,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
         // Parts Status (Ignore cancelled, fulfilled, or delivered parts)
         const jobParts = partsRequests
           .filter(p => p.jobId === job.id)
-          .filter(p => p.status !== 'fulfilled' && p.status !== 'cancelled' && (p.status as string) !== 'delivered');
+          .filter(p => (p.status as string) !== 'fulfilled' && (p.status as string) !== 'cancelled' && (p.status as string) !== 'delivered' && (p.status as string) !== 'inventoried');
         if (jobParts.length > 0) {
           text += `   📦 Parts Checklist:\n`;
           jobParts.forEach((p: any) => {
@@ -880,7 +880,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       const jobParts = partsRequests.filter(p => p.jobId === job.id);
       const requestedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'requested').length;
       const orderedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'ordered').length;
-      const receivedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'received' || (p.status || '').toLowerCase() === 'fulfilled').length;
+      const receivedCount = jobParts.filter(p => {
+        const s = (p.status || '').toLowerCase();
+        return s === 'received' || s === 'fulfilled' || s === 'delivered' || s === 'inventoried';
+      }).length;
       if (requestedCount > 0) {
         reportSections.missingParts.push(`📦 Job ${jobDesc}: Waiting on ${requestedCount} pending/requested parts (${orderedCount} ordered, ${receivedCount} received)`);
       }
@@ -1301,7 +1304,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 const jobParts = partsRequests.filter(p => p.jobId === job.id);
                 const requestedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'requested').length;
                 const orderedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'ordered').length;
-                const receivedCount = jobParts.filter(p => (p.status || '').toLowerCase() === 'received' || (p.status || '').toLowerCase() === 'fulfilled').length;
+                const receivedCount = jobParts.filter(p => {
+                  const s = (p.status || '').toLowerCase();
+                  return s === 'received' || s === 'fulfilled' || s === 'delivered' || s === 'inventoried';
+                }).length;
                 const hasParts = requestedCount + orderedCount + receivedCount > 0;
 
                 let partsBadgeColor = 'bg-zinc-100 text-zinc-500 border-zinc-200/50 dark:bg-zinc-900/30 dark:text-zinc-500 dark:border-zinc-800';
@@ -1898,7 +1904,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                     "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
                     reportModalTab === 'filtered' 
                       ? "bg-white dark:bg-zinc-900 text-indigo-650 dark:text-indigo-400 shadow-sm" 
-                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                      : "text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
                   )}
                 >
                   Filtered Jobs Report
@@ -1909,7 +1915,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                     "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
                     reportModalTab === 'digest' 
                       ? "bg-white dark:bg-zinc-900 text-indigo-650 dark:text-indigo-400 shadow-sm" 
-                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                      : "text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
                   )}
                 >
                   Daily Activity Digest
@@ -2014,7 +2020,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
 
                             const jobParts = partsRequests
                                .filter(p => p.jobId === job.id)
-                               .filter(p => p.status !== 'fulfilled' && p.status !== 'cancelled' && (p.status as string) !== 'delivered');
+                               .filter(p => (p.status as string) !== 'fulfilled' && (p.status as string) !== 'cancelled' && (p.status as string) !== 'delivered' && (p.status as string) !== 'inventoried');
                             const requestedParts = jobParts.filter(p => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'requested');
                             const orderedParts = jobParts.filter(p => (p.status || '').toLowerCase() === 'ordered');
 
@@ -2185,7 +2191,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                           </div>
                                           <span className={cn(
                                             "px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider rounded border leading-none",
-                                            p.status === 'received' || p.status === 'fulfilled' || p.status === 'delivered' ? "bg-emerald-50 text-emerald-600 border-emerald-150" :
+                                            p.status === 'received' || p.status === 'fulfilled' || p.status === 'delivered' || p.status === 'inventoried' ? "bg-emerald-50 text-emerald-600 border-emerald-150" :
                                             p.status === 'ordered' ? "bg-blue-50 text-blue-600 border-blue-150" :
                                             "bg-amber-50 text-amber-600 border-amber-200"
                                           )}>
