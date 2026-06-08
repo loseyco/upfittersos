@@ -234,8 +234,9 @@ interface ScheduleBoardProps {
   tenantId: string;
 }
 
-function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now, isSequentialView }: { job: any, tenantId: string, staffList: any[], zones: any[], sessions: any[], viewMode: 'bays' | 'staff', timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string, staffId?: string) => void, monitorSettings: any, partsRequests: any[], now: Date, isSequentialView?: boolean }) {
+function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode, timelineStart, zoomLevel, schedule, onDragStart, onUnschedule, monitorSettings, partsRequests, now, isSequentialView, onDropOnJob }: { job: any, tenantId: string, staffList: any[], zones: any[], sessions: any[], viewMode: 'bays' | 'staff', timelineStart: Date, zoomLevel: number, schedule: WorkSchedule, onDragStart: (e: React.DragEvent, job: any) => void, onUnschedule: (jobId: string, staffId?: string) => void, monitorSettings: any, partsRequests: any[], now: Date, isSequentialView?: boolean, onDropOnJob?: (e: React.DragEvent, targetJob: any) => void }) {
   const navigate = useNavigate();
+  const [isDragOver, setIsDragOver] = useState(false);
   const { data: partsInfo } = useJobPartsStatus(tenantId, job.id);
   
   const handleEditHours = async (e: React.MouseEvent) => {
@@ -418,8 +419,25 @@ function TimelineJobBlock({ job, tenantId, staffList, zones, sessions, viewMode,
         draggable
         onDragStart={(e) => onDragStart(e, job)}
         onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(true);
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsDragOver(false);
+          if (onDropOnJob) {
+            onDropOnJob(e, job);
+          }
+        }}
         style={cardBgStyle}
-        className="relative h-20 w-72 shrink-0 rounded-xl border border-white/10 shadow-sm cursor-grab hover:shadow-md transition-all group overflow-hidden p-2 flex flex-col justify-between"
+        className={cn(
+          "relative h-20 w-72 shrink-0 rounded-xl border border-white/10 shadow-sm cursor-grab hover:shadow-md transition-all group overflow-hidden p-2 flex flex-col justify-between",
+          isDragOver && "border-indigo-500 scale-95 shadow-[0_0_12px_rgba(99,102,241,0.4)]"
+        )}
       >
         {/* Progress Background */}
         <div className="absolute inset-0 bg-white/5 z-0 pointer-events-none" />
@@ -1065,7 +1083,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     }
   };
 
-  const handleDropOnGrid = async (e: React.DragEvent, rowId: string) => {
+  const handleDropOnGrid = async (e: React.DragEvent, rowId: string, targetJob?: any) => {
     e.preventDefault();
     const jobId = e.dataTransfer.getData('jobId');
     const dragOffsetX = parseFloat(e.dataTransfer.getData('offsetX') || '0');
@@ -1109,14 +1127,22 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
     let snappedDate;
     if (isSequentialView) {
-      const rowJobs = visualCascadedJobs.filter(j => j._renderedRowKey === rowId && j.id !== jobId);
-      if (rowJobs.length > 0) {
-        const maxEnd = Math.max(...rowJobs.map(j => j._visualEndMs));
-        snappedDate = new Date(maxEnd);
+      if (targetJob && targetJob.id !== jobId) {
+        const targetStartStr = viewMode === 'bays' 
+          ? targetJob.scheduledStartDate 
+          : (targetJob.staffSchedules?.[rowId]?.scheduledStartDate || targetJob.scheduledStartDate);
+        
+        snappedDate = targetStartStr ? new Date(targetStartStr) : new Date();
       } else {
-        snappedDate = new Date(timelineStart);
-        const [startH, startM] = schedule.startTime.split(':').map(Number);
-        snappedDate.setHours(startH, startM, 0, 0);
+        const rowJobs = visualCascadedJobs.filter(j => j._renderedRowKey === rowId && j.id !== jobId);
+        if (rowJobs.length > 0) {
+          const maxEnd = Math.max(...rowJobs.map(j => j._visualEndMs));
+          snappedDate = new Date(maxEnd);
+        } else {
+          snappedDate = new Date(timelineStart);
+          const [startH, startM] = schedule.startTime.split(':').map(Number);
+          snappedDate.setHours(startH, startM, 0, 0);
+        }
       }
     } else {
       // Calculate dropped time based on X coordinate
@@ -2165,6 +2191,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                         partsRequests={partsRequests}
                         now={now}
                         isSequentialView={isSequentialView}
+                        onDropOnJob={(e, targetJob) => handleDropOnGrid(e, row.id, targetJob)}
                       />
                   ))}
                 </div>
