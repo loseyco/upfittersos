@@ -495,7 +495,9 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
     let totalActual = 0;
 
     monthCompletedTasks.forEach(task => {
-      if (!isGeneralTask(task.title)) {
+      const tTitle = task.title || '';
+      const isGen = tTitle.toLowerCase().includes('clock in') || tTitle.toLowerCase().includes('clockout') || tTitle.toLowerCase().includes('break') || tTitle.toLowerCase().includes('lunch') || tTitle.toLowerCase().includes('meeting');
+      if (!isGen) {
         const bTime = parseFloat(task.bookTime) || 0;
 
         const taskActualMs = monthlySessions.reduce((acc: number, session: any) => {
@@ -726,7 +728,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
         // Task segments time (excluding general tasks, clamped within session bounds for absolute accuracy)
         (s.jobs || []).forEach((j: any) => {
-          if (isGeneralTask(j.taskName || j.name)) return;
+          const jobName = j.name || '';
+          const taskName = j.taskName || '';
+          let isGen = isGeneralTask(taskName || jobName);
+          if (jobName.startsWith('#')) {
+            const t = taskName.toLowerCase();
+            isGen = t.includes('clock in') || t.includes('clockout') || t.includes('break') || t.includes('lunch') || t.includes('meeting');
+          }
+          if (isGen) return;
           const jStart = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
           const jEnd = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : end;
           
@@ -782,7 +791,9 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       const completedTasksList: Array<{ title: string; bookTime: number; actualTime: number }> = [];
 
       completedTasks.forEach(task => {
-        if (!isGeneralTask(task.title)) {
+        const tTitle = task.title || '';
+        const isGen = tTitle.toLowerCase().includes('clock in') || tTitle.toLowerCase().includes('clockout') || tTitle.toLowerCase().includes('break') || tTitle.toLowerCase().includes('lunch') || tTitle.toLowerCase().includes('meeting');
+        if (!isGen) {
           const bTime = parseFloat(task.bookTime) || 0;
           const actualTime = getTaskLoggedHours(task.id, allMemberSessions);
           
@@ -930,7 +941,9 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
       let weekBookHours = 0;
       weekCompletedTasks.forEach(task => {
-        if (!isGeneralTask(task.title)) {
+        const tTitle = task.title || '';
+        const isGen = tTitle.toLowerCase().includes('clock in') || tTitle.toLowerCase().includes('clockout') || tTitle.toLowerCase().includes('break') || tTitle.toLowerCase().includes('lunch') || tTitle.toLowerCase().includes('meeting');
+        if (!isGen) {
           const bTime = parseFloat(task.bookTime) || 0;
           const isHourly = task.payBasis === 'hourly' || bTime === 0;
           if (isHourly) {
