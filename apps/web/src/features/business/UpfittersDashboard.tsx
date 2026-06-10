@@ -4,7 +4,7 @@ import {
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
   Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
-  ChevronUp, ChevronDown, Award, DollarSign
+  ChevronUp, ChevronDown, Award
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
@@ -144,7 +144,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
-  const [activeInfo, setActiveInfo] = useState<{ memberId: string; type: 'backlog' | 'task_efficiency' | 'shift_utilization' | 'direct_labor' | 'weekly_performance' | 'timeline' } | null>(null);
+  const [activeInfo, setActiveInfo] = useState<{ memberId: string; type: 'backlog' | 'task_efficiency' | 'shift_utilization' | 'direct_labor' | 'weekly_performance' | 'timeline' | 'idle_time' } | null>(null);
   const [activeMainInfo, setActiveMainInfo] = useState<'coverage' | 'efficiency' | 'status' | 'blockers' | null>(null);
   
   const [showForemanTracker, setShowForemanTracker] = useState(() => {
@@ -496,7 +496,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
     monthCompletedTasks.forEach(task => {
       if (!isGeneralTask(task.title)) {
-        totalBook += parseFloat(task.bookTime) || 0;
+        const bTime = parseFloat(task.bookTime) || 0;
 
         const taskActualMs = monthlySessions.reduce((acc: number, session: any) => {
           const segments = (session.jobs || []).filter((j: any) => j.taskId === task.id);
@@ -518,7 +518,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           }, 0);
           return acc + segMs;
         }, 0);
-        totalActual += taskActualMs / 3600000;
+
+        const actualHours = taskActualMs / 3600000;
+        const isHourly = task.payBasis === 'hourly' || bTime === 0;
+        const taskBookTime = isHourly ? actualHours : bTime;
+
+        totalBook += taskBookTime;
+        totalActual += actualHours;
       }
     });
 
@@ -541,13 +547,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
     } else if (effPct >= 100) {
       effBonus = 1500;
       effStatus = 'Tier 2 (100% - 109%)';
-      nextEffTier = '110% for $3,000';
+      nextEffTier = '110%';
     } else if (effPct >= 90) {
       effBonus = 500;
       effStatus = 'Tier 1 (90% - 99%)';
-      nextEffTier = '100% for $1,500';
+      nextEffTier = '100%';
     } else {
-      nextEffTier = '90% for $500';
+      nextEffTier = '90%';
     }
 
     let revBonus = 0;
@@ -556,17 +562,17 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
     if (monthlyRevenue >= 250000) {
       revBonus = 5000;
-      revStatus = 'Tier 3 ($250K+)';
+      revStatus = 'Tier 3 (250K+)';
     } else if (monthlyRevenue >= 200000) {
       revBonus = 3000;
-      revStatus = 'Tier 2 ($200K - $249K)';
-      nextRevTier = '$250,000 for $5,000';
+      revStatus = 'Tier 2 (200K - 249K)';
+      nextRevTier = '$250,000';
     } else if (monthlyRevenue >= 150000) {
       revBonus = 1500;
-      revStatus = 'Tier 1 ($150K - $199K)';
-      nextRevTier = '$200,000 for $3,000';
+      revStatus = 'Tier 1 (150K - 199K)';
+      nextRevTier = '$200,000';
     } else {
-      nextRevTier = '$150,000 for $1,500';
+      nextRevTier = '$150,000';
     }
 
     return {
@@ -779,11 +785,15 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
         if (!isGeneralTask(task.title)) {
           const bTime = parseFloat(task.bookTime) || 0;
           const actualTime = getTaskLoggedHours(task.id, allMemberSessions);
-          completedBookHours += bTime;
+          
+          const isHourly = task.payBasis === 'hourly' || bTime === 0;
+          const taskBookTime = isHourly ? actualTime : bTime;
+          
+          completedBookHours += taskBookTime;
           completedActualHours += actualTime;
           completedTasksList.push({
             title: task.title || 'Production Task',
-            bookTime: bTime,
+            bookTime: taskBookTime,
             actualTime: actualTime
           });
         }
@@ -921,7 +931,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       let weekBookHours = 0;
       weekCompletedTasks.forEach(task => {
         if (!isGeneralTask(task.title)) {
-          weekBookHours += parseFloat(task.bookTime) || 0;
+          const bTime = parseFloat(task.bookTime) || 0;
+          const isHourly = task.payBasis === 'hourly' || bTime === 0;
+          if (isHourly) {
+            const actualTime = getTaskLoggedHours(task.id, memberWeekSessions);
+            weekBookHours += actualTime;
+          } else {
+            weekBookHours += bTime;
+          }
         }
       });
 
@@ -1307,18 +1324,10 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                   <Award className="w-5 h-5" />
                 </span>
                 <div>
-                  <h3 className="text-sm font-black tracking-tight uppercase italic">Shop Foreman - Performance & Bonus Tracker</h3>
+                  <h3 className="text-sm font-black tracking-tight uppercase italic">Shop Foreman - MTD Performance Tracker</h3>
                   <p className="text-[10px] text-zinc-400">Month-to-Date Performance Metrics (SAE Group - Upfitting Division)</p>
                 </div>
               </div>
-            </div>
-            
-            <div className="bg-white/5 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/10 flex items-center gap-3 shrink-0">
-              <div>
-                <span className="text-[9px] font-black text-zinc-450 uppercase tracking-wider block">Est. Monthly Bonus Earned</span>
-                <span className="text-xl font-black text-emerald-450 font-mono">${foremanBonus.totalBonus.toLocaleString()}</span>
-              </div>
-              <DollarSign className="w-6 h-6 text-emerald-400/80 shrink-0" />
             </div>
           </div>
 
@@ -1329,10 +1338,6 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                 <div className="space-y-0.5">
                   <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Shop Labor Efficiency</span>
                   <span className="text-lg font-black font-mono text-amber-400">{monthlyEff.pct}%</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider block">Estimated Payout</span>
-                  <span className="text-sm font-black text-emerald-400 font-mono">${foremanBonus.effBonus.toLocaleString()}/mo</span>
                 </div>
               </div>
 
@@ -1385,10 +1390,6 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                 <div className="space-y-0.5">
                   <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Monthly Production Revenue</span>
                   <span className="text-lg font-black font-mono text-indigo-400">${monthlyRevenue.toLocaleString()}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider block">Estimated Payout</span>
-                  <span className="text-sm font-black text-emerald-400 font-mono">${foremanBonus.revBonus.toLocaleString()}</span>
                 </div>
               </div>
 
@@ -1598,6 +1599,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             {activeInfo.type === 'task_efficiency' && "Task Efficiency Details"}
                             {activeInfo.type === 'shift_utilization' && "Shift Utilization Details"}
                             {activeInfo.type === 'direct_labor' && "Direct Labor Coverage"}
+                            {activeInfo.type === 'idle_time' && "Idle Time Details"}
                             {activeInfo.type === 'weekly_performance' && "Weekly Rolling Performance"}
                             {activeInfo.type === 'timeline' && "Daily Timeline Guide"}
                           </h4>
@@ -1727,6 +1729,30 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                           </div>
                         )}
 
+                        {activeInfo.type === 'idle_time' && (
+                          <div className="space-y-3">
+                            <p className="leading-relaxed font-semibold">
+                              Idle Time measures the duration when a technician was clocked into their shift but not clocked into any active production task or job.
+                            </p>
+                            <div className="p-3 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-2xl">
+                              <span className="text-[9px] font-black uppercase text-amber-600 dark:text-amber-500 block mb-1">Formula</span>
+                              <p className="font-mono text-[10px] font-black text-amber-600 dark:text-amber-500 leading-snug">
+                                Total Shift Hours - Production Task Hours
+                              </p>
+                              <div className="mt-2 pt-2 border-t border-dashed border-amber-500/20 space-y-1 font-mono text-[9.5px] text-zinc-400">
+                                <div>Total Clocked Shift: {col.totalShiftHours.toFixed(2)}h</div>
+                                <div>Production Task Clock: {col.totalTaskHours.toFixed(2)}h</div>
+                                <div className="font-bold text-amber-600 dark:text-amber-500 mt-1">
+                                  Result: {Math.max(0, col.totalShiftHours - col.totalTaskHours).toFixed(2)}h
+                                </div>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-zinc-405 leading-relaxed bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-850">
+                              ℹ️ High Idle Time indicates the technician is clocked into the building but waiting for work, performing general shop duties, or forgot to clock into their production tasks.
+                            </p>
+                          </div>
+                        )}
+
                         {activeInfo.type === 'weekly_performance' && (
                           <div className="space-y-3">
                             <p className="leading-relaxed font-semibold">
@@ -1736,6 +1762,9 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                               <span className="text-[9px] font-black uppercase text-indigo-555 dark:text-indigo-400 block mb-1">Weekly Totals (7-Day Rolling)</span>
                               <div>Weekly Book Hours: {col.weekBookHours.toFixed(1)}h</div>
                               <div>Weekly Clocked Hours: {col.weekShiftHours.toFixed(1)}h</div>
+                              <div className="font-bold text-indigo-650 dark:text-indigo-400 mt-1">
+                                Weekly Shift Utilization: {col.weekShiftHours > 0 ? Math.round((col.weekBookHours / col.weekShiftHours) * 100) : 0}%
+                              </div>
                             </div>
                             <p className="text-[10px] text-zinc-405 leading-relaxed">
                               This 7-day query is completely independent of the timeframe selected in the header. It provides a stable weekly gauge of technician performance.
@@ -1863,16 +1892,16 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                     )}
 
                     {/* Individual Efficiencies Summary Row */}
-                    <div className="grid grid-cols-3 gap-2 border-t border-zinc-200 dark:border-zinc-800/60 pt-3 text-center">
+                    <div className="grid grid-cols-4 gap-1 border-t border-zinc-200 dark:border-zinc-800/60 pt-3 text-center">
                       <button 
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'task_efficiency' })}
-                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl transition-all cursor-pointer group/item text-center"
+                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1 rounded-xl transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[11px] font-bold text-zinc-505 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
-                          Task Eff <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
+                        <span className="text-[9.5px] sm:text-[10px] font-bold text-zinc-505 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
+                          Task Eff <HelpCircle className="w-2 h-2 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-sm font-bold font-mono block mt-0.5",
+                          "text-xs sm:text-sm font-bold font-mono block mt-0.5",
                           col.taskEfficiency && col.taskEfficiency >= 100 ? "text-emerald-500" :
                           col.taskEfficiency && col.taskEfficiency >= 85 ? "text-amber-500" :
                           col.taskEfficiency ? "text-rose-500" : "text-zinc-400"
@@ -1882,13 +1911,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       </button>
                       <button 
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'shift_utilization' })}
-                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl border-x border-zinc-150 dark:border-zinc-800/80 transition-all cursor-pointer group/item text-center"
+                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1 rounded-xl border-l border-zinc-150 dark:border-zinc-800/80 transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[11px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
+                        <span className="text-[9.5px] sm:text-[10px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
                           Shift Util <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-sm font-bold font-mono block mt-0.5",
+                          "text-xs sm:text-sm font-bold font-mono block mt-0.5",
                           col.shiftUtilization && col.shiftUtilization >= 90 ? "text-emerald-500" :
                           col.shiftUtilization && col.shiftUtilization >= 75 ? "text-amber-500" :
                           col.shiftUtilization ? "text-rose-500" : "text-zinc-400"
@@ -1898,18 +1927,34 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       </button>
                       <button 
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'direct_labor' })}
-                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl transition-all cursor-pointer group/item text-center"
+                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1 rounded-xl border-l border-zinc-150 dark:border-zinc-800/80 transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[11px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
-                          Direct Labor <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
+                        <span className="text-[9.5px] sm:text-[10px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
+                          Direct Lab <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-sm font-bold font-mono block mt-0.5",
+                          "text-xs sm:text-sm font-bold font-mono block mt-0.5",
                           col.taskCoverage && col.taskCoverage >= 85 ? "text-indigo-500" :
                           col.taskCoverage && col.taskCoverage >= 70 ? "text-amber-500" :
                           col.taskCoverage ? "text-rose-500" : "text-zinc-400"
                         )}>
                           {col.taskCoverage ? `${col.taskCoverage}%` : '--'}
+                        </span>
+                      </button>
+                      <button 
+                        onClick={() => setActiveInfo({ memberId: col.id, type: 'idle_time' })}
+                        className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1 rounded-xl border-l border-zinc-150 dark:border-zinc-800/80 transition-all cursor-pointer group/item text-center"
+                      >
+                        <span className="text-[9.5px] sm:text-[10px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
+                          Idle Time <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
+                        </span>
+                        <span className={cn(
+                          "text-xs sm:text-sm font-bold font-mono block mt-0.5",
+                          (col.totalShiftHours - col.totalTaskHours) > 5 ? "text-rose-500 font-extrabold" :
+                          (col.totalShiftHours - col.totalTaskHours) > 2 ? "text-amber-550 dark:text-amber-500" :
+                          col.totalShiftHours > 0 ? "text-zinc-500" : "text-zinc-400"
+                        )}>
+                          {col.totalShiftHours > 0 ? `${Math.max(0, col.totalShiftHours - col.totalTaskHours).toFixed(1)}h` : '0.0h'}
                         </span>
                       </button>
                     </div>
