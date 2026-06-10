@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
-  Maximize, Minimize, Search, Sparkles, HelpCircle, X
+  Maximize, Minimize, Search, Sparkles, HelpCircle, X, History
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc
@@ -759,6 +759,48 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
         };
       }).sort((a, b) => b.start.getTime() - a.start.getTime());
 
+      // Find jobs this technician worked on but has no remaining uncompleted tasks (Previous Jobs)
+      const previousJobs = allJobs.filter(job => {
+        // If they still have uncompleted work on it, it's not a previous job (it's active/queued)
+        const hasUncompleted = allTasks.some(t => 
+          t.jobId === job.id &&
+          t.status !== 'completed' &&
+          t.status !== 'QC Complete' &&
+          (t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
+        );
+        if (hasUncompleted) return false;
+
+        // Check if they completed any task on this job
+        const hasCompletedTask = allTasks.some(t =>
+          t.jobId === job.id &&
+          (t.status === 'completed' || t.status === 'QC Complete') &&
+          (t.completedByStaffId === member.id || t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
+        );
+        if (hasCompletedTask) return true;
+
+        // Or if they clocked time on this job in the current week sessions list
+        const hasTimeclockSession = memberWeekSessions.some((s: any) => 
+          s.jobs?.some((j: any) => j.id === job.id || j.name?.includes(job.jobNumber) || j.name?.includes(job.title))
+        );
+        if (hasTimeclockSession) return true;
+
+        return false;
+      }).map(job => {
+        const completedTasksCount = allTasks.filter(t => 
+          t.jobId === job.id && 
+          (t.status === 'completed' || t.status === 'QC Complete') &&
+          (t.completedByStaffId === member.id || t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
+        ).length;
+
+        return {
+          id: job.id,
+          title: job.title,
+          jobNumber: job.jobNumber,
+          customerName: job.customerName,
+          completedTasksCount
+        };
+      });
+
       // Find session for the active day (either today or selected custom date)
       const activeDayStart = new Date();
       activeDayStart.setHours(0, 0, 0, 0);
@@ -809,7 +851,8 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
         weekShiftHours,
         weekBookHours,
         weekSessionsList,
-        completedTasksList
+        completedTasksList,
+        previousJobs: previousJobs.slice(0, 5)
       };
     });
 
@@ -1930,6 +1973,43 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   )}
                                 </div>
                               )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* PREVIOUS JOBS LIST */}
+                    <div className="flex flex-col gap-2.5 border-t border-dashed border-zinc-200 dark:border-zinc-800/60 pt-3">
+                      <h5 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <History className="w-3.5 h-3.5 text-zinc-450 shrink-0" />
+                        Previous Jobs ({col.previousJobs?.length || 0})
+                      </h5>
+                      <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                        {!col.previousJobs || col.previousJobs.length === 0 ? (
+                          <div className="p-3 text-center bg-zinc-50/20 dark:bg-zinc-950/10 border border-dashed border-zinc-200/50 dark:border-zinc-800/20 rounded-2xl">
+                            <span className="text-xs text-zinc-400 dark:text-zinc-500 italic">No previous jobs.</span>
+                          </div>
+                        ) : (
+                          col.previousJobs.map(job => (
+                            <div 
+                              key={job.id}
+                              onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                              className="p-3 bg-zinc-50/40 dark:bg-zinc-900/20 border border-zinc-200 dark:border-zinc-800/80 rounded-2xl hover:border-zinc-500/40 hover:shadow-sm cursor-pointer transition-all flex flex-col gap-1 relative group"
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="min-w-0">
+                                  <h6 className="font-bold text-xs text-zinc-900 dark:text-white leading-snug group-hover:text-indigo-500 transition-colors truncate">
+                                    {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
+                                  </h6>
+                                  <span className="text-xs text-zinc-500 dark:text-zinc-450 font-medium truncate block mt-0.5">
+                                    {job.customerName || 'No Customer'}
+                                  </span>
+                                </div>
+                                <span className="px-1.5 py-0.5 bg-zinc-150 dark:bg-zinc-850/80 text-zinc-500 dark:text-zinc-400 text-[10px] font-bold uppercase tracking-wider rounded-md shrink-0 border border-zinc-200 dark:border-zinc-800/60 whitespace-nowrap">
+                                  {job.completedTasksCount} Tasks
+                                </span>
+                              </div>
                             </div>
                           ))
                         )}
