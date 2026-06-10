@@ -22,6 +22,11 @@ import { TakeoffsSection } from './TakeoffsSection';
 import { LogoQRCode } from '../../components/LogoQRCode';
 import { StaffLink } from './StaffPerformance';
 
+const isGeneralTask = (title?: string) => {
+  const t = (title || '').toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
+};
+
 export function JobDetailPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
   const pathParts = (splat || '').split('/').filter(Boolean);
@@ -398,7 +403,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
     
-    const hasGeneral = tasks.some(t => t.title === 'General');
+    const hasGeneral = tasks.some(t => isGeneralTask(t.title));
     if (!hasGeneral && !addingGeneralRef.current) {
       addingGeneralRef.current = true;
       const addGeneralTask = async () => {
@@ -914,7 +919,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!tasks.length || !job || !tenantId || !jobId) return;
 
-    const nonGeneralTasks = tasks.filter(t => t.title !== 'General');
+    const nonGeneralTasks = tasks.filter(t => !isGeneralTask(t.title));
     if (nonGeneralTasks.length === 0) return;
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
@@ -1027,13 +1032,13 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         task.assignedStaffIds?.includes(staffMember.userId) || 
         task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
       ));
-    const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
+    const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
     const isClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                          isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
-    return task.title === 'General' || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
+    return isGeneralTask(task.title) || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
   });
 
-  const nonGeneralTasks = visibleTasks.filter(t => t.title !== 'General');
+  const nonGeneralTasks = visibleTasks.filter(t => !isGeneralTask(t.title));
   const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
   const completedBookHours = nonGeneralTasks
     .filter(t => t.status === 'QC' || t.status === 'QC Complete')
@@ -1261,7 +1266,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
         ? task.actualTime 
         : (loggedMs / 3600000);
 
-      if (task.title !== 'General') {
+      if (!isGeneralTask(task.title)) {
         totalBook += bookHours;
       }
       totalActual += actualHours;
@@ -1291,7 +1296,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           const loggedMs = getTaskLoggedMs(t.id);
           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
           const bookHours = parseFloat(t.bookTime) || 0;
-          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+          const isOverBook = !t.isAccidental && !isGeneralTask(t.title) && bookHours > 0 && clockedHours > bookHours;
           const diff = clockedHours - bookHours;
 
           return `
@@ -1306,7 +1311,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                       No time logged but complete
                     </span>
                   </div>
-                ` : t.title !== 'General' && bookHours > 0 ? `
+                ` : !isGeneralTask(t.title) && bookHours > 0 ? `
                   <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
                     Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
                     ${isOverBook ? `
@@ -1335,7 +1340,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
           const loggedMs = getTaskLoggedMs(t.id);
           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
           const bookHours = parseFloat(t.bookTime) || 0;
-          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+          const isOverBook = !t.isAccidental && !isGeneralTask(t.title) && bookHours > 0 && clockedHours > bookHours;
           const diff = clockedHours - bookHours;
 
           return `
@@ -1344,7 +1349,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 <div style="font-weight: bold; color: #18181b;">${t.title}</div>
                 ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
                 <div style="font-size: 11px; color: #6366f1; font-weight: 600; margin-top: 4px;">Assigned: ${staffNames}</div>
-                ${t.title !== 'General' && bookHours > 0 ? `
+                ${!isGeneralTask(t.title) && bookHours > 0 ? `
                   <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
                     Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
                     ${isOverBook ? `
@@ -1820,7 +1825,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                           </div>
                         )}
                         {Object.entries(grouped)
-                          .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+                          .sort(([a], [b]) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b))
                           .map(([group, tasksData]) => {
                             const groupTasks = tasksData as any[];
                             
@@ -1839,7 +1844,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                   <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">
                                     {sectionTitle ? `${group}, QC Task` : `${group}, Task`}
                                   </h4>
-                                  {group !== 'General' && totalBookHours > 0 && (
+                                  {!isGeneralTask(group) && totalBookHours > 0 && (
                                     <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
                                       <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
                                         {completedHours.toFixed(1)} / {totalBookHours.toFixed(1)}h Completed
@@ -1877,7 +1882,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                     return aOrder - bOrder;
                                   }).map(task => {
                                     const loggedMs = getTaskLoggedMs(task.id);
-                                    const isAssigned = task.title === 'General' || 
+                                    const isAssigned = isGeneralTask(task.title) || 
                                                        isSuperAdmin || 
                                                        task.assignedStaffIds?.includes(effectiveUserId) || 
                                                        task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
@@ -1889,7 +1894,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                          task.assignedStaffIds?.includes(staffMember.userId) || 
                                                          task.assignedStaff?.some((s: any) => s.uid === staffMember.userId || s.id === staffMember.userId)
                                                        ));
-                                    const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
+                                    const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
                                     const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                                                           isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
 
@@ -1951,7 +1956,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                                                   ? task.actualTime 
                                                   : (loggedMs / 3600000);
-                                                const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                                const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
                                                 const diff = clockedHours - bookHours;
                                                 if (isOverBook) {
                                                   return (
@@ -1987,14 +1992,14 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                             </div>
                                             {task.description && (
                                               <p className="text-xs text-zinc-500 mb-2">
-                                                {task.title === 'General' && task.description === 'General shop work and cleanup'
+                                                {isGeneralTask(task.title) && task.description === 'General shop work and cleanup'
                                                   ? 'General clock in to job when no task clock in here'
                                                   : task.description}
                                               </p>
                                             )}
                                             
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-                                              {task.title !== 'General' && task.status !== 'QC' && (
+                                              {!isGeneralTask(task.title) && task.status !== 'QC' && (
                                                 <div className="flex flex-col">
                                                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Allotted Time</span>
                                                   <span className="font-mono text-sm font-bold text-zinc-900 dark:text-white">{task.bookTime || 0}h</span>
@@ -2019,7 +2024,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                 ) : (
                                                   <span className={cn(
                                                     "font-mono text-sm font-bold",
-                                                    task.title !== 'General' && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
+                                                    !isGeneralTask(task.title) && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
                                                   )}>
                                                     {formatMs(loggedMs)}
                                                   </span>
@@ -2096,7 +2101,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                                   )
                                                 )}
                                                 
-                                                {task.status !== 'QC Complete' && task.title !== 'General' && (
+                                                {task.status !== 'QC Complete' && !isGeneralTask(task.title) && (
                                                   task.status === 'QC' ? (
                                                     <div className="flex items-center gap-2">
                                                       {canPerformQC ? (
@@ -2613,7 +2618,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                 <p className="text-xs text-zinc-500 italic text-center py-4">No parts requested for this job.</p>
               ) : (
                 parts.map(part => {
-                  const targetTaskId = part.taskId || tasks.find(t => t.title === 'General')?.id;
+                  const targetTaskId = part.taskId || tasks.find(t => isGeneralTask(t.title))?.id;
                   return (
                     <div 
                       key={part.id} 
@@ -3182,7 +3187,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                       ))
                                     )}
                                   </span>
-                                  {t.title !== 'General' && bookHours > 0 && (
+                                  {!isGeneralTask(t.title) && bookHours > 0 && (
                                     <>
                                       <span className="text-zinc-300">•</span>
                                       <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
@@ -3253,7 +3258,7 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                                         No time logged but complete
                                       </span>
                                     </>
-                                  ) : t.title !== 'General' && bookHours > 0 && (
+                                  ) : !isGeneralTask(t.title) && bookHours > 0 && (
                                     <>
                                       <span className="text-zinc-300">•</span>
                                       <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>

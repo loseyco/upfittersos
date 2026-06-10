@@ -10,6 +10,7 @@ import {
 import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
 import { WeeklyTimeclockReportModal } from './WeeklyTimeclockReportModal';
+import { TSheetsComparison } from './TSheetsComparison';
 import { StaffLink } from '../business/StaffPerformance';
 import { toast } from 'sonner';
 
@@ -198,7 +199,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const [filterType, setFilterType] = useState<'all' | 'remote' | 'active' | 'flagged'>('all');
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity'>('logs');
+  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity' | 'tsheets_comparison'>('logs');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
 
   const { data: activityLogs, isLoading: isLoadingLogs } = useQuery({
@@ -551,6 +552,16 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
           }`}
         >
           <span>Manager Activity Logs</span>
+        </button>
+        <button
+          onClick={() => setViewMode('tsheets_comparison')}
+          className={`pb-3 text-xs font-black uppercase tracking-widest border-b-2 px-6 transition-all cursor-pointer flex items-center gap-2 ${
+            viewMode === 'tsheets_comparison'
+              ? 'border-indigo-500 text-indigo-600 dark:text-white'
+              : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-350'
+          }`}
+        >
+          <span>TSheets Comparison</span>
         </button>
       </div>
 
@@ -1351,6 +1362,10 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {viewMode === 'tsheets_comparison' && (
+        <TSheetsComparison tenantId={tenantId} />
       )}
 
       {editingSession && (

@@ -1,21 +1,28 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, updateDoc, collection, getDocs, addDoc, deleteDoc, writeBatch, serverTimestamp, query, where, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, getDocs, addDoc, deleteDoc, writeBatch, serverTimestamp, query, where, setDoc, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Save, ArrowLeft, User, Car, MapPin, 
-  Sparkles, AlertCircle, Trash2, Copy, Plus, CheckSquare,
-  Wrench, Package, FileText
+  Sparkles, AlertCircle, Trash2, Copy, Clipboard, Plus, CheckSquare,
+  Wrench, Package, X, GripVertical
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { assignQCStaffToTask, assignQCStaffToJob } from '../../lib/auth/qcAssignment';
 import { CustomerSelector, QuickAddCustomerModal } from './CustomerSelectionComponents';
 import { VinSelector, QuickAddVehicleModal } from './VehicleSelector';
-import { StaffSelector } from './StaffSelectionComponents';
+
 import { SearchableSelect } from './SearchableSelect';
+import { InlineSearchableSelect } from './InlineSearchableSelect';
+import { TaskTitleAutocomplete } from './TaskTitleAutocomplete';
 import { projectWorkingHours } from './ScheduleBoard';
 import { PartsRequestModal } from './PartsRequestModal';
+
+const isGeneralTask = (title?: string) => {
+  const t = (title || '').toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
+};
 
 export function JobEditPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
@@ -66,6 +73,10 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   const [parts, setParts] = useState<any[]>([]);
   const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
   const [selectedPartForEdit, setSelectedPartForEdit] = useState<any>(null);
+  const [isCopyTasksOpen, setIsCopyTasksOpen] = useState(false);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [copiedTaskClipboard, setCopiedTaskClipboard] = useState<any>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isNew) return;
@@ -102,6 +113,24 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     });
     return () => unsub();
   }, [jobId, tenantId, isNew]);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/staff`),
+      orderBy('firstName', 'asc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setStaffList(
+        snap.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter((s: any) => !s.isArchived && !s.fireDate && s.departmentId && !s.isDeviceAccount)
+      );
+    }, (err) => {
+      console.error("Staff list listener error in JobEditPage:", err);
+    });
+    return () => unsub();
+  }, [tenantId]);
 
   const getTaskLoggedMs = (taskId: string) => {
     return timeLogs.reduce((acc, session) => {
@@ -201,7 +230,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   // Auto-add "General" task if missing
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
-    const hasGeneral = jobTasks.some(t => t.title === 'General');
+    const hasGeneral = jobTasks.some(t => isGeneralTask(t.title));
     if (!hasGeneral && !addingGeneralRef.current) {
       addingGeneralRef.current = true;
       const addGeneralTask = async () => {
@@ -263,7 +292,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!jobTasks.length || !job || !tenantId || !jobId) return;
 
-    const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+    const nonGeneralTasks = jobTasks.filter(t => !isGeneralTask(t.title));
     if (nonGeneralTasks.length === 0) return;
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
@@ -389,7 +418,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         scheduledArrivalTime: scheduledArrivalTime ? new Date(scheduledArrivalTime).toISOString() : null,
         scheduledStartDate: scheduledStartDate ? new Date(scheduledStartDate).toISOString() : null,
         scheduledEndDate: scheduledEndDate ? new Date(scheduledEndDate).toISOString() : null,
-        estimatedHours: jobTasks.filter(t => t.title !== 'General').reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0),
+        estimatedHours: jobTasks.filter(t => !isGeneralTask(t.title)).reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0),
         departmentIds: Array.from(new Set(jobTasks.map(t => t.departmentId).filter(Boolean))),
         updatedAt: new Date()
       };
@@ -571,6 +600,348 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const copyTasksFromJob = async (sourceJobId: string) => {
+    try {
+      const tasksSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs/${sourceJobId}/tasks`));
+      
+      const sourceTasks = tasksSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(t => !isGeneralTask(t.title))
+        .sort((a, b) => {
+          const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
+          const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          
+          const aTime = a.createdAt?.seconds || (a.createdAt instanceof Date ? a.createdAt.getTime() / 1000 : 0);
+          const bTime = b.createdAt?.seconds || (b.createdAt instanceof Date ? b.createdAt.getTime() / 1000 : 0);
+          return aTime - bTime;
+        });
+
+      const copiedTasks = sourceTasks.map(t => ({
+        title: t.title || '',
+        description: t.description || '',
+        taskGroup: t.taskGroup || 'Uncategorized',
+        departmentId: t.departmentId || '',
+        bookTime: parseFloat(t.bookTime) || 0,
+        payBasis: t.payBasis || 'book_time',
+        status: 'pending',
+        assignedStaff: [],
+        assignedStaffIds: []
+      }));
+
+      if (copiedTasks.length === 0) {
+        toast.error('No tasks found to copy in the selected job.');
+        return;
+      }
+
+      if (isNew) {
+        setJobTasks(prev => {
+          const generalTasks = prev.filter(t => isGeneralTask(t.title));
+          const nonGeneralTasks = prev.filter(t => !isGeneralTask(t.title));
+          
+          const maxSortOrder = nonGeneralTasks.reduce((max, t) => {
+            const order = typeof t.sortOrder === 'number' ? t.sortOrder : 0;
+            return order > max ? order : max;
+          }, 0);
+
+          const newTasksList = [
+            ...generalTasks,
+            ...nonGeneralTasks,
+            ...copiedTasks.map((t, idx) => ({ 
+              id: Math.random().toString(36).substr(2, 9), 
+              ...t,
+              sortOrder: maxSortOrder + 10 + (idx * 10)
+            }))
+          ];
+          return newTasksList;
+        });
+        toast.success(`Copied ${copiedTasks.length} tasks successfully!`);
+      } else {
+        const maxSortOrder = jobTasks.reduce((max, t) => {
+          const order = typeof t.sortOrder === 'number' ? t.sortOrder : 0;
+          return order > max ? order : max;
+        }, 0);
+
+        const tasksBatch = writeBatch(db);
+        copiedTasks.forEach((t, idx) => {
+          const taskRef = doc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`));
+          tasksBatch.set(taskRef, {
+            ...t,
+            sortOrder: maxSortOrder + 10 + (idx * 10),
+            tenantId: tenantId,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+        });
+        await tasksBatch.commit();
+        
+        await logActivity('tasks_copied', `Copied ${copiedTasks.length} tasks from job ${sourceJobId}`);
+        toast.success(`Copied ${copiedTasks.length} tasks successfully!`);
+      }
+    } catch (err) {
+      console.error("Error copying tasks:", err);
+      toast.error('Failed to copy tasks.');
+    }
+  };
+
+  const updateMultipleTaskFields = async (taskId: string, sourceTask: any) => {
+    const fieldsToCopy = {
+      title: sourceTask.title || '',
+      description: sourceTask.description || '',
+      departmentId: sourceTask.departmentId || '',
+      bookTime: sourceTask.bookTime || 0,
+      payBasis: sourceTask.payBasis || 'book_time',
+      assignedStaff: sourceTask.assignedStaff || [],
+      assignedStaffIds: sourceTask.assignedStaffIds || []
+    };
+
+    if (isNew) {
+      setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, ...fieldsToCopy } : t));
+      toast.success('Row pasted');
+    } else {
+      try {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId), {
+          ...fieldsToCopy,
+          updatedAt: serverTimestamp()
+        });
+        await logActivity('task_updated', `Pasted task data into task "${sourceTask.title}"`);
+        toast.success('Row pasted');
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to paste row');
+      }
+    }
+  };
+
+  const handlePasteAsNewTask = async (group: string) => {
+    if (!copiedTaskClipboard) return;
+    const newTask = {
+      title: copiedTaskClipboard.title || '',
+      description: copiedTaskClipboard.description || '',
+      taskGroup: group,
+      assignedStaff: copiedTaskClipboard.assignedStaff || [],
+      assignedStaffIds: copiedTaskClipboard.assignedStaffIds || [],
+      bookTime: copiedTaskClipboard.bookTime || 0,
+      payBasis: copiedTaskClipboard.payBasis || 'book_time',
+      status: 'pending',
+      departmentId: copiedTaskClipboard.departmentId || ''
+    };
+
+    if (isNew) {
+      const tempId = Math.random().toString(36).substr(2, 9);
+      setJobTasks(prev => [...prev, { id: tempId, ...newTask }]);
+      toast.success('Pasted as new row');
+    } else {
+      try {
+        await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
+          ...newTask,
+          tenantId: tenantId,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        await logActivity('task_added', `Pasted new task to group: ${group}`);
+        toast.success('Pasted as new row');
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to paste as new row');
+      }
+    }
+  };
+
+  const focusNextRowCell = (input: HTMLElement, direction: 'up' | 'down') => {
+    let tr = input.closest('tr');
+    const td = input.closest('td');
+    if (!tr || !td) return;
+    
+    const cellIndex = td.cellIndex;
+    let targetInput: HTMLElement | null = null;
+    
+    while (tr) {
+      tr = direction === 'down' ? tr.nextElementSibling as HTMLTableRowElement : tr.previousElementSibling as HTMLTableRowElement;
+      if (!tr) {
+        const currentTable = input.closest('table');
+        if (currentTable) {
+          const tables = Array.from(document.querySelectorAll('table'));
+          const currentIdx = tables.indexOf(currentTable);
+          const nextTable = direction === 'down' ? tables[currentIdx + 1] : tables[currentIdx - 1];
+          if (nextTable) {
+            const nextTrs = Array.from(nextTable.querySelectorAll('tbody tr')) as HTMLTableRowElement[];
+            if (nextTrs.length > 0) {
+              tr = direction === 'down' ? nextTrs[0] : nextTrs[nextTrs.length - 1];
+              const targetTd = tr.cells[cellIndex];
+              const inputEl = targetTd?.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+              if (inputEl) {
+                targetInput = inputEl;
+                break;
+              }
+            }
+          }
+        }
+        break;
+      }
+      
+      const targetTd = tr.cells[cellIndex];
+      const inputEl = targetTd?.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+      if (inputEl) {
+        targetInput = inputEl;
+        break;
+      }
+    }
+    
+    if (targetInput) {
+      targetInput.focus();
+      if (targetInput instanceof HTMLInputElement) {
+        targetInput.select();
+      }
+    }
+  };
+
+  const focusSiblingCell = (input: HTMLElement, direction: 'left' | 'right') => {
+    const tr = input.closest('tr');
+    let td = input.closest('td');
+    if (!tr || !td) return;
+    
+    let targetInput: HTMLElement | null = null;
+    while (td) {
+      td = direction === 'right' ? td.nextElementSibling as HTMLTableCellElement : td.previousElementSibling as HTMLTableCellElement;
+      if (!td) break;
+      
+      const inputEl = td.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+      if (inputEl) {
+        targetInput = inputEl;
+        break;
+      }
+    }
+    
+    if (targetInput) {
+      targetInput.focus();
+      if (targetInput instanceof HTMLInputElement) {
+        targetInput.select();
+      }
+    }
+  };
+
+  const handleTableKeyDown = (
+    e: React.KeyboardEvent<HTMLTableElement>, 
+    group: string, 
+    tasks: any[]
+  ) => {
+    if (e.defaultPrevented) return;
+    
+    const target = e.target as HTMLElement;
+    const isInput = target.tagName === 'INPUT';
+    const isSelect = target.tagName === 'SELECT';
+    
+    if (!isInput && !isSelect) return;
+    
+    const inputEl = target as HTMLInputElement | HTMLSelectElement;
+    const tr = inputEl.closest('tr');
+    const td = inputEl.closest('td');
+    if (!tr || !td) return;
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        focusNextRowCell(inputEl, 'down');
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        focusNextRowCell(inputEl, 'up');
+        break;
+      case 'ArrowLeft':
+        if (isSelect || (isInput && (inputEl as HTMLInputElement).selectionStart === 0 && (inputEl as HTMLInputElement).selectionEnd === 0)) {
+          e.preventDefault();
+          focusSiblingCell(inputEl, 'left');
+        }
+        break;
+      case 'ArrowRight':
+        if (isSelect || (isInput && (inputEl as HTMLInputElement).selectionStart === (inputEl as HTMLInputElement).value.length)) {
+          e.preventDefault();
+          focusSiblingCell(inputEl, 'right');
+        }
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (!tr.nextElementSibling) {
+          const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+          const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+          handleInlineAddTask(group, staff, deptId);
+        } else {
+          focusNextRowCell(inputEl, 'down');
+        }
+        break;
+      case 'Tab':
+        if (e.shiftKey) {
+          e.preventDefault();
+          let targetInput = null;
+          let currentTd = td;
+          while (currentTd) {
+            currentTd = currentTd.previousElementSibling as HTMLTableCellElement;
+            if (!currentTd) {
+              const prevTr = tr.previousElementSibling as HTMLTableRowElement;
+              if (prevTr) {
+                const cells = Array.from(prevTr.cells).reverse();
+                for (const cell of cells) {
+                  const inputEl = cell.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+                  if (inputEl) {
+                    targetInput = inputEl;
+                    break;
+                  }
+                }
+              }
+              break;
+            }
+            const inputEl = currentTd.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+            if (inputEl) {
+              targetInput = inputEl;
+              break;
+            }
+          }
+          if (targetInput) {
+            targetInput.focus();
+            if (targetInput instanceof HTMLInputElement) targetInput.select();
+          }
+        } else {
+          e.preventDefault();
+          let targetInput = null;
+          let currentTd = td;
+          while (currentTd) {
+            currentTd = currentTd.nextElementSibling as HTMLTableCellElement;
+            if (!currentTd) {
+              const nextTr = tr.nextElementSibling as HTMLTableRowElement;
+              if (nextTr) {
+                const cells = Array.from(nextTr.cells);
+                for (const cell of cells) {
+                  const inputEl = cell.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+                  if (inputEl) {
+                    targetInput = inputEl;
+                    break;
+                  }
+                }
+              } else {
+                const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
+                const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
+                handleInlineAddTask(group, staff, deptId);
+              }
+              break;
+            }
+            const inputEl = currentTd.querySelector('input:not([disabled]):not([readonly]), select:not([disabled])') as HTMLElement | null;
+            if (inputEl) {
+              targetInput = inputEl;
+              break;
+            }
+          }
+          if (targetInput) {
+            targetInput.focus();
+            if (targetInput instanceof HTMLInputElement) targetInput.select();
+          }
+        }
+        break;
+      default:
+        break;
+    }
+  };
+
   const handleInlineAddTask = async (group: string, initialStaff: any[], initialDepartmentId?: string) => {
     const tempId = Math.random().toString(36).substr(2, 9);
     const newTask = {
@@ -587,7 +958,11 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
     if (isNew) {
       setJobTasks(prev => [...prev, { id: tempId, ...newTask }]);
-      setTimeout(() => document.getElementById(`task-title-${tempId}`)?.click(), 100);
+      setTimeout(() => {
+        const el = document.getElementById(`task-title-${tempId}`);
+        el?.focus();
+        if (el instanceof HTMLInputElement) el.select();
+      }, 100);
     } else {
       try {
         const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
@@ -601,7 +976,11 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         
         // Real-time listener will pull it in, but we need to focus it.
         // We'll focus by docRef.id.
-        setTimeout(() => document.getElementById(`task-title-${docRef.id}`)?.click(), 500);
+        setTimeout(() => {
+          const el = document.getElementById(`task-title-${docRef.id}`);
+          el?.focus();
+          if (el instanceof HTMLInputElement) el.select();
+        }, 500);
       } catch (err) {
         console.error(err);
         toast.error('Failed to add task');
@@ -673,6 +1052,166 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       } catch (err) {
         console.error(err);
         toast.error('Failed to remove task');
+      }
+    }
+  };
+
+  const handleReorderTasks = async (draggedId: string, targetTaskId: string | null, targetGroup: string) => {
+    if (draggedId === targetTaskId) return;
+    
+    // Find dragged task
+    const draggedTask = jobTasks.find(t => t.id === draggedId);
+    if (!draggedTask) return;
+
+    // We will build a new array of tasks
+    const updatedTasks = [...jobTasks];
+    
+    // Get all tasks in target group (excluding dragged task)
+    const targetGroupTasks = updatedTasks
+      .filter(t => t.taskGroup === targetGroup && t.id !== draggedId)
+      .sort((a, b) => {
+        const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
+        const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        
+        const aTime = a.createdAt?.seconds || (a.createdAt instanceof Date ? a.createdAt.getTime() / 1000 : 0);
+        const bTime = b.createdAt?.seconds || (b.createdAt instanceof Date ? b.createdAt.getTime() / 1000 : 0);
+        return aTime - bTime;
+      });
+
+    // Find target insertion index
+    let insertIdx = targetGroupTasks.length; // default to end
+    if (targetTaskId) {
+      const idx = targetGroupTasks.findIndex(t => t.id === targetTaskId);
+      if (idx !== -1) {
+        insertIdx = idx;
+      }
+    }
+
+    // Insert dragged task at insertIdx in the target group's task list
+    const newDraggedTask = { 
+      ...draggedTask, 
+      taskGroup: targetGroup
+    };
+    
+    targetGroupTasks.splice(insertIdx, 0, newDraggedTask);
+
+    // Now, assign sequential sortOrders to targetGroupTasks
+    const tasksToUpdate: any[] = [];
+    targetGroupTasks.forEach((task, idx) => {
+      const newOrder = idx * 10;
+      if (task.sortOrder !== newOrder || (task.id === draggedId && (task.taskGroup !== draggedTask.taskGroup || task.sortOrder !== newOrder))) {
+        task.sortOrder = newOrder;
+        tasksToUpdate.push(task);
+      }
+    });
+
+    // If the dragged task changed groups, we might also want to re-index the source group tasks to keep them clean
+    if (draggedTask.taskGroup !== targetGroup) {
+      const sourceGroupTasks = updatedTasks
+        .filter(t => t.taskGroup === draggedTask.taskGroup && t.id !== draggedId)
+        .sort((a, b) => {
+          const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
+          const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          
+          const aTime = a.createdAt?.seconds || (a.createdAt instanceof Date ? a.createdAt.getTime() / 1000 : 0);
+          const bTime = b.createdAt?.seconds || (b.createdAt instanceof Date ? b.createdAt.getTime() / 1000 : 0);
+          return aTime - bTime;
+        });
+      
+      sourceGroupTasks.forEach((task, idx) => {
+        const newOrder = idx * 10;
+        if (task.sortOrder !== newOrder) {
+          task.sortOrder = newOrder;
+          tasksToUpdate.push(task);
+        }
+      });
+    }
+
+    // Update local state first for instant feedback
+    setJobTasks(prev => {
+      return prev.map(t => {
+        const updated = tasksToUpdate.find(up => up.id === t.id);
+        if (updated) {
+          return { ...t, sortOrder: updated.sortOrder, taskGroup: updated.taskGroup };
+        }
+        if (t.id === draggedId) {
+          return { ...t, taskGroup: targetGroup, sortOrder: newDraggedTask.sortOrder || 0 };
+        }
+        return t;
+      });
+    });
+
+    // If not new, write to Firestore
+    if (!isNew) {
+      try {
+        const promises = tasksToUpdate.map(async (task) => {
+          const docRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, task.id);
+          await updateDoc(docRef, {
+            sortOrder: task.sortOrder,
+            taskGroup: task.taskGroup,
+            updatedAt: serverTimestamp()
+          });
+        });
+        await Promise.all(promises);
+        toast.success('Tasks reordered');
+      } catch (err) {
+        console.error('Failed to save reordered tasks:', err);
+        toast.error('Failed to save task order');
+      }
+    } else {
+      toast.success('Tasks reordered');
+    }
+  };
+
+  const handleBulkAssignUnworked = async (staffId: string, fullName: string) => {
+    const unworkedTasks = jobTasks.filter(t => {
+      if (isGeneralTask(t.title)) return false;
+      const loggedMs = getTaskLoggedMs(t.id);
+      const hasActualTime = typeof t.actualTime === 'number' && t.actualTime > 0;
+      return loggedMs === 0 && !hasActualTime;
+    });
+
+    if (unworkedTasks.length === 0) {
+      toast.info('No unworked tasks found to assign.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to assign ${fullName} to all ${unworkedTasks.length} unworked tasks?`)) {
+      return;
+    }
+
+    if (isNew) {
+      setJobTasks(prev => prev.map(t => {
+        const isUnworked = unworkedTasks.some(ut => ut.id === t.id);
+        if (isUnworked) {
+          return {
+            ...t,
+            assignedStaff: [{ id: staffId, name: fullName }],
+            assignedStaffIds: [staffId]
+          };
+        }
+        return t;
+      }));
+      toast.success(`Assigned ${fullName} to ${unworkedTasks.length} tasks locally.`);
+    } else {
+      try {
+        const batch = writeBatch(db);
+        unworkedTasks.forEach(t => {
+          const docRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
+          batch.update(docRef, {
+            assignedStaff: [{ id: staffId, name: fullName }],
+            assignedStaffIds: [staffId],
+            updatedAt: serverTimestamp()
+          });
+        });
+        await batch.commit();
+        await logActivity('tasks_assigned_bulk', `Bulk assigned ${unworkedTasks.length} unworked tasks to ${fullName}`);
+        toast.success(`Successfully assigned ${fullName} to ${unworkedTasks.length} tasks.`);
+      } catch (err) {
+        console.error('Failed to bulk assign tasks:', err);
+        toast.error('Failed to bulk assign tasks.');
       }
     }
   };
@@ -828,7 +1367,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   );
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-24">
+    <div className="max-w-[98%] mx-auto space-y-8 pb-24 px-4">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
@@ -944,7 +1483,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                     setFormData((prev: any) => {
                       if (!newStart) return { ...prev, scheduledStartDate: '' };
                       
-                      const remainingHours = jobTasks.filter(t => t.title !== 'General').reduce((acc, t) => {
+                      const remainingHours = jobTasks.filter(t => !isGeneralTask(t.title)).reduce((acc, t) => {
                         const book = parseFloat(t.bookTime) || 0;
                         const actual = parseFloat(t.actualTime) || 0;
                         return acc + Math.max(0, book - actual);
@@ -1008,7 +1547,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         </div>
 
         {/* Bottom Row - Tasks */}
-        <div className="lg:col-span-12 space-y-10 lg:order-3 mt-4">
+        <div className="lg:col-span-12 min-w-0 space-y-10 lg:order-3 mt-4">
           <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm space-y-8">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1017,24 +1556,57 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 </div>
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Job Tasks</h3>
               </div>
-              <button 
-                onClick={() => {
-                  const groupName = window.prompt('Enter new Task Group name:');
-                  if (groupName && groupName.trim()) {
-                    setCustomGroups(prev => [...prev, groupName.trim()]);
-                  }
-                }}
-                className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl text-[11px] font-black uppercase tracking-[0.1em] shadow-lg hover:scale-[1.02] transition-all active:scale-95"
-              >
-                <Plus className="w-4 h-4" /> Add Task Group
-              </button>
+              <div className="flex items-center gap-3">
+                {jobTasks.filter(t => !isGeneralTask(t.title)).length === 0 && (
+                  <button 
+                    type="button"
+                    onClick={() => setIsCopyTasksOpen(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.1em] shadow-lg hover:scale-[1.02] transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Copy className="w-4 h-4" /> Copy Tasks From Job
+                  </button>
+                )}
+                {jobTasks.filter(t => !isGeneralTask(t.title)).length > 0 && (
+                  <div className="w-52 print-hidden">
+                    <InlineSearchableSelect
+                      value=""
+                      options={staffList.map(s => ({ value: s.id, label: `${s.firstName} ${s.lastName}`.trim() }))}
+                      onChange={async (val) => {
+                        if (!val) return;
+                        const member = staffList.find(s => s.id === val);
+                        if (member) {
+                          const fullName = `${member.firstName} ${member.lastName}`.trim();
+                          await handleBulkAssignUnworked(val, fullName);
+                        }
+                      }}
+                      placeholder="Bulk Assign Unworked..."
+                    />
+                  </div>
+                )}
+                <button 
+                  type="button"
+                  onClick={() => {
+                    const groupName = window.prompt('Enter new Task Group name:');
+                    if (groupName && groupName.trim()) {
+                      setCustomGroups(prev => [...prev, groupName.trim()]);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-zinc-900 dark:bg-white text-white dark:text-black rounded-2xl text-[11px] font-black uppercase tracking-[0.1em] shadow-lg hover:scale-[1.02] transition-all active:scale-95 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Add Task Group
+                </button>
+              </div>
             </div>
 
             <div className="space-y-6">
               {(() => {
                 const sortedJobTasks = [...jobTasks].sort((a, b) => {
-                   const aTime = a.createdAt?.seconds || (Date.now() / 1000);
-                   const bTime = b.createdAt?.seconds || (Date.now() / 1000);
+                   const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
+                   const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
+                   if (aOrder !== bOrder) return aOrder - bOrder;
+
+                   const aTime = a.createdAt?.seconds || (a.createdAt instanceof Date ? a.createdAt.getTime() / 1000 : 0);
+                   const bTime = b.createdAt?.seconds || (b.createdAt instanceof Date ? b.createdAt.getTime() / 1000 : 0);
                    return aTime - bTime;
                 });
                 const groupedTasks = sortedJobTasks.reduce((acc, task) => {
@@ -1048,12 +1620,12 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                   if (!groupedTasks[cg]) groupedTasks[cg] = [];
                 });
                 
-                return Object.entries(groupedTasks).sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)).map(([group, tasksData]) => {
+                return Object.entries(groupedTasks).sort(([a], [b]) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b)).map(([group, tasksData]) => {
                   const tasks = tasksData as any[];
                   return (
-                  <div key={group} className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-sm">
+                  <div key={group} className="w-full min-w-0 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-sm overflow-hidden">
                     {/* Header Row */}
-                    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 rounded-t-3xl">
+                    <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-955 border-b border-zinc-200 dark:border-zinc-800 rounded-t-3xl">
                       <div className="flex items-center gap-3">
                         <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-200 dark:bg-zinc-800 px-2 py-1 rounded-lg shrink-0">
@@ -1062,355 +1634,348 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                       </div>
                     </div>
                     
-                    {/* Column Headers (Desktop) */}
-                    {tasks.length > 0 && (
-                      <div className="hidden lg:grid grid-cols-[70px_1fr_140px_140px_80px_180px_140px_90px] gap-2 px-4 py-2 text-[10px] font-black text-zinc-400 uppercase tracking-widest bg-zinc-50/50 dark:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-800">
-                        <div className="text-center">#</div>
-                        <div>Task Title</div>
-                        <div>Department</div>
-                        <div>Tech</div>
-                        <div className="text-center">Book</div>
-                        <div className="text-center">Actual</div>
-                        <div>Completed</div>
-                        <div className="text-center">QA</div>
-                      </div>
-                    )}
-
-                    {/* Task Rows */}
-                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
-                      {tasks.map((task, idx) => (
-                        <div key={task.id} className={`grid grid-cols-1 lg:grid-cols-[70px_1fr_140px_140px_80px_180px_140px_90px] gap-4 lg:gap-2 items-center p-4 lg:p-2 lg:px-4 hover:bg-zinc-50 dark:hover:bg-zinc-950/50 transition-colors group relative ${task.isAccidental ? 'bg-rose-500/[0.02] dark:bg-rose-500/[0.01] opacity-75' : ''}`}>
-                          
-                          {/* 1. Mobile Actions / Index */}
-                          <div className="flex items-center justify-between lg:justify-start w-full lg:w-auto gap-2">
-                            <span className="text-xs font-bold text-zinc-300 dark:text-zinc-700 w-4 text-right">{idx + 1}</span>
-                            <div className="flex items-center gap-1">
-                              <button 
-                                onClick={() => handleDuplicateTask(task)}
-                                className="text-zinc-300 hover:text-indigo-500 transition-colors p-1"
-                                title="Duplicate Task"
-                              >
-                                <Copy className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteTask(task.id)}
-                                className="text-zinc-300 hover:text-rose-500 transition-colors p-1"
-                                title="Delete Task"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* 2. Title */}
-                          <div className="min-w-0 w-full relative">
-                            <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Title</div>
-                            <SearchableSelect
-                              id={`task-title-${task.id}`}
-                              options={qbItems}
-                              value={task.title}
-                              onChange={val => updateTaskField(task.id, 'title', val || '')}
-                              getLabel={item => item.FullName || item.Name || 'Unnamed Task'}
-                              getValue={item => item.FullName || item.Name || item.id}
-                              placeholder="Task Title..."
-                              allowCustomValue={true}
-                              className="w-full"
-                              renderOption={(item) => (
-                                <div className="flex items-start justify-between min-w-0 w-full gap-4">
-                                  <div className="flex flex-col min-w-0">
-                                    <span className="font-bold text-zinc-900 dark:text-white text-sm whitespace-normal text-left">
-                                      {item.FullName || item.Name || 'Unnamed Task'}
-                                    </span>
-                                    {(item.Description || item.SalesDesc) && (
-                                      <span className="text-[10px] text-zinc-500 line-clamp-2 text-left mt-0.5">
-                                        {item.Description || item.SalesDesc}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight shrink-0 ${item._source === 'QuickBooks' ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20'}`}>
-                                    {item._source || 'Native'}
-                                  </span>
-                                </div>
-                              )}
-                              footerAction={{
-                                label: "Save & Use Custom Title",
-                                onClick: async (search) => {
-                                  if (search.trim()) {
-                                    try {
-                                      await addDoc(collection(db, `businesses/${tenantId}/native_tasks`), {
-                                        Name: search.trim(),
-                                        FullName: search.trim(),
-                                        createdAt: serverTimestamp()
-                                      });
-                                      setQbItems(prev => [...prev, { id: Date.now().toString(), Name: search.trim(), FullName: search.trim(), _source: 'Native' }]);
-                                      toast.success('Custom task saved for future use');
-                                    } catch (err) {
-                                      console.error(err);
+                    {/* Excel-like Table View */}
+                    <div className="overflow-x-auto w-full">
+                      <table 
+                        onKeyDown={(e) => handleTableKeyDown(e, group, tasks)}
+                        className="w-full border-collapse text-left text-xs table-fixed"
+                      >
+                        <thead>
+                          <tr className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-850 text-[10px] font-black uppercase text-zinc-400 dark:text-zinc-550 tracking-wider">
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-center w-[90px]"># / Actions</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[200px]">Task Title</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[110px]">Department</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[160px]">Techs / Staff</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[100px]">Pay Basis</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[55px] text-center">Book</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[100px] text-center">Actual</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[220px]">Notes</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[140px]">Completed Date</th>
+                            <th className="p-2 text-center w-[105px]">QA Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-850">
+                          {tasks.map((task, idx) => {
+                            const isGen = isGeneralTask(task.title);
+                            return (
+                              <tr 
+                                key={task.id} 
+                                onDragOver={e => {
+                                  if (!isGen) {
+                                    e.preventDefault();
+                                    if (dragOverTaskId !== task.id) {
+                                      setDragOverTaskId(task.id);
                                     }
                                   }
-                                  updateTaskField(task.id, 'title', search);
-                                }
-                              }}
-                            />
-                          </div>
+                                }}
+                                onDragLeave={() => {
+                                  if (!isGen) {
+                                    setDragOverTaskId(prev => prev === task.id ? null : prev);
+                                  }
+                                }}
+                                onDrop={async (e) => {
+                                  if (!isGen) {
+                                    e.preventDefault();
+                                    setDragOverTaskId(null);
+                                    const draggedId = e.dataTransfer.getData('text/plain');
+                                    if (draggedId && draggedId !== task.id) {
+                                      await handleReorderTasks(draggedId, task.id, group);
+                                    }
+                                  }
+                                }}
+                                className={`hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30 transition-colors ${
+                                  task.isAccidental ? 'bg-rose-500/[0.02] dark:bg-rose-500/[0.01] opacity-75' : ''
+                                } ${
+                                  dragOverTaskId === task.id ? 'border-t-2 border-t-indigo-500 bg-indigo-50/10 dark:bg-indigo-900/10' : ''
+                                }`}
+                              >
+                                {/* 1. Actions */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 text-center whitespace-nowrap">
+                                  <div className="flex items-center justify-center gap-1">
+                                    {!isGen && (
+                                      <div
+                                        draggable
+                                        onDragStart={e => {
+                                          e.dataTransfer.setData('text/plain', task.id);
+                                          e.dataTransfer.effectAllowed = 'move';
+                                        }}
+                                        className="cursor-grab active:cursor-grabbing text-zinc-400 hover:text-zinc-650 p-0.5"
+                                        title="Drag to reorder"
+                                      >
+                                        <GripVertical className="w-3.5 h-3.5" />
+                                      </div>
+                                    )}
+                                    <span className="text-[10px] font-bold text-zinc-300 dark:text-zinc-650 w-4 text-right mr-1">{idx + 1}</span>
+                                    {!isGen && (
+                                      <>
+                                        <button 
+                                          type="button"
+                                          onClick={() => { setCopiedTaskClipboard(task); toast.success('Row copied'); }}
+                                          className="text-zinc-400 hover:text-indigo-500 transition-colors p-0.5 cursor-pointer"
+                                          title="Copy Row"
+                                        >
+                                          <Copy className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          disabled={!copiedTaskClipboard}
+                                          onClick={() => updateMultipleTaskFields(task.id, copiedTaskClipboard)}
+                                          className={`transition-colors p-0.5 ${copiedTaskClipboard ? 'text-zinc-400 hover:text-emerald-500 cursor-pointer' : 'text-zinc-200 dark:text-zinc-800 cursor-not-allowed'}`}
+                                          title="Paste Row"
+                                        >
+                                          <Clipboard className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleDuplicateTask(task)}
+                                          className="text-zinc-400 hover:text-indigo-500 transition-colors p-0.5 cursor-pointer"
+                                          title="Duplicate Row"
+                                        >
+                                          <Plus className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                          type="button"
+                                          onClick={() => handleDeleteTask(task.id)}
+                                          className="text-zinc-400 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
+                                          title="Delete Row"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
 
-                          {/* 3. Department */}
-                          <div className="w-full relative">
-                            {task.title !== 'General' ? (
-                              <>
-                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Department</div>
-                                <SearchableSelect
-                                  options={departments}
-                                  value={task.departmentId || ''}
-                                  onChange={val => updateTaskField(task.id, 'departmentId', val || '')}
-                                  getLabel={d => d.name}
-                                  getValue={d => d.id}
-                                  placeholder="Dept..."
-                                  className="w-full"
-                                />
-                              </>
-                            ) : <div/>}
-                          </div>
+                                {/* 2. Task Title */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="px-2 py-1 font-bold text-zinc-550 dark:text-zinc-400">{task.title}</span>
+                                  ) : (
+                                    <TaskTitleAutocomplete
+                                      value={task.title}
+                                      onChange={val => updateTaskField(task.id, 'title', val)}
+                                      qbItems={qbItems}
+                                      id={`task-title-${task.id}`}
+                                    />
+                                  )}
+                                </td>
 
-                          {/* 4. Staff */}
-                          <div className="w-full relative">
-                            {task.title !== 'General' ? (
-                              <>
-                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Tech</div>
-                                <StaffSelector 
-                                  tenantId={tenantId}
-                                  selectedStaff={task.assignedStaff || []}
-                                  onAssign={staff => updateTaskField(task.id, 'assignedStaff', staff)}
-                                  compact={true}
-                                  placeholder="Tech..."
-                                />
-                              </>
-                            ) : <div/>}
-                          </div>
+                                {/* 3. Department */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="px-2 py-1 text-zinc-450 dark:text-zinc-600 font-medium">N/A</span>
+                                  ) : (
+                                    <InlineSearchableSelect
+                                      value={task.departmentId || ''}
+                                      options={departments.map(d => ({ value: d.id, label: d.name }))}
+                                      onChange={val => updateTaskField(task.id, 'departmentId', val)}
+                                      placeholder="Select Dept..."
+                                    />
+                                  )}
+                                </td>
 
-                          {/* 5. Book Time */}
-                          <div className="w-full relative">
-                            {task.title !== 'General' ? (
-                              <div className="flex flex-col gap-1 w-full">
-                                <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Pay Basis</div>
-                                <select
-                                  value={task.payBasis || 'book_time'}
-                                  onChange={e => updateTaskField(task.id, 'payBasis', e.target.value)}
-                                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2 py-1.5 text-[10px] font-bold text-zinc-700 dark:text-zinc-300 focus:ring-0 focus:outline-none cursor-pointer"
-                                >
-                                  <option value="book_time">Book Time</option>
-                                  <option value="hourly">Hourly Task</option>
-                                </select>
-                                {task.payBasis !== 'hourly' && (
-                                  <div className={`flex items-center rounded-xl px-2 shadow-sm relative transition-all duration-350 ${
-                                    task.bookTime === 0
-                                      ? 'bg-rose-500/10 dark:bg-rose-500/20 border-2 border-rose-500 ring-2 ring-rose-500/20 animate-pulse'
-                                      : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800'
-                                  }`}>
-                                    <input 
-                                      type="number" 
+                                {/* 4. Techs */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  <div className="flex flex-wrap items-center gap-1.5 px-2 py-1">
+                                    {(task.assignedStaff || []).map((s: any) => (
+                                      <span key={s.id} className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                        {s.name.split(' ')[0]}
+                                        <button 
+                                          type="button" 
+                                          onClick={() => {
+                                            const newStaff = (task.assignedStaff || []).filter((x: any) => x.id !== s.id);
+                                            updateTaskField(task.id, 'assignedStaff', newStaff);
+                                          }}
+                                          className="text-amber-500 hover:text-amber-700 font-black text-xs cursor-pointer"
+                                        >
+                                          &times;
+                                        </button>
+                                      </span>
+                                    ))}
+                                    <InlineSearchableSelect
+                                      value=""
+                                      options={staffList
+                                        .filter(s => !(task.assignedStaff || []).some((x: any) => x.id === s.id))
+                                        .map(s => ({ value: s.id, label: `${s.firstName} ${s.lastName}`.trim() }))}
+                                      onChange={val => {
+                                        if (!val) return;
+                                        const member = staffList.find(s => s.id === val);
+                                        if (member) {
+                                          const fullName = `${member.firstName} ${member.lastName}`.trim();
+                                          const alreadyAssigned = (task.assignedStaff || []).some((s: any) => s.id === val);
+                                          if (!alreadyAssigned) {
+                                            updateTaskField(task.id, 'assignedStaff', [...(task.assignedStaff || []), { id: val, name: fullName }]);
+                                          }
+                                        }
+                                      }}
+                                      placeholder="+ Add..."
+                                      className="w-20"
+                                    />
+                                  </div>
+                                </td>
+
+                                {/* 5. Pay Basis */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="px-2 py-1 text-zinc-400 dark:text-zinc-650 font-medium">N/A</span>
+                                  ) : (
+                                    <select
+                                      value={task.payBasis || 'book_time'}
+                                      onChange={e => updateTaskField(task.id, 'payBasis', e.target.value)}
+                                      className="w-full bg-transparent border-none px-1 py-1 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer bg-white dark:bg-zinc-900"
+                                    >
+                                      <option value="book_time" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Book Time</option>
+                                      <option value="hourly" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Hourly Task</option>
+                                    </select>
+                                  )}
+                                </td>
+
+                                {/* 6. Book */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="block text-center text-zinc-400 dark:text-zinc-650 font-medium">N/A</span>
+                                  ) : task.payBasis !== 'hourly' ? (
+                                    <input
+                                      type="number"
                                       step="0.1"
                                       value={task.bookTime}
                                       onChange={e => updateTaskField(task.id, 'bookTime', parseFloat(e.target.value) || 0)}
-                                      className={`w-full bg-transparent border-none p-1.5 text-xs font-bold focus:ring-0 text-center transition-colors ${
-                                        task.bookTime === 0
-                                          ? 'text-rose-500 dark:text-rose-450 font-black'
-                                          : 'text-indigo-600 dark:text-indigo-400'
-                                      }`}
-                                      placeholder="Hrs"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            ) : <div/>}
-                          </div>
-
-                          {/* 6. Actual Time */}
-                          <div className="w-full relative">
-                            {task.title !== 'General' ? (
-                              <div className="flex flex-col gap-1 w-full">
-                                <div className="flex items-center gap-1.5 w-full">
-                                  <div className="flex items-center bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-2 relative grow">
-                                    <div className="lg:hidden absolute -top-2.5 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Actual Hrs</div>
-                                    <input 
-                                      type="number" 
-                                      step="0.1"
-                                      value={task.actualTime || ''}
-                                      onChange={e => updateTaskField(task.id, 'actualTime', parseFloat(e.target.value) || 0)}
+                                      className="w-full bg-transparent border-none px-1 py-1 text-center font-bold text-indigo-600 dark:text-indigo-400 focus:ring-1 focus:ring-indigo-500 outline-none text-xs"
                                       placeholder="0.0"
-                                      className="w-full bg-transparent border-none p-1.5 text-xs font-bold text-zinc-900 dark:text-white focus:ring-0 text-center"
                                     />
-                                  </div>
-                                  <button
-                                    onClick={() => updateTaskField(task.id, 'isAccidental', !task.isAccidental)}
-                                    className={`p-1.5 rounded-xl border transition-all flex items-center justify-center shrink-0 ${
-                                      task.isAccidental
-                                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-500 hover:bg-rose-500/20'
-                                        : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300'
-                                    }`}
-                                    title={task.isAccidental ? "Accidental clock-in. Click to restore clocked hours." : "Flag as accidental clock-in (ignores logged hours)"}
-                                  >
-                                    <AlertCircle className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                                <div className="flex items-center justify-between px-1 text-[9px] font-bold">
-                                  <span className="text-zinc-400 dark:text-zinc-500">Logged:</span>
-                                  {task.isAccidental ? (
-                                    <span className="text-rose-500 font-mono flex items-center gap-1">
-                                      <span className="line-through opacity-50 font-normal">{(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h</span>
-                                      <span>0.0h</span>
-                                    </span>
-                                  ) : (() => {
-                                    const loggedMs = getTaskLoggedMs(task.id);
-                                    const bookHours = parseFloat(task.bookTime) || 0;
-                                    const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
-                                      ? task.actualTime 
-                                      : (loggedMs / 3600000);
-                                    const isOver = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
-                                    const diff = clockedHours - bookHours;
-                                    
-                                    return (
-                                      <span className={`font-mono flex items-center gap-1 shrink-0 ${
-                                        isOver ? "text-rose-500 font-bold" : "text-zinc-550 dark:text-zinc-400"
-                                      }`}>
-                                        {(loggedMs / 3600000).toFixed(1)}h
-                                        {isOver && (
-                                          <span className="text-[8px] font-black bg-rose-500/10 text-rose-550 border border-rose-500/20 px-1 rounded shrink-0 animate-pulse" title={`Over Budget by ${diff.toFixed(1)}h`}>
-                                            +{diff.toFixed(1)}h
-                                          </span>
-                                        )}
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                              </div>
-                            ) : <div/>}
-                          </div>
+                                  ) : (
+                                    <span className="block text-center text-zinc-400 font-semibold">Hourly</span>
+                                  )}
+                                </td>
 
-                          {/* 7. Completed Date */}
-                          <div className="w-full relative">
-                            {task.title !== 'General' ? (
-                              <>
-                                <div className="lg:hidden absolute -top-2 left-2 bg-white dark:bg-zinc-950 px-1 text-[8px] font-bold text-zinc-400 uppercase z-10">Completed</div>
-                                <input 
-                                  type="datetime-local" 
-                                  value={task.completedAt ? new Date(task.completedAt.seconds ? task.completedAt.seconds * 1000 : task.completedAt).toISOString().slice(0, 16) : ''}
-                                  onChange={e => updateTaskField(task.id, 'completedAt', e.target.value ? new Date(e.target.value).toISOString() : null)}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-2 text-[10px] font-bold text-zinc-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                />
-                              </>
-                            ) : <div/>}
-                          </div>
+                                {/* 7. Actual */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <div className="flex flex-col items-center justify-center text-[10px] font-bold">
+                                      <span className="text-zinc-500 dark:text-zinc-450">{(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col gap-0.5 px-1">
+                                      <div className="flex items-center gap-1 justify-center">
+                                        <input
+                                          type="number"
+                                          step="0.1"
+                                          value={task.actualTime || ''}
+                                          onChange={e => updateTaskField(task.id, 'actualTime', parseFloat(e.target.value) || 0)}
+                                          className="w-12 bg-transparent border border-zinc-200 dark:border-zinc-850 rounded px-1 py-0.5 text-center text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none text-zinc-900 dark:text-white"
+                                          placeholder="0.0"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => updateTaskField(task.id, 'isAccidental', !task.isAccidental)}
+                                          className={`p-0.5 rounded transition-colors ${
+                                            task.isAccidental ? 'bg-rose-500/10 text-rose-500' : 'text-zinc-400 hover:text-zinc-605'
+                                          }`}
+                                          title="Accidental"
+                                        >
+                                          <AlertCircle className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                      <div className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 text-center">
+                                        Logged: {(getTaskLoggedMs(task.id) / 3600000).toFixed(1)}h
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
 
-                          {/* 8. QA Button & Mobile Delete */}
-                          <div className="w-full flex flex-col gap-2">
-                            {task.title !== 'General' ? (
-                              task.status === 'QC Complete' ? (
-                                <button 
-                                  onClick={() => {
-                                    if (confirm("Move this task back to pending? This will also clear the completed date.")) {
-                                      updateTaskField(task.id, 'status', 'pending');
-                                    }
-                                  }}
-                                  className="w-full text-center px-2 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === 'Tab') {
-                                      if (idx === tasks.length - 1) {
-                                        e.preventDefault();
-                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
-                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
-                                        handleInlineAddTask(group, staff, deptId);
-                                      }
-                                    }
-                                  }}
-                                >
-                                  <CheckSquare className="w-3 h-3" /> QA Approved
-                                </button>
-                              ) : task.status === 'QC' ? (
-                                <button 
-                                  onClick={() => {
-                                    updateTaskField(task.id, 'status', 'QC Complete');
-                                  }}
-                                  className="w-full text-center px-2 py-2 bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === 'Tab') {
-                                      if (idx === tasks.length - 1) {
-                                        e.preventDefault();
-                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
-                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
-                                        handleInlineAddTask(group, staff, deptId);
-                                      }
-                                    }
-                                  }}
-                                >
-                                  <AlertCircle className="w-3 h-3" /> Needs QA
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => updateTaskField(task.id, 'status', 'QC')}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === 'Tab') {
-                                      if (idx === tasks.length - 1) {
-                                        e.preventDefault();
-                                        const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
-                                        const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
-                                        handleInlineAddTask(group, staff, deptId);
-                                      }
-                                    }
-                                  }}
-                                  className="w-full px-2 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-500 dark:text-zinc-400 rounded-lg font-black text-[9px] uppercase tracking-widest transition-colors text-center"
-                                >
-                                  Mark Complete
-                                </button>
-                              )
-                            ) : <div/>}
-                            
-                            {/* Mobile Delete Button */}
-                            <button 
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="lg:hidden w-full py-2 text-rose-500 border border-rose-200 rounded-lg flex items-center justify-center gap-2 font-bold text-xs uppercase tracking-widest bg-rose-50 mt-1"
-                            >
-                              <Trash2 className="w-4 h-4" /> Delete Task
-                            </button>
-                          </div>
+                                {/* 8. Notes */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  <input
+                                    type="text"
+                                    value={task.description || ''}
+                                    onChange={e => updateTaskField(task.id, 'description', e.target.value)}
+                                    className="w-full bg-transparent border-none px-2 py-1 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-medium text-zinc-900 dark:text-white"
+                                    placeholder={isGen ? "General shop work and cleanup" : "Add specific notes details..."}
+                                  />
+                                </td>
 
-                          {task.title !== 'General' && (
-                            <div className="col-span-full lg:col-span-7 lg:col-start-2 mt-1 mb-2 relative">
-                              <div className="absolute left-3 top-2.5 text-zinc-400 dark:text-zinc-600">
-                                <FileText className="w-3.5 h-3.5" />
-                              </div>
-                              <input 
-                                type="text" 
-                                value={task.description || ''}
-                                onChange={e => updateTaskField(task.id, 'description', e.target.value)}
-                                placeholder="Add specific notes or description for this task (so you don't need separate labor rows)..."
-                                className="w-full pl-9 pr-4 py-1.5 bg-zinc-50/50 dark:bg-zinc-950/30 border border-zinc-200/60 dark:border-zinc-800/60 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all placeholder-zinc-400 text-zinc-900 dark:text-white"
-                              />
-                            </div>
-                          )}
-                          
-                        </div>
-                      ))}
+                                {/* 9. Completed Date */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="px-2 py-1 text-zinc-450 dark:text-zinc-655 font-medium">N/A</span>
+                                  ) : (
+                                    <input
+                                      type="datetime-local"
+                                      value={task.completedAt ? new Date(task.completedAt.seconds ? task.completedAt.seconds * 1000 : task.completedAt).toISOString().slice(0, 16) : ''}
+                                      onChange={e => updateTaskField(task.id, 'completedAt', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                                      className="w-full bg-transparent border-none px-1 py-0.5 focus:ring-1 focus:ring-indigo-500 outline-none text-[10px] text-zinc-700 dark:text-zinc-300"
+                                    />
+                                  )}
+                                </td>
+
+                                {/* 10. QA Status */}
+                                <td className="p-1 text-center">
+                                  {isGen ? (
+                                    <span className="text-zinc-400 dark:text-zinc-650 font-medium">N/A</span>
+                                  ) : (
+                                    <select
+                                      value={task.status || 'pending'}
+                                      onChange={e => updateTaskField(task.id, 'status', e.target.value)}
+                                      className={`bg-transparent border-none px-1 py-0.5 focus:ring-1 focus:ring-indigo-500 outline-none text-[10px] font-black uppercase tracking-wider cursor-pointer bg-white dark:bg-zinc-900 ${
+                                        task.status === 'QC Complete' ? 'text-emerald-500' : task.status === 'QC' ? 'text-amber-500' : 'text-zinc-500'
+                                      }`}
+                                    >
+                                      <option value="pending" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Pending</option>
+                                      <option value="QC" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Needs QA</option>
+                                      <option value="QC Complete" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">Approved</option>
+                                    </select>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
 
                     {/* Add Row Button */}
-                    {group !== 'General' && (
-                      <div className="p-1 border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/50 rounded-b-3xl">
+                    {!isGeneralTask(group) && (
+                      <div 
+                        onDragOver={e => {
+                          e.preventDefault();
+                        }}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          const draggedId = e.dataTransfer.getData('text/plain');
+                          if (draggedId) {
+                            await handleReorderTasks(draggedId, null, group);
+                          }
+                        }}
+                        className="p-2 border-t border-zinc-150 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-955/50 rounded-b-3xl flex items-center gap-2"
+                      >
                         <button
+                          type="button"
                           onClick={() => {
                             const staff = tasks.length > 0 && tasks[0].assignedStaff ? tasks[0].assignedStaff : [];
                             const deptId = tasks.length > 0 ? tasks[0].departmentId : undefined;
                             handleInlineAddTask(group, staff, deptId);
                           }}
-                          className="flex items-center gap-2 px-4 py-2 hover:bg-white dark:hover:bg-zinc-900 text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest w-full"
+                          className="flex items-center gap-2 px-4 py-2 hover:bg-white dark:hover:bg-zinc-900 text-zinc-550 hover:text-indigo-650 dark:hover:text-indigo-400 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest cursor-pointer"
                           title={`Add Task to ${group}`}
                         >
                           <Plus className="w-4 h-4" /> Add Row
                         </button>
+                        
+                        {copiedTaskClipboard && (
+                          <button
+                            type="button"
+                            onClick={() => handlePasteAsNewTask(group)}
+                            className="flex items-center gap-2 px-4 py-2 hover:bg-white dark:hover:bg-zinc-900 text-zinc-550 hover:text-emerald-650 dark:hover:text-emerald-400 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest cursor-pointer border border-dashed border-zinc-200 dark:border-zinc-800"
+                            title={`Paste copied row as a new row in ${group}`}
+                          >
+                            <Clipboard className="w-4 h-4 text-emerald-500" /> Paste Copied as New Row
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
-                );});
+                  );
+                });
               })()}
               {jobTasks.length === 0 && (
                 <div className="p-12 text-center border-2 border-dashed border-zinc-100 dark:border-zinc-800 rounded-3xl">
@@ -1627,11 +2192,187 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         />
       )}
 
-      <datalist id="qb-items-list">
-        {qbItems.map(item => (
-          <option key={item.id} value={item.Name || item.FullName || ''} />
-        ))}
-      </datalist>
+      {isCopyTasksOpen && (
+        <CopyTasksModal
+          isOpen={isCopyTasksOpen}
+          onClose={() => setIsCopyTasksOpen(false)}
+          tenantId={tenantId}
+          onCopy={copyTasksFromJob}
+          currentJobId={isNew ? undefined : jobId}
+        />
+      )}
+
+
+    </div>
+  );
+}
+
+interface CopyTasksModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  tenantId: string;
+  onCopy: (sourceJobId: string) => Promise<void>;
+  currentJobId?: string;
+}
+
+export function CopyTasksModal({ isOpen, onClose, tenantId, onCopy, currentJobId }: CopyTasksModalProps) {
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const fetchJobs = async () => {
+      setLoading(true);
+      try {
+        const cleanSearch = searchTerm.toLowerCase().trim();
+        const strippedSearch = cleanSearch.startsWith('#') ? cleanSearch.slice(1).trim() : cleanSearch;
+        
+        if (!cleanSearch) {
+          // Default: Fetch the 100 most recent jobs
+          const q = query(
+            collection(db, `businesses/${tenantId}/jobs`),
+            orderBy('createdAt', 'desc'),
+            limit(100)
+          );
+          const snap = await getDocs(q);
+          const loadedJobs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setJobs(loadedJobs);
+        } else {
+          // Search query: Run multiple queries in parallel to find matching jobs
+          const queries = [];
+          const jobsColl = collection(db, `businesses/${tenantId}/jobs`);
+          
+          // 1. By Job Number (exact string match)
+          queries.push(getDocs(query(jobsColl, where('jobNumber', '==', strippedSearch))));
+          
+          // 2. By Job Number (exact number match if numeric)
+          const numValue = parseInt(strippedSearch, 10);
+          if (!isNaN(numValue)) {
+            queries.push(getDocs(query(jobsColl, where('jobNumber', '==', numValue))));
+          }
+          
+          // 3. By Title prefix (case-sensitive prefix)
+          const titleQueryValue = searchTerm.trim();
+          if (titleQueryValue) {
+            queries.push(getDocs(query(jobsColl, where('title', '>=', titleQueryValue), where('title', '<=', titleQueryValue + '\uf8ff'), limit(50))));
+            const capTitle = titleQueryValue.charAt(0).toUpperCase() + titleQueryValue.slice(1);
+            queries.push(getDocs(query(jobsColl, where('title', '>=', capTitle), where('title', '<=', capTitle + '\uf8ff'), limit(50))));
+          }
+          
+          // 4. By Customer Name prefix
+          const customerQueryValue = searchTerm.trim();
+          if (customerQueryValue) {
+            queries.push(getDocs(query(jobsColl, where('customerName', '>=', customerQueryValue), where('customerName', '<=', customerQueryValue + '\uf8ff'), limit(50))));
+            const capCustomer = customerQueryValue.charAt(0).toUpperCase() + customerQueryValue.slice(1);
+            queries.push(getDocs(query(jobsColl, where('customerName', '>=', capCustomer), where('customerName', '<=', capCustomer + '\uf8ff'), limit(50))));
+          }
+
+          const snaps = await Promise.all(queries);
+          const jobMap = new Map<string, any>();
+          snaps.forEach(snap => {
+            snap.docs.forEach(doc => {
+              jobMap.set(doc.id, { id: doc.id, ...doc.data() });
+            });
+          });
+          
+          setJobs(Array.from(jobMap.values()));
+        }
+      } catch (err) {
+        console.error("Error fetching jobs for copy search:", err);
+        toast.error("Failed to load search results");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Debounce the search input to avoid hitting Firestore on every keypress
+    const timer = setTimeout(() => {
+      fetchJobs();
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, tenantId, searchTerm]);
+
+  if (!isOpen) return null;
+
+  const filteredJobs = jobs.filter(j => {
+    if (currentJobId && j.id === currentJobId) return false;
+    const search = searchTerm.toLowerCase().trim();
+    if (!search) return true;
+    const cleanSearch = search.startsWith('#') ? search.slice(1).trim() : search;
+    return (
+      (j.title || '').toLowerCase().includes(search) ||
+      String(j.jobNumber || '').toLowerCase().includes(cleanSearch) ||
+      (j.customerName || '').toLowerCase().includes(search)
+    );
+  });
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-3xl w-full max-w-lg shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        <div className="p-6 border-b border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between">
+          <h3 className="font-bold text-lg text-zinc-900 dark:text-white flex items-center gap-2.5">
+            <Copy className="w-5 h-5 text-indigo-500" />
+            Copy Tasks From Another Job
+          </h3>
+          <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all cursor-pointer">
+            <X className="w-5 h-5"/>
+          </button>
+        </div>
+        
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-zinc-550 dark:text-zinc-400 leading-relaxed">
+            Select a job to copy its task groups, task names, departments, and book hours. Assigned staff, actual times, and completion statuses will not be copied.
+          </p>
+
+          <input
+            type="text"
+            placeholder="Search by job title, job number, or customer..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none text-zinc-900 dark:text-white"
+          />
+
+          <div className="max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/50 pr-1 custom-scrollbar">
+            {loading ? (
+              <div className="p-8 text-center text-sm font-bold text-zinc-400 animate-pulse">
+                Loading jobs...
+              </div>
+            ) : filteredJobs.length === 0 ? (
+              <div className="p-8 text-center text-sm font-medium text-zinc-400 italic">
+                No jobs found.
+              </div>
+            ) : (
+              filteredJobs.map(j => (
+                <button
+                  key={j.id}
+                  type="button"
+                  onClick={async () => {
+                    await onCopy(j.id);
+                    onClose();
+                  }}
+                  className="w-full py-3.5 px-4 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 rounded-2xl transition-all flex items-center justify-between group active:scale-[0.99]"
+                >
+                  <div className="space-y-1">
+                    <span className="font-bold text-zinc-900 dark:text-white text-sm group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      {j.title}
+                    </span>
+                    <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-tight font-medium">
+                      {j.jobNumber && <span className="font-mono bg-zinc-100 dark:bg-zinc-800 px-1 rounded">#{j.jobNumber}</span>}
+                      {j.customerName && <span>{j.customerName}</span>}
+                    </div>
+                  </div>
+                  <div className="text-[10px] font-black uppercase tracking-widest bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-2.5 py-1.5 rounded-lg border border-indigo-100 dark:border-indigo-950 cursor-pointer">
+                    Select
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

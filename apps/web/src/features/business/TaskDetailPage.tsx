@@ -17,6 +17,11 @@ import { useJobClock } from '../timeclock/useJobClock';
 import { PartsRequestModal } from './PartsRequestModal';
 import { StaffLink } from './StaffPerformance';
 
+const isGeneralTask = (title?: string) => {
+  const t = (title || '').toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
+};
+
 export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   const { '*': splat } = useParams();
   const pathParts = (splat || '').split('/').filter(Boolean);
@@ -891,7 +896,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
   );
 
   const loggedMs = getTaskLoggedMs();
-  const isAssigned = task.title === 'General' || 
+  const isAssigned = isGeneralTask(task.title) || 
                     isSuperAdmin || 
                     task.assignedStaffIds?.includes(effectiveUserId) || 
                     task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
@@ -901,9 +906,9 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                     )) ||
                     (staffMember?.userId && (
                       task.assignedStaffIds?.includes(staffMember.userId) || 
-                      task.assignedStaff?.some((s: any) => s.uid === staffMember.userId || s.id === staffMember.userId)
+                      task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
                     ));
-  const isUnassigned = task.title !== 'General' && (!task.assignedStaff || task.assignedStaff.length === 0);
+  const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
 
   const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
   const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || isUnassigned || (canPerformQC && task.status === 'QC');
@@ -957,7 +962,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                 const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                   ? task.actualTime 
                   : (loggedMs / 3600000);
-                const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
                 const diff = clockedHours - bookHours;
                 if (isOverBook) {
                   return (
@@ -1024,7 +1029,7 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
                   )
                 )}
                
-               {task.status !== 'QC Complete' && task.title !== 'General' && (
+               {task.status !== 'QC Complete' && !isGeneralTask(task.title) && (
                    task.status === 'QC' ? (
                      <div className="flex items-center gap-2">
                        {canPerformQC ? (
@@ -1316,13 +1321,13 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl">
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Allotted Time</span>
-                <span className="font-mono text-xl font-bold">{task.title !== 'General' ? `${task.bookTime || 0}h` : 'N/A'}</span>
+                <span className="font-mono text-xl font-bold">{!isGeneralTask(task.title) ? `${task.bookTime || 0}h` : 'N/A'}</span>
               </div>
               <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl">
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Time Worked</span>
                 <span className={cn(
                   "font-mono text-xl font-bold",
-                  task.title !== 'General' && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
+                  !isGeneralTask(task.title) && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
                 )}>
                   {formatMs(loggedMs)}
                 </span>

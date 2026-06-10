@@ -22,7 +22,12 @@ import { doc, updateDoc, collection, getDocs, onSnapshot, query, where, limit, a
 
 
 
-import { db } from '../../lib/firebase/config';
+import { db } from '../../lib/firebase/config';
+
+const isGeneralTask = (title?: string) => {
+  const t = (title || '').toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
+};
 
 
 
@@ -4278,7 +4283,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-          .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+          .sort(([a], [b]) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b))
 
 
 
@@ -4302,7 +4307,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
                     {sectionTitle ? `${group}, QC Task` : `${group}, Task`}
                   </h4>
                   <div className="flex items-center gap-2">
-                    {group !== 'General' && totalBookHours > 0 ? (
+                    {!isGeneralTask(group) && totalBookHours > 0 ? (
                       <div className="flex items-center gap-3">
                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
                           {completedHours.toFixed(1)} / {totalBookHours.toFixed(1)}h Completed
@@ -4510,7 +4515,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
                                    const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                                      ? task.actualTime 
                                      : loggedHours;
-                                   const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                   const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
                                    const diff = clockedHours - bookHours;
                                    if (isOverBook) {
                                      return (
@@ -5232,7 +5237,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-                       {task.title !== 'General' && (
+                       {!isGeneralTask(task.title) && (
 
 
 
@@ -14994,7 +14999,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-          .sort(([a], [b]) => a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b))
+          .sort(([a], [b]) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b))
 
 
 
@@ -15018,7 +15023,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
                     {sectionTitle ? `${group}, QC Task` : `${group}, Task`}
                   </h4>
                   <div className="flex items-center gap-2">
-                    {group !== 'General' && totalBookHours > 0 ? (
+                    {!isGeneralTask(group) && totalBookHours > 0 ? (
                       <div className="flex items-center gap-3">
                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
                           {completedHours.toFixed(1)} / {totalBookHours.toFixed(1)}h Completed
@@ -15226,7 +15231,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
                                    const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                                      ? task.actualTime 
                                      : loggedHours;
-                                   const isOverBook = !task.isAccidental && task.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
+                                   const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
                                    const diff = clockedHours - bookHours;
                                    if (isOverBook) {
                                      return (
@@ -16077,7 +16082,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-                       {task.title !== 'General' && (
+                       {!isGeneralTask(task.title) && (
 
 
 

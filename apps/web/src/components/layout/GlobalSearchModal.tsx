@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, X, Users, CarFront, Briefcase, Package, Loader2, MapPin, UserCircle2, Box } from 'lucide-react';
+import { Search, X, Users, CarFront, Briefcase, Package, Loader2, MapPin, UserCircle2, Box, CheckSquare } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, limit, query } from 'firebase/firestore';
+import { collection, getDocs, limit, query, collectionGroup, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { useSearchStore } from '../../lib/store/searchStore';
@@ -12,7 +12,7 @@ import { ZoneDetailsModal } from '../../features/business/ZoneModals';
 
 type SearchResult = {
   id: string;
-  type: 'Customer' | 'Vehicle' | 'Job' | 'Inventory' | 'Bay' | 'Staff' | 'Package';
+  type: 'Customer' | 'Vehicle' | 'Job' | 'Inventory' | 'Bay' | 'Staff' | 'Package' | 'Task';
   title: string;
   subtitle: string;
   searchString: string;
@@ -42,7 +42,7 @@ export function GlobalSearchModal() {
     queryFn: async () => {
       const q = query(collection(db, `businesses/${tenantId}/jobs`));
       const snap = await getDocs(q);
-      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
     },
     enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
   });
@@ -73,7 +73,7 @@ export function GlobalSearchModal() {
   }, [isOpen]);
 
   const { data: searchIndex, isLoading } = useQuery({
-    queryKey: ['global-search-index', tenantId, allVehicles?.length],
+    queryKey: ['global-search-index', tenantId, allVehicles?.length, allJobs?.length],
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return [];
       
@@ -120,7 +120,17 @@ export function GlobalSearchModal() {
           return {
             title: data.title || data.Name || data.FullName || 'Unnamed Job',
             subtitle: `${data.customerName || 'No Customer'} • ${vehicleInfo} • ${data.status || data.JobStatus || 'Pending'}`.substring(0, 100),
-            searchTerms: [data.jobNumber, data.description, data.notes, data.customerName, data.vehicleId, data.vin]
+            searchTerms: [
+              data.jobNumber,
+              data.description,
+              data.notes,
+              data.customerName,
+              data.vehicleId,
+              data.vin,
+              vehicle?.vin || '',
+              vehicle?.licensePlate || '',
+              vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : ''
+            ].filter(Boolean)
           };
         }),
         fetchCollection('inventory_items', 'Inventory', data => ({
@@ -142,7 +152,53 @@ export function GlobalSearchModal() {
           title: data.description || data.trackingNumber || 'Unnamed Package',
           subtitle: `Tracking: ${data.trackingNumber || 'N/A'} • Location: ${data.location || 'Unknown'} • Status: ${data.status || 'Received'}`,
           searchTerms: [data.trackingNumber, data.carrier, data.location, data.notes]
-        }))
+        })),
+        (async () => {
+          try {
+            const q = query(
+              collectionGroup(db, 'tasks'),
+              where('tenantId', '==', tenantId),
+              limit(300)
+            );
+            const snap = await getDocs(q);
+            snap.forEach(docSnap => {
+              const data = docSnap.data();
+              if (data.isArchived) return;
+              const jobId = docSnap.ref.path.split('/')[3];
+              const title = data.title || data.name || 'Unnamed Task';
+              const job = allJobs.find((j: any) => j.id === jobId);
+              const jobTitle = job?.title || job?.Name || '';
+              const jobNumber = job?.jobNumber ? `#${job.jobNumber}` : '';
+              const subtitle = `Job: ${jobNumber} ${jobTitle} • Status: ${data.status || 'Pending'}`;
+              
+              // Enrich task searchTerms with job's vehicle info
+              const vehicle = allVehicles.find((v: any) => v.id === job?.vehicleId || v.vin === job?.vehicleId);
+              const vehicleVin = vehicle?.vin || job?.vin || '';
+
+              const searchTerms = [
+                data.description,
+                data.notes,
+                data.status,
+                jobNumber,
+                jobTitle,
+                vehicleVin,
+                ...(data.assignedStaffNames || []),
+                ...(data.assignedStaffIds || [])
+              ].filter(Boolean);
+              const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
+              results.push({
+                id: docSnap.id,
+                type: 'Task',
+                title,
+                subtitle,
+                searchString,
+                rawData: { ...data, jobId }
+              });
+            });
+          } catch (e) {
+            console.warn(`Failed to fetch tasks for search`, e);
+          }
+        })()
       ]);
 
       return results;
@@ -156,8 +212,6 @@ export function GlobalSearchModal() {
     
     const queryStr = searchQuery.toLowerCase();
     const results = searchIndex.filter(item => item.searchString.includes(queryStr));
-
-    // Group by type
 
     // Group by type
     const grouped = results.reduce((acc, curr) => {
@@ -185,6 +239,11 @@ export function GlobalSearchModal() {
       close();
       return;
     }
+    if (item.type === 'Task') {
+      navigate(`/business/${tenantId}/task/${item.rawData.jobId}/${item.id}`);
+      close();
+      return;
+    }
     setSelectedResult(item);
   }
 
@@ -200,6 +259,7 @@ export function GlobalSearchModal() {
       case 'Bay': return <MapPin className="w-4 h-4" />;
       case 'Staff': return <UserCircle2 className="w-4 h-4" />;
       case 'Package': return <Box className="w-4 h-4" />;
+      case 'Task': return <CheckSquare className="w-4 h-4" />;
       default: return <Search className="w-4 h-4" />;
     }
   };

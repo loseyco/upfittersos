@@ -456,12 +456,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       const workMs = Math.max(0, totalMs - breakMs);
 
       const payMs = calculateSessionPayMs(session, session.payType || emp.payType);
-      const bookMs = (session.jobs || []).reduce((acc: number, j: any) => {
-        if (j.bookTime && j.bookTime > 0) {
-          return acc + (j.bookTime * 3600000);
-        }
-        return acc;
-      }, 0);
 
       const isQb = session.source === 'QuickBooks';
       const clockInDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
@@ -477,16 +471,13 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       } else {
         emp.totals.totalNativeMs += workMs;
         emp.totals.totalPayMs += payMs;
-        emp.totals.totalBookMs += bookMs;
         if (isWeek1) {
           emp.totals.week1NativeMs += workMs;
           emp.totals.week1PayMs += payMs;
-          emp.totals.week1BookMs += bookMs;
         }
         if (isWeek2) {
           emp.totals.week2NativeMs += workMs;
           emp.totals.week2PayMs += payMs;
-          emp.totals.week2BookMs += bookMs;
         }
       }
     });

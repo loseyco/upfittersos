@@ -14,6 +14,7 @@ import { BusinessSidebar } from './BusinessSidebar';
 import { OfficeDashboard } from './OfficeDashboard';
 import { GlobalJobModal } from './GlobalJobModal';
 import { DepartmentOverview } from './DepartmentOverview';
+import { UpfittersDashboard } from './UpfittersDashboard';
 
 import { MissionControl } from './MissionControl';
 import { UserMissionControl } from './UserMissionControl';
@@ -383,7 +384,7 @@ export function TenantDashboard() {
 
             {activeTab === 'upfitters' && (
               <PermissionGate permission="foreman.view">
-                <DepartmentOverview tenantId={tenantId!} departmentName="Upfitting" />
+                <UpfittersDashboard tenantId={tenantId!} />
               </PermissionGate>
             )}
 

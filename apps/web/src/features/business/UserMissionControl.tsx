@@ -2103,7 +2103,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                 </div>
                 <input
                   type="text"
-                  placeholder="Quick search customers, vehicles, bays, or staff..."
+                  placeholder="Quick search customers, vehicles, jobs, tasks, bays, or staff..."
                   onFocus={() => openSearch()}
                   onChange={(e) => openSearch(e.target.value)}
                   className={cn(
