@@ -38,10 +38,13 @@ interface TimeSession {
     taskName?: string | null;
     bookTime?: number;
     payBasis?: string;
+    notes?: string;
   }>;
   status: string;
   verificationStatus?: string;
   payType?: string;
+  notes?: string;
+  staffNote?: string;
 }
 
 export function TimeClockHistory({ tenantId }: { tenantId: string }) {

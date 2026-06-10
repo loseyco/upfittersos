@@ -710,7 +710,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const [tasks, setTasks] = useState<any[]>([]);
   const [unscheduledSearch, setUnscheduledSearch] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isSequentialView, setIsSequentialView] = useState(false);
+  const [isSequentialView, setIsSequentialView] = useState(true);
   const viewMode: any = 'staff';
 
 
@@ -910,50 +910,95 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
 
 
-  let unscheduledJobs = jobs.filter(j => {
+  let unscheduledJobs: any[] = [];
+  
+  jobs.forEach(j => {
     const isTrackedByBay = bays.some(b => isJobTrackedByBay(b, j));
-    
-    // If the user is actively searching, bypass the "scheduled" filter so they can find ANY active job!
-    const isSearching = !!unscheduledSearch.trim();
-
-    if (!isSearching) {
-      if (viewMode === 'bays') {
-        if ((j.bayId && j.scheduledStartDate) || isTrackedByBay) return false;
-      } else {
-        const staffIds = j.assignedStaffIds || [];
-        const hasUnscheduledStaff = staffIds.some((staffId: string) => {
-          if (j.staffSchedules) {
-            return !j.staffSchedules[staffId];
-          }
-          return !j.scheduledStartDate;
-        });
-        if (staffIds.length > 0 && !hasUnscheduledStaff) return false;
-      }
-    }
-    
     const isFinished = ['Completed', 'Closed'].includes(j.status || '');
-    if (isFinished) return false;
-    if (j.isArchived) return false;
+    if (isFinished) return;
+    if (j.isArchived) return;
 
     // Hard filter: MUST have at least one active (incomplete) task,
     // UNLESS it is currently in a bay!
     const isInBay = !!(j.currentBaySessionStart || isTrackedByBay);
 
     const jobTasks = tasks.filter(t => t.jobId === j.id);
-    const incompleteCount = jobTasks.filter(t => !t.completedAt).length;
-    if (incompleteCount === 0 && !isInBay) return false;
+    const incompleteTasks = jobTasks.filter(t => !t.completedAt);
+    const incompleteCount = incompleteTasks.length;
+    if (incompleteCount === 0 && !isInBay) return;
 
-    // Bypasses priority filter if user is actively searching
-    if (unscheduledSearch.trim()) return true;
+    const isSearching = !!unscheduledSearch.trim();
 
-    // Prioritized backlog filter
-    const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
-    const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
-    const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
+    if (viewMode === 'bays') {
+      if (!isSearching) {
+        if ((j.bayId && j.scheduledStartDate) || isTrackedByBay) return;
+      }
+      
+      const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
+      const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
+      const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
+      if (!isSearching && !(hasEta || hasBookTime || hasStaff)) return;
 
-    return hasEta || hasBookTime || hasStaff;
+      unscheduledJobs.push({ ...j });
+    } else {
+      // Find all staff members who have at least one incomplete task on this job
+      const staffWithTasks = Array.from(new Set(incompleteTasks.flatMap(t => t.assignedStaffIds || [])));
+
+      if (staffWithTasks.length === 0) {
+        if (!isSearching) {
+          if (j.scheduledStartDate) return;
+        }
+        
+        const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
+        const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
+        const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
+        if (!isSearching && !(hasEta || hasBookTime || hasStaff)) return;
+
+        unscheduledJobs.push({
+          ...j,
+          _unscheduledStaffId: null
+        });
+      } else {
+        let addedAny = false;
+        
+        staffWithTasks.forEach((staffId: string) => {
+          const isStaffScheduled = j.staffSchedules && j.staffSchedules[staffId];
+          const isLegacyGlobalScheduled = !j.staffSchedules && j.scheduledStartDate;
+          const isScheduled = isStaffScheduled || isLegacyGlobalScheduled;
+
+          if (!isScheduled) {
+            unscheduledJobs.push({
+              ...j,
+              _unscheduledStaffId: staffId
+            });
+            addedAny = true;
+          }
+        });
+
+        // Also check if there are any unassigned active tasks on this job
+        const hasUnassignedTasks = incompleteTasks.some(t => !t.assignedStaffIds || t.assignedStaffIds.length === 0);
+        if (hasUnassignedTasks) {
+          const isScheduledGlobally = j.scheduledStartDate;
+          if (!isScheduledGlobally) {
+            unscheduledJobs.push({
+              ...j,
+              _unscheduledStaffId: null
+            });
+            addedAny = true;
+          }
+        }
+
+        // Search override: if we didn't add it as unscheduled but the user is actively searching for this job
+        if (isSearching && !addedAny) {
+          unscheduledJobs.push({
+            ...j,
+            _unscheduledStaffId: null
+          });
+        }
+      }
+    }
   });
-  
+
   if (unscheduledSearch.trim()) {
     const q = unscheduledSearch.toLowerCase().trim();
     unscheduledJobs = unscheduledJobs.filter(j => {
@@ -972,7 +1017,13 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         return `${staff.firstName || ''} ${staff.lastName || ''}`.toLowerCase().includes(q);
       });
 
-      return matchTitle || matchCust || matchVin || matchVeh || matchJobNum || matchId || matchVehId || matchStaff;
+      const matchUnscheduledStaff = j._unscheduledStaffId ? (() => {
+        const staff = staffList.find(s => s.id === j._unscheduledStaffId);
+        if (!staff) return false;
+        return `${staff.firstName || ''} ${staff.lastName || ''}`.toLowerCase().includes(q);
+      })() : false;
+
+      return matchTitle || matchCust || matchVin || matchVeh || matchJobNum || matchId || matchVehId || matchStaff || matchUnscheduledStaff;
     });
   }
 
@@ -1864,7 +1915,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
               return (
                 <div 
-                  key={job.id}
+                  key={`${job.id}-${job._unscheduledStaffId || 'unassigned'}`}
                   draggable
                   onDragStart={(e) => handleDragStart(e, job)}
                   className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm cursor-grab hover:border-indigo-500/50 transition-colors group"
@@ -1873,8 +1924,18 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <GripHorizontal className="w-3 h-3 text-zinc-300 shrink-0" />
-                        <h4 className="font-bold text-xs text-zinc-900 dark:text-white truncate">
+                        <h4 className="font-bold text-xs text-zinc-900 dark:text-white truncate flex items-center gap-1.5">
                           {job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title || 'Untitled'}
+                          {(() => {
+                            if (!job._unscheduledStaffId) return null;
+                            const staff = staffList.find(s => s.id === job._unscheduledStaffId);
+                            if (!staff) return null;
+                            return (
+                              <span className="shrink-0 text-[9px] font-black text-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/20">
+                                {staff.firstName}
+                              </span>
+                            );
+                          })()}
                         </h4>
                       </div>
                       {priorityBadge}
@@ -1940,10 +2001,19 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                         <span className="text-zinc-400 italic">Unassigned</span>
                       )}
                     </div>
-                    <span className="text-zinc-500">{Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h Book Time</span>
+                    <span className="text-zinc-500">
+                      {job._unscheduledStaffId ? (() => {
+                        const staffTasks = tasks.filter(t => t.jobId === job.id && t.assignedStaffIds?.includes(job._unscheduledStaffId));
+                        const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                        if (staffBookTime > 0) {
+                          return `${Number(staffBookTime.toFixed(1))}h of ${Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h`;
+                        }
+                        return `${Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h`;
+                      })() : `${Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h`} Book Time
+                    </span>
                   </div>
                 </div>
-            );
+              );
           })}
           </div>
         </div>

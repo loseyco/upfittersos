@@ -292,6 +292,42 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
               }
             });
           }
+
+          // Rule: Synced Job with No Tasks/Crew Assigned
+          const hasAssignedStaff = nativeJob?.assignedStaffIds && nativeJob.assignedStaffIds.length > 0;
+          if (!hasAssignedStaff) {
+            anomalies.push({
+              id: `job-no-tasks-${job.id}`,
+              type: 'warning',
+              title: 'Job Has No Tasks Assigned',
+              message: 'Job is active but has no technicians or tasks assigned to it on the schedule board.',
+              affectedRecord: job.name || job.FullName || 'Unknown Job',
+              listId: job.id,
+              collectionName: 'qb_jobs',
+              fixAction: {
+                label: 'Open Schedule Board',
+                onClick: () => navigate(`/business/${tenantId}/job_schedule`)
+              }
+            });
+          }
+
+          // Rule: Synced Job with Default/Empty Status
+          const statusVal = nativeJob?.status || '';
+          if (!statusVal || statusVal === 'Open') {
+            anomalies.push({
+              id: `job-default-status-${job.id}`,
+              type: 'warning',
+              title: 'Job Status is Default or Unassigned',
+              message: 'Job is synced but its workflow status is currently set to the default "Open" state or is empty.',
+              affectedRecord: job.name || job.FullName || 'Unknown Job',
+              listId: job.id,
+              collectionName: 'qb_jobs',
+              fixAction: {
+                label: 'Open Jobs Manager',
+                onClick: () => navigate(`/business/${tenantId}/jobs`)
+              }
+            });
+          }
         }
       });
 

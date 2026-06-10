@@ -35,12 +35,15 @@ interface TimeSession {
     taskId?: string | null;
     taskName?: string | null;
     bookTime?: number;
+    notes?: string;
   }>;
   status: string;
   verificationStatus?: string;
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;
+  notes?: string;
+  staffNote?: string;
 }
 
 interface TimeSessionEditorModalProps {
@@ -61,6 +64,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const [isRemote, setIsRemote] = useState(session.isRemote || false);
   const [breaks, setBreaks] = useState(session.breaks || []);
   const [jobs, setJobs] = useState(session.jobs || []);
+  const [notes, setNotes] = useState(session.notes || '');
+  const [staffNote, setStaffNote] = useState(session.staffNote || '');
 
   const [requestDetails, setRequestDetails] = useState<any>(null);
 
@@ -237,9 +242,15 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
     setClockIn(formatForInput(session.clockIn.timestamp));
     setClockOut(formatForInput(session.clockOut?.timestamp));
+    setNotes(session.notes || '');
+    setStaffNote(session.staffNote || '');
   }, [session]);
 
   const handleReject = async () => {
+    if (!isAdmin) {
+      toast.error("You do not have permission to resolve correction requests.");
+      return;
+    }
     const activeId = requestId || requestDetails?.id;
     if (!activeId || !requestDetails) return;
     setIsSubmitting(true);
@@ -303,6 +314,10 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   };
 
   const handleDelete = async () => {
+    if (!isAdmin) {
+      toast.error("You do not have permission to delete time entries.");
+      return;
+    }
     if (!window.confirm("Are you sure you want to PERMANENTLY delete this time entry? This cannot be undone.")) return;
     
     setIsSubmitting(true);
@@ -339,14 +354,60 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
     try {
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
       
+      // Determine if there are actual changes to the shift timeline (times, breaks, jobs, or remote status)
+      // notes changes are excluded from this check
+      const originalClockInTime = session.clockIn.timestamp?.toDate 
+        ? session.clockIn.timestamp.toDate().getTime() 
+        : new Date(session.clockIn.timestamp).getTime();
+      const newClockInTime = new Date(clockIn).getTime();
+
+      const originalClockOutTime = session.clockOut?.timestamp
+        ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate().getTime() : new Date(session.clockOut.timestamp).getTime())
+        : null;
+      const newClockOutTime = clockOut ? new Date(clockOut).getTime() : null;
+
+      const normalizeBreak = (b: any) => ({
+        type: b.type,
+        isPaid: b.isPaid,
+        start: b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime(),
+        end: b.end ? (b.end.toDate ? b.end.toDate().getTime() : new Date(b.end).getTime()) : null
+      });
+
+      const normalizeJob = (j: any) => ({
+        id: j.id,
+        name: j.name,
+        start: j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime(),
+        end: j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : null,
+        taskId: j.taskId || null,
+        taskName: j.taskName || null,
+        bookTime: j.bookTime || 0
+      });
+
+      const normalizedOrigBreaks = (session.breaks || []).map(normalizeBreak);
+      const normalizedNewBreaks = breaks.map(normalizeBreak);
+      const normalizedOrigJobs = (session.jobs || []).map(normalizeJob);
+      const normalizedNewJobs = jobs.map(normalizeJob);
+
+      const hasTimelineChanges = 
+        originalClockInTime !== newClockInTime ||
+        originalClockOutTime !== newClockOutTime ||
+        JSON.stringify(normalizedOrigBreaks) !== JSON.stringify(normalizedNewBreaks) ||
+        JSON.stringify(normalizedOrigJobs) !== JSON.stringify(normalizedNewJobs) ||
+        (session.isRemote || false) !== isRemote;
+
       const updates: any = {
         'clockIn.timestamp': new Date(clockIn),
         isRemote,
+        notes: notes.trim(),
+        staffNote: staffNote.trim(),
         updatedAt: serverTimestamp(),
-        manuallyEdited: true,
-        lastEditedBy: user!.displayName || user!.email || 'Admin',
-        lastEditedById: user!.uid
       };
+
+      if (hasTimelineChanges || session.manuallyEdited) {
+        updates.manuallyEdited = true;
+        updates.lastEditedBy = user!.displayName || user!.email || 'Admin';
+        updates.lastEditedById = user!.uid;
+      }
 
       if (!session.payType) {
         try {
@@ -402,7 +463,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           sessionId: session.id,
           userId: user!.uid,
           userName: user!.displayName || user!.email,
-          note: 'Staff updated session details directly (needs verification)',
+          note: staffNote.trim() || 'Staff updated session details directly (needs verification)',
           status: 'pending',
           originalClockIn: session.clockIn.timestamp,
           originalClockOut: session.clockOut?.timestamp || null,
@@ -449,10 +510,14 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           });
         } else {
           // Log standard admin edit (no request associated)
+          const activityMessage = hasTimelineChanges
+            ? `Manually updated and verified time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`
+            : `Added/updated note on time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`;
+          
           await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
             type: 'time_session',
-            title: 'Timecard Updated',
-            message: `Manually updated and verified time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`,
+            title: hasTimelineChanges ? 'Timecard Updated' : 'Timecard Note Added',
+            message: activityMessage,
             timestamp: serverTimestamp(),
             severity: 'info',
             author: user!.displayName || user!.email || 'Admin',
@@ -464,7 +529,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         }
       }
 
-      toast.success(isAdmin ? "Time session updated and verified" : "Time session updated (needs verification)");
+      toast.success(isAdmin ? (hasTimelineChanges ? "Time session updated and verified" : "Note saved successfully") : "Time session updated (needs verification)");
       onSaved();
       onClose();
     } catch (e) {
@@ -817,6 +882,17 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
+
+                  <div className="w-full space-y-1 mt-1">
+                    <label className="text-[9px] font-bold text-zinc-400 uppercase tracking-tight">Segment Notes / Comments</label>
+                    <input
+                      type="text"
+                      value={j.notes || ''}
+                      onChange={(e) => updateJob(i, 'notes', e.target.value)}
+                      placeholder="e.g. I believe he was actually on this job..."
+                      className="w-full bg-zinc-100 dark:bg-zinc-800 border-none rounded-lg text-xs font-bold px-3 py-1.5 focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white"
+                    />
+                  </div>
                 </div>
               ))}
               {jobs.length === 0 && (
@@ -893,10 +969,47 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
               Mark as Remote Shift
             </label>
           </div>
+
+          {/* Read-only Admin Note for Technicians */}
+          {!isAdmin && session.notes && (
+            <div className="bg-amber-550/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5 space-y-2 animate-in fade-in duration-300">
+              <span className="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest block">Admin Feedback / Correction Note</span>
+              <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 italic">
+                "{session.notes}"
+              </p>
+            </div>
+          )}
+
+          {/* Editable Technician Notes */}
+          <div className="space-y-2">
+            <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">
+              {isAdmin ? "Technician Notes / Explanation" : "My Notes / Explanation"}
+            </label>
+            <textarea 
+              value={staffNote}
+              onChange={(e) => setStaffNote(e.target.value)}
+              disabled={!isAdmin && session.verificationStatus === 'verified'}
+              placeholder="Provide comments or explanation about this shift (e.g. forgot to clock out, prep work timing)..."
+              className="w-full p-4 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white text-sm min-h-[100px] resize-none disabled:opacity-75"
+            />
+          </div>
+
+          {/* Admin Notes (Discrepancy Log) */}
+          {isAdmin && (
+            <div className="space-y-2">
+              <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">Admin Notes / Discrepancy Log</label>
+              <textarea 
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Leave a note about this shift (e.g. sync discrepancy explanations, reason for adjustments, etc.)..."
+                className="w-full p-4 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white text-sm min-h-[100px] resize-none"
+              />
+            </div>
+          )}
         </div>
 
         <div className="p-6 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row gap-3">
-          {(requestId || requestDetails?.id) && (
+          {(requestId || requestDetails?.id) && isAdmin && (
             <button 
               disabled={isSubmitting}
               onClick={handleReject}
@@ -916,14 +1029,14 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
               disabled={isSubmitting || !clockIn}
               onClick={handleSave}
               className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
-                (requestId || requestDetails?.id)
+                (requestId || requestDetails?.id) && isAdmin
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
               }`}
             >
               {isSubmitting ? (
                 'Processing...'
-              ) : (requestId || requestDetails?.id) ? (
+              ) : (requestId || requestDetails?.id) && isAdmin ? (
                 <>
                   <Check className="w-4 h-4" /> Approve & Save Request
                 </>

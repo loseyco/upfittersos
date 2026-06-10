@@ -40,11 +40,13 @@ interface TimeSession {
     taskId?: string | null;
     taskName?: string | null;
     bookTime?: number;
+    notes?: string;
   }>;
   status: string;
   verificationStatus?: string;
   source?: string;
   notes?: string;
+  staffNote?: string;
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;

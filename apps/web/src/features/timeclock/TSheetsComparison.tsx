@@ -42,10 +42,12 @@ interface TimeSession {
     taskId?: string | null;
     taskName?: string | null;
     bookTime?: number;
+    notes?: string;
   }>;
   status: string;
   verificationStatus?: string;
   notes?: string;
+  staffNote?: string;
 }
 
 // Simple and robust CSV parser
@@ -539,7 +541,7 @@ export function TSheetsComparison({ tenantId }: TSheetsComparisonProps) {
             startTime: start,
             endTime: end,
             hours: duration,
-            notes: ''
+            notes: j.notes || ''
           });
         });
       });

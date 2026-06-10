@@ -456,7 +456,14 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       const isReadyForCustomer = job.status === 'Ready for Customer';
       const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
 
-      const isActionable = hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
+      // Needs setup condition
+      const isActiveWorkflow = job.status !== 'Completed' && job.status !== 'Closed';
+      const hasVin = !!(job.vehicleId || job.vehicle || (job.qbCustomFields && (job.qbCustomFields.vin || job.qbCustomFields['VIN num'])));
+      const hasTasks = totalTasks > 0;
+      const hasStatus = !!(job.status && job.status !== 'Open');
+      const needsSetup = isActiveWorkflow && (!hasVin || !hasTasks || !hasStatus);
+
+      const isActionable = hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC || (selectedStatusFilter === 'needs_attention' && needsSetup);
       if (!isActionable) return false;
 
       // 3. Status Toolbar Dropdown Filter
@@ -466,11 +473,16 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       let resolvedStatus = job.status || 'Open';
       if (isBlocked) resolvedStatus = 'Blocked';
 
-      const matchesStatus = selectedStatusFilter === 'all' ||
-        (selectedStatusFilter === 'Active' && (resolvedStatus === 'Active' || resolvedStatus === 'Open')) ||
-        (selectedStatusFilter === 'Blocked' && resolvedStatus === 'Blocked') ||
-        (selectedStatusFilter === 'Completed' && (resolvedStatus === 'Completed' || resolvedStatus === 'Closed')) ||
-        (selectedStatusFilter === job.status);
+      let matchesStatus = false;
+      if (selectedStatusFilter === 'needs_attention') {
+        matchesStatus = needsSetup;
+      } else {
+        matchesStatus = selectedStatusFilter === 'all' ||
+          (selectedStatusFilter === 'Active' && (resolvedStatus === 'Active' || resolvedStatus === 'Open')) ||
+          (selectedStatusFilter === 'Blocked' && resolvedStatus === 'Blocked') ||
+          (selectedStatusFilter === 'Completed' && (resolvedStatus === 'Completed' || resolvedStatus === 'Closed')) ||
+          (selectedStatusFilter === job.status);
+      }
 
       if (!matchesStatus) return false;
 
@@ -1212,6 +1224,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
               <option value="Completed">Completed / Closed</option>
               <option value="On Hold">On Hold</option>
               <option value="Almost Ready">Almost Ready</option>
+              <option value="needs_attention">⚠️ Needs Setup / Review</option>
             </select>
           </div>
 
@@ -1346,6 +1359,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                   rowHighlightClass = 'bg-zinc-100/50 dark:bg-zinc-900/10 hover:bg-zinc-150/50 dark:hover:bg-zinc-800/20';
                 }
 
+                const hasVin = !!(job.vehicleId || job.vehicle || (job.qbCustomFields && (job.qbCustomFields.vin || job.qbCustomFields['VIN num'])));
+                const hasTasks = totalTasks > 0;
+                const hasStatus = !!(job.status && job.status !== 'Open');
+                const needsSetup = job.status !== 'Completed' && job.status !== 'Closed' && (!hasVin || !hasTasks || !hasStatus);
+
                 const daysLeft = getDaysRemaining(job.expectedFinishTime);
                 const isOverdue = daysLeft !== null && daysLeft < 0 && job.status !== 'Completed' && job.status !== 'Closed';
 
@@ -1370,8 +1388,22 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             {job.jobNumber ? '#' : 'J'}
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer" onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}>
+                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer flex items-center gap-1" onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}>
                               {job.jobNumber ? `#${job.jobNumber} - ${job.title}` : job.title}
+                              {needsSetup && (
+                                <span 
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={`Setup Required: Missing ${[
+                                    !hasVin ? 'VIN/Vehicle' : '',
+                                    !hasTasks ? 'Tasks/Crew' : '',
+                                    !hasStatus ? 'Workflow Status' : ''
+                                  ].filter(Boolean).join(', ')}`}
+                                >
+                                  <AlertTriangle 
+                                    className="w-3.5 h-3.5 text-amber-500 animate-pulse" 
+                                  />
+                                </span>
+                              )}
                             </span>
                             <div className="flex items-center gap-2 mt-0.5 text-[9px] font-semibold text-zinc-400 leading-none">
                               {job.customerName && <span className="truncate max-w-[100px]">Cust: {job.customerName}</span>}

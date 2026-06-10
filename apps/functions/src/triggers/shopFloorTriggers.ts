@@ -248,8 +248,9 @@ export const onActivityFeedCreated = functions.firestore.onDocumentCreated(
         const isBlocker = data.title === 'Blocker Added';
         const isParts = data.title === 'Parts Requested';
         const isGeneralUpdate = data.title === 'Bay Updated' || data.title === 'Note Added' || data.title === 'ETA Updated';
+        const isSyncWarning = data.title === 'Job Sync Setup Required';
 
-        if (isBlocker || isParts || isGeneralUpdate) {
+        if (isBlocker || isParts || isGeneralUpdate || isSyncWarning) {
             let globalPrefKey = '';
             let staffPrefKey = '';
             let notificationType = '';
@@ -266,6 +267,10 @@ export const onActivityFeedCreated = functions.firestore.onDocumentCreated(
                 globalPrefKey = 'globalNotifyBayUpdates';
                 staffPrefKey = 'notifyBayUpdates';
                 notificationType = 'bay_updated';
+            } else if (isSyncWarning) {
+                globalPrefKey = 'globalNotifySyncWarnings';
+                staffPrefKey = 'notifySyncWarnings';
+                notificationType = 'sync_warning';
             }
 
             // Check global business setting
@@ -353,46 +358,71 @@ export const onJobTaskWritten = functions.firestore.onDocumentWritten(
             const tasks = tasksSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
             const nonGeneralTasks = tasks.filter((t: any) => t.title !== 'General');
-            if (nonGeneralTasks.length === 0) return;
 
-            const allQCReady = nonGeneralTasks.every((t: any) => t.status === 'QC' || t.status === 'QC Complete');
-            const allQCComplete = nonGeneralTasks.every((t: any) => t.status === 'QC Complete');
+            // Re-evaluate needsAttention flag
+            const hasTasks = nonGeneralTasks.length > 0;
+            const hasVin = !!(jobData?.vehicleId || jobData?.vehicle || (jobData?.qbCustomFields && (jobData.qbCustomFields.vin || jobData.qbCustomFields['VIN num'])));
+            const hasStatus = !!(jobData?.status && jobData.status !== 'Open');
+
+            const needsAttentionReasons: string[] = [];
+            if (!hasVin) needsAttentionReasons.push('VIN/Vehicle');
+            if (!hasTasks) needsAttentionReasons.push('Tasks/Crew');
+            if (!hasStatus) needsAttentionReasons.push('Workflow Status');
+
+            const needsAttention = needsAttentionReasons.length > 0;
+
+            const attentionChanged = jobData?.needsAttention !== needsAttention ||
+              JSON.stringify(jobData?.needsAttentionReasons || []) !== JSON.stringify(needsAttentionReasons);
 
             let newStatus: string | null = null;
 
-            // 1. Forward progression (Active, Open, Ready for QA)
-            if (['Active', 'Open', 'Ready for QA'].includes(currentJobStatus)) {
-                if (allQCComplete) {
-                    newStatus = 'Ready for Customer';
-                } else if (allQCReady) {
-                    newStatus = 'Ready for QA';
+            if (nonGeneralTasks.length > 0) {
+                const allQCReady = nonGeneralTasks.every((t: any) => t.status === 'QC' || t.status === 'QC Complete');
+                const allQCComplete = nonGeneralTasks.every((t: any) => t.status === 'QC Complete');
+
+                // 1. Forward progression (Active, Open, Ready for QA)
+                if (['Active', 'Open', 'Ready for QA'].includes(currentJobStatus)) {
+                    if (allQCComplete) {
+                        newStatus = 'Ready for Customer';
+                    } else if (allQCReady) {
+                        newStatus = 'Ready for QA';
+                    }
+                }
+
+                // 2. Backward regression (Ready for Customer, Ready for QA)
+                if (['Ready for Customer', 'Ready for QA'].includes(currentJobStatus)) {
+                    if (!allQCReady) {
+                        newStatus = 'Active';
+                    } else if (currentJobStatus === 'Ready for Customer' && !allQCComplete) {
+                        newStatus = 'Ready for QA';
+                    }
                 }
             }
 
-            // 2. Backward regression (Ready for Customer, Ready for QA)
-            if (['Ready for Customer', 'Ready for QA'].includes(currentJobStatus)) {
-                if (!allQCReady) {
-                    newStatus = 'Active';
-                } else if (currentJobStatus === 'Ready for Customer' && !allQCComplete) {
-                    newStatus = 'Ready for QA';
-                }
-            }
-
-            if (newStatus && newStatus !== currentJobStatus) {
+            if ((newStatus && newStatus !== currentJobStatus) || attentionChanged) {
                 const updateFields: any = {
-                    status: newStatus,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 };
-                if (newStatus === 'Ready for Customer') {
-                    updateFields.readyForCustomerAt = admin.firestore.FieldValue.serverTimestamp();
-                } else if (newStatus === 'Completed' || newStatus === 'Closed') {
-                    updateFields.completedAt = admin.firestore.FieldValue.serverTimestamp();
-                } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
-                    updateFields.readyForCustomerAt = null;
-                    updateFields.completedAt = null;
+
+                if (newStatus && newStatus !== currentJobStatus) {
+                    updateFields.status = newStatus;
+                    if (newStatus === 'Ready for Customer') {
+                        updateFields.readyForCustomerAt = admin.firestore.FieldValue.serverTimestamp();
+                    } else if (newStatus === 'Completed' || newStatus === 'Closed') {
+                        updateFields.completedAt = admin.firestore.FieldValue.serverTimestamp();
+                    } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+                        updateFields.readyForCustomerAt = null;
+                        updateFields.completedAt = null;
+                    }
                 }
+
+                if (attentionChanged) {
+                    updateFields.needsAttention = needsAttention;
+                    updateFields.needsAttentionReasons = needsAttentionReasons;
+                }
+
                 await jobRef.update(updateFields);
-                console.log(`Auto-synced job ${jobId} status from ${currentJobStatus} to ${newStatus} on task write`);
+                console.log(`Auto-synced job ${jobId} (status to ${newStatus || currentJobStatus}, needsAttention to ${needsAttention}) on task write`);
             }
         } catch (e) {
             console.error(`Error updating job ${jobId} updatedAt or syncing status on task write:`, e);

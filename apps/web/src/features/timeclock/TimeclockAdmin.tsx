@@ -49,12 +49,15 @@ interface TimeSession {
     taskId?: string | null;
     taskName?: string | null;
     bookTime?: number;
+    notes?: string;
   }>;
   status: string;
   verificationStatus?: string;
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;
+  notes?: string;
+  staffNote?: string;
 }
 
 interface Anomaly {
@@ -762,6 +765,18 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                                     </span>
                                   )}
                                 </div>
+                                {session.notes && (
+                                  <div className="text-[10px] text-zinc-655 dark:text-zinc-400 italic mt-1.5 flex items-center gap-1 bg-zinc-50/50 dark:bg-zinc-800/20 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40 max-w-xs truncate" title={session.notes}>
+                                    <span className="font-bold text-zinc-400 dark:text-zinc-500">Admin Note:</span>
+                                    <span className="truncate">"{session.notes}"</span>
+                                  </div>
+                                )}
+                                {session.staffNote && (
+                                  <div className="text-[10px] text-zinc-655 dark:text-zinc-400 italic mt-1 flex items-center gap-1 bg-zinc-50/50 dark:bg-zinc-800/20 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40 max-w-xs truncate" title={session.staffNote}>
+                                    <span className="font-bold text-zinc-400 dark:text-zinc-550">Tech Note:</span>
+                                    <span className="truncate">"{session.staffNote}"</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -889,7 +904,8 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                               durationMs,
                               bookMs: taskBookMs,
                               basis,
-                              earnedMs: basis === 'hourly' || taskBookMs === 0 ? durationMs : 0
+                              earnedMs: basis === 'hourly' || taskBookMs === 0 ? durationMs : 0,
+                              notes: j.notes || ''
                             };
                           });
  
@@ -947,7 +963,14 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                                         <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850 font-medium">
                                           {taskDetails.map((t, idx) => (
                                             <tr key={idx} className="text-[11px]">
-                                              <td className="px-4 py-2 truncate max-w-[150px]">{t.name}</td>
+                                              <td className="px-4 py-2 truncate max-w-[150px]">
+                                                <div>{t.name}</div>
+                                                {t.notes && (
+                                                  <div className="text-[9px] text-zinc-400 dark:text-zinc-500 italic mt-0.5" title={t.notes}>
+                                                    "{t.notes}"
+                                                  </div>
+                                                )}
+                                              </td>
                                               <td className="px-4 py-2 truncate max-w-[200px] text-zinc-550 dark:text-zinc-450">{t.taskName}</td>
                                               <td className="px-4 py-2">
                                                 <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold ${t.basis === 'hourly' || t.bookMs === 0 ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
@@ -1100,8 +1123,22 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
 
                       return (
                         <tr key={session.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
-                          <td className="px-6 py-4 font-bold text-zinc-900 dark:text-white">
-                            {staff ? `${staff.firstName} ${staff.lastName}` : (session.userName || 'Unknown Staff')}
+                          <td className="px-6 py-4">
+                            <span className="font-bold text-zinc-900 dark:text-white block">
+                              {staff ? `${staff.firstName} ${staff.lastName}` : (session.userName || 'Unknown Staff')}
+                            </span>
+                            {session.notes && (
+                              <div className="text-[10px] text-zinc-655 dark:text-zinc-400 italic mt-1 font-normal flex items-center gap-1 bg-zinc-50/50 dark:bg-zinc-800/20 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40 max-w-xs truncate" title={session.notes}>
+                                <span className="font-bold text-zinc-400 dark:text-zinc-500">Admin Note:</span>
+                                <span className="truncate">"{session.notes}"</span>
+                              </div>
+                            )}
+                            {session.staffNote && (
+                              <div className="text-[10px] text-zinc-655 dark:text-zinc-400 italic mt-1 font-normal flex items-center gap-1 bg-zinc-50/50 dark:bg-zinc-800/20 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40 max-w-xs truncate" title={session.staffNote}>
+                                <span className="font-bold text-zinc-400 dark:text-zinc-550">Tech Note:</span>
+                                <span className="truncate">"{session.staffNote}"</span>
+                              </div>
+                            )}
                           </td>
                           <td className="px-6 py-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap font-medium">
                             {formatDate(session.clockIn.timestamp)}

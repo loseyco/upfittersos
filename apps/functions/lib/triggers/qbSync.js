@@ -157,9 +157,54 @@ exports.onQbJobWrite = functions.firestore
             console.error(`Failed to check for existing job with number ${qbJobNumber}`, err);
         }
     }
+    // Check existing document and tasks for setup requirements
+    let wasAttention = false;
+    let currentStatus = jobMappedData.status;
+    let hasTasks = false;
+    try {
+        const [existingDoc, tasksSnap] = await Promise.all([
+            jobDestRef.get(),
+            jobDestRef.collection('tasks').limit(1).get()
+        ]);
+        if (existingDoc.exists) {
+            const existingData = existingDoc.data();
+            wasAttention = (existingData === null || existingData === void 0 ? void 0 : existingData.needsAttention) === true;
+            currentStatus = (existingData === null || existingData === void 0 ? void 0 : existingData.status) || currentStatus;
+        }
+        hasTasks = !tasksSnap.empty;
+    }
+    catch (err) {
+        console.error(`Failed to fetch existing job details for attention check on ${jobId}`, err);
+    }
+    const hasVin = !!(vin || jobMappedData.vehicleId);
+    const hasStatus = !!(currentStatus && currentStatus !== 'Open');
+    const needsAttentionReasons = [];
+    if (!hasVin)
+        needsAttentionReasons.push('VIN/Vehicle');
+    if (!hasTasks)
+        needsAttentionReasons.push('Tasks/Crew');
+    if (!hasStatus)
+        needsAttentionReasons.push('Workflow Status');
+    const needsAttention = needsAttentionReasons.length > 0;
+    jobMappedData.needsAttention = needsAttention;
+    jobMappedData.needsAttentionReasons = needsAttentionReasons;
     try {
         await jobDestRef.set(jobMappedData, { merge: true });
         console.log(`Successfully promoted QB Job ${jobId} to native jobs in tenant ${tenantId}`);
+        // Log alert to activity feed if attention flag was newly raised
+        if (needsAttention && !wasAttention) {
+            const feedRef = admin.firestore().collection('businesses').doc(tenantId).collection('activity_feed').doc();
+            await feedRef.set({
+                type: 'qb_sync_attention',
+                title: 'Job Sync Setup Required',
+                message: `Job "${jobMappedData.title}" was synced from QuickBooks but is missing: ${needsAttentionReasons.join(', ')}.`,
+                severity: 'warning',
+                jobId: jobDestRef.id,
+                createdAt: new Date().toISOString(),
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+            console.log(`Logged sync setup required alert for job ${jobDestRef.id}`);
+        }
     }
     catch (err) {
         console.error(`Failed to promote job ${jobId}`, err);
