@@ -1616,14 +1616,36 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                   {session.breaks?.length > 0 ? `${session.breaks.length} breaks (${(breakMs / 60000).toFixed(0)}m)` : 'None'}
                                 </td>
                                 <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-                                  <div className="space-y-1">
+                                  <div className="space-y-1.5">
                                     {(session.jobs || []).map((j: any, i: number) => (
-                                      <div key={i} className="flex justify-between max-w-xs text-[10px]">
-                                        <span className="truncate pr-2">{j.name} {j.taskName ? `(${j.taskName})` : ''}</span>
-                                        {j.bookTime > 0 && <span className="font-mono font-bold text-indigo-500">({j.bookTime}h)</span>}
+                                      <div key={i} className="flex flex-col text-[10px] max-w-xs">
+                                        <div className="flex justify-between">
+                                          <span className="truncate pr-2">{j.name} {j.taskName ? `(${j.taskName})` : ''}</span>
+                                          {j.bookTime > 0 && <span className="font-mono font-bold text-indigo-500">({j.bookTime}h)</span>}
+                                        </div>
+                                        {j.notes && (
+                                          <div className="text-[9px] text-zinc-450 dark:text-zinc-500 italic pl-2 mt-0.5 leading-tight">
+                                            Note: "{j.notes}"
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                     {(!session.jobs || session.jobs.length === 0) && <span className="italic text-[10px] text-zinc-400">No jobs clocked</span>}
+                                    
+                                    {(session.notes || session.staffNote) && (
+                                      <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-1.5 mt-1.5 space-y-1 text-[9px] max-w-xs">
+                                        {session.notes && (
+                                          <div className="text-zinc-500 dark:text-zinc-400 italic">
+                                            <span className="font-bold text-zinc-450 dark:text-zinc-550 not-italic">Admin Note:</span> "{session.notes}"
+                                          </div>
+                                        )}
+                                        {session.staffNote && (
+                                          <div className="text-zinc-500 dark:text-zinc-400 italic">
+                                            <span className="font-bold text-zinc-450 dark:text-zinc-550 not-italic">Tech Note:</span> "{session.staffNote}"
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono font-bold">
