@@ -4,7 +4,7 @@ import {
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
   Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, Award, DollarSign
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
@@ -124,6 +124,12 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [activeInfo, setActiveInfo] = useState<{ memberId: string; type: 'backlog' | 'task_efficiency' | 'shift_utilization' | 'direct_labor' | 'weekly_performance' | 'timeline' } | null>(null);
   const [activeMainInfo, setActiveMainInfo] = useState<'coverage' | 'efficiency' | 'status' | 'blockers' | null>(null);
+  
+  const [showForemanTracker, setShowForemanTracker] = useState(() => {
+    return localStorage.getItem('show_foreman_tracker') === 'true';
+  });
+  const [monthlyInvoices, setMonthlyInvoices] = useState<any[]>([]);
+  const [monthlySessions, setMonthlySessions] = useState<any[]>([]);
   
   const calculateDuration = (start: any, end: any) => {
     if (!start) return 0;
@@ -383,6 +389,174 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
     return () => unsub();
   }, [tenantId, dept?.id]);
+
+  const toggleForemanTracker = () => {
+    setShowForemanTracker(prev => {
+      const next = !prev;
+      localStorage.setItem('show_foreman_tracker', String(next));
+      return next;
+    });
+  };
+
+  // Fetch qb_invoices MTD
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/qb_invoices`));
+    const unsub = onSnapshot(q, (snap) => {
+      setMonthlyInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.error("Error listening MTD invoices:", err));
+    return () => unsub();
+  }, [tenantId]);
+
+  // Fetch time sessions MTD
+  useEffect(() => {
+    if (!tenantId) return;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const startMs = startOfMonth.getTime();
+
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('clockIn.timestamp', '>=', startOfMonth)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setMonthlySessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.warn("MTD sessions query fallback...", err);
+      const fallbackQ = query(collection(db, `businesses/${tenantId}/time_sessions`));
+      onSnapshot(fallbackQ, (snap) => {
+        const filtered = snap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter((s: any) => {
+          const ts = s.clockIn?.timestamp?.toDate ? s.clockIn.timestamp.toDate().getTime() : new Date(s.clockIn?.timestamp).getTime();
+          return ts >= startMs;
+        });
+        setMonthlySessions(filtered);
+      });
+    });
+    return () => unsub();
+  }, [tenantId]);
+
+  const monthlyRevenue = useMemo(() => {
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime();
+
+    const parseDate = (val: any) => {
+      if (!val) return 0;
+      if (val.seconds) return val.seconds * 1000;
+      return new Date(val).getTime();
+    };
+
+    return monthlyInvoices.reduce((sum, inv) => {
+      const ts = parseDate(inv.txnDate || inv.createdAt);
+      if (ts >= startMs) {
+        return sum + (Number(inv.totalAmount) || 0);
+      }
+      return sum;
+    }, 0);
+  }, [monthlyInvoices]);
+
+  const monthlyEff = useMemo(() => {
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime();
+
+    const monthCompletedTasks = allTasks.filter(t => {
+      const isCompleted = ['completed', 'qc', 'qc complete'].includes((t.status || '').toLowerCase());
+      if (!isCompleted) return false;
+
+      const compDate = t.qcCompletedAt || t.completedAt || t.updatedAt;
+      if (!compDate) return false;
+
+      const compMs = compDate.toDate ? compDate.toDate().getTime() : new Date(compDate).getTime();
+      return compMs >= startMs;
+    });
+
+    let totalBook = 0;
+    let totalActual = 0;
+
+    monthCompletedTasks.forEach(task => {
+      if (!isGeneralTask(task.title)) {
+        totalBook += parseFloat(task.bookTime) || 0;
+
+        const taskActualMs = monthlySessions.reduce((acc: number, session: any) => {
+          const segments = (session.jobs || []).filter((j: any) => j.taskId === task.id);
+          const segMs = segments.reduce((segAcc: number, seg: any) => {
+            const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+            let endMs = Date.now();
+            if (seg.end) {
+              endMs = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+            } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+              const clockOutVal = session.clockOut?.timestamp;
+              if (clockOutVal) {
+                endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+              } else {
+                const updatedVal = session.updatedAt || session.createdAt;
+                endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+              }
+            }
+            return segAcc + Math.max(0, endMs - start);
+          }, 0);
+          return acc + segMs;
+        }, 0);
+        totalActual += taskActualMs / 3600000;
+      }
+    });
+
+    return {
+      book: totalBook,
+      actual: totalActual,
+      pct: totalActual > 0 ? Math.round((totalBook / totalActual) * 100) : 0
+    };
+  }, [allTasks, monthlySessions]);
+
+  const foremanBonus = useMemo(() => {
+    let effBonus = 0;
+    let nextEffTier = '';
+    let effStatus = 'Under Threshold';
+
+    const effPct = monthlyEff.pct;
+    if (effPct >= 110) {
+      effBonus = 3000;
+      effStatus = 'Tier 3 (110%+)';
+    } else if (effPct >= 100) {
+      effBonus = 1500;
+      effStatus = 'Tier 2 (100% - 109%)';
+      nextEffTier = '110% for $3,000';
+    } else if (effPct >= 90) {
+      effBonus = 500;
+      effStatus = 'Tier 1 (90% - 99%)';
+      nextEffTier = '100% for $1,500';
+    } else {
+      nextEffTier = '90% for $500';
+    }
+
+    let revBonus = 0;
+    let nextRevTier = '';
+    let revStatus = 'Under Threshold';
+
+    if (monthlyRevenue >= 250000) {
+      revBonus = 5000;
+      revStatus = 'Tier 3 ($250K+)';
+    } else if (monthlyRevenue >= 200000) {
+      revBonus = 3000;
+      revStatus = 'Tier 2 ($200K - $249K)';
+      nextRevTier = '$250,000 for $5,000';
+    } else if (monthlyRevenue >= 150000) {
+      revBonus = 1500;
+      revStatus = 'Tier 1 ($150K - $199K)';
+      nextRevTier = '$200,000 for $3,000';
+    } else {
+      nextRevTier = '$150,000 for $1,500';
+    }
+
+    return {
+      effBonus,
+      effStatus,
+      nextEffTier,
+      revBonus,
+      revStatus,
+      nextRevTier,
+      totalBonus: effBonus + revBonus
+    };
+  }, [monthlyEff.pct, monthlyRevenue]);
 
   // Helper to determine if a task is a general non-production task
   const isGeneralTask = (title?: string) => {
@@ -1103,8 +1277,164 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
             {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
             {isFullscreen ? "Exit" : "Fullscreen"}
           </button>
+
+          <button
+            onClick={toggleForemanTracker}
+            className={cn(
+              "px-2.5 py-1.5 border text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer",
+              showForemanTracker 
+                ? "bg-amber-50 border-amber-250 text-amber-600 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-400"
+                : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-300"
+            )}
+          >
+            <Award className="w-3.5 h-3.5" />
+            Foreman Tracker
+          </button>
         </div>
       </div>
+
+      {/* Foreman Performance & Bonus Tracker Panel */}
+      {showForemanTracker && (
+        <div className="bg-gradient-to-r from-zinc-900 to-indigo-950 dark:from-zinc-950 dark:to-indigo-950 border border-indigo-500/20 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden animate-in slide-in-from-top-4 duration-300">
+          <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10 pb-4 border-b border-white/10">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="bg-amber-500/10 text-amber-400 p-1.5 rounded-xl border border-amber-500/20">
+                  <Award className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight uppercase italic">Shop Foreman - Performance & Bonus Tracker</h3>
+                  <p className="text-[10px] text-zinc-400">Month-to-Date Performance Metrics (SAE Group - Upfitting Division)</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white/5 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/10 flex items-center gap-3 shrink-0">
+              <div>
+                <span className="text-[9px] font-black text-zinc-450 uppercase tracking-wider block">Est. Monthly Bonus Earned</span>
+                <span className="text-xl font-black text-emerald-450 font-mono">${foremanBonus.totalBonus.toLocaleString()}</span>
+              </div>
+              <DollarSign className="w-6 h-6 text-emerald-400/80 shrink-0" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 relative z-10">
+            {/* 1. Shop Efficiency Bonus Gauge */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-4">
+              <div className="flex justify-between items-start">
+                <div className="space-y-0.5">
+                  <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Shop Labor Efficiency</span>
+                  <span className="text-lg font-black font-mono text-amber-400">{monthlyEff.pct}%</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider block">Estimated Payout</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">${foremanBonus.effBonus.toLocaleString()}/mo</span>
+                </div>
+              </div>
+
+              {/* Progress gauge visualizer */}
+              <div className="space-y-1.5">
+                <div className="h-3 bg-white/10 rounded-full overflow-hidden flex">
+                  {/* Under 90% */}
+                  <div className={cn("h-full transition-all duration-500", 
+                    monthlyEff.pct >= 90 ? "bg-amber-500/40 w-[90%]" : "bg-rose-500 w-full"
+                  )} style={{ width: monthlyEff.pct >= 90 ? '90%' : `${Math.max(5, (monthlyEff.pct / 90) * 100)}%` }} />
+                  
+                  {/* 90% - 99% */}
+                  {monthlyEff.pct >= 90 && (
+                    <div className={cn("h-full transition-all duration-500",
+                      monthlyEff.pct >= 100 ? "bg-teal-500/40 w-[10%]" : "bg-amber-500 flex-1"
+                    )} />
+                  )}
+
+                  {/* 100% - 109% */}
+                  {monthlyEff.pct >= 100 && (
+                    <div className={cn("h-full transition-all duration-500",
+                      monthlyEff.pct >= 110 ? "bg-emerald-500/40 w-[10%]" : "bg-teal-500 flex-1"
+                    )} />
+                  )}
+
+                  {/* 110%+ */}
+                  {monthlyEff.pct >= 110 && (
+                    <div className="h-full bg-emerald-500 flex-1 transition-all duration-500" />
+                  )}
+                </div>
+                
+                <div className="flex justify-between text-[8px] font-bold text-zinc-450 uppercase tracking-wider">
+                  <span>Start (90% tier)</span>
+                  <span>Target (100% tier)</span>
+                  <span>Stretch (110%+)</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-450 pt-1">
+                <span>Status: <strong className="text-white">{foremanBonus.effStatus}</strong></span>
+                {foremanBonus.nextEffTier && (
+                  <span>Next Mark: <strong className="text-amber-400">{foremanBonus.nextEffTier}</strong></span>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Production Revenue Bonus Gauge */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-4">
+              <div className="flex justify-between items-start">
+                <div className="space-y-0.5">
+                  <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Monthly Production Revenue</span>
+                  <span className="text-lg font-black font-mono text-indigo-400">${monthlyRevenue.toLocaleString()}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider block">Estimated Payout</span>
+                  <span className="text-sm font-black text-emerald-400 font-mono">${foremanBonus.revBonus.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Progress gauge visualizer */}
+              <div className="space-y-1.5">
+                <div className="h-3 bg-white/10 rounded-full overflow-hidden flex">
+                  {/* Under $150K */}
+                  <div className={cn("h-full transition-all duration-500", 
+                    monthlyRevenue >= 150000 ? "bg-indigo-500/40 w-[60%]" : "bg-indigo-500/20 w-full"
+                  )} style={{ width: monthlyRevenue >= 150000 ? '60%' : `${Math.max(5, (monthlyRevenue / 150000) * 100)}%` }} />
+                  
+                  {/* $150K - $199K */}
+                  {monthlyRevenue >= 150000 && (
+                    <div className={cn("h-full transition-all duration-500",
+                      monthlyRevenue >= 200000 ? "bg-violet-500/40 w-[20%]" : "bg-indigo-500 flex-1"
+                    )} />
+                  )}
+
+                  {/* $200K - $249K */}
+                  {monthlyRevenue >= 200000 && (
+                    <div className={cn("h-full transition-all duration-500",
+                      monthlyRevenue >= 250000 ? "bg-emerald-500/40 w-[20%]" : "bg-violet-500 flex-1"
+                    )} />
+                  )}
+
+                  {/* $250K+ */}
+                  {monthlyRevenue >= 250000 && (
+                    <div className="h-full bg-emerald-500 flex-1 transition-all duration-500" />
+                  )}
+                </div>
+                
+                <div className="flex justify-between text-[8px] font-bold text-zinc-450 uppercase tracking-wider">
+                  <span>$150K Tier</span>
+                  <span>$200K Tier</span>
+                  <span>$250K+ Tier</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-450 pt-1">
+                <span>Status: <strong className="text-white">{foremanBonus.revStatus}</strong></span>
+                {foremanBonus.nextRevTier && (
+                  <span>Next Mark: <strong className="text-indigo-400">{foremanBonus.nextRevTier}</strong></span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
