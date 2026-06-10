@@ -764,10 +764,18 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           endMs: s.clockOut?.timestamp ? sEndMs : null,
           totalMs: sTotalMs,
           breakMs: sBreakMs,
-          jobs: (s.jobs || []).map((j: any) => ({
-            name: j.name || j.taskName || 'Job Segment',
-            duration: calculateDuration(j.start, j.end)
-          }))
+          jobs: (s.jobs || []).map((j: any) => {
+            const jobObj = allJobs.find(job => job.id === j.id);
+            const jobNum = jobObj?.jobNumber ? `#${jobObj.jobNumber}` : '';
+            const customer = jobObj?.customerName || '';
+            const taskName = j.taskName || j.name || 'Production Task';
+            const displayName = [jobNum, customer, taskName].filter(Boolean).join(' - ');
+
+            return {
+              name: displayName,
+              duration: calculateDuration(j.start, j.end)
+            };
+          })
         };
       }).sort((a, b) => b.start.getTime() - a.start.getTime());
 
@@ -1632,7 +1640,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   <div className="mt-1 pt-1 border-t border-dashed border-zinc-200 dark:border-zinc-850 flex flex-col gap-0.5">
                                     {s.jobs.map((j: any, jIdx: number) => (
                                       <div key={jIdx} className="flex justify-between items-center text-[10px] text-zinc-505 dark:text-zinc-400 font-medium gap-2">
-                                        <span className="truncate max-w-[170px]">&bull; {j.name}</span>
+                                        <span className="flex-1 min-w-0 truncate" title={j.name}>&bull; {j.name}</span>
                                         <span className="font-mono text-[9px] font-bold text-zinc-400 shrink-0">{formatDuration(j.duration)}</span>
                                       </div>
                                     ))}
