@@ -15,6 +15,28 @@ import { useWakeLock } from '../../hooks/useWakeLock';
 import { StaffLink } from './StaffPerformance';
 import { toast } from 'sonner';
 
+// Helper to determine if a task is a general non-production task
+const isGeneralTask = (title?: string) => {
+  if (!title) return false;
+  const t = title.toLowerCase();
+  return t.includes('general') || t.includes('clock in') || t.includes('clockout') || t.includes('break') || t.includes('lunch') || t.includes('meeting');
+};
+
+// Helper for stopwatch elapsed time formatting
+const getElapsedMs = (start: any) => {
+  if (!start) return 0;
+  const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
+  return Math.max(0, Date.now() - s);
+};
+
+const formatStopwatch = (ms: number) => {
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
 const getJobColor = (jobId: string) => {
   const colors = [
     { bg: 'bg-teal-500', text: 'text-teal-955 dark:text-teal-900', border: 'border-teal-400/30' },
@@ -558,27 +580,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
     };
   }, [monthlyEff.pct, monthlyRevenue]);
 
-  // Helper to determine if a task is a general non-production task
-  const isGeneralTask = (title?: string) => {
-    if (!title) return false;
-    const t = title.toLowerCase();
-    return t.includes('general') || t.includes('clock in') || t.includes('clockout') || t.includes('break') || t.includes('lunch') || t.includes('meeting');
-  };
-
-  // Helper for stopwatch elapsed time formatting
-  const getElapsedMs = (start: any) => {
-    if (!start) return 0;
-    const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
-    return Math.max(0, Date.now() - s);
-  };
-
-  const formatStopwatch = (ms: number) => {
-    const totalSeconds = Math.floor(ms / 1000);
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-  };
+  // Helpers are now defined globally at the top of the file to prevent Temporal Dead Zone reference errors
 
   // Filter staff to the Upfitting department
   const upfitterStaff = useMemo(() => {
