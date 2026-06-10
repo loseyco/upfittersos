@@ -913,7 +913,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
             <h1 className="text-lg font-black text-zinc-900 dark:text-white leading-tight">
               Upfitting Foreman Deck
             </h1>
-            <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">
+            <p className="text-xs text-zinc-605 dark:text-zinc-400 font-bold uppercase tracking-wider">
               Live Production Control & Efficiency Monitoring
             </p>
           </div>
@@ -939,7 +939,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                 <button
                   key={tf}
                   onClick={() => setTimeframe(tf)}
-                  className={`px-2.5 py-1 text-[8.5px] font-black uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${
                     timeframe === tf 
                       ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-white shadow-sm' 
                       : 'text-zinc-550 hover:text-zinc-900 dark:hover:text-zinc-300'
@@ -966,20 +966,20 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                     setTimeframe('custom');
                   }
                 }}
-                className="bg-transparent text-[8.5px] font-black uppercase tracking-wider text-zinc-700 dark:text-zinc-300 outline-none px-2 py-0.5 cursor-pointer dark:[color-scheme:dark]"
+                className="bg-transparent text-xs font-bold uppercase tracking-wider text-zinc-800 dark:text-zinc-250 outline-none px-2 py-0.5 cursor-pointer dark:[color-scheme:dark]"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 shadow-sm">
             <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
-            <span className="text-[8.5px] font-black uppercase tracking-wider text-emerald-500">Live</span>
-            <span className="text-[8.5px] font-bold text-zinc-500">• {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-500">Live</span>
+            <span className="text-xs font-bold text-zinc-500 dark:text-zinc-450">• {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
           </div>
 
           <button 
             onClick={toggleFullscreen}
-            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-[9px] font-black uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
           >
             {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
             {isFullscreen ? "Exit" : "Fullscreen"}
@@ -995,14 +995,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm flex items-center justify-between group hover:border-indigo-500/35 transition-all cursor-pointer hover:shadow-md active:scale-[0.99]"
         >
           <div className="min-w-0 flex-1">
-            <p className="text-[8.5px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 flex items-center gap-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-0.5 flex items-center gap-1">
               Direct Labor Coverage
               <HelpCircle className="w-3 h-3 text-zinc-400 group-hover:text-indigo-500 transition-colors" />
             </p>
-            <h3 className="text-xl font-black text-zinc-900 dark:text-white font-mono leading-none">
+            <h3 className="text-2xl font-black text-zinc-900 dark:text-white font-mono leading-none">
               {overallStats.overallCoverage ? `${overallStats.overallCoverage}%` : '--'}
             </h3>
-            <p className="text-[9px] text-zinc-400 font-semibold mt-1 truncate">Ratio of shift spent on tasks ({timeframe})</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1 truncate">Ratio of shift spent on tasks ({timeframe})</p>
           </div>
           <div className="w-10 h-10 bg-indigo-500/10 text-indigo-500 rounded-lg flex items-center justify-center shrink-0 border border-indigo-500/20 group-hover:scale-105 transition-transform ml-2">
             <ClipboardList className="w-5 h-5" />
@@ -1015,19 +1015,19 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm flex items-center justify-between group hover:border-emerald-500/35 transition-all cursor-pointer hover:shadow-md active:scale-[0.99]"
         >
           <div className="min-w-0 flex-1">
-            <p className="text-[8.5px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 flex items-center gap-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-0.5 flex items-center gap-1">
               Production Efficiency
               <HelpCircle className="w-3 h-3 text-zinc-400 group-hover:text-emerald-500 transition-colors" />
             </p>
             <h3 className={cn(
-              "text-xl font-black font-mono leading-none",
+              "text-2xl font-black font-mono leading-none",
               overallStats.overallEfficiency && overallStats.overallEfficiency >= 100 ? "text-emerald-500" :
               overallStats.overallEfficiency && overallStats.overallEfficiency >= 85 ? "text-amber-500" :
               overallStats.overallEfficiency ? "text-rose-500" : "text-zinc-500"
             )}>
               {overallStats.overallEfficiency ? `${overallStats.overallEfficiency}%` : '--'}
             </h3>
-            <p className="text-[9px] text-zinc-400 font-semibold mt-1 truncate">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1 truncate">
               {overallStats.totalCompletedBook.toFixed(1)} Book hrs vs {overallStats.totalCompletedActual.toFixed(1)} Actual
             </p>
           </div>
@@ -1042,14 +1042,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm flex items-center justify-between group hover:border-blue-500/35 transition-all cursor-pointer hover:shadow-md active:scale-[0.99]"
         >
           <div className="min-w-0 flex-1">
-            <p className="text-[8.5px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 flex items-center gap-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-0.5 flex items-center gap-1">
               Staff Operational Status
               <HelpCircle className="w-3 h-3 text-zinc-400 group-hover:text-blue-500 transition-colors" />
             </p>
-            <h3 className="text-xl font-black text-zinc-900 dark:text-white font-mono leading-none">
+            <h3 className="text-2xl font-black text-zinc-900 dark:text-white font-mono leading-none">
               {overallStats.taskActiveStaffCount} <span className="text-xs text-zinc-400 font-normal">/ {overallStats.clockedInStaffCount} Active</span>
             </h3>
-            <p className="text-[9px] text-zinc-400 font-semibold mt-1 truncate">Clocked into tasks vs logged in today</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1 truncate">Clocked into tasks vs logged in today</p>
           </div>
           <div className="w-10 h-10 bg-blue-500/10 text-blue-500 rounded-lg flex items-center justify-center shrink-0 border border-blue-500/20 group-hover:scale-105 transition-transform ml-2">
             <Users className="w-5 h-5" />
@@ -1062,14 +1062,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 shadow-sm flex items-center justify-between group hover:border-amber-500/35 transition-all cursor-pointer hover:shadow-md active:scale-[0.99]"
         >
           <div className="min-w-0 flex-1">
-            <p className="text-[8.5px] font-black uppercase tracking-wider text-zinc-500 mb-0.5 flex items-center gap-1">
+            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-0.5 flex items-center gap-1">
               Blockers & Parts Awaiting
               <HelpCircle className="w-3 h-3 text-zinc-400 group-hover:text-amber-500 transition-colors" />
             </p>
-            <h3 className="text-xl font-black text-zinc-950 dark:text-white font-mono leading-none">
+            <h3 className="text-2xl font-black text-zinc-950 dark:text-white font-mono leading-none">
               {overallStats.blockedJobsCount} <span className="text-xs text-zinc-400 font-normal">Blocked</span> &bull; {overallStats.partsAwaitingJobsCount} <span className="text-xs text-zinc-400 font-normal">Parts</span>
             </h3>
-            <p className="text-[9px] text-zinc-400 font-semibold mt-1 truncate">Open issues in the Upfitting queue</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1 truncate">Open issues in the Upfitting queue</p>
           </div>
           <div className="w-10 h-10 bg-amber-500/10 text-amber-500 rounded-lg flex items-center justify-center shrink-0 border border-amber-500/20 group-hover:scale-105 transition-transform ml-2">
             <AlertTriangle className="w-5 h-5" />
@@ -1078,7 +1078,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       </div>
 
       {/* Kanban Board Container */}
-      <div className="flex-1 overflow-x-auto pb-2 no-scrollbar min-h-0">
+      <div className="flex-1 overflow-x-auto pb-2 no-scrollbar min-h-0 snap-x snap-mandatory scroll-smooth">
         <div className="flex gap-4 h-full p-1">
           {filteredStaffColumns.length === 0 ? (
             <div className="w-full text-center py-20 bg-zinc-50/50 dark:bg-zinc-900/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12">
@@ -1096,10 +1096,45 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
               const currentStatus = statusColors[col.clockStatus];
 
+              const warnings: string[] = [];
+              if (col.clockStatus === 'idle') {
+                warnings.push("Idle: Clocked in but not on task");
+              }
+              const days = col.schedule?.days || [1, 2, 3, 4, 5];
+              const todayDay = new Date().getDay() || 7;
+              const isScheduledToday = days.includes(todayDay);
+              
+              if (isScheduledToday && col.clockStatus === 'offline') {
+                const [sh, sm] = (col.schedule?.startTime || '08:00').split(':').map(Number);
+                const now = new Date();
+                const shiftStart = new Date();
+                shiftStart.setHours(sh, sm, 0, 0);
+                if (now.getTime() > (shiftStart.getTime() + 15 * 60 * 1000)) {
+                  warnings.push(`Missed Start (Scheduled: ${col.schedule.startTime})`);
+                }
+              }
+              
+              if (col.clockStatus === 'active' && col.todaySession) {
+                const session = col.todaySession;
+                const startMs = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate().getTime() : new Date(session.clockIn.timestamp).getTime();
+                const durationHrs = (Date.now() - startMs) / 3600000;
+                if (durationHrs > 12) {
+                  warnings.push(`Overtime active shift (${durationHrs.toFixed(1)}h Active)`);
+                }
+              }
+              
+              const hasLongHistoricalSession = (col.weekSessionsList || []).some((s: any) => {
+                const totalMs = s.totalMs || (s.endMs ? (s.endMs - s.start.getTime()) : 0);
+                return totalMs > 14 * 3600000;
+              });
+              if (hasLongHistoricalSession) {
+                warnings.push("Forgot clock-out: Contains >14h shift");
+              }
+
               return (
                 <div 
                   key={col.id} 
-                  className="w-80 shrink-0 flex flex-col bg-zinc-50/50 dark:bg-zinc-900/50 backdrop-blur-sm border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-md h-full overflow-hidden relative"
+                  className="w-[calc(100vw-2.5rem)] sm:w-[400px] shrink-0 snap-center flex flex-col bg-zinc-50/50 dark:bg-zinc-900/50 backdrop-blur-sm border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-md h-full overflow-hidden relative"
                 >
                   {/* Explanation overlay popover */}
                   {activeInfo && activeInfo.memberId === col.id && (
@@ -1305,23 +1340,43 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {col.avatar ? (
-                          <img 
-                            src={col.avatar} 
-                            alt={col.name} 
-                            className="w-11 h-11 rounded-2xl object-cover border border-zinc-250 dark:border-zinc-700 shadow-sm"
-                          />
+                          <div className="relative shrink-0">
+                            <img 
+                              src={col.avatar} 
+                              alt={col.name} 
+                              className={cn(
+                                "w-11 h-11 rounded-2xl object-cover border shadow-sm",
+                                warnings.length > 0 ? "border-amber-500 ring-2 ring-amber-500/20" : "border-zinc-250 dark:border-zinc-700"
+                              )}
+                            />
+                            {warnings.length > 0 && (
+                              <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white rounded-full p-0.5 shadow border border-white dark:border-zinc-950 flex items-center justify-center">
+                                <AlertTriangle className="w-2.5 h-2.5 animate-pulse" />
+                              </span>
+                            )}
+                          </div>
                         ) : (
-                          <div className="w-11 h-11 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 font-extrabold text-sm rounded-2xl flex items-center justify-center shadow-sm">
+                          <div className={cn(
+                            "w-11 h-11 font-extrabold text-sm rounded-2xl flex items-center justify-center shadow-sm relative shrink-0",
+                            warnings.length > 0 
+                              ? "bg-amber-500/10 border border-amber-500/30 text-amber-600" 
+                              : "bg-indigo-500/10 border border-indigo-500/20 text-indigo-500"
+                          )}>
                             {col.initials}
+                            {warnings.length > 0 && (
+                              <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white rounded-full p-0.5 shadow border border-white dark:border-zinc-950 flex items-center justify-center">
+                                <AlertTriangle className="w-2.5 h-2.5 animate-pulse" />
+                              </span>
+                            )}
                           </div>
                         )}
-                        <div>
-                          <h4 className="font-extrabold text-sm text-zinc-900 dark:text-white leading-tight">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-extrabold text-sm text-zinc-900 dark:text-white leading-tight truncate">
                             <StaffLink name={col.name} tenantId={tenantId} staffId={col.id} className="hover:underline hover:text-indigo-500 transition-colors" />
                           </h4>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                             <span className={cn(
-                              "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border",
+                              "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border",
                               currentStatus.bg,
                               currentStatus.text
                             )}>
@@ -1331,7 +1386,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             
                             <button 
                               onClick={() => setActiveInfo({ memberId: col.id, type: 'backlog' })}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-indigo-500/20 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border border-indigo-500/20 bg-indigo-500/5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors cursor-pointer"
                               title="View Backlog Details"
                             >
                               <span>Backlog: {col.overallRemainingBook.toFixed(1)}h</span>
@@ -1342,17 +1397,28 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       </div>
                     </div>
 
+                    {warnings.length > 0 && (
+                      <div className="flex flex-col gap-1.5 border-t border-dashed border-amber-500/20 pt-2.5 bg-amber-500/[0.02] dark:bg-amber-500/[0.01] p-2 rounded-xl border border-amber-500/10">
+                        {warnings.map((w, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 text-[10.5px] text-amber-600 dark:text-amber-500 font-bold uppercase tracking-wider leading-tight">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-500 animate-pulse" />
+                            <span className="truncate">{w}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {/* Individual Efficiencies Summary Row */}
                     <div className="grid grid-cols-3 gap-2 border-t border-zinc-200 dark:border-zinc-800/60 pt-3 text-center">
                       <button 
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'task_efficiency' })}
                         className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center justify-center gap-0.5 mx-auto">
+                        <span className="text-[11px] font-bold text-zinc-505 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
                           Task Eff <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-[11px] font-black font-mono block mt-0.5",
+                          "text-sm font-bold font-mono block mt-0.5",
                           col.taskEfficiency && col.taskEfficiency >= 100 ? "text-emerald-500" :
                           col.taskEfficiency && col.taskEfficiency >= 85 ? "text-amber-500" :
                           col.taskEfficiency ? "text-rose-500" : "text-zinc-400"
@@ -1364,11 +1430,11 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'shift_utilization' })}
                         className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl border-x border-zinc-150 dark:border-zinc-800/80 transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center justify-center gap-0.5 mx-auto">
+                        <span className="text-[11px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
                           Shift Util <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-[11px] font-black font-mono block mt-0.5",
+                          "text-sm font-bold font-mono block mt-0.5",
                           col.shiftUtilization && col.shiftUtilization >= 90 ? "text-emerald-500" :
                           col.shiftUtilization && col.shiftUtilization >= 75 ? "text-amber-500" :
                           col.shiftUtilization ? "text-rose-500" : "text-zinc-400"
@@ -1380,11 +1446,11 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                         onClick={() => setActiveInfo({ memberId: col.id, type: 'direct_labor' })}
                         className="flex flex-col items-center hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-xl transition-all cursor-pointer group/item text-center"
                       >
-                        <span className="text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center justify-center gap-0.5 mx-auto">
+                        <span className="text-[11px] font-bold text-zinc-550 dark:text-zinc-400 uppercase tracking-wider flex items-center justify-center gap-0.5 mx-auto">
                           Direct Labor <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                         </span>
                         <span className={cn(
-                          "text-[11px] font-black font-mono block mt-0.5",
+                          "text-sm font-bold font-mono block mt-0.5",
                           col.taskCoverage && col.taskCoverage >= 85 ? "text-indigo-500" :
                           col.taskCoverage && col.taskCoverage >= 70 ? "text-amber-500" :
                           col.taskCoverage ? "text-rose-500" : "text-zinc-400"
@@ -1397,12 +1463,12 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                     {/* Weekly Performance Totals */}
                     <button
                       onClick={() => setActiveInfo({ memberId: col.id, type: 'weekly_performance' })}
-                      className="flex justify-between items-center border-t border-zinc-205 dark:border-zinc-800/40 pt-3 px-2 hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-lg transition-all cursor-pointer group/item"
+                      className="flex justify-between items-center border-t border-zinc-200 dark:border-zinc-800/40 pt-3 px-2 hover:bg-zinc-50 dark:hover:bg-zinc-850/50 p-1.5 rounded-lg transition-all cursor-pointer group/item"
                     >
-                      <span className="text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1">
+                      <span className="text-[11px] font-bold text-zinc-505 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1">
                         Payroll Period <HelpCircle className="w-2.5 h-2.5 opacity-60 group-hover/item:opacity-100 transition-opacity" />
                       </span>
-                      <span className="text-[9px] font-black text-zinc-700 dark:text-zinc-300 uppercase tracking-wider font-mono">
+                      <span className="text-sm font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider font-mono">
                         {col.weekBookHours.toFixed(1)}h Book &bull; {col.weekShiftHours.toFixed(1)}h Clocked
                       </span>
                     </button>
@@ -1411,30 +1477,35 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                     <div className="flex flex-col">
                       <button
                         onClick={() => setExpandedLogs(prev => ({ ...prev, [col.id]: !prev[col.id] }))}
-                        className="w-full flex items-center justify-between py-2 text-[8px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border-t border-zinc-200 dark:border-zinc-850/60 mt-2 cursor-pointer"
+                        className="w-full flex items-center justify-between py-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-450 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors border-t border-zinc-200 dark:border-zinc-855 mt-2 cursor-pointer"
                       >
                         <span>Payroll Timecard Log</span>
-                        <span className="text-[9px]">{expandedLogs[col.id] ? 'Hide ▲' : 'Show ▼'}</span>
+                        <span className="text-xs">{expandedLogs[col.id] ? 'Hide ▲' : 'Show ▼'}</span>
                       </button>
 
                       {expandedLogs[col.id] && (
                         <div className="mt-2 space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-1 animate-in fade-in slide-in-from-top-1 duration-200">
                           {col.weekSessionsList.length === 0 ? (
-                            <p className="text-[8px] text-zinc-400 dark:text-zinc-500 italic text-center py-2">
+                            <p className="text-[11px] text-zinc-400 dark:text-zinc-500 italic text-center py-2">
                               No timeclock logs found for this payroll period.
                             </p>
                           ) : (
                             col.weekSessionsList.map((s: any) => (
-                              <div key={s.id} className="p-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 rounded-xl flex flex-col gap-1">
-                                <div className="flex justify-between items-center text-[8.5px] font-black text-zinc-800 dark:text-zinc-200">
+                              <div 
+                                key={s.id} 
+                                onClick={() => navigate(`/business/${tenantId}/timeclock?session=${s.id}`)}
+                                className="p-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 rounded-xl flex flex-col gap-1 cursor-pointer hover:border-indigo-500/40 hover:shadow-sm active:scale-[0.99] transition-all"
+                                title="Click to view/edit this timecard entry"
+                              >
+                                <div className="flex justify-between items-center text-xs font-black text-zinc-800 dark:text-zinc-200">
                                   <span>
                                     {s.start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                                   </span>
-                                  <span className="font-mono text-[8.5px] font-black text-indigo-500 dark:text-indigo-400">
+                                  <span className="font-mono text-xs font-black text-indigo-500 dark:text-indigo-400">
                                     {formatDuration(s.totalMs - s.breakMs)} worked
                                   </span>
                                 </div>
-                                <div className="flex justify-between items-center text-[7.5px] text-zinc-400 dark:text-zinc-500 font-semibold">
+                                <div className="flex justify-between items-center text-[10px] text-zinc-400 dark:text-zinc-500 font-semibold">
                                   <span>
                                     {s.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} -{' '}
                                     {s.endMs ? new Date(s.endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Active'}
@@ -1446,9 +1517,9 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                 {s.jobs && s.jobs.length > 0 && (
                                   <div className="mt-1 pt-1 border-t border-dashed border-zinc-200 dark:border-zinc-850 flex flex-col gap-0.5">
                                     {s.jobs.map((j: any, jIdx: number) => (
-                                      <div key={jIdx} className="flex justify-between items-center text-[7.5px] text-zinc-505 dark:text-zinc-400 font-medium gap-2">
+                                      <div key={jIdx} className="flex justify-between items-center text-[10px] text-zinc-505 dark:text-zinc-400 font-medium gap-2">
                                         <span className="truncate max-w-[170px]">&bull; {j.name}</span>
-                                        <span className="font-mono text-[7px] font-bold text-zinc-400 shrink-0">{formatDuration(j.duration)}</span>
+                                        <span className="font-mono text-[9px] font-bold text-zinc-400 shrink-0">{formatDuration(j.duration)}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -1492,7 +1563,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                         <div className="border-t border-zinc-200 dark:border-zinc-800/60 pt-3 flex flex-col gap-1.5">
                           <button 
                             onClick={() => setActiveInfo({ memberId: col.id, type: 'timeline' })}
-                            className="w-full flex justify-between items-center text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest hover:text-indigo-500 transition-colors cursor-pointer group/item text-left"
+                            className="w-full flex justify-between items-center text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest hover:text-indigo-500 transition-colors cursor-pointer group/item text-left"
                           >
                             <span className="flex items-center gap-1">
                               {timeframe === 'custom' ? `${selectedDate} Timeline` : "Today's Timeline"}
@@ -1560,7 +1631,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
                                   title={`${b.type === 'lunch' ? 'Lunch' : 'Normal'} Break: ${formatDuration(bEndMs - bStartMs)}`}
                                 >
-                                  <span className="text-[6px] font-black uppercase text-amber-900/50 tracking-wider whitespace-nowrap px-0.5 truncate">
+                                  <span className="text-[8.5px] font-black uppercase text-amber-900/50 tracking-wider whitespace-nowrap px-0.5 truncate">
                                     {b.type === 'lunch' ? 'L' : 'B'}
                                   </span>
                                 </div>
@@ -1608,7 +1679,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   <span 
                                     className="font-black uppercase tracking-widest whitespace-nowrap px-0.5 truncate"
                                     style={{ 
-                                      fontSize: totalTracks > 2 ? '4.5px' : '6px',
+                                      fontSize: totalTracks > 2 ? '7.5px' : '9.5px',
                                     }}
                                   >
                                     {j.name.replace('#', '')}
@@ -1639,7 +1710,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                     className="absolute top-0 bottom-0 border-l border-zinc-950/15 dark:border-white/15 z-30 pointer-events-none" 
                                     style={{ left: `${leftPercent}%` }}
                                   >
-                                    <span className="absolute top-0.5 left-0.5 text-[6px] font-black text-zinc-400 dark:text-zinc-500 drop-shadow-[0_1px_1px_rgba(255,255,255,0.4)] dark:drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] whitespace-nowrap">
+                                    <span className="absolute top-0.5 left-0.5 text-[8.5px] font-black text-zinc-400 dark:text-zinc-500 drop-shadow-[0_1px_1px_rgba(255,255,255,0.4)] dark:drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] whitespace-nowrap">
                                       {tickTime.toLocaleTimeString([], { hour: 'numeric' })}
                                     </span>
                                   </div>
@@ -1649,7 +1720,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                           </div>
 
                           {/* Session Details Row */}
-                          <div className="flex justify-between items-center text-[7.5px] font-black text-zinc-405 dark:text-zinc-400 uppercase tracking-widest mt-0.5 px-0.5">
+                          <div className="flex justify-between items-center text-[10px] font-black text-zinc-405 dark:text-zinc-400 uppercase tracking-widest mt-0.5 px-0.5">
                             <span>
                               In: {actualStart.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} &bull;{' '}
                               {session.clockOut?.timestamp ? (
@@ -1666,11 +1737,11 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       );
                     })() : (
                       <div className="border-t border-zinc-200 dark:border-zinc-800/60 pt-3 flex flex-col gap-1.5">
-                        <span className="text-[7.5px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block">
+                        <span className="text-xs font-bold text-zinc-500 dark:text-zinc-450 uppercase tracking-wider block">
                           {timeframe === 'custom' ? `${selectedDate} Timeline` : "Today's Timeline"}
                         </span>
                         <div className="bg-zinc-50 dark:bg-zinc-850/50 rounded-lg flex items-center justify-center h-6 border border-zinc-200 dark:border-zinc-800/50">
-                          <span className="text-[8px] font-bold text-zinc-400 italic">
+                          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 italic">
                             {timeframe === 'custom' 
                               ? `No timeclock activity logged for ${selectedDate}.` 
                               : "No timeclock activity logged today."}
@@ -1682,18 +1753,18 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
 
                   {/* Column Body (Scrollable Task Deck) */}
-                  <div className="flex-1 overflow-y-auto p-5 space-y-5 no-scrollbar bg-zinc-50/20 dark:bg-zinc-950/5">
+                  <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 no-scrollbar bg-zinc-50/20 dark:bg-zinc-950/5">
                     
                     {/* CURRENT TASK CARD */}
                     <div>
-                      <h5 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-2.5 flex items-center gap-1.5">
+                      <h5 className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                         <Play className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                         Current Task Assignment
                       </h5>
                       {col.clockStatus === 'active' && col.activeTask ? (
                         <div className="p-4 bg-emerald-500/[0.02] border border-emerald-500/25 dark:border-emerald-500/10 rounded-2xl flex flex-col gap-3 shadow-inner hover:border-emerald-500/40 transition-colors">
                           <div>
-                            <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest block mb-1">
+                            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-450 uppercase tracking-wider block mb-1">
                               Clocked In
                             </span>
                             <h5 className="font-extrabold text-sm text-zinc-900 dark:text-white leading-tight">
@@ -1701,7 +1772,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             </h5>
                             <p 
                               onClick={() => navigate(`/business/${tenantId}/job/${col.activeTask.jobId}`)}
-                              className="text-[10px] text-indigo-500 hover:text-indigo-600 font-bold uppercase tracking-wider mt-1.5 hover:underline cursor-pointer flex items-center gap-0.5 truncate"
+                              className="text-xs text-indigo-500 hover:text-indigo-600 font-bold uppercase tracking-wider mt-1.5 hover:underline cursor-pointer flex items-center gap-0.5 truncate"
                             >
                               Job: {col.activeTask.jobTitle}
                               <ChevronRight className="w-3 h-3 shrink-0" />
@@ -1710,7 +1781,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
                           {/* Stopwatch & Elapsed time */}
                           <div className="flex items-center justify-between border-t border-emerald-500/10 pt-2.5">
-                            <span className="text-[10px] text-zinc-400 font-semibold flex items-center gap-1">
+                            <span className="text-xs text-zinc-500 dark:text-zinc-450 font-semibold flex items-center gap-1">
                               <Clock className="w-3.5 h-3.5 text-zinc-400" /> Time Clocked:
                             </span>
                             <span className="font-mono text-sm font-black text-emerald-500">
@@ -1727,7 +1798,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
                             return (
                               <div className="border-t border-emerald-500/10 pt-2.5 flex flex-col gap-2">
-                                <span className="text-[8px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
+                                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
                                   Remaining Tasks for Job ({uncompletedTasks.length})
                                 </span>
                                 <div className="space-y-1.5 max-h-24 overflow-y-auto custom-scrollbar pr-1">
@@ -1735,10 +1806,10 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                     <div 
                                       key={t.id}
                                       onClick={() => navigate(`/business/${tenantId}/task/${col.activeTask.jobId}/${t.id}`)}
-                                      className="text-[10px] text-zinc-600 dark:text-zinc-450 hover:text-indigo-500 font-medium truncate flex justify-between gap-2 cursor-pointer hover:underline"
+                                      className="text-xs text-zinc-650 dark:text-zinc-400 hover:text-indigo-500 font-medium truncate flex justify-between gap-2 cursor-pointer hover:underline"
                                     >
                                       <span>&bull; {t.title}</span>
-                                      <span className="font-mono text-[9px] font-bold text-zinc-400 shrink-0">{t.bookTime || '0'}h</span>
+                                      <span className="font-mono text-xs font-bold text-zinc-400 shrink-0">{t.bookTime || '0'}h</span>
                                     </div>
                                   ))}
                                 </div>
@@ -1759,13 +1830,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             return (
                               <div className="border-t border-emerald-500/10 pt-2.5 flex flex-col gap-1.5">
                                 {isBlocked && (
-                                  <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/25 text-red-500 px-2 py-1 rounded-xl text-[9px] font-bold">
+                                  <div className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/25 text-red-500 px-2 py-1 rounded-xl text-[11px] font-bold">
                                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                                     <span>PRODUCTION BLOCKED</span>
                                   </div>
                                 )}
                                 {pendingPartsCount > 0 && (
-                                  <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-500 px-2 py-1 rounded-xl text-[9px] font-bold">
+                                  <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-500 px-2 py-1 rounded-xl text-[11px] font-bold">
                                     <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                                     <span>{pendingPartsCount} PARTS REQUESTS PENDING</span>
                                   </div>
@@ -1778,10 +1849,10 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                         <div className="p-4 bg-amber-500/5 border-2 border-dashed border-amber-500/35 rounded-2xl flex flex-col items-center justify-center text-center py-6 gap-2 animate-pulse">
                           <AlertTriangle className="w-7 h-7 text-amber-500" />
                           <div>
-                            <span className="text-[10px] font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest block mb-0.5">
+                            <span className="text-xs font-black text-amber-600 dark:text-amber-500 uppercase tracking-widest block mb-0.5">
                               IDLE STATE WARNING
                             </span>
-                            <span className="text-[11px] text-zinc-500 font-semibold block leading-snug">
+                            <span className="text-xs text-zinc-550 dark:text-zinc-400 font-semibold block leading-snug">
                               Technician is clocked in but not assigned to a task.
                             </span>
                           </div>
@@ -1789,7 +1860,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       ) : (
                         <div className="p-4 bg-zinc-50 dark:bg-zinc-850 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl flex flex-col items-center justify-center text-center py-6 gap-1 opacity-70">
                           <Clock className="w-6 h-6 text-zinc-400" />
-                          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                          <span className="text-xs font-black text-zinc-400 uppercase tracking-widest">
                             Staff Clocked Out
                           </span>
                         </div>
@@ -1798,14 +1869,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
                     {/* QUEUED JOBS LIST */}
                     <div className="flex-1 flex flex-col gap-2.5">
-                      <h5 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                      <h5 className="text-xs font-bold text-zinc-505 dark:text-zinc-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                         <ClipboardList className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                         Queued Production Jobs ({col.queuedJobs.length})
                       </h5>
                       <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-1">
                         {col.queuedJobs.length === 0 ? (
                           <div className="p-4 text-center bg-zinc-50/30 dark:bg-zinc-950/20 border border-zinc-200/50 dark:border-zinc-800/40 rounded-2xl">
-                            <span className="text-[10px] text-zinc-400 italic">No queued jobs assigned.</span>
+                            <span className="text-xs text-zinc-500 dark:text-zinc-400 italic">No queued jobs assigned.</span>
                           </div>
                         ) : (
                           col.queuedJobs.map(job => (
@@ -1814,7 +1885,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                               onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
                               className={cn(
                                 "p-3 bg-zinc-50/75 dark:bg-zinc-900/40 border rounded-2xl hover:border-indigo-500/40 hover:shadow-sm cursor-pointer transition-all flex flex-col gap-2 relative group",
-                                job.isBlocked ? "border-red-200 dark:border-red-950/30 bg-red-500/[0.01]" : "border-zinc-200 dark:border-zinc-800"
+                                job.isBlocked ? "border-red-200 dark:border-red-955/30 bg-red-500/[0.01]" : "border-zinc-200 dark:border-zinc-800"
                               )}
                             >
                               <div className="flex justify-between items-start gap-2">
@@ -1822,16 +1893,16 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   <h6 className="font-extrabold text-xs text-zinc-900 dark:text-white leading-snug group-hover:text-indigo-500 transition-colors truncate">
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </h6>
-                                  <span className="text-[8px] text-zinc-400 font-bold uppercase tracking-wider truncate block mt-0.5">
+                                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-bold uppercase tracking-wider truncate block mt-0.5">
                                     {job.customerName || 'No Customer'}
                                   </span>
                                 </div>
-                                <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-500 text-[8px] font-black uppercase tracking-widest rounded-md shrink-0 border border-indigo-500/20 whitespace-nowrap">
+                                <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-500 text-xs font-bold uppercase tracking-wider rounded-md shrink-0 border border-indigo-500/20 whitespace-nowrap">
                                   {job.remainingBook.toFixed(1)}h
                                 </span>
                               </div>
 
-                              <div className="flex items-center justify-between text-[9px] text-zinc-400 font-semibold border-t border-zinc-150 dark:border-zinc-800/50 pt-2 mt-0.5">
+                              <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 font-medium border-t border-zinc-150 dark:border-zinc-800/50 pt-2 mt-0.5">
                                 <span className="flex items-center gap-1">
                                   <ListChecks className="w-3 h-3 text-zinc-400" />
                                   {job.remainingTasksCount} tasks left
@@ -1848,12 +1919,12 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                               {(job.isBlocked || job.pendingPartsCount > 0) && (
                                 <div className="flex flex-wrap gap-1 mt-1.5 pt-1.5 border-t border-zinc-150 dark:border-zinc-800/50">
                                   {job.isBlocked && (
-                                    <span className="inline-flex items-center gap-0.5 bg-red-500/10 text-red-500 text-[7.5px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md border border-red-500/10">
+                                    <span className="inline-flex items-center gap-0.5 bg-red-500/10 text-red-505 text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-red-500/10">
                                       Blocked
                                     </span>
                                   )}
                                   {job.pendingPartsCount > 0 && (
-                                    <span className="inline-flex items-center gap-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-500 text-[7.5px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md border border-amber-500/10">
+                                    <span className="inline-flex items-center gap-0.5 bg-amber-500/10 text-amber-606 dark:text-amber-500 text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border border-amber-500/10">
                                       Parts Awaiting ({job.pendingPartsCount})
                                     </span>
                                   )}
@@ -1896,7 +1967,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
             </div>
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto p-6 text-xs text-zinc-600 dark:text-zinc-400 space-y-5 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-6 text-sm text-zinc-650 dark:text-zinc-400 space-y-5 custom-scrollbar">
               {activeMainInfo === 'coverage' && (
                 <div className="space-y-4">
                   <p className="leading-relaxed text-sm font-semibold">
@@ -1904,11 +1975,11 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                   </p>
                   
                   <div className="p-4 bg-indigo-500/5 dark:bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
-                    <span className="text-[10px] font-black uppercase text-indigo-550 dark:text-indigo-400 block mb-1">Overall Formula</span>
+                    <span className="text-xs font-black uppercase text-indigo-550 dark:text-indigo-400 block mb-1">Overall Formula</span>
                     <p className="font-mono text-xs font-black text-indigo-600 dark:text-indigo-400">
                       (Total Task Hours / Total Shift Hours) &times; 100
                     </p>
-                    <div className="mt-3 pt-3 border-t border-dashed border-indigo-500/20 space-y-1.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <div className="mt-3 pt-3 border-t border-dashed border-indigo-500/20 space-y-1.5 font-mono text-xs text-zinc-500 dark:text-zinc-400">
                       <div>Total Productive Task Time: <strong>{overallStats.totalAllTaskHours.toFixed(1)}h</strong></div>
                       <div>Total Clocked Shift Time: <strong>{overallStats.totalAllShiftHours.toFixed(1)}h</strong></div>
                       <div className="font-bold text-indigo-600 dark:text-indigo-400 mt-2 text-sm">
@@ -1918,7 +1989,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                   </div>
 
                   <div className="space-y-2.5">
-                    <span className="text-[10px] font-black uppercase text-zinc-400 dark:text-zinc-500 block">Individual Coverage Breakdown ({timeframe})</span>
+                    <span className="text-xs font-black uppercase text-zinc-400 dark:text-zinc-500 block">Individual Coverage Breakdown ({timeframe})</span>
                     <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar pr-1">
                       {staffColumnData.map(s => (
                         <div key={s.id} className="p-3 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-850 rounded-xl flex items-center justify-between">
@@ -1926,7 +1997,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             {s.avatar ? (
                               <img src={s.avatar} alt={s.name} className="w-6 h-6 rounded-full object-cover" />
                             ) : (
-                              <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-500 font-bold flex items-center justify-center text-[10px]">
+                              <div className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-500 font-bold flex items-center justify-center text-xs">
                                 {s.initials}
                               </div>
                             )}
@@ -2046,15 +2117,15 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                 </div>
                               )}
                               <div>
-                                <span className="font-bold text-zinc-800 dark:text-zinc-200 block">{s.name}</span>
+                                <span className="font-bold text-zinc-800 dark:text-zinc-200 block text-xs">{s.name}</span>
                                 {s.clockStatus === 'active' && s.activeTask && (
-                                  <span className="text-[9px] text-zinc-500 truncate max-w-[280px] block mt-0.5 font-medium">
+                                  <span className="text-[11px] text-zinc-500 truncate max-w-[280px] block mt-0.5 font-medium">
                                     Working on: {s.activeTask.taskTitle} (Job {s.activeTask.jobTitle.split(' ')[0]})
                                   </span>
                                 )}
                               </div>
                             </div>
-                            <span className={cn("px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider border", colors[s.clockStatus])}>
+                            <span className={cn("px-2 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border", colors[s.clockStatus])}>
                               {s.clockStatus === 'active' ? 'Working' : s.clockStatus === 'idle' ? 'Idle' : 'Offline'}
                             </span>
                           </div>
@@ -2073,13 +2144,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 bg-red-500/5 dark:bg-red-500/10 border border-red-500/20 rounded-2xl text-center">
-                      <span className="text-[10px] font-black text-red-500 uppercase block mb-1">Blocked Jobs</span>
+                      <span className="text-xs font-black text-red-500 uppercase block mb-1">Blocked Jobs</span>
                       <span className="text-2xl font-black text-red-500 font-mono">
                         {overallStats.blockedJobsCount}
                       </span>
                     </div>
                     <div className="p-3 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-2xl text-center">
-                      <span className="text-[10px] font-black text-amber-550 dark:text-amber-500 uppercase block mb-1">Jobs Awaiting Parts</span>
+                      <span className="text-xs font-black text-amber-550 dark:text-amber-500 uppercase block mb-1">Jobs Awaiting Parts</span>
                       <span className="text-2xl font-black text-amber-550 dark:text-amber-500 font-mono">
                         {overallStats.partsAwaitingJobsCount}
                       </span>
@@ -2089,17 +2160,17 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                   <div className="space-y-3">
                     {overallStats.blockedJobs.length > 0 && (
                       <div className="space-y-2">
-                        <span className="text-[10px] font-black uppercase text-red-500 block">Blocked Jobs Breakdown</span>
+                        <span className="text-xs font-black uppercase text-red-500 block">Blocked Jobs Breakdown</span>
                         <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar pr-1">
                           {overallStats.blockedJobs.map(job => (
-                            <div key={job.id} className="p-3 bg-red-500/[0.01] dark:bg-red-500/[0.02] border border-red-200 dark:border-red-950/20 rounded-xl flex items-center justify-between">
+                            <div key={job.id} className="p-3 bg-red-500/[0.01] dark:bg-red-500/[0.02] border border-red-200 dark:border-red-955/20 rounded-xl flex items-center justify-between">
                               <div>
                                 <span className="font-bold text-zinc-900 dark:text-white text-xs block">
                                   {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                 </span>
-                                <span className="text-[9px] text-zinc-500">{job.customerName}</span>
+                                <span className="text-[11px] text-zinc-500">{job.customerName}</span>
                               </div>
-                              <span className="px-2 py-0.5 bg-red-500/10 text-red-500 text-[8px] font-black uppercase tracking-wider rounded-md border border-red-500/20">
+                              <span className="px-2 py-0.5 bg-red-500/10 text-red-500 text-[11px] font-black uppercase tracking-wider rounded-md border border-red-500/20">
                                 Blocked
                               </span>
                             </div>
@@ -2110,19 +2181,19 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
 
                     {overallStats.partsAwaitingJobs.length > 0 && (
                       <div className="space-y-2">
-                        <span className="text-[10px] font-black uppercase text-amber-500 block">Jobs Awaiting Parts Breakdown</span>
+                        <span className="text-xs font-black uppercase text-amber-500 block">Jobs Awaiting Parts Breakdown</span>
                         <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar pr-1">
                           {overallStats.partsAwaitingJobs.map(job => {
                             const requestsCount = partsRequests.filter(pr => pr.jobId === job.id && (pr.status === 'pending' || pr.status === 'ordered')).length;
                             return (
-                              <div key={job.id} className="p-3 bg-amber-500/[0.01] dark:bg-amber-500/[0.02] border border-amber-200 dark:border-amber-950/20 rounded-xl flex items-center justify-between">
+                              <div key={job.id} className="p-3 bg-amber-500/[0.01] dark:bg-amber-500/[0.02] border border-amber-200 dark:border-amber-955/20 rounded-xl flex items-center justify-between">
                                 <div>
                                   <span className="font-bold text-zinc-900 dark:text-white text-xs block">
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </span>
-                                  <span className="text-[9px] text-zinc-500">{job.customerName}</span>
+                                  <span className="text-xs text-zinc-500">{job.customerName}</span>
                                 </div>
-                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-550 dark:text-amber-500 text-[8px] font-black uppercase tracking-wider rounded-md border border-amber-500/20">
+                                <span className="px-2 py-0.5 bg-amber-500/10 text-amber-555 dark:text-amber-500 text-xs font-black uppercase tracking-wider rounded-md border border-amber-500/20">
                                   {requestsCount} Parts Requests
                                 </span>
                               </div>

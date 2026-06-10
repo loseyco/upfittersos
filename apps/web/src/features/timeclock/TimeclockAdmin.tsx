@@ -1,4 +1,5 @@
-import { useState, Fragment } from 'react';
+import { useState, Fragment, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, query, orderBy, getDocs, limit, getDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
@@ -195,6 +196,8 @@ const getSessionAnomalies = (session: TimeSession, staff: any, dept: any): Anoma
 
 export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionParam = searchParams.get('session');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'remote' | 'active' | 'flagged'>('all');
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
@@ -334,6 +337,36 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimeSession));
     }
   });
+
+  useEffect(() => {
+    if (sessionParam && !editingSession) {
+      const found = sessions?.find(s => s.id === sessionParam);
+      if (found) {
+        setEditingSession(found);
+        const newParams = new URLSearchParams(searchParams);
+        newParams.delete('session');
+        setSearchParams(newParams, { replace: true });
+      } else if (sessions) {
+        // Fallback: fetch session directly from Firestore if not in current 200 sessions
+        const loadSessionDirectly = async () => {
+          try {
+            const docRef = doc(db, `businesses/${tenantId}/time_sessions`, sessionParam);
+            const snap = await getDoc(docRef);
+            if (snap.exists()) {
+              setEditingSession({ id: snap.id, ...snap.data() } as TimeSession);
+            }
+          } catch (err) {
+            console.error(err);
+          } finally {
+            const newParams = new URLSearchParams(searchParams);
+            newParams.delete('session');
+            setSearchParams(newParams, { replace: true });
+          }
+        };
+        loadSessionDirectly();
+      }
+    }
+  }, [sessionParam, sessions, editingSession, searchParams, setSearchParams, tenantId]);
 
   const { data: editRequests } = useQuery({
     queryKey: ['admin-time-edit-requests', tenantId],
