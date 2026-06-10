@@ -731,7 +731,18 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           const jobName = j.name || '';
           const taskName = j.taskName || '';
           let isGen = isGeneralTask(taskName || jobName);
-          if (jobName.startsWith('#')) {
+          
+          const isCustomerJob = allJobs.some(job => job.id === j.id) || 
+                                jobName.startsWith('#') || 
+                                (jobName && 
+                                 !jobName.toLowerCase().includes('shop') && 
+                                 !jobName.toLowerCase().includes('meeting') && 
+                                 !jobName.toLowerCase().includes('cleanup') && 
+                                 !jobName.toLowerCase().includes('break') && 
+                                 !jobName.toLowerCase().includes('lunch') && 
+                                 !jobName.toLowerCase().includes('clock'));
+          
+          if (isCustomerJob) {
             const t = taskName.toLowerCase();
             isGen = t.includes('clock in') || t.includes('clockout') || t.includes('break') || t.includes('lunch') || t.includes('meeting');
           }
