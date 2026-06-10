@@ -897,6 +897,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
           margin: 0 !important;
           z-index: 9999 !important;
           overflow: visible !important;
+          display: block !important;
         }
         
         .bg-white, .dark\\:bg-zinc-900, .bg-zinc-50, .dark\\:bg-zinc-800\\/50 {
@@ -1560,21 +1561,37 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             </div>
                           </>
                         )}
-                        {emp.totals.totalQbMs > 0 && (
-                          <div className="mt-1 sm:mt-0 inline-block text-left sm:text-right">
-                            <span className="text-xs font-bold text-indigo-500 font-mono block">
-                              QB Sync: {(emp.totals.totalQbMs / 3600000).toFixed(2)}h
-                            </span>
-                            <span className={`text-xs font-extrabold font-mono ${emp.hasDiscrepancy ? 'text-amber-500' : 'text-emerald-500'}`}>
-                              (Diff: {(emp.varianceMs / 3600000).toFixed(2)}h)
-                            </span>
+                            {emp.totals.totalQbMs > 0 && (
+                              <div className="mt-1 sm:mt-0 inline-block text-left sm:text-right">
+                                <span className="text-xs font-bold text-indigo-500 font-mono block">
+                                  QB Sync: {(emp.totals.totalQbMs / 3600000).toFixed(2)}h
+                                </span>
+                                <span className={`text-xs font-extrabold font-mono ${emp.hasDiscrepancy ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                  (Diff: {(emp.varianceMs / 3600000).toFixed(2)}h)
+                                </span>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </div>
+                        </div>
+
+                        {/* Calculations Explanations (Small line items) */}
+                        <div className="mb-6 p-4 bg-zinc-50/60 dark:bg-zinc-950/20 border border-zinc-150 dark:border-zinc-800/80 rounded-2xl text-[10px] text-zinc-500 dark:text-zinc-400 leading-normal">
+                          <span className="font-extrabold uppercase text-[8px] tracking-wider text-zinc-400 dark:text-zinc-555 block mb-1.5 font-sans">How metrics are derived:</span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1.5 font-sans">
+                            <div><strong>Period Clocked:</strong> Sum of shift clocked hours.</div>
+                            <div><strong>Idle Time:</strong> Shift hours not clocked onto a specific job/task.</div>
+                            <div><strong>Job Time (On-Task):</strong> Period Clocked minus Idle Time.</div>
+                            <div><strong>Book Hours:</strong> Total book credit hours from completed tasks.</div>
+                            <div><strong>Job Efficiency:</strong> (Book Hours / Job Time) × 100%.</div>
+                            <div><strong>Overall Efficiency:</strong> (Book Hours / Period Clocked) × 100%.</div>
+                            {emp.payType === 'flat_rate' && (
+                              <div className="md:col-span-2 lg:col-span-2"><strong>Pay Hours:</strong> Hours paid for flat-rate (earned book hours + hourly shop time/allowance).</div>
+                            )}
+                          </div>
+                        </div>
 
                     {/* Detailed Log Table */}
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto print:overflow-visible print:block print:static print:w-full print:h-auto">
                       <table className="w-full text-xs text-left">
                         <thead className="bg-zinc-50 dark:bg-zinc-850/50 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
                           <tr>
@@ -1714,7 +1731,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             Total Book Hours: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
                           </span>
                         </div>
-                        <div className="overflow-x-auto border border-zinc-150 dark:border-zinc-800/80 rounded-2xl">
+                        <div className="overflow-x-auto border border-zinc-150 dark:border-zinc-800/80 rounded-2xl print:border-none print:overflow-visible print:block print:static print:w-full print:h-auto">
                           <table className="w-full text-xs text-left">
                             <thead className="bg-zinc-50 dark:bg-zinc-850/50 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
                               <tr>
@@ -1822,16 +1839,28 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
                     {/* Signature block for printable sheets */}
                     <div className="hidden print:flex justify-between items-end mt-12 pt-8 border-t border-dashed border-zinc-350">
-                      <div className="space-y-1">
-                        <div className="w-48 border-b border-black h-5" />
-                        <span className="text-[10px] uppercase font-bold text-zinc-400">Employee Signature</span>
+                      <div className="space-y-4">
+                        <div className="space-y-1 text-left">
+                          <div className="w-48 border-b border-black h-5" />
+                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Employee Initials</span>
+                        </div>
+                        <div className="space-y-1 text-left">
+                          <div className="w-48 border-b border-black h-5" />
+                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Employee Signature</span>
+                        </div>
                       </div>
-                      <div className="text-center text-[10px] text-zinc-400 italic">
+                      <div className="text-center text-[10px] text-zinc-400 italic px-2 pb-4">
                         Printed for {business?.name || 'Business'} via UpfittersOS on {formatDateFull(new Date())}
                       </div>
-                      <div className="space-y-1">
-                        <div className="w-48 border-b border-black h-5" />
-                        <span className="text-[10px] uppercase font-bold text-zinc-400">Supervisor Signature</span>
+                      <div className="space-y-4 text-right">
+                        <div className="space-y-1">
+                          <div className="w-48 border-b border-black h-5 ml-auto" />
+                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Supervisor Initials</span>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="w-48 border-b border-black h-5 ml-auto" />
+                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Supervisor Signature</span>
+                        </div>
                       </div>
                     </div>
 
@@ -1857,7 +1886,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-md animate-in fade-in duration-350 print:bg-white print:p-0 print:backdrop-blur-none">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-md animate-in fade-in duration-350 print:bg-white print:p-0 print:backdrop-blur-none print:block print:static print:w-full print:h-auto print:overflow-visible">
       {styleBlock}
       {renderContent()}
     </div>

@@ -2234,6 +2234,25 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* Active Notes Checklist */}
+                                {job.work_notes && job.work_notes.length > 0 && (
+                                  <div className="space-y-2 pt-2 border-t border-zinc-100">
+                                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-150 pb-1">
+                                      Active Notes ({job.work_notes.length})
+                                    </h4>
+                                    <div className="space-y-2 pl-1">
+                                      {job.work_notes.map((note: any) => (
+                                        <div key={note.id} className="text-[10px] text-zinc-700 leading-tight">
+                                          <p className="font-medium">{note.message}</p>
+                                          <p className="text-[8px] font-bold text-zinc-450 uppercase mt-0.5">
+                                            Added by {note.createdBy} &bull; {new Date(note.createdAt).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             );
                           })

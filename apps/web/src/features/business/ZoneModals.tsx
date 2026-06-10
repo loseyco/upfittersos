@@ -1292,7 +1292,7 @@ export function FloorWalkModal({ zone, job, tenantId, user, partsRequests = [], 
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-zinc-900 dark:text-white leading-relaxed">{note.message}</p>
                           <p className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider mt-1.5 opacity-60">
-                            Added by {note.createdBy} • {new Date(note.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                            Added by {note.createdBy} • {new Date(note.createdAt).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                           </p>
                         </div>
                         <button 

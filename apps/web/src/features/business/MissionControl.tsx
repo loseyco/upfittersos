@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { 
   CheckSquare, TrendingUp, 
   Clock, AlertCircle, Car, Warehouse, Truck, Search, Command, Package, FileText, Copy, X,
-  Maximize, Minimize, ShoppingCart
+  Maximize, Minimize, ShoppingCart, Mail
 } from 'lucide-react';
 import { 
   collection, getDocs, limit, query, orderBy,
@@ -22,6 +22,11 @@ import { ZoneDetailsModal } from './ZoneModals';
 import { QuickAddVehicleModal } from './VehicleSelector';
 import { QuickAddJobModal } from './JobSelectionComponents';
 import { ConfirmModal } from '../../components/ConfirmModal';
+
+const isGeneralTask = (title?: string) => {
+  const t = (title || '').toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
+};
 
 interface MissionControlProps {
   tenantId: string;
@@ -556,6 +561,120 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     report += `\n🔧 SHOP FLOOR:\n`;
     report += `- Full Bays: ${sortedBays.length}\n`;
     report += `- Full Parking Spots: ${sortedParking.length}\n`;
+
+    // Fetch Tasks for Active/Blocked/QC/Open/Ready for Customer Jobs to determine progress
+    const activeJobs = allJobs.filter((job: any) => !['Closed', 'Completed'].includes(job.status));
+    const jobTasksData: { jobId: string; tasks: any[] }[] = [];
+    
+    try {
+      await Promise.all(activeJobs.map(async (job) => {
+        try {
+          const tasksSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs/${job.id}/tasks`));
+          const tasks = tasksSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          jobTasksData.push({ jobId: job.id, tasks });
+        } catch (jobErr) {
+          console.error(`Failed to fetch tasks for job ${job.id}:`, jobErr);
+        }
+      }));
+    } catch (e) {
+      console.error("Failed to fetch job tasks for daily report:", e);
+    }
+
+    // Calculate job progress
+    const jobProgressList = activeJobs.map((job: any) => {
+      const tasks = jobTasksData.find(d => d.jobId === job.id)?.tasks || [];
+      const nonGeneralTasks = tasks.filter((t: any) => !isGeneralTask(t.title));
+      const totalBookHours = nonGeneralTasks.reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+      const completedBookHours = nonGeneralTasks
+        .filter((t: any) => t.status === 'QC' || t.status === 'QC Complete')
+        .reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+      const progress = totalBookHours > 0 
+        ? Math.round((completedBookHours / totalBookHours) * 100) 
+        : (tasks.length > 0 && tasks.every((t: any) => t.status === 'QC' || t.status === 'QC Complete') ? 100 : 0);
+      
+      const totalTasksCount = tasks.length;
+      const completedTasksCount = tasks.filter((t: any) => t.status === 'QC' || t.status === 'QC Complete').length;
+      
+      return {
+        jobNumber: job.jobNumber || '',
+        title: job.title || 'Untitled',
+        status: job.status || 'Active',
+        totalBookHours,
+        completedBookHours,
+        progress,
+        totalTasksCount,
+        completedTasksCount
+      };
+    }).sort((a: any, b: any) => b.progress - a.progress || a.title.localeCompare(b.title));
+
+    // Calculate staff progress
+    const staffStatsMap: Record<string, {
+      name: string;
+      totalHours: number;
+      completedHours: number;
+      totalTasks: number;
+      completedTasks: number;
+    }> = {};
+
+    jobTasksData.forEach(({ tasks }) => {
+      tasks.forEach((task: any) => {
+        const isCompleted = task.status === 'QC' || task.status === 'QC Complete';
+        const bookTime = parseFloat(task.bookTime) || 0;
+        const assignedStaff = task.assignedStaff || [];
+        
+        assignedStaff.forEach((staff: any) => {
+          const staffId = staff.id || staff.uid;
+          if (!staffId) return;
+          const staffName = staff.name || staff.displayName || 'Technician';
+          
+          if (!staffStatsMap[staffId]) {
+            staffStatsMap[staffId] = {
+              name: staffName,
+              totalHours: 0,
+              completedHours: 0,
+              totalTasks: 0,
+              completedTasks: 0
+            };
+          }
+          
+          staffStatsMap[staffId].totalHours += bookTime;
+          staffStatsMap[staffId].totalTasks += 1;
+          if (isCompleted) {
+            staffStatsMap[staffId].completedHours += bookTime;
+            staffStatsMap[staffId].completedTasks += 1;
+          }
+        });
+      });
+    });
+
+    const staffProgressList = Object.values(staffStatsMap).map((staff: any) => {
+      const progress = staff.totalHours > 0 
+        ? Math.round((staff.completedHours / staff.totalHours) * 100) 
+        : (staff.totalTasks > 0 ? Math.round((staff.completedTasks / staff.totalTasks) * 100) : 0);
+      return {
+        ...staff,
+        progress
+      };
+    }).sort((a: any, b: any) => b.progress - a.progress || a.name.localeCompare(b.name));
+
+    report += `\n📋 ACTIVE JOBS PROGRESS:\n`;
+    if (jobProgressList.length === 0) {
+      report += `- No active jobs.\n`;
+    } else {
+      jobProgressList.forEach(job => {
+        const jobNumStr = job.jobNumber ? `#${job.jobNumber} ` : '';
+        report += `- ${jobNumStr}${job.title} (${job.status}): ${job.progress}% (${job.completedBookHours.toFixed(1)}/${job.totalBookHours.toFixed(1)} hrs • ${job.completedTasksCount}/${job.totalTasksCount} tasks)\n`;
+      });
+    }
+
+    report += `\n👥 STAFF PROGRESS (ACTIVE JOBS):\n`;
+    if (staffProgressList.length === 0) {
+      report += `- No staff currently assigned to active jobs.\n`;
+    } else {
+      staffProgressList.forEach(staff => {
+        report += `- ${staff.name}: ${staff.progress}% (${staff.completedHours.toFixed(1)}/${staff.totalHours.toFixed(1)} hrs • ${staff.completedTasks}/${staff.totalTasks} tasks)\n`;
+      });
+    }
 
     // Fetch Today's Activity
     try {
@@ -1335,7 +1454,7 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
                 {reportContent}
               </pre>
             </div>
-            <div className="p-6 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3 bg-zinc-50 dark:bg-zinc-950">
+             <div className="p-6 border-t border-zinc-200 dark:border-zinc-800 flex justify-end gap-3 bg-zinc-50 dark:bg-zinc-950">
               <button
                 onClick={() => setShowReportModal(false)}
                 className="px-6 py-2.5 rounded-xl font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
@@ -1351,6 +1470,18 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
               >
                 <Copy className="w-4 h-4" />
                 Copy to Clipboard
+              </button>
+              <button
+                onClick={() => {
+                  const emailSubject = encodeURIComponent(`Daily Shop Report - ${new Date().toLocaleDateString()}`);
+                  const emailBody = encodeURIComponent(reportContent);
+                  window.location.href = `mailto:?subject=${emailSubject}&body=${emailBody}`;
+                  toast.success('Opening email client...');
+                }}
+                className="px-6 py-2.5 rounded-xl font-bold bg-zinc-900 dark:bg-white hover:bg-zinc-800 dark:hover:bg-zinc-100 text-white dark:text-zinc-900 transition-colors flex items-center gap-2"
+              >
+                <Mail className="w-4 h-4" />
+                Email Report
               </button>
             </div>
           </div>

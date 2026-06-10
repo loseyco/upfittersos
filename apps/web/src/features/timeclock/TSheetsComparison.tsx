@@ -5,7 +5,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Upload, AlertTriangle, X, Clock, 
   Search, FileText, ChevronDown, ChevronUp, AlertCircle, 
-  Calendar, User, Download, Info
+  Calendar, User, Download, Info, Printer
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -754,8 +754,46 @@ export function TSheetsComparison({ tenantId }: TSheetsComparisonProps) {
     );
   }
 
+  const printStyleBlock = (
+    <style dangerouslySetInnerHTML={{__html: `
+      @media print {
+        @page {
+          size: portrait;
+          margin: 0.3in;
+        }
+        /* Hide all default screen containers and sidebars */
+        #root > div > div:first-child,
+        #root > div > div > header,
+        .no-print,
+        .print-hidden,
+        button,
+        input,
+        select {
+          display: none !important;
+        }
+        body, html, #root, #root > div, main {
+          background: white !important;
+          color: #000000 !important;
+          height: auto !important;
+          overflow: visible !important;
+          max-height: none !important;
+        }
+        * {
+          color: #000000 !important;
+          border-color: #a1a1aa !important;
+        }
+        .print-page-break {
+          page-break-before: always !important;
+          break-before: page !important;
+        }
+      }
+    `}} />
+  );
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-350">
+    <>
+      {printStyleBlock}
+      <div className="space-y-6 animate-in fade-in duration-350 print:hidden">
       {/* Upload Header Info */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
         <div className="flex items-center gap-4">
@@ -777,14 +815,20 @@ export function TSheetsComparison({ tenantId }: TSheetsComparisonProps) {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-xl text-xs font-bold transition-all cursor-pointer no-print shadow-sm"
+          >
+            <Printer className="w-3.5 h-3.5" /> Print Report
+          </button>
+          <button
             onClick={handleExportComparisonReport}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/10"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/10 no-print"
           >
             <Download className="w-3.5 h-3.5" /> Export Comparison
           </button>
           <button 
             onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-bold transition-all cursor-pointer no-print"
           >
             <X className="w-3.5 h-3.5" /> Upload Another
           </button>
@@ -1205,5 +1249,162 @@ export function TSheetsComparison({ tenantId }: TSheetsComparisonProps) {
         )}
       </div>
     </div>
+
+      {/* Printable-only landscape reconciliation report */}
+      <div className="hidden print:block space-y-8 text-black bg-white w-full">
+        <div className="border-b-2 border-black pb-4 mb-6 flex justify-between items-end">
+          <div>
+            <h1 className="text-xl font-bold uppercase tracking-tight">
+              TSheets vs Upfitters OS Timesheet Reconciliation
+            </h1>
+            <p className="text-xs font-medium text-zinc-650 uppercase tracking-widest mt-1">
+              Source CSV: {csvFile.name}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-mono font-bold">Report Period</p>
+            <p className="text-sm font-black font-mono mt-0.5">
+              {dateRange ? `${dateRange.minDateStr} — ${dateRange.maxDateStr}` : 'Unknown'}
+            </p>
+          </div>
+        </div>
+
+        {/* Reconcile Totals Summary */}
+        <div className="grid grid-cols-5 gap-4 border border-zinc-350 p-4 rounded-xl font-bold text-xs mb-6">
+          <div>
+            <span className="text-[9px] text-zinc-500 uppercase block">TSheets Total</span>
+            <p className="text-sm">{summaryTotals.tsheetsHours.toFixed(2)}h</p>
+          </div>
+          <div>
+            <span className="text-[9px] text-zinc-500 uppercase block">Upfitters OS Total</span>
+            <p className="text-sm">{summaryTotals.nativeHours.toFixed(2)}h</p>
+          </div>
+          <div>
+            <span className="text-[9px] text-zinc-500 uppercase block">Variance</span>
+            <p className="text-sm">{summaryTotals.variance >= 0 ? '+' : ''}{summaryTotals.variance.toFixed(2)}h</p>
+          </div>
+          <div>
+            <span className="text-[9px] text-zinc-500 uppercase block">Discrepancy Days</span>
+            <p className="text-sm">{summaryTotals.discrepancyDays}</p>
+          </div>
+          <div>
+            <span className="text-[9px] text-zinc-500 uppercase block">Unmapped Staff</span>
+            <p className="text-sm">{summaryTotals.unmappedStaff}</p>
+          </div>
+        </div>
+
+        {/* Detailed Logs per Employee */}
+        <div className="space-y-8">
+          {comparisonData.map((emp) => {
+            const hasNoMap = !emp.staffId;
+            return (
+              <div key={emp.csvName} className="border-t border-zinc-300 pt-6 page-break-inside-avoid print-page-break">
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <h3 className="text-base font-bold uppercase tracking-tight">{emp.staffName}</h3>
+                    <p className="text-[10px] text-zinc-500 mt-0.5">
+                      {hasNoMap ? '⚠️ UNMAPPED USER' : `System ID: ${emp.staffId?.slice(0, 8)}`}
+                    </p>
+                  </div>
+                  <div className="flex gap-6 text-xs text-right font-mono font-bold">
+                    <div>
+                      <span className="text-[9px] text-zinc-400 block uppercase font-sans">TSheets</span>
+                      <span>{emp.totalTSheetsHours.toFixed(2)}h</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-zinc-400 block uppercase font-sans">Upfitters OS</span>
+                      <span>{emp.totalNativeHours.toFixed(2)}h</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-zinc-400 block uppercase font-sans">Variance</span>
+                      <span>{(emp.totalNativeHours - emp.totalTSheetsHours) >= 0 ? '+' : ''}{(emp.totalNativeHours - emp.totalTSheetsHours).toFixed(2)}h</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Days Table */}
+                <div className="space-y-4">
+                  {emp.dailyList.map((day) => {
+                    const hoursDiff = day.native.hours - day.tsheets.hours;
+                    const hasDayDiscrepancy = Math.abs(hoursDiff) > 0.05 || 
+                      (day.tsheets.hours > 0 && day.native.hours === 0) ||
+                      (day.native.hours > 0 && day.tsheets.hours === 0);
+
+                    return (
+                      <div key={day.dateStr} className="border border-zinc-300 rounded-lg p-3 bg-white space-y-3">
+                        <div className="flex justify-between items-center border-b border-zinc-200 pb-1.5 font-bold">
+                          <span className="text-xs">{formatDate(day.dateStr)}</span>
+                          <span className="text-xs font-mono">
+                            TSheets: {day.tsheets.hours.toFixed(2)}h | OS: {day.native.hours.toFixed(2)}h | Diff: {hoursDiff >= 0 ? '+' : ''}{hoursDiff.toFixed(2)}h
+                            {hasDayDiscrepancy && (
+                              <span className="ml-2 px-1 text-[9px] font-sans font-black bg-zinc-100 border border-black rounded uppercase text-red-650">Discrepancy</span>
+                            )}
+                          </span>
+                        </div>
+
+                        {/* Side-by-side Segments Grid */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* TSheets segments */}
+                          <div className="space-y-2">
+                            <h6 className="text-[9px] font-black uppercase tracking-wider text-zinc-400 border-b pb-0.5">
+                              TSheets Segments (CSV)
+                            </h6>
+                            {day.tsheets.segments.length === 0 ? (
+                              <p className="text-[10px] italic text-zinc-450">No time recorded.</p>
+                            ) : (
+                              day.tsheets.segments.map((seg, sIdx) => (
+                                <div key={sIdx} className="text-[11px] p-2 border border-zinc-250 rounded">
+                                  <div className="flex justify-between">
+                                    <span className="font-bold">{seg.jobcode1} {seg.jobcode2 && `(${seg.jobcode2})`}</span>
+                                    <span className="font-mono">{seg.hours.toFixed(2)}h</span>
+                                  </div>
+                                  <div className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                                    {formatTime(seg.startTime)} - {formatTime(seg.endTime)}
+                                  </div>
+                                  {seg.notes && <p className="text-[10px] italic text-zinc-650 mt-1">"{seg.notes}"</p>}
+                                </div>
+                              ))
+                            )}
+                          </div>
+
+                          {/* Upfitters OS segments */}
+                          <div className="space-y-2">
+                            <h6 className="text-[9px] font-black uppercase tracking-wider text-zinc-400 border-b pb-0.5">
+                              Upfitters OS Segments
+                            </h6>
+                            {day.native.segments.length === 0 ? (
+                              <p className="text-[10px] italic text-zinc-450">No time recorded.</p>
+                            ) : (
+                              day.native.segments
+                                .sort((a, b) => {
+                                  if (a.type === 'session_root') return -1;
+                                  if (b.type === 'session_root') return 1;
+                                  return (a.startTime?.getTime() || 0) - (b.startTime?.getTime() || 0);
+                                })
+                                .map((seg, sIdx) => (
+                                  <div key={sIdx} className={`text-[11px] p-2 border border-zinc-250 rounded ${seg.type === 'session_root' ? 'bg-zinc-50' : ''}`}>
+                                    <div className="flex justify-between">
+                                      <span className="font-bold">{seg.name} {seg.taskName && `- ${seg.taskName}`}</span>
+                                      <span className="font-mono">{seg.hours.toFixed(2)}h</span>
+                                    </div>
+                                    <div className="text-[9px] text-zinc-500 font-mono mt-0.5">
+                                      {formatTime(seg.startTime)} - {formatTime(seg.endTime)}
+                                    </div>
+                                    {seg.notes && <p className="text-[10px] italic text-zinc-650 mt-1">"{seg.notes}"</p>}
+                                  </div>
+                                ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }

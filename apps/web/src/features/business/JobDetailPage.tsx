@@ -3284,6 +3284,27 @@ export function JobDetailPage({ tenantId }: { tenantId: string }) {
                     )}
                   </div>
 
+                  {/* Active Job Notes Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-600 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Active Job Notes
+                    </h2>
+                    {!job.work_notes || job.work_notes.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No job notes recorded.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-150">
+                        {job.work_notes.map((note: any) => (
+                          <div key={note.id} className="py-2.5">
+                            <p className="text-xs text-zinc-800 leading-relaxed font-medium">{note.message}</p>
+                            <p className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider mt-1.5">
+                              Added by {note.createdBy} &bull; {new Date(note.createdAt).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                 </div>
               </div>

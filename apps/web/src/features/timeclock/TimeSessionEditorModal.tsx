@@ -322,6 +322,27 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
     
     setIsSubmitting(true);
     try {
+      const clockInDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
+      const clockInDateStr = clockInDate.toISOString().split('T')[0];
+      
+      const verificationsSnap = await getDocs(
+        query(
+          collection(db, `businesses/${tenantId}/timeclock_verifications`),
+          where('userId', '==', session.userId)
+        )
+      );
+      
+      const isVerified = verificationsSnap.docs.some(doc => {
+        const v = doc.data();
+        return clockInDateStr >= v.startDate && clockInDateStr <= v.endDate;
+      });
+      
+      if (isVerified) {
+        toast.error("This entry is locked because it belongs to a verified pay period. Unlock the timesheet first to delete it.");
+        setIsSubmitting(false);
+        return;
+      }
+
       const batch = writeBatch(db);
       
       // 1. Delete the session
@@ -352,6 +373,27 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
+      const clockInDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
+      const clockInDateStr = clockInDate.toISOString().split('T')[0];
+      
+      const verificationsSnap = await getDocs(
+        query(
+          collection(db, `businesses/${tenantId}/timeclock_verifications`),
+          where('userId', '==', session.userId)
+        )
+      );
+      
+      const isVerified = verificationsSnap.docs.some(doc => {
+        const v = doc.data();
+        return clockInDateStr >= v.startDate && clockInDateStr <= v.endDate;
+      });
+      
+      if (isVerified) {
+        toast.error("This entry is locked because it belongs to a verified pay period. Unlock the timesheet first to make edits.");
+        setIsSubmitting(false);
+        return;
+      }
+
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
       
       // Determine if there are actual changes to the shift timeline (times, breaks, jobs, or remote status)

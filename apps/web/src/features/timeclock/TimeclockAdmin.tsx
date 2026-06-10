@@ -1,4 +1,4 @@
-import { useState, Fragment, useEffect } from 'react';
+import { useState, Fragment, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, query, orderBy, getDocs, limit, getDoc, doc } from 'firebase/firestore';
@@ -6,12 +6,14 @@ import { db } from '../../lib/firebase/config';
 import { 
   Clock, Calendar, Search, MapPin, Pizza, Coffee,
   Download, AlertCircle, Edit2, AlertTriangle, Info,
-  UserCheck, UserX, LogIn, LogOut, RefreshCw, Activity
+  UserCheck, UserX, LogIn, LogOut, RefreshCw, Activity,
+  Lock, FileSignature
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
 import { WeeklyTimeclockReportModal } from './WeeklyTimeclockReportModal';
 import { TSheetsComparison } from './TSheetsComparison';
+import { TimeclockVerification } from './TimeclockVerification';
 import { StaffLink } from '../business/StaffPerformance';
 import { toast } from 'sonner';
 
@@ -205,7 +207,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const [filterType, setFilterType] = useState<'all' | 'remote' | 'active' | 'flagged'>('all');
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity' | 'tsheets_comparison'>('logs');
+  const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity' | 'tsheets_comparison' | 'verify_sign'>('logs');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
 
   const { data: activityLogs, isLoading: isLoadingLogs } = useQuery({
@@ -405,6 +407,115 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
     }
   });
 
+  // Fetch all jobs to resolve job numbers and customer names
+  const { data: globalJobsList } = useQuery({
+    queryKey: ['admin-global-jobs-list', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/jobs`));
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+    }
+  });
+
+  const globalJobsMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    if (globalJobsList) {
+      globalJobsList.forEach((j: any) => {
+        map[j.id] = j;
+      });
+    }
+    return map;
+  }, [globalJobsList]);
+
+  const { data: verifications } = useQuery({
+    queryKey: ['reconciliation-verifications', tenantId],
+    queryFn: async () => {
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/timeclock_verifications`));
+      return snap.docs.map(doc => doc.data());
+    }
+  });
+
+  const isSessionVerified = useMemo(() => {
+    return (session: TimeSession) => {
+      if (!verifications || !session.clockIn?.timestamp) return false;
+      const date = session.clockIn.timestamp.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      return verifications.some((v: any) => 
+        v.userId === session.userId && 
+        dateStr >= v.startDate && 
+        dateStr <= v.endDate
+      );
+    };
+  }, [verifications]);
+
+
+
+
+
+const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
+  const shiftStart = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate().getTime() : new Date(session.clockIn.timestamp).getTime();
+  const shiftEnd = sessionEnd;
+
+  // Gather job intervals
+  const jobIntervals = (session.jobs || []).map((j: any) => {
+    const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+    const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : shiftEnd;
+    return {
+      start: Math.max(start, shiftStart),
+      end: Math.min(end, shiftEnd),
+      type: 'job' as const,
+      data: j
+    };
+  });
+
+  // Gather break intervals
+  const breakIntervals = (session.breaks || []).map((b: any) => {
+    const start = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+    const end = b.end ? (b.end.toDate ? b.end.toDate().getTime() : new Date(b.end).getTime()) : shiftEnd;
+    return {
+      start: Math.max(start, shiftStart),
+      end: Math.min(end, shiftEnd),
+      type: 'break' as const,
+      data: b
+    };
+  });
+
+  // Combine and sort by start
+  const combined = [...jobIntervals, ...breakIntervals].sort((a, b) => a.start - b.start);
+
+  const timeline: Array<{
+    start: number;
+    end: number;
+    type: 'job' | 'break' | 'idle';
+    data?: any;
+  }> = [];
+
+  let timePointer = shiftStart;
+
+  combined.forEach(item => {
+    if (item.start > timePointer + 60000) { // Gap > 1 minute
+      timeline.push({
+        start: timePointer,
+        end: item.start,
+        type: 'idle'
+      });
+    }
+    timeline.push(item);
+    timePointer = Math.max(timePointer, item.end);
+  });
+
+  if (shiftEnd > timePointer + 60000) {
+    timeline.push({
+      start: timePointer,
+      end: shiftEnd,
+      type: 'idle'
+    });
+  }
+
+  timeline.sort((a, b) => a.start - b.start);
+  return timeline;
+};
+
 
 
   const formatTime = (ts: any) => {
@@ -599,12 +710,29 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
         >
           <span>TSheets Comparison</span>
         </button>
+        <button
+          onClick={() => setViewMode('verify_sign')}
+          className={`pb-3 text-xs font-black uppercase tracking-widest border-b-2 px-6 transition-all cursor-pointer flex items-center gap-2 ${
+            viewMode === 'verify_sign'
+              ? 'border-indigo-500 text-indigo-600 dark:text-white'
+              : 'border-transparent text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-350'
+          }`}
+        >
+          <FileSignature className="w-3.5 h-3.5" />
+          <span>Review & Sign-Off</span>
+        </button>
       </div>
 
       {viewMode === 'reconciliation' && (
         <WeeklyTimeclockReportModal
           tenantId={tenantId}
           isInline={true}
+        />
+      )}
+
+      {viewMode === 'verify_sign' && (
+        <TimeclockVerification
+          tenantId={tenantId}
         />
       )}
 
@@ -724,7 +852,16 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
 
                     return (
                       <Fragment key={session.id}>
-                        <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors cursor-pointer group" onClick={() => setEditingSession(session)}>
+                        <tr 
+                          className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors cursor-pointer group" 
+                          onClick={() => {
+                            if (isSessionVerified(session)) {
+                              toast.warning("This entry is locked because it belongs to a verified pay period. To edit it, please go to 'Review & Sign-Off' and unlock the timesheet first.");
+                            } else {
+                              setEditingSession(session);
+                            }
+                          }}
+                        >
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-600 font-bold text-xs relative">
@@ -883,7 +1020,13 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <Edit2 className="w-4 h-4 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            {isSessionVerified(session) ? (
+                              <span title="Verified & Locked">
+                                <Lock className="w-4 h-4 text-zinc-400 inline-block" />
+                              </span>
+                            ) : (
+                              <Edit2 className="w-4 h-4 text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
                           </td>
                         </tr>
                         {expandedSessionId === session.id && (() => {
@@ -899,6 +1042,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                             const basis = j.payBasis || 'book_time';
                             
                             return {
+                              id: j.id,
                               name: j.name,
                               taskName: j.taskName || 'General task contribution',
                               durationMs,
@@ -911,12 +1055,65 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
  
                           const totalHourlyContribMs = taskDetails.reduce((acc, t) => acc + t.earnedMs, 0);
                           const capLabel = totalHourlyContribMs > workMs ? 'Capped at total shift work hours' : '';
+
+                          const totalTaskMs = (session.jobs || []).reduce((acc: number, j: any) => {
+                            const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+                            const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : sessionEnd;
+                            return acc + Math.max(0, end - start);
+                          }, 0);
+                          const idleMs = Math.max(0, workMs - totalTaskMs);
+ 
+                          const timeline = buildChronologicalTimeline(session, sessionEnd);
+                          const chronologicalRows = timeline.map(item => {
+                            const durationMs = Math.max(0, item.end - item.start);
+                            if (item.type === 'idle') {
+                              return {
+                                type: 'idle' as const,
+                                start: item.start,
+                                end: item.end,
+                                durationMs,
+                                bookMs: 0,
+                                earnedMs: 0
+                              };
+                            }
+                            if (item.type === 'break') {
+                              const b = item.data;
+                              return {
+                                type: 'break' as const,
+                                start: item.start,
+                                end: item.end,
+                                durationMs,
+                                bookMs: 0,
+                                basis: b.isPaid ? 'paid' : 'unpaid',
+                                name: b.type === 'lunch' ? 'Lunch Break' : 'Rest Break',
+                                taskName: b.isPaid ? 'Paid Break' : 'Unpaid Break',
+                                earnedMs: b.isPaid ? durationMs : 0
+                              };
+                            }
+                            
+                            const j = item.data;
+                            const taskBookMs = (j.bookTime || 0) * 3600000;
+                            const basis = j.payBasis || 'book_time';
+                            return {
+                              type: 'job' as const,
+                              start: item.start,
+                              end: item.end,
+                              id: j.id,
+                              name: j.name,
+                              taskName: j.taskName || 'General task contribution',
+                              durationMs,
+                              bookMs: taskBookMs,
+                              basis,
+                              earnedMs: basis === 'hourly' || taskBookMs === 0 ? durationMs : 0,
+                              notes: j.notes || ''
+                            };
+                          });
  
                           return (
                             <tr className="bg-zinc-50/70 dark:bg-zinc-900/40 select-text" onClick={(e) => e.stopPropagation()}>
                               <td colSpan={8} className="px-6 py-5 border-t border-b border-zinc-150 dark:border-zinc-800">
-                                <div className="bg-white dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-850 rounded-2xl p-5 text-xs text-zinc-650 dark:text-zinc-350 space-y-4 shadow-sm">
-                                  <div className="flex justify-between items-center border-b border-zinc-150 dark:border-zinc-805 pb-2.5">
+                                <div className="bg-white dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-855 rounded-2xl p-5 text-xs text-zinc-650 dark:text-zinc-350 space-y-4 shadow-sm">
+                                  <div className="flex justify-between items-center border-b border-zinc-150 dark:border-zinc-855 pb-2.5">
                                     <h5 className="font-bold text-zinc-850 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-2">
                                       <Info className="w-4 h-4 text-indigo-500" /> Shift Pay Breakdown: {displayName}
                                     </h5>
@@ -925,7 +1122,7 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                                     </span>
                                   </div>
  
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-medium">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 font-medium">
                                     <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">
                                       <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block font-sans">Shift Elapsed Time</span>
                                       <p className="text-sm font-black text-zinc-850 dark:text-white font-mono">{formatDuration(totalMs)}</p>
@@ -938,20 +1135,25 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                                     </div>
                                     <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">
                                       <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block font-sans">Actual Work Time</span>
-                                      <p className="text-sm font-black text-indigo-650 dark:text-indigo-400 font-mono">{formatDuration(workMs)}</p>
+                                      <p className="text-sm font-black text-indigo-655 dark:text-indigo-400 font-mono">{formatDuration(workMs)}</p>
                                       <p className="text-[10px] text-zinc-450 mt-1">Net shift actual hours (Elapsed minus Breaks).</p>
+                                    </div>
+                                    <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">
+                                      <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest block font-sans">Idle Time</span>
+                                      <p className="text-sm font-black text-amber-655 dark:text-amber-400 font-mono">{formatDuration(idleMs)}</p>
+                                      <p className="text-[10px] text-zinc-450 mt-1">Clocked in but not working on any assigned task.</p>
                                     </div>
                                   </div>
  
                                   {/* Clocked Jobs List */}
-                                  {taskDetails.length > 0 ? (
+                                  {chronologicalRows.length > 0 ? (
                                     <div className="border border-zinc-150 dark:border-zinc-800 rounded-xl overflow-hidden">
                                       <div className="bg-zinc-50 dark:bg-zinc-900/50 px-4 py-2 border-b border-zinc-150 dark:border-zinc-800">
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Tasks Clocked During This Session</span>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Tasks & Idle Time Clocked During This Session</span>
                                       </div>
                                       <table className="w-full text-left border-collapse text-zinc-700 dark:text-zinc-300">
                                         <thead>
-                                          <tr className="bg-zinc-50/20 dark:bg-zinc-900/20 text-[9px] uppercase font-bold text-zinc-450 border-b border-zinc-150 dark:border-zinc-800">
+                                          <tr className="bg-zinc-50/20 dark:bg-zinc-900/20 text-[9px] uppercase font-bold text-zinc-455 border-b border-zinc-150 dark:border-zinc-800">
                                             <th className="px-4 py-2">Job Name</th>
                                             <th className="px-4 py-2">Task Name</th>
                                             <th className="px-4 py-2">Basis</th>
@@ -961,37 +1163,103 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
                                           </tr>
                                         </thead>
                                         <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850 font-medium">
-                                          {taskDetails.map((t, idx) => (
-                                            <tr key={idx} className="text-[11px]">
-                                              <td className="px-4 py-2 truncate max-w-[150px]">
-                                                <div>{t.name}</div>
-                                                {t.notes && (
-                                                  <div className="text-[9px] text-zinc-400 dark:text-zinc-500 italic mt-0.5" title={t.notes}>
-                                                    "{t.notes}"
-                                                  </div>
-                                                )}
-                                              </td>
-                                              <td className="px-4 py-2 truncate max-w-[200px] text-zinc-550 dark:text-zinc-450">{t.taskName}</td>
-                                              <td className="px-4 py-2">
-                                                <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold ${t.basis === 'hourly' || t.bookMs === 0 ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
-                                                  {t.basis === 'hourly' || t.bookMs === 0 ? 'Hourly' : 'Flat Rate'}
-                                                </span>
-                                              </td>
-                                              <td className="px-4 py-2 text-right font-mono">{formatDuration(t.durationMs)}</td>
-                                              <td className="px-4 py-2 text-right font-mono text-zinc-500">{t.bookMs > 0 ? `${(t.bookMs / 3600000).toFixed(2)}h` : '—'}</td>
-                                              <td className="px-4 py-2 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                {sessionPayType === 'flat_rate' ? (
-                                                  t.basis === 'hourly' || t.bookMs === 0 ? (
-                                                    formatDuration(t.durationMs)
+                                          {chronologicalRows.map((t, idx) => {
+                                            if (t.type === 'idle') {
+                                              return (
+                                                <tr key={idx} className="text-[11px] bg-amber-500/5 dark:bg-amber-500/10 font-bold text-amber-800 dark:text-amber-300">
+                                                  <td className="px-4 py-2" colSpan={2}>
+                                                    <div className="flex items-center gap-1.5">
+                                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                                                      Clocked Idle Time (not on a task)
+                                                    </div>
+                                                  </td>
+                                                  <td className="px-4 py-2">
+                                                    <span className="px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold bg-amber-500/10 text-amber-600 dark:text-amber-455">
+                                                      Idle
+                                                    </span>
+                                                  </td>
+                                                  <td className="px-4 py-2 text-right font-mono">{formatDuration(t.durationMs)}</td>
+                                                  <td className="px-4 py-2 text-right font-mono text-zinc-450 dark:text-zinc-550">—</td>
+                                                  <td className="px-4 py-2 text-right font-mono text-zinc-450 dark:text-zinc-550">—</td>
+                                                </tr>
+                                              );
+                                            }
+ 
+                                            if (t.type === 'break') {
+                                              const isPaid = t.basis === 'paid';
+                                              return (
+                                                <tr key={idx} className="text-[11px] bg-zinc-50/60 dark:bg-zinc-800/10 text-zinc-650 dark:text-zinc-350 opacity-75">
+                                                  <td className="px-4 py-2" colSpan={2}>
+                                                    <div className="flex items-center gap-1.5 font-bold">
+                                                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+                                                      {t.name}
+                                                    </div>
+                                                  </td>
+                                                  <td className="px-4 py-2">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold ${isPaid ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-zinc-150 dark:bg-zinc-800 text-zinc-500'}`}>
+                                                      {isPaid ? 'Paid' : 'Unpaid'}
+                                                    </span>
+                                                  </td>
+                                                  <td className="px-4 py-2 text-right font-mono">{formatDuration(t.durationMs)}</td>
+                                                  <td className="px-4 py-2 text-right font-mono text-zinc-450 dark:text-zinc-550">—</td>
+                                                  <td className="px-4 py-2 text-right font-mono text-zinc-450 dark:text-zinc-550">
+                                                    {isPaid ? formatDuration(t.durationMs) : '—'}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            }
+
+                                            return (
+                                              <tr key={idx} className="text-[11px]">
+                                                <td className="px-4 py-2 truncate max-w-[200px]">
+                                                  {(() => {
+                                                    const job = globalJobsMap[t.id || ''];
+                                                    if (job) {
+                                                      const jobNum = job.jobNumber ? `#${job.jobNumber}` : 'No Job#';
+                                                      const customer = job.customerName || 'Walk-in';
+                                                      return (
+                                                        <div title={`${jobNum} - ${customer} - ${job.title}`}>
+                                                          <span className="font-bold">{jobNum}</span> - {customer}
+                                                          <div className="text-[9px] text-zinc-450 dark:text-zinc-550 truncate">{job.title}</div>
+                                                        </div>
+                                                      );
+                                                    }
+                                                    return <div>{t.name}</div>;
+                                                  })()}
+                                                  {t.notes && (() => {
+                                                    const noteText = t.notes.trim();
+                                                    const empFirstName = session.userName ? session.userName.split(' ')[0] : 'Staff';
+                                                    const suffix = ` - ${empFirstName}`;
+                                                    const hasSuffix = noteText.toLowerCase().endsWith(suffix.toLowerCase());
+                                                    return (
+                                                      <div className="text-[9px] text-zinc-400 dark:text-zinc-550 italic mt-0.5" title={t.notes}>
+                                                        "{noteText}{hasSuffix ? '' : suffix}"
+                                                      </div>
+                                                    );
+                                                  })()}
+                                                </td>
+                                                <td className="px-4 py-2 truncate max-w-[200px] text-zinc-550 dark:text-zinc-455">{t.taskName}</td>
+                                                <td className="px-4 py-2">
+                                                  <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-extrabold ${t.basis === 'hourly' || t.bookMs === 0 ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
+                                                    {t.basis === 'hourly' || t.bookMs === 0 ? 'Hourly' : 'Flat Rate'}
+                                                  </span>
+                                                </td>
+                                                <td className="px-4 py-2 text-right font-mono">{formatDuration(t.durationMs)}</td>
+                                                <td className="px-4 py-2 text-right font-mono text-zinc-500">{t.bookMs > 0 ? `${(t.bookMs / 3600000).toFixed(2)}h` : '—'}</td>
+                                                <td className="px-4 py-2 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                  {sessionPayType === 'flat_rate' ? (
+                                                    t.basis === 'hourly' || t.bookMs === 0 ? (
+                                                      formatDuration(t.durationMs)
+                                                    ) : (
+                                                      <span className="text-zinc-400 text-[10px]" title="Flat rate tasks are paid upon completed/QC status, not on the clock-in shift itself.">Paid on completion (0h 00m)</span>
+                                                    )
                                                   ) : (
-                                                    <span className="text-zinc-400 text-[10px]" title="Flat rate tasks are paid upon completed/QC status, not on the clock-in shift itself.">Paid on completion (0h 00m)</span>
-                                                  )
-                                                ) : (
-                                                  formatDuration(t.durationMs)
-                                                )}
-                                              </td>
-                                            </tr>
-                                          ))}
+                                                    formatDuration(t.durationMs)
+                                                  )}
+                                                </td>
+                                              </tr>
+                                            );
+                                          })}
                                         </tbody>
                                       </table>
                                     </div>
