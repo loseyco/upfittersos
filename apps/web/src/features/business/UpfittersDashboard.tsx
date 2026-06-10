@@ -3,15 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
-  Maximize, Minimize, Search, Sparkles, HelpCircle, X, History
+  Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
+  ChevronUp, ChevronDown
 } from 'lucide-react';
 import { 
-  collection, query, where, onSnapshot, collectionGroup, orderBy, doc
+  collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { cn } from '../../lib/utils';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { StaffLink } from './StaffPerformance';
+import { toast } from 'sonner';
 
 const getJobColor = (jobId: string) => {
   const colors = [
@@ -595,16 +597,18 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       let completedBookHours = 0;
       let completedActualHours = 0;
       const allMemberSessions = sessions.filter(s => s.userId === member.id || (member.userId && s.userId === member.userId));
-      const completedTasksList: Array<{ title: string; bookTime: number }> = [];
+      const completedTasksList: Array<{ title: string; bookTime: number; actualTime: number }> = [];
 
       completedTasks.forEach(task => {
         if (!isGeneralTask(task.title)) {
           const bTime = parseFloat(task.bookTime) || 0;
+          const actualTime = getTaskLoggedHours(task.id, allMemberSessions);
           completedBookHours += bTime;
-          completedActualHours += getTaskLoggedHours(task.id, allMemberSessions);
+          completedActualHours += actualTime;
           completedTasksList.push({
             title: task.title || 'Production Task',
-            bookTime: bTime
+            bookTime: bTime,
+            actualTime: actualTime
           });
         }
       });
@@ -630,6 +634,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       // - Job is open
       // - Technican is assigned to one or more uncompleted tasks in Upfitting
       // - They are NOT currently clocked into that job
+      const priorityMap = member.jobPriorityOrder || [];
       const queuedJobs = allJobs.filter(job => {
         if (['Closed', 'Completed', 'Ready for Customer'].includes(job.status)) return false;
         if (activeTask && activeTask.jobId === job.id) return false;
@@ -671,7 +676,14 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           pendingPartsCount,
           zone: currentZone
         };
-      }).sort((a, b) => b.remainingBook - a.remainingBook);
+      }).sort((a, b) => {
+        const idxA = priorityMap.indexOf(a.id);
+        const idxB = priorityMap.indexOf(b.id);
+        if (idxA === -1 && idxB === -1) return b.remainingBook - a.remainingBook;
+        if (idxA === -1) return 1;
+        if (idxB === -1) return -1;
+        return idxA - idxB;
+      });
 
       // Calculate overall remaining book time assigned to this member in Upfitting
       const memberRemainingTasks = allTasks.filter(t => 
@@ -857,6 +869,62 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
     });
 
   }, [upfitterStaff, sessions, timeframeSessions, allTasks, allJobs, partsRequests, zones, tick, timeframe, selectedDate, business]);
+
+  const handleMoveUp = async (staffId: string, jobId: string) => {
+    try {
+      const member = staff.find(s => s.id === staffId);
+      if (!member) return;
+
+      const colData = staffColumnData.find(c => c.id === staffId);
+      if (!colData) return;
+
+      const currentQueued = colData.queuedJobs;
+      const idx = currentQueued.findIndex(j => j.id === jobId);
+      if (idx <= 0) return;
+
+      const newJobs = [...currentQueued];
+      const temp = newJobs[idx];
+      newJobs[idx] = newJobs[idx - 1];
+      newJobs[idx - 1] = temp;
+
+      const updatedOrder = newJobs.map(j => j.id);
+
+      const staffRef = doc(db, `businesses/${tenantId}/staff/${staffId}`);
+      await updateDoc(staffRef, { jobPriorityOrder: updatedOrder });
+      toast.success("Job moved up in queue");
+    } catch (err) {
+      console.error("Error moving job up:", err);
+      toast.error("Failed to reorder job.");
+    }
+  };
+
+  const handleMoveDown = async (staffId: string, jobId: string) => {
+    try {
+      const member = staff.find(s => s.id === staffId);
+      if (!member) return;
+
+      const colData = staffColumnData.find(c => c.id === staffId);
+      if (!colData) return;
+
+      const currentQueued = colData.queuedJobs;
+      const idx = currentQueued.findIndex(j => j.id === jobId);
+      if (idx === -1 || idx >= currentQueued.length - 1) return;
+
+      const newJobs = [...currentQueued];
+      const temp = newJobs[idx];
+      newJobs[idx] = newJobs[idx + 1];
+      newJobs[idx + 1] = temp;
+
+      const updatedOrder = newJobs.map(j => j.id);
+
+      const staffRef = doc(db, `businesses/${tenantId}/staff/${staffId}`);
+      await updateDoc(staffRef, { jobPriorityOrder: updatedOrder });
+      toast.success("Job moved down in queue");
+    } catch (err) {
+      console.error("Error moving job down:", err);
+      toast.error("Failed to reorder job.");
+    }
+  };
 
   // Overall statistics at the top of the screen
   const overallStats = useMemo(() => {
@@ -1240,12 +1308,12 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             <div className="p-3 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
                               <span className="text-[9px] font-black uppercase text-emerald-500 block mb-1">Formula</span>
                               <p className="font-mono text-[10px] font-black text-emerald-600 dark:text-emerald-450 leading-snug">
-                                (Completed Book Hours / Actual Task Hours) &times; 100
+                                (Completed Book Hours / Actual Task Clocked Hours) &times; 100
                               </p>
                               <div className="mt-2 pt-2 border-t border-dashed border-emerald-500/20 space-y-1 font-mono text-[9.5px] text-zinc-400">
                                 <div>Book Hours Completed: {col.completedBookHours.toFixed(2)}h</div>
-                                <div>Actual Clocked Hours: {col.completedActualHours.toFixed(2)}h</div>
-                                <div className="font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                                <div>Actual Task Clocked Hours: {col.completedActualHours.toFixed(2)}h</div>
+                                <div className="font-bold text-emerald-600 dark:text-emerald-450 mt-1">
                                   Result: {col.taskEfficiency ? `${col.taskEfficiency}%` : 'N/A'}
                                 </div>
                               </div>
@@ -1259,7 +1327,10 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   {col.completedTasksList.map((t: any, idx: number) => (
                                     <div key={idx} className="p-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-850 rounded-xl flex justify-between gap-3 text-[10px]">
                                       <span className="font-semibold truncate">{t.title}</span>
-                                      <span className="font-mono font-bold text-zinc-505 shrink-0">{t.bookTime.toFixed(2)}h</span>
+                                      <div className="font-mono text-right shrink-0 flex flex-col items-end">
+                                        <span className="font-bold text-zinc-700 dark:text-zinc-300">{t.bookTime.toFixed(2)}h book</span>
+                                        <span className="text-[9px] text-zinc-400 font-semibold">{t.actualTime.toFixed(2)}h actual</span>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -1922,7 +1993,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                             <span className="text-xs text-zinc-500 dark:text-zinc-400 italic">No queued jobs assigned.</span>
                           </div>
                         ) : (
-                          col.queuedJobs.map(job => (
+                          col.queuedJobs.map((job, index) => (
                             <div 
                               key={job.id}
                               onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
@@ -1932,7 +2003,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                               )}
                             >
                               <div className="flex justify-between items-start gap-2">
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                   <h6 className="font-extrabold text-xs text-zinc-900 dark:text-white leading-snug group-hover:text-indigo-500 transition-colors truncate">
                                     {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
                                   </h6>
@@ -1940,9 +2011,34 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                     {job.customerName || 'No Customer'}
                                   </span>
                                 </div>
-                                <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-500 text-xs font-bold uppercase tracking-wider rounded-md shrink-0 border border-indigo-500/20 whitespace-nowrap">
-                                  {job.remainingBook.toFixed(1)}h
-                                </span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-500 text-xs font-bold uppercase tracking-wider rounded-md border border-indigo-500/20 whitespace-nowrap">
+                                    {job.remainingBook.toFixed(1)}h
+                                  </span>
+                                  {col.queuedJobs.length > 1 && (
+                                    <div 
+                                      className="flex items-center gap-0.5 bg-zinc-150 dark:bg-zinc-800 p-0.5 rounded-lg border border-zinc-250 dark:border-zinc-700/60" 
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        disabled={index === 0}
+                                        onClick={() => handleMoveUp(col.id, job.id)}
+                                        className="p-0.5 rounded text-zinc-500 dark:text-zinc-450 hover:text-indigo-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:pointer-events-none transition-colors animate-none"
+                                        title="Move Up"
+                                      >
+                                        <ChevronUp className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        disabled={index === col.queuedJobs.length - 1}
+                                        onClick={() => handleMoveDown(col.id, job.id)}
+                                        className="p-0.5 rounded text-zinc-500 dark:text-zinc-450 hover:text-indigo-500 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:pointer-events-none transition-colors animate-none"
+                                        title="Move Down"
+                                      >
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
 
                               <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400 font-medium border-t border-zinc-150 dark:border-zinc-800/50 pt-2 mt-0.5">
