@@ -16,8 +16,9 @@ export function GenericDataGrid({
   localFilter,
   columns: propColumns,
   onRowClick,
-  dbOrderBy,
-  hideSearch = false
+  dbOrderBy: propDbOrderBy,
+  hideSearch = false,
+  customSort
 }: { 
   collectionPath: string, 
   title?: string, 
@@ -25,11 +26,36 @@ export function GenericDataGrid({
   columns?: DataColumn[],
   onRowClick?: (row: any) => void,
   dbOrderBy?: { field: string, direction: 'asc' | 'desc' },
-  hideSearch?: boolean
+  hideSearch?: boolean,
+  customSort?: (a: any, b: any) => number
 }) {
   const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+
+  // Dynamically determine the default dbOrderBy if none is provided
+  const dbOrderBy = useMemo<{ field: string, direction: 'asc' | 'desc' } | undefined>(() => {
+    if (propDbOrderBy) return propDbOrderBy;
+    
+    const parts = collectionPath.split('/');
+    const leaf = parts[parts.length - 1];
+    
+    // For QuickBooks collections, TimeModified is guaranteed to be present and populated.
+    if (leaf.startsWith('qb_')) {
+      return { field: 'TimeModified', direction: 'desc' };
+    }
+    
+    // For native messages, announcements, and activity feed, sort by createdAt or timestamp
+    if (leaf === 'messages' || leaf === 'announcements' || leaf === 'activity_feed') {
+      return { field: 'createdAt', direction: 'desc' };
+    }
+    
+    return undefined;
+  }, [propDbOrderBy, collectionPath]);
+
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(() => {
+    return dbOrderBy ? { key: dbOrderBy.field, direction: dbOrderBy.direction } : null;
+  });
+  const [isExplicitSort, setIsExplicitSort] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
@@ -138,21 +164,37 @@ export function GenericDataGrid({
       let aVal = a[key];
       let bVal = b[key];
       
-      // Handle Firestore timestamps
-      if (aVal && typeof aVal === 'object' && '_seconds' in aVal) aVal = aVal._seconds;
-      if (bVal && typeof bVal === 'object' && '_seconds' in bVal) bVal = bVal._seconds;
-      
       if (aVal === bVal) return 0;
       if (aVal === null || aVal === undefined) return 1; 
       if (bVal === null || bVal === undefined) return -1;
 
       // Safe date comparison if date column
       if (/time|date|created|updated|modified/i.test(key)) {
-        const timeA = aVal && typeof aVal.toDate === 'function' ? aVal.toDate().getTime() : new Date(aVal).getTime();
-        const timeB = bVal && typeof bVal.toDate === 'function' ? bVal.toDate().getTime() : new Date(bVal).getTime();
+        const getMs = (val: any) => {
+          if (!val) return NaN;
+          if (typeof val === 'number') return val;
+          if (typeof val.toDate === 'function') return val.toDate().getTime();
+          if (typeof val === 'object') {
+            if ('seconds' in val) return val.seconds * 1000;
+            if ('_seconds' in val) return val._seconds * 1000;
+          }
+          return new Date(val).getTime();
+        };
+        const timeA = getMs(aVal);
+        const timeB = getMs(bVal);
         if (!isNaN(timeA) && !isNaN(timeB)) {
           return direction === 'asc' ? timeA - timeB : timeB - timeA;
         }
+      }
+      
+      // Handle Firestore timestamps for non-date columns (fallback comparison)
+      if (aVal && typeof aVal === 'object') {
+        if ('seconds' in aVal) aVal = aVal.seconds;
+        else if ('_seconds' in aVal) aVal = aVal._seconds;
+      }
+      if (bVal && typeof bVal === 'object') {
+        if ('seconds' in bVal) bVal = bVal.seconds;
+        else if ('_seconds' in bVal) bVal = bVal._seconds;
       }
       
       if (typeof aVal === 'number' && typeof bVal === 'number') {
@@ -167,7 +209,11 @@ export function GenericDataGrid({
       return 0;
     };
 
-    if (sortConfig) {
+    if (isExplicitSort && sortConfig) {
+      result.sort((a, b) => sortByKey(a, b, sortConfig.key, sortConfig.direction));
+    } else if (customSort) {
+      result.sort(customSort);
+    } else if (sortConfig) {
       result.sort((a, b) => sortByKey(a, b, sortConfig.key, sortConfig.direction));
     } else {
       // Prioritize standard modification and creation time keys
@@ -197,9 +243,10 @@ export function GenericDataGrid({
     }
 
     return result;
-  }, [displayData, searchTerm, sortConfig, discoveredColumns]);
+  }, [displayData, searchTerm, sortConfig, discoveredColumns, customSort, isExplicitSort]);
 
   const handleSort = (key: string) => {
+    setIsExplicitSort(true);
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key) {
       if (sortConfig.direction === 'asc') direction = 'desc';

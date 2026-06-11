@@ -138,7 +138,13 @@ export function TenantDashboard() {
     qb_health_audit: 'Data Health Audit'
   };
 
-  const pageTitle = titleMap[activeTab] || (
+  const [dynamicTitle, setDynamicTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDynamicTitle(null);
+  }, [splat]);
+
+  const pageTitle = dynamicTitle || titleMap[activeTab] || (
     activeTab.startsWith('help_') 
       ? activeTab.replace('help_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + " Guide"
       : activeTab.replace('qb_', '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
@@ -396,7 +402,7 @@ export function TenantDashboard() {
 
             {activeTab === 'staff' && (
               pathParts[1] ? (
-                <StaffProfilePage tenantId={tenantId!} staffId={pathParts[1]} />
+                <StaffProfilePage tenantId={tenantId!} staffId={pathParts[1]} setDynamicTitle={setDynamicTitle} />
               ) : (
                 <PermissionGate permission="staff.view">
                   <StaffManager tenantId={tenantId!} />
@@ -531,7 +537,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
-              <JobDetailPage tenantId={tenantId!} />
+              <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
             )}
 
             {activeTab === 'job' && (pathParts[2] === 'edit' || pathParts[1] === 'create') && (
@@ -541,7 +547,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'task' && pathParts[1] && pathParts[2] && (
-              <TaskDetailPage tenantId={tenantId!} />
+              <TaskDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
             )}
 
             {activeTab === 'items' && (
@@ -558,7 +564,7 @@ export function TenantDashboard() {
 
             {activeTab === 'vehicle' && pathParts[1] && (
               <PermissionGate permission="vehicles.view">
-                <VehicleDetailPage tenantId={tenantId!} />
+                <VehicleDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
               </PermissionGate>
             )}
 

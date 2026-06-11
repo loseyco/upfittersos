@@ -311,33 +311,64 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       const completedTs = parseDate(task.qcCompletedAt || task.completedAt || task.updatedAt);
       if (periodStart > 0 && completedTs < periodStart) return;
 
-      // Locate staff member
-      let staff = null;
-      if (task.completedByStaffId) {
-        staff = staffMap.get(task.completedByStaffId);
-      }
-      if (!staff && task.completedByStaffName) {
-        staff = findStaffByName(task.completedByStaffName);
-      }
-      if (!staff && task.completedBy) {
-        staff = findStaffByName(task.completedBy);
+      // Distribute book time to assigned staff members
+      const assignments = task.assignedStaff || [];
+      const hasAssignments = assignments.length > 0;
+
+      // Also respect rework status penalty (reworks = 0 book hours)
+      const earnedBookTime = task.isRework ? 0 : Number(task.bookTime || 0);
+
+      const pathParts = task.refPath ? task.refPath.split('/') : [];
+      const jobId = task.jobId || pathParts[3];
+      let category = 'General';
+      if (jobId) {
+        const job = rawData.jobs?.find(j => j.id === jobId);
+        const dept = rawData.departments?.find(d => d.id === job?.departmentId);
+        category = dept?.name || job?.departmentName || 'General';
       }
 
-      if (staff) {
-        staff.completedTasksCount++;
-        staff.bookTimeHours += Number(task.bookTime || 0);
+      if (hasAssignments) {
+        assignments.forEach((assign: any) => {
+          const staffId = assign.id;
+          if (!staffId) return;
+          
+          let staff = staffMap.get(staffId);
+          if (!staff) {
+            // Try to resolve staff by userId
+            const rawStaff = rawData.staff?.find((s: any) => s.id === staffId || s.userId === staffId);
+            if (rawStaff) {
+              staff = staffMap.get(rawStaff.id);
+            }
+          }
+          if (!staff) {
+            // Try lookup by name
+            staff = findStaffByName(assign.name || assign.displayName || assign.fullName) ?? undefined;
+          }
 
-        // Group by department/type of the job
-        const pathParts = task.refPath ? task.refPath.split('/') : [];
-        const jobId = task.jobId || pathParts[3];
+          if (staff) {
+            const share = (parseFloat(assign.percentage) || 100) / 100;
+            staff.completedTasksCount += share;
+            staff.bookTimeHours += earnedBookTime * share;
+            staff.tasksCompletedByType[category] = (staff.tasksCompletedByType[category] || 0) + share;
+          }
+        });
+      } else {
+        // Fallback to completion staff
+        let staff = null;
+        if (task.completedByStaffId) {
+          staff = staffMap.get(task.completedByStaffId);
+        }
+        if (!staff && task.completedByStaffName) {
+          staff = findStaffByName(task.completedByStaffName);
+        }
+        if (!staff && task.completedBy) {
+          staff = findStaffByName(task.completedBy);
+        }
 
-        if (jobId) {
-          const job = rawData.jobs?.find(j => j.id === jobId);
-          const dept = rawData.departments?.find(d => d.id === job?.departmentId);
-          const category = dept?.name || job?.departmentName || 'General';
+        if (staff) {
+          staff.completedTasksCount++;
+          staff.bookTimeHours += earnedBookTime;
           staff.tasksCompletedByType[category] = (staff.tasksCompletedByType[category] || 0) + 1;
-        } else {
-          staff.tasksCompletedByType['General'] = (staff.tasksCompletedByType['General'] || 0) + 1;
         }
       }
     });

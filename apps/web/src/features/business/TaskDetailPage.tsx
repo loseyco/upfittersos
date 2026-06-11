@@ -22,7 +22,13 @@ const isGeneralTask = (title?: string) => {
   return t === 'general' || t === 'general labor';
 };
 
-export function TaskDetailPage({ tenantId }: { tenantId: string }) {
+export function TaskDetailPage({ 
+  tenantId, 
+  setDynamicTitle 
+}: { 
+  tenantId: string; 
+  setDynamicTitle: (title: string | null) => void; 
+}) {
   const { '*': splat } = useParams();
   const pathParts = (splat || '').split('/').filter(Boolean);
   // URL: /business/:tenantId/task/:jobId/:taskId
@@ -156,6 +162,25 @@ export function TaskDetailPage({ tenantId }: { tenantId: string }) {
     });
     return () => unsub();
   }, [jobId, taskId, tenantId]);
+
+  // Set Dynamic Page Title
+  useEffect(() => {
+    if (!task) return;
+    const taskTitlePart = task.title ? `Task: ${task.title}` : 'Task';
+    
+    let jobTitlePart = '';
+    if (job) {
+      const jobNumPart = job.jobNumber ? `#${job.jobNumber}` : '';
+      const customerPart = job.customerName || '';
+      const titlePart = job.title || '';
+      jobTitlePart = [jobNumPart, customerPart, titlePart].filter(Boolean).join(' - ');
+    }
+    
+    const pageTitle = [taskTitlePart, jobTitlePart].filter(Boolean).join(' - ');
+    if (pageTitle) {
+      setDynamicTitle(pageTitle);
+    }
+  }, [job, task, setDynamicTitle]);
 
   // Fetch Time Logs (Sessions)
   useEffect(() => {

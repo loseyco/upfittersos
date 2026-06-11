@@ -65,7 +65,15 @@ interface TimeSession {
   verificationStatus?: string;
 }
 
-export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staffId: string }) {
+export function StaffProfilePage({ 
+  tenantId, 
+  staffId, 
+  setDynamicTitle 
+}: { 
+  tenantId: string; 
+  staffId: string; 
+  setDynamicTitle: (title: string | null) => void; 
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -159,6 +167,19 @@ export function StaffProfilePage({ tenantId, staffId }: { tenantId: string; staf
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Department));
     }
   });
+
+  // Set Dynamic Page Title
+  useEffect(() => {
+    if (!staff) return;
+    const staffName = `${staff.firstName || ''} ${staff.lastName || ''}`.trim();
+    const staffTitle = `Staff: ${staffName}`;
+    const jobTitlePart = staff.jobTitle || '';
+    const deptPart = department?.name || '';
+    const pageTitle = [staffTitle, jobTitlePart, deptPart].filter(Boolean).join(' - ');
+    if (pageTitle) {
+      setDynamicTitle(pageTitle);
+    }
+  }, [staff, department, setDynamicTitle]);
 
   // Permissions settings for this page
   const isSelf = myStaffRecord?.id === staffId;

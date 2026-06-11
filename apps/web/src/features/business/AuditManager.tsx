@@ -320,10 +320,17 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
         // Clocked task counts
         if (s.jobs && s.jobs.length > 0) {
           staff.metrics.tasksCount += s.jobs.length;
-          s.jobs.forEach((j: any) => {
+          const taskBookMins: Record<string, number> = {};
+          s.jobs.forEach((j: any, idx: number) => {
+            const key = j.taskId || `manual-${idx}-${j.name}`;
             if (j.bookTime) {
-              staff.metrics.bookMins += j.bookTime * 60;
+              taskBookMins[key] = j.bookTime * 60;
             }
+          });
+          Object.values(taskBookMins).forEach((mins) => {
+            staff.metrics.bookMins += mins;
+          });
+          s.jobs.forEach((j: any) => {
             const jobTime = parseDate(j.start);
             staff.activities.push({
               id: `${s.id}-task-${j.id}`,

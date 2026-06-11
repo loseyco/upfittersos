@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, query } from 'firebase/firestore';
+import { collection, getDocs, query, writeBatch, Timestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   AlertTriangle, CheckCircle2, HelpCircle, 
@@ -89,6 +89,107 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
   const [activeTab, setActiveTab] = useState<'all' | 'inventory' | 'customers_jobs' | 'time' | 'billing'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedAnomalyId, setExpandedAnomalyId] = useState<string | null>(null);
+  const [isBackfilling, setIsBackfilling] = useState(false);
+
+  const handleBackfillTimestamps = async () => {
+    setIsBackfilling(true);
+    toast.loading("Starting database diagnostics and timestamp recalculation...", { id: "backfill-toast" });
+    try {
+      const qbJobs = rawData?.qbJobs || [];
+      const qbCustomers = rawData?.qbCustomers || [];
+
+      // 1. Fetch native jobs
+      const jobsSnap = await getDocs(collection(db, `businesses/${tenantId}/jobs`));
+      // 2. Fetch native customers
+      const custSnap = await getDocs(collection(db, `businesses/${tenantId}/customers`));
+
+      let batch = writeBatch(db);
+      let opCount = 0;
+      let updateCount = 0;
+
+      const queueUpdate = (docRef: any, updates: any) => {
+        batch.update(docRef, updates);
+        opCount++;
+        updateCount++;
+      };
+
+      // Process Jobs
+      for (const d of jobsSnap.docs) {
+        const data = d.data();
+        const updates: any = {};
+
+        const qbJob = qbJobs.find((q: any) => q.id === d.id || (data.quickbooksId && q.ListID === data.quickbooksId));
+
+        const modSource = qbJob?.TimeModified || data.TimeModified;
+        if (modSource) {
+          const modDate = new Date(modSource);
+          if (!isNaN(modDate.getTime())) {
+            updates.updatedAt = Timestamp.fromDate(modDate);
+          }
+        }
+        const createSource = qbJob?.TimeCreated || data.TimeCreated;
+        if (createSource) {
+          const createDate = new Date(createSource);
+          if (!isNaN(createDate.getTime())) {
+            updates.createdAt = Timestamp.fromDate(createDate);
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          if (opCount >= 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            opCount = 0;
+          }
+          queueUpdate(d.ref, updates);
+        }
+      }
+
+      // Process Customers
+      for (const d of custSnap.docs) {
+        const data = d.data();
+        const updates: any = {};
+
+        const qbCust = qbCustomers.find((q: any) => q.id === d.id || (data.quickbooksId && q.ListID === data.quickbooksId));
+
+        const modSource = qbCust?.TimeModified || data.TimeModified;
+        if (modSource) {
+          const modDate = new Date(modSource);
+          if (!isNaN(modDate.getTime())) {
+            updates.updatedAt = Timestamp.fromDate(modDate);
+          }
+        }
+        const createSource = qbCust?.TimeCreated || data.TimeCreated;
+        if (createSource) {
+          const createDate = new Date(createSource);
+          if (!isNaN(createDate.getTime())) {
+            updates.createdAt = Timestamp.fromDate(createDate);
+          }
+        }
+
+        if (Object.keys(updates).length > 0) {
+          if (opCount >= 450) {
+            await batch.commit();
+            batch = writeBatch(db);
+            opCount = 0;
+          }
+          queueUpdate(d.ref, updates);
+        }
+      }
+
+      if (opCount > 0) {
+        await batch.commit();
+      }
+
+      toast.success(`Diagnostic run complete! Recalculated timestamps for ${updateCount} QuickBooks-synced records.`, { id: "backfill-toast" });
+      refetch();
+    } catch (e: any) {
+      console.error("Diagnostic backfill failed:", e);
+      toast.error(`Diagnostic backfill failed: ${e.message || String(e)}`, { id: "backfill-toast" });
+    } finally {
+      setIsBackfilling(false);
+    }
+  };
 
   // Fetch all QuickBooks collections and local mapping collections
   const { data: rawData, isLoading, refetch, isRefetching } = useQuery({
@@ -694,8 +795,17 @@ export function QuickBooksAudit({ tenantId }: QuickBooksAuditProps) {
             </div>
           )}
           <button
+            onClick={handleBackfillTimestamps}
+            disabled={isBackfilling || isRefetching}
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/60 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-emerald-550/15 active:scale-[0.97] cursor-pointer"
+            title="Recalculate and backfill updatedAt/createdAt timestamps for existing synced jobs and customers using actual QuickBooks modification dates."
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", isBackfilling && "animate-spin")} />
+            {isBackfilling ? 'Recalculating...' : 'Recalculate Sync Timestamps'}
+          </button>
+          <button
             onClick={() => refetch()}
-            disabled={isRefetching}
+            disabled={isRefetching || isBackfilling}
             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-650 hover:bg-indigo-700 disabled:bg-indigo-650/60 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-indigo-550/15 active:scale-[0.97] cursor-pointer"
           >
             <RefreshCw className={cn("w-3.5 h-3.5", isRefetching && "animate-spin")} />

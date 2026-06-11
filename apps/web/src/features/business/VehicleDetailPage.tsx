@@ -45,7 +45,13 @@ interface Zone {
   currentVehicleVin?: string | null;
 }
 
-export function VehicleDetailPage({ tenantId }: { tenantId: string }) {
+export function VehicleDetailPage({ 
+  tenantId, 
+  setDynamicTitle 
+}: { 
+  tenantId: string; 
+  setDynamicTitle: (title: string | null) => void; 
+}) {
   const { '*': splat } = useParams();
   const pathParts = (splat || '').split('/').filter(Boolean);
   const vehicleId = pathParts[1];
@@ -106,6 +112,18 @@ export function VehicleDetailPage({ tenantId }: { tenantId: string }) {
     },
     enabled: !!tenantId && !!vehicleId
   });
+
+  // Set Dynamic Page Title
+  useEffect(() => {
+    if (!vehicle) return;
+    const vehicleName = `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle';
+    const vinPart = vehicle.vin ? `VIN: ${vehicle.vin}` : '';
+    const customerPart = vehicle.customerName ? `Customer: ${vehicle.customerName}` : '';
+    const pageTitle = [vehicleName, vinPart, customerPart].filter(Boolean).join(' - ');
+    if (pageTitle) {
+      setDynamicTitle(pageTitle);
+    }
+  }, [vehicle, setDynamicTitle]);
 
   // 2. Fetch Zones
   const { data: zones = [], isLoading: loadingZones } = useQuery<Zone[]>({

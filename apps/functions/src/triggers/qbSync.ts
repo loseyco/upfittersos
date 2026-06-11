@@ -1,6 +1,12 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 
+const parseTimestamp = (val: any) => {
+  if (!val) return null;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : admin.firestore.Timestamp.fromDate(d);
+};
+
 /**
  * Trigger: When a document in qb_customers is created or updated.
  * Goal: Promote to the clean 'customers' collection.
@@ -16,6 +22,9 @@ export const onQbCustomerWrite = functions.firestore
     const data = change.after.data();
     if (!data) return null;
 
+    const timeModified = parseTimestamp(data.TimeModified) || admin.firestore.FieldValue.serverTimestamp();
+    const timeCreated = parseTimestamp(data.TimeCreated) || admin.firestore.FieldValue.serverTimestamp();
+
     // Map to V2 Customer Schema
     const mappedData = {
       firstName: data.FirstName || '',
@@ -28,7 +37,8 @@ export const onQbCustomerWrite = functions.firestore
       source: 'QuickBooks',
       tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
       notes: 'Imported via QBWC.',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt: timeCreated,
+      updatedAt: timeModified
     };
 
     const destRef = admin.firestore().collection('businesses').doc(tenantId).collection('customers').doc(customerId);
@@ -94,6 +104,9 @@ export const onQbJobWrite = functions.firestore
       qbCustomerName = data.CompanyName;
     }
 
+    const timeModified = parseTimestamp(data.TimeModified) || admin.firestore.FieldValue.serverTimestamp();
+    const timeCreated = parseTimestamp(data.TimeCreated) || admin.firestore.FieldValue.serverTimestamp();
+
     // 2. Promote to Job Collection (V2 Schema)
     const jobMappedData: any = {
       title: data.Name || data.FullName || 'Untitled Job',
@@ -106,7 +119,8 @@ export const onQbJobWrite = functions.firestore
       tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
       notes: 'Imported via QBWC.',
       vehicleId: vin, // Store the link!
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      createdAt: timeCreated,
+      updatedAt: timeModified
     };
 
     let jobDestRef = admin.firestore().collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
@@ -202,7 +216,8 @@ export const onQbJobWrite = functions.firestore
         customerId: jobMappedData.customerId,
         source: 'QuickBooks',
         tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: timeCreated,
+        updatedAt: timeModified
       };
 
       try {

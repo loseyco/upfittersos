@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, addDoc, serverTimestamp, onSnapshot, collectionGroup, where } from 'firebase/firestore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -26,6 +26,46 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
   const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+
+  // Real-time listener for active timeclock sessions
+  React.useEffect(() => {
+    if (!tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('status', '==', 'active')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setActiveSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => console.error("Active sessions listener error:", err));
+    return () => unsub();
+  }, [tenantId]);
+
+  // Compute active job ids and which staff are working on them
+  const activeJobStaffMap = React.useMemo(() => {
+    const map = new Map<string, Array<{ staffId: string, staffName: string, isCurrentUser: boolean }>>();
+    const currentUserId = useAuthStore.getState().user?.uid;
+
+    activeSessions.forEach(s => {
+      if (s.jobs) {
+        s.jobs.forEach((j: any) => {
+          if (!j.end) {
+            const list = map.get(j.id) || [];
+            if (!list.some(item => item.staffId === s.userId)) {
+              list.push({
+                staffId: s.userId,
+                staffName: s.userName || s.staffName || 'Technician',
+                isCurrentUser: s.userId === currentUserId
+              });
+              map.set(j.id, list);
+            }
+          }
+        });
+      }
+    });
+    return map;
+  }, [activeSessions]);
+
   
   const queryParams = new URLSearchParams(location.search);
   const initialStatus = queryParams.get('status') || 'all';
@@ -90,6 +130,26 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
     }
   }, [jobId, tenantId, navigate]);
 
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  // Real-time listener for tasks via collectionGroup
+  React.useEffect(() => {
+    if (!tenantId) return;
+    const q = query(
+      collectionGroup(db, 'tasks'),
+      where('tenantId', '==', tenantId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const filteredDocs = snap.docs.filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`));
+      setTasks(filteredDocs.map(doc => ({
+        id: doc.id,
+        jobId: doc.ref.path.split('/')[3],
+        ...doc.data()
+      })));
+    }, (err) => console.error("Tasks collectionGroup listener error in JobsManager:", err));
+    return () => unsub();
+  }, [tenantId]);
+
   const jobColumns = [
     { 
       key: 'jobNumber', 
@@ -103,12 +163,30 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
     { 
       key: 'title', 
       label: 'Job Title',
-      format: (val: any, row: any) => (
-        <div className="flex flex-col">
-          <span className="font-black text-zinc-900 dark:text-white text-base">{val}</span>
-          <span className="text-[10px] text-zinc-500 font-mono">{row.id.substring(0, 8)}</span>
-        </div>
-      )
+      format: (val: any, row: any) => {
+        const activeStaff = activeJobStaffMap.get(row.id) || [];
+        const hasCurrentUser = activeStaff.some(item => item.isCurrentUser);
+        const otherStaffNames = activeStaff.filter(item => !item.isCurrentUser).map(item => item.staffName).join(', ');
+
+        return (
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="font-black text-zinc-900 dark:text-white text-base">{val}</span>
+              {hasCurrentUser && (
+                <span className="animate-pulse bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full flex items-center gap-1 shadow-sm shadow-emerald-500/35 border border-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" /> Working
+                </span>
+              )}
+              {!hasCurrentUser && activeStaff.length > 0 && (
+                <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full" title={`Being worked on by: ${otherStaffNames}`}>
+                  Active Now ({activeStaff.length})
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-zinc-500 font-mono">{row.id.substring(0, 8)}</span>
+          </div>
+        );
+      }
     },
     { 
       key: 'status', 
@@ -124,6 +202,51 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
           {val || 'Unknown'}
         </span>
       )
+    },
+    {
+      key: 'updatedAt',
+      label: 'Last Modified',
+      format: (val: any) => {
+        if (!val) return <span className="text-zinc-400 italic">Not Set</span>;
+        const date = new Date(val?.seconds ? val.seconds * 1000 : val);
+        if (isNaN(date.getTime())) return <span className="text-zinc-400 italic">Not Set</span>;
+        return (
+          <div className="flex flex-col">
+            <span className="text-zinc-900 dark:text-white font-bold">
+              {date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+            </span>
+            <span className="text-[10px] text-zinc-500 font-mono">
+              {date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      key: 'tasks',
+      label: 'Tasks',
+      format: (_: any, row: any) => {
+        const jobTasks = tasks.filter(t => t.jobId === row.id);
+        const totalTasks = jobTasks.length;
+        const completedTasks = jobTasks.filter(t => 
+          ['completed', 'qc', 'qc complete'].includes((t.status || '').toLowerCase())
+        ).length;
+
+        if (totalTasks === 0) {
+          return <span className="text-[10px] text-zinc-400 italic">No Tasks</span>;
+        }
+
+        return (
+          <span className={cn(
+            "text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider",
+            completedTasks === totalTasks 
+              ? "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20" 
+              : "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400"
+          )}>
+            {completedTasks}/{totalTasks} Tasks
+          </span>
+        );
+      }
     },
     { 
       key: 'customerName', 
@@ -187,6 +310,44 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
     }
   ];
 
+  const customSort = React.useCallback((a: any, b: any) => {
+    const aStaff = activeJobStaffMap.get(a.id) || [];
+    const bStaff = activeJobStaffMap.get(b.id) || [];
+    
+    const aHasCurrentUser = aStaff.some(item => item.isCurrentUser);
+    const bHasCurrentUser = bStaff.some(item => item.isCurrentUser);
+
+    if (aHasCurrentUser && !bHasCurrentUser) return -1;
+    if (!aHasCurrentUser && bHasCurrentUser) return 1;
+
+    const aHasOtherActive = aStaff.length > 0;
+    const bHasOtherActive = bStaff.length > 0;
+
+    if (aHasOtherActive && !bHasOtherActive) return -1;
+    if (!aHasOtherActive && bHasOtherActive) return 1;
+
+    const getMs = (val: any) => {
+      if (!val) return 0;
+      if (typeof val === 'number') return val;
+      if (typeof val.toDate === 'function') {
+        try {
+          return val.toDate().getTime();
+        } catch (e) {}
+      }
+      if (typeof val === 'object') {
+        if ('seconds' in val) return val.seconds * 1000;
+        if ('_seconds' in val) return val._seconds * 1000;
+      }
+      const ms = Date.parse(val);
+      return isNaN(ms) ? 0 : ms;
+    };
+
+    const timeA = getMs(a.updatedAt || a.TimeModified || a.createdAt || a.TimeCreated);
+    const timeB = getMs(b.updatedAt || b.TimeModified || b.createdAt || b.TimeCreated);
+
+    return timeB - timeA;
+  }, [activeJobStaffMap]);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header Area */}
@@ -243,6 +404,8 @@ export function JobsManager({ tenantId, jobId }: JobsManagerProps) {
         title="Jobs"
         columns={jobColumns}
         dbOrderBy={{ field: 'updatedAt', direction: 'desc' }}
+        hideSearch={true}
+        customSort={customSort}
         localFilter={(job) => {
           const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
           const vehicleLabel = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'No Vehicle Assigned';
