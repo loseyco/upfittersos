@@ -12,7 +12,12 @@ service cloud.firestore {
 
     // Helper function for global admins
     function isSuperAdmin() {
-      return request.auth != null && (request.auth.token.role == 'super_admin' || request.auth.token.role == 'system_owner');
+      return request.auth != null && (
+        request.auth.token.role == 'super_admin' || 
+        request.auth.token.role == 'system_owner' ||
+        request.auth.token.get('email', '').lower() == 'p.losey@saegrp.com' ||
+        request.auth.token.get('email', '').lower() == 'loseyp@gmail.com'
+      );
     }
 
     // Helper function for business owners
@@ -267,6 +272,9 @@ service cloud.firestore {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /task_time_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /timeclock_verifications/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /deliveries/{docId} {
