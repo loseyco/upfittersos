@@ -21,6 +21,8 @@ import { SearchableSelect } from './SearchableSelect';
 import { TakeoffsSection } from './TakeoffsSection';
 import { LogoQRCode } from '../../components/LogoQRCode';
 import { StaffLink } from './StaffPerformance';
+import { TimeAllocationModal } from './TimeAllocationModal';
+import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
 
 const isGeneralTask = (title?: string) => {
   const t = (title || '').toLowerCase().trim();
@@ -143,6 +145,20 @@ export function JobDetailPage({
 
   // Job Status Report states
   const [showReportModal, setShowReportModal] = useState(false);
+  const [pendingCompletionTask, setPendingCompletionTask] = useState<{
+    taskId: string;
+    currentStatus: string;
+    title: string;
+    bookTime: number;
+  } | null>(null);
+  const [generalClockInWarning, setGeneralClockInWarning] = useState<{
+    generalTaskId: string;
+    generalTaskTitle: string;
+    isClockingOther: boolean;
+    resolvedStaffName?: string;
+    targetUid: string;
+    assignedTasks: any[];
+  } | null>(null);
   const [customerEmail, setCustomerEmail] = useState('');
   const [emailRecipients, setEmailRecipients] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
@@ -262,6 +278,46 @@ export function JobDetailPage({
       return (matchesUid || matchesName) && 
         (session.jobs || []).some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
     });
+  };
+
+  const handleClockInClick = async (task: any, alternateStaffUid?: string, alternateStaffName?: string) => {
+    const targetUid = alternateStaffUid || effectiveUserId || user?.uid;
+    const isClockingOther = !!(alternateStaffUid || (effectiveUserId && effectiveUserId !== user?.uid));
+    const resolvedStaffName = isClockingOther 
+      ? (alternateStaffName || staffMember?.name || allStaff.find(s => s.userId === targetUid || s.id === targetUid)?.name || 'Technician')
+      : undefined;
+
+    const isGeneral = isGeneralTask(task.title);
+    if (isGeneral && targetUid) {
+      const assignedTasks = tasks.filter(t => 
+        !isGeneralTask(t.title) && 
+        t.status !== 'QC' && 
+        t.status !== 'QC Complete' && 
+        t.status !== 'completed' && 
+        (t.assignedStaffIds?.includes(targetUid) || t.assignedStaff?.some((s: any) => (s.uid || s.id) === targetUid))
+      );
+      if (assignedTasks.length > 0) {
+        setGeneralClockInWarning({
+          generalTaskId: task.id,
+          generalTaskTitle: task.title,
+          isClockingOther,
+          resolvedStaffName,
+          targetUid,
+          assignedTasks: assignedTasks.map(t => ({
+            id: t.id,
+            title: t.title,
+            description: t.description
+          }))
+        });
+        return;
+      }
+    }
+
+    if (isClockingOther && targetUid && resolvedStaffName) {
+      await handleClockOther(targetUid, resolvedStaffName, task.id, task.title, 'in');
+    } else {
+      await clockIntoJob(jobId, job.title, task.id, task.title);
+    }
   };
 
   const handleClockOther = async (targetUid: string, targetName: string, taskId: string, taskTitle: string, action: 'in' | 'out') => {
@@ -604,7 +660,14 @@ export function JobDetailPage({
     return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
 
-  const handleTaskStatusChange = async (taskId: string, currentStatus: string, action?: 'pass' | 'fail') => {
+  const handlePendingTaskSuccess = async () => {
+    if (!pendingCompletionTask) return;
+    const { taskId, currentStatus } = pendingCompletionTask;
+    setPendingCompletionTask(null);
+    await handleTaskStatusChange(taskId, currentStatus, undefined, true);
+  };
+
+  const handleTaskStatusChange = async (taskId: string, currentStatus: string, action?: 'pass' | 'fail', bypassVerification = false) => {
     let nextStatus = '';
     if (currentStatus === 'pending' || currentStatus === 'in_progress' || currentStatus === 'Rework') {
       nextStatus = 'QC'; // Mark complete -> Needs QC
@@ -620,6 +683,19 @@ export function JobDetailPage({
 
     try {
       const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      // Intercept if they are marking complete
+      if (nextStatus === 'QC' && !isGeneralTask(task.title) && !bypassVerification) {
+        setPendingCompletionTask({
+          taskId,
+          currentStatus,
+          title: task.title,
+          bookTime: parseFloat(task.bookTime) || 0
+        });
+        return;
+      }
+
       const updateData: any = {
         status: nextStatus,
         updatedAt: new Date().toISOString()
@@ -901,36 +977,7 @@ export function JobDetailPage({
     }
   };
 
-  const handleNoChange = async () => {
-    if (!isSuperAdmin && !permissions['jobs.manage']) {
-      toast.error('You do not have permission to perform this action');
-      return;
-    }
-    try {
-      await logActivity('patrol_check', 'Patrol Check: Confirmed no changes needed at this time.');
-      
-      // Update job to trigger "Just Updated" on boards
-      const jobUpdate = {
-        updatedAt: serverTimestamp()
-      };
-      
-      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), jobUpdate);
 
-      // Also update the zone if this job is currently assigned to one
-      const zoneId = job.currentZoneId || zones.find(z => z.currentJobId === jobId)?.id;
-      if (zoneId) {
-        await updateDoc(doc(db, `businesses/${tenantId}/zones`, zoneId), {
-          updatedAt: serverTimestamp()
-        });
-      }
-
-      toast.success('Check recorded');
-      navigate(-1);
-    } catch (e) {
-      console.error(e);
-      toast.error('Failed to record check');
-    }
-  };
   const prevTasksStateRef = useRef<string>('');
 
   // Progression & Regression Logic Hook
@@ -1603,12 +1650,6 @@ export function JobDetailPage({
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 dark:text-white tracking-tight">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h1>
-              <span className={cn(
-                "px-2 py-1 rounded text-xs font-black uppercase tracking-tighter",
-                job.source === 'QuickBooks' ? "bg-blue-600 text-white" : "bg-zinc-900 text-white dark:bg-white dark:text-black"
-              )}>
-                {job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
-              </span>
             </div>
             <p className="text-base sm:text-lg font-bold text-zinc-500 mt-1">
               {job.customerName || 'Walk-in Customer'} • {job.vehicleId || 'No Vehicle Linked'}
@@ -1619,13 +1660,7 @@ export function JobDetailPage({
         <div className="flex items-center gap-2">
           {(isSuperAdmin || permissions['jobs.manage']) && (
             <>
-              <button 
-                onClick={handleNoChange}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 transition-all"
-              >
-                <Sparkles className="w-4 h-4" />
-                No Change
-              </button>
+
               <button 
                 onClick={() => navigate(`/business/${tenantId}/qr_hub?search=${job.jobNumber || job.id}`)}
                 className="flex items-center gap-2 px-4 py-2 bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-850 dark:hover:bg-zinc-800 border border-zinc-800 text-white rounded-xl text-sm font-bold shadow-sm transition-all"
@@ -1653,29 +1688,18 @@ export function JobDetailPage({
       </div>
 
       {/* Quick Parking Spot Selector Bar (Highly prominent on mobile) */}
-      <div className="bg-gradient-to-r from-zinc-950 to-indigo-950/40 p-5 rounded-[2rem] border border-indigo-500/25 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-5 transition-all">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-indigo-500/20 border border-indigo-500/30 rounded-2xl shrink-0 shadow-inner">
-            <MapPin className="w-6 h-6 text-indigo-400" />
+      <div className="bg-gradient-to-r from-zinc-950 to-indigo-950/40 p-4 rounded-[1.75rem] border border-indigo-500/25 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-500/20 border border-indigo-500/30 rounded-xl shrink-0 shadow-inner">
+            <MapPin className="w-5 h-5 text-indigo-400" />
           </div>
           <div>
-            <h4 className="text-[10px] font-black uppercase text-indigo-300 tracking-wider">Active Key & Spot Deck Assignment</h4>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-sm font-bold text-white">Current Spot:</span>
-              <span className={cn(
-                "text-[10px] px-3 py-1 rounded-full font-black uppercase tracking-wider",
-                zones.find(z => z.currentJobId === jobId)
-                  ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 animate-pulse shadow-sm shadow-indigo-500/10"
-                  : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-              )}>
-                {zones.find(z => z.currentJobId === jobId)?.name || 'Off-site / Unassigned'}
-              </span>
-            </div>
+            <h4 className="text-xs font-bold text-indigo-200">Active Bay / Parking Spot</h4>
           </div>
         </div>
 
         {/* Spot Dropdown */}
-        <div className="w-full md:w-80 shrink-0">
+        <div className="w-full sm:w-80 shrink-0">
           <SearchableSelect
             theme="indigo"
             options={zones.sort((a, b) => a.name.localeCompare(b.name))}
@@ -1683,7 +1707,7 @@ export function JobDetailPage({
             onChange={val => handleZoneChange(val || '')}
             getLabel={z => z.name}
             getValue={z => z.id}
-            placeholder="-- Move Key to Off-site --"
+            placeholder="Off-site / Unassigned"
             searchPlaceholder="Search parking spot..."
             renderOption={(zone) => (
               <div className="flex flex-col">
@@ -1722,31 +1746,33 @@ export function JobDetailPage({
               {visibleTasks.length > 0 && (
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
                   {/* Technician Filter Dropdown */}
-                  <div className="relative w-full sm:w-48 group">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                      <Users className="w-4 h-4 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
-                    </span>
-                    <select
-                      value={selectedStaffFilter}
-                      onChange={(e) => setSelectedStaffFilter(e.target.value)}
-                      className="w-full pl-9 pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:bg-white dark:focus:bg-zinc-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-bold text-zinc-700 dark:text-zinc-300 appearance-none cursor-pointer"
-                    >
-                      <option value="all">All Technicians</option>
-                      <option value="unassigned">⚠️ Unassigned Tasks</option>
-                      {staffStats
-                        .filter(s => s.id !== 'unassigned')
-                        .map(staff => (
-                          <option key={staff.id} value={staff.id}>
-                            👤 {staff.name}
-                          </option>
-                        ))}
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-400 dark:text-zinc-650 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                      </svg>
+                  {(isSuperAdmin || permissions['jobs.manage']) && (
+                    <div className="relative w-full sm:w-48 group">
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                        <Users className="w-4 h-4 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
+                      </span>
+                      <select
+                        value={selectedStaffFilter}
+                        onChange={(e) => setSelectedStaffFilter(e.target.value)}
+                        className="w-full pl-9 pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:bg-white dark:focus:bg-zinc-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 outline-none transition-all font-bold text-zinc-700 dark:text-zinc-300 appearance-none cursor-pointer"
+                      >
+                        <option value="all">All Technicians</option>
+                        <option value="unassigned">⚠️ Unassigned Tasks</option>
+                        {staffStats
+                          .filter(s => s.id !== 'unassigned')
+                          .map(staff => (
+                            <option key={staff.id} value={staff.id}>
+                              👤 {staff.name}
+                            </option>
+                          ))}
+                      </select>
+                      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-zinc-400 dark:text-zinc-650 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Task Search Bar */}
                   <div className="relative w-full sm:w-64 group">
@@ -1860,7 +1886,11 @@ export function JobDetailPage({
                               <div key={group} className="space-y-4">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-zinc-100 dark:border-zinc-800 mt-6 first:mt-0">
                                   <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">
-                                    {sectionTitle ? `${group}, QC Task` : `${group}, Task`}
+                                    {sectionTitle === "Currently Clocked In" 
+                                      ? `${group}, Active Task` 
+                                      : sectionTitle 
+                                        ? `${group}, QC Task` 
+                                        : `${group}, Task`}
                                   </h4>
                                   {!isGeneralTask(group) && totalBookHours > 0 && (
                                     <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
@@ -1886,6 +1916,14 @@ export function JobDetailPage({
                                 </div>
                                 <div className="space-y-4">
                                   {groupTasks.sort((a, b) => {
+                                    const aClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === a.id) || 
+                                                       isUserClockedIntoTask(effectiveUserId || '', a.id, staffMember?.name);
+                                    const bClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === b.id) || 
+                                                       isUserClockedIntoTask(effectiveUserId || '', b.id, staffMember?.name);
+
+                                    if (aClockedIn && !bClockedIn) return -1;
+                                    if (!aClockedIn && bClockedIn) return 1;
+
                                     const aLoggedMs = getTaskLoggedMs(a.id);
                                     const bLoggedMs = getTaskLoggedMs(b.id);
                                     const aHasTime = !a.isAccidental && ((a.actualTime !== undefined && a.actualTime > 0) || aLoggedMs > 0);
@@ -2007,6 +2045,12 @@ export function JobDetailPage({
                                                   Accidental Clock-in
                                                 </span>
                                               )}
+                                              {task.task_notes && task.task_notes.length > 0 && (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/[0.08] dark:bg-indigo-500/[0.15] text-indigo-600 dark:text-indigo-350 border border-indigo-500/20 flex items-center gap-1.5 shadow-sm">
+                                                  <MessageSquare className="w-3 h-3 text-indigo-500" />
+                                                  {task.task_notes.length} {task.task_notes.length === 1 ? 'Note' : 'Notes'}
+                                                </span>
+                                              )}
                                             </div>
                                             {task.description && (
                                               <p className="text-xs text-zinc-500 mb-2">
@@ -2103,12 +2147,7 @@ export function JobDetailPage({
                                                     <button 
                                                       onClick={async (e) => { 
                                                         e.stopPropagation(); 
-                                                        if (effectiveUserId && effectiveUserId !== user?.uid) {
-                                                          const resolvedStaffName = staffMember?.name || allStaff.find(s => s.userId === effectiveUserId || s.id === effectiveUserId)?.name || 'Technician';
-                                                          await handleClockOther(effectiveUserId, resolvedStaffName, task.id, task.title, 'in');
-                                                        } else {
-                                                          await clockIntoJob(jobId, job.title, task.id, task.title); 
-                                                        }
+                                                        await handleClockInClick(task);
                                                       }}
                                                       disabled={isClockingIn}
                                                       className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
@@ -2211,7 +2250,7 @@ export function JobDetailPage({
                                                       </button>
                                                     ) : (
                                                       <button
-                                                        onClick={() => handleClockOther(staffUid, staff.name, task.id, task.title, 'in')}
+                                                        onClick={() => handleClockInClick(task, staffUid, staff.name)}
                                                         className="px-2 py-1 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-sm shadow-indigo-500/10"
                                                       >
                                                         Clock In
@@ -2234,9 +2273,20 @@ export function JobDetailPage({
                     );
                   };
 
+                  const clockedInTasksList = filteredTasks.filter(task => 
+                    activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
+                    isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name)
+                  );
+                  const remainingActiveTasksList = activeTasksList.filter(t => !clockedInTasksList.some(ct => ct.id === t.id));
+
                   return (
                     <div className="space-y-8">
-                      {renderGroupedTasks(activeTasksList)}
+                      {clockedInTasksList.length > 0 && (
+                        <div className="space-y-4 bg-indigo-500/[0.02] dark:bg-indigo-500/[0.01] p-5 rounded-3xl border-2 border-indigo-500/25 dark:border-indigo-500/10">
+                          {renderGroupedTasks(clockedInTasksList, "Currently Clocked In")}
+                        </div>
+                      )}
+                      {renderGroupedTasks(remainingActiveTasksList)}
                       <div id="qc-tasks-section">
                         {renderGroupedTasks(completedTasksList, "Ready for QC & Completed")}
                       </div>
@@ -2875,6 +2925,44 @@ export function JobDetailPage({
           currentETA={job.expectedFinishTime}
           onClose={() => setIsETAOpen(false)}
           onSuccess={() => setIsETAOpen(false)}
+        />
+      )}
+
+      {pendingCompletionTask && (
+        <TimeAllocationModal
+          tenantId={tenantId}
+          jobId={jobId}
+          jobTitle={job?.title || 'Job'}
+          taskId={pendingCompletionTask.taskId}
+          taskTitle={pendingCompletionTask.title}
+          bookTime={pendingCompletionTask.bookTime}
+          timeLogs={timeLogs}
+          effectiveUserId={effectiveUserId || ''}
+          onClose={() => setPendingCompletionTask(null)}
+          onSuccess={handlePendingTaskSuccess}
+        />
+      )}
+
+      {generalClockInWarning && (
+        <GeneralClockInWarningModal
+          assignedTasks={generalClockInWarning.assignedTasks}
+          onClose={() => setGeneralClockInWarning(null)}
+          onClockIntoTask={async (taskId, taskTitle) => {
+            if (generalClockInWarning.isClockingOther && generalClockInWarning.resolvedStaffName) {
+              await handleClockOther(generalClockInWarning.targetUid, generalClockInWarning.resolvedStaffName, taskId, taskTitle, 'in');
+            } else {
+              await clockIntoJob(jobId, job.title, taskId, taskTitle);
+            }
+            setGeneralClockInWarning(null);
+          }}
+          onClockIntoGeneral={async () => {
+            if (generalClockInWarning.isClockingOther && generalClockInWarning.resolvedStaffName) {
+              await handleClockOther(generalClockInWarning.targetUid, generalClockInWarning.resolvedStaffName, generalClockInWarning.generalTaskId, generalClockInWarning.generalTaskTitle, 'in');
+            } else {
+              await clockIntoJob(jobId, job.title, generalClockInWarning.generalTaskId, generalClockInWarning.generalTaskTitle);
+            }
+            setGeneralClockInWarning(null);
+          }}
         />
       )}
 

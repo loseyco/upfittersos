@@ -492,15 +492,15 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     .sort((a, b) => {
       const aJob = jobs.find((j: any) => j.id === a.currentJobId);
       const bJob = jobs.find((j: any) => j.id === b.currentJobId);
-      const aHasVehicle = !!(aJob?.vehicleVin || a.currentVehicleVin);
-      const bHasVehicle = !!(bJob?.vehicleVin || b.currentVehicleVin);
-      if (aHasVehicle && !bHasVehicle) return -1;
-      if (!aHasVehicle && bHasVehicle) return 1;
+      const aHasJob = !!aJob;
+      const bHasJob = !!bJob;
+      if (aHasJob && !bHasJob) return -1;
+      if (!aHasJob && bHasJob) return 1;
       return 0;
     });
 
-  const occupiedBays = bayZones.filter(z => !!z.currentVehicleVin).length;
-  const occupiedParking = parkingZones.filter(z => !!z.currentVehicleVin).length;
+  const occupiedBays = bayZones.filter(z => jobs.some((j: any) => j.id === z.currentJobId)).length;
+  const occupiedParking = parkingZones.filter(z => jobs.some((j: any) => j.id === z.currentJobId)).length;
 
   const renderZoneCard = (zone: Zone, isCompact: boolean = false) => {
     const vehicle = vehicles.find((v: any) => v.vin === zone.currentVehicleVin);
@@ -580,7 +580,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
       ? (job?.currentBaySessionStart || zone.lastAssignedAt)
       : (job?.currentParkingSessionStart || zone.lastAssignedAt);
 
-    const hasVehicle = !!currentVin;
+    const hasVehicle = !!job;
 
     const formatSmartDuration = (seconds: number, includeSeconds: boolean = false) => {
       if (seconds <= 0) return '0m';

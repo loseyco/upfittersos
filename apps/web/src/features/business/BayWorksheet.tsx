@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  collection, query, orderBy, limit, doc, getDoc, updateDoc, serverTimestamp, onSnapshot 
+  collection, query, orderBy, limit, doc, getDoc, updateDoc, serverTimestamp, onSnapshot, addDoc 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -39,13 +39,15 @@ interface Zone {
   type: string;
   currentJobId?: string;
   currentVehicleVin?: string;
+  currentVehicleVins?: string[];
+  allowMultiple?: boolean;
   lastAssignedAt?: any;
   isArchived?: boolean;
 }
 
 export function BayWorksheet({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { permissions, isSuperAdmin, user } = useAuthStore();
   const canManage = isSuperAdmin || permissions['timeclock.manage'] || permissions['staff.manage'];
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -304,12 +306,52 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       const zoneDoc = zonesList.find(z => z.id === zoneId);
       const zoneName = zoneDoc?.name;
 
+      const newJobDoc = jobsList.find(j => j.id === newJobId);
+      const vehicleVin = newJobDoc ? (newJobDoc.vehicleId || newJobDoc.vehicleVin || null) : null;
+
+      // AUTO-MOVE: If this job or its vehicle is already in another zone, clear it from there first
+      if (newJobId && newJobId !== 'none') {
+        const otherZones = zonesList.filter(z => z.id !== zoneId);
+        for (const oz of otherZones) {
+          let needsClear = false;
+          if (oz.currentJobId === newJobId) needsClear = true;
+          else if (vehicleVin && oz.currentVehicleVin === vehicleVin) needsClear = true;
+          else if (vehicleVin && oz.currentVehicleVins?.includes(vehicleVin)) needsClear = true;
+
+          if (needsClear) {
+            await updateDoc(doc(db, `businesses/${tenantId}/zones`, oz.id), {
+              currentVehicleVin: null,
+              currentJobId: null,
+              currentVehicleVins: (oz.currentVehicleVins || []).filter((v: string) => v !== vehicleVin),
+              updatedAt: serverTimestamp()
+            }).catch(err => console.warn(`Failed to auto-move zone ${oz.id}:`, err));
+          }
+        }
+      }
+
       // 1. Update the zone document
-      await updateDoc(zoneRef, {
+      const zoneUpdates: any = {
         currentJobId: newJobId === 'none' ? null : newJobId,
         lastAssignedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      });
+      };
+
+      if (newJobId === 'none') {
+        zoneUpdates.currentVehicleVin = null;
+        zoneUpdates.currentVehicleVins = [];
+      } else {
+        if (zoneDoc?.allowMultiple) {
+          const currentVins = [...(zoneDoc.currentVehicleVins || [])];
+          if (vehicleVin && !currentVins.includes(vehicleVin)) {
+            currentVins.push(vehicleVin);
+          }
+          zoneUpdates.currentVehicleVins = currentVins;
+        } else {
+          zoneUpdates.currentVehicleVin = vehicleVin;
+        }
+      }
+
+      await updateDoc(zoneRef, zoneUpdates);
 
       // 2. Find and clear bayId from any jobs currently linked to this bay
       const linkedJobs = jobsList.filter(j => 
@@ -339,6 +381,18 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       } else {
         toast.success(`Cleared job from ${zoneDoc?.type === 'parking' ? 'parking spot' : 'bay'}.`);
       }
+
+      // 4. Log the zone assignment/clear activity
+      await addDoc(collection(db, `businesses/${tenantId}/zone_assignments`), {
+        zoneId,
+        zoneName: zoneDoc?.name || 'Unknown',
+        vin: vehicleVin || null,
+        jobId: newJobId === 'none' ? null : newJobId,
+        action: newJobId === 'none' ? 'cleared' : 'assigned',
+        assignedAt: serverTimestamp(),
+        assignedBy: user?.uid || 'system',
+        assignedByName: user?.displayName || user?.email || 'Staff'
+      }).catch(err => console.warn('Failed to log zone assignment history:', err));
     } catch (err: any) {
       toast.error(`Assignment failed: ${err.message}`);
     } finally {

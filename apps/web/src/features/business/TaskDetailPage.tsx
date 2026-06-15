@@ -16,6 +16,8 @@ import { assignQCStaffToTask } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
 import { PartsRequestModal } from './PartsRequestModal';
 import { StaffLink } from './StaffPerformance';
+import { TimeAllocationModal } from './TimeAllocationModal';
+import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
 
 const isGeneralTask = (title?: string) => {
   const t = (title || '').toLowerCase().trim();
@@ -125,6 +127,19 @@ export function TaskDetailPage({
   const [selectedLightboxImage, setSelectedLightboxImage] = useState<string | null>(null);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [tempDescription, setTempDescription] = useState('');
+  const [pendingCompletion, setPendingCompletion] = useState<{
+    currentStatus: string;
+    action?: 'pass' | 'fail';
+  } | null>(null);
+  const [generalClockInWarning, setGeneralClockInWarning] = useState<{
+    generalTaskId: string;
+    generalTaskTitle: string;
+    isClockingOther: boolean;
+    resolvedStaffName?: string;
+    targetUid: string;
+    assignedTasks: any[];
+  } | null>(null);
+  const [isCheckingTasks, setIsCheckingTasks] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -762,8 +777,68 @@ export function TaskDetailPage({
     }
   };
 
+  const handleClockInClick = async () => {
+    if (!task) return;
+    const isGeneral = isGeneralTask(task.title);
+    const targetUid = effectiveUserId || user?.uid;
+    const isClockingOther = !!(effectiveUserId && effectiveUserId !== user?.uid);
+    const resolvedStaffName = isClockingOther 
+      ? (staffMember?.name || allStaff.find(s => s.userId === targetUid || s.id === targetUid)?.name || 'Technician')
+      : undefined;
 
-  const handleTaskStatusChange = async (currentStatus: string, action?: 'pass' | 'fail') => {
+    if (isGeneral && targetUid) {
+      setIsCheckingTasks(true);
+      try {
+        const q = query(
+          collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`)
+        );
+        const snap = await getDocs(q);
+        const allTasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        const assignedTasks = allTasks.filter(t => 
+          !isGeneralTask(t.title) && 
+          t.status !== 'QC' && 
+          t.status !== 'QC Complete' && 
+          t.status !== 'completed' && 
+          (t.assignedStaffIds?.includes(targetUid) || t.assignedStaff?.some((s: any) => (s.uid || s.id) === targetUid))
+        );
+        if (assignedTasks.length > 0) {
+          setGeneralClockInWarning({
+            generalTaskId: task.id,
+            generalTaskTitle: task.title,
+            isClockingOther,
+            resolvedStaffName,
+            targetUid,
+            assignedTasks: assignedTasks.map(t => ({
+              id: t.id,
+              title: t.title,
+              description: t.description
+            }))
+          });
+          setIsCheckingTasks(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Error checking assigned tasks:', err);
+      } finally {
+        setIsCheckingTasks(false);
+      }
+    }
+
+    if (isClockingOther && targetUid && resolvedStaffName) {
+      await handleClockOther(targetUid, resolvedStaffName, task.id, task.title, 'in');
+    } else {
+      await clockIntoJob(jobId!, job?.title || 'Job', task.id, task.title);
+    }
+  };
+
+  const handlePendingTaskSuccess = async () => {
+    if (!pendingCompletion) return;
+    const { currentStatus, action } = pendingCompletion;
+    setPendingCompletion(null);
+    await handleTaskStatusChange(currentStatus, action, true);
+  };
+
+  const handleTaskStatusChange = async (currentStatus: string, action?: 'pass' | 'fail', bypassVerification = false) => {
     let nextStatus = '';
     if (currentStatus === 'pending' || currentStatus === 'in_progress' || currentStatus === 'Blocked' || currentStatus === 'Rework') {
       nextStatus = 'QC'; 
@@ -778,6 +853,17 @@ export function TaskDetailPage({
     }
 
     try {
+      if (!task) return;
+
+      // Intercept if they are marking complete
+      if (nextStatus === 'QC' && !isGeneralTask(task.title) && !bypassVerification) {
+        setPendingCompletion({
+          currentStatus,
+          action
+        });
+        return;
+      }
+
       const updateData: any = {
         status: nextStatus,
         updatedAt: new Date().toISOString()
@@ -1038,18 +1124,17 @@ export function TaskDetailPage({
                   task.status !== 'QC' && task.status !== 'QC Complete' && task.status !== 'completed' && !['Ready for QC', 'Ready for Customer', 'Completed'].includes(job?.status || '') && (
                     <button 
                       onClick={async () => {
-                        if (effectiveUserId && effectiveUserId !== user?.uid) {
-                          const resolvedStaffName = staffMember?.name || allStaff.find(s => s.userId === effectiveUserId || s.id === effectiveUserId)?.name || 'Technician';
-                          await handleClockOther(effectiveUserId, resolvedStaffName, task.id, task.title, 'in');
-                        } else {
-                          await clockIntoJob(jobId, job.title, task.id, task.title);
-                        }
+                        await handleClockInClick();
                       }}
-                      disabled={isClockingIn || task.status === 'Blocked'}
+                      disabled={isClockingIn || isCheckingTasks || task.status === 'Blocked'}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-bold uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
                     >
-                      <Timer className="w-4 h-4" />
-                      Clock In
+                      {isCheckingTasks ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Timer className="w-4 h-4" />
+                      )}
+                      {isCheckingTasks ? 'Checking...' : 'Clock In'}
                     </button>
                   )
                 )}
@@ -1860,6 +1945,44 @@ export function TaskDetailPage({
           onSuccess={() => {
             setIsPartRequestOpen(false);
             setSelectedPartForEdit(null);
+          }}
+        />
+      )}
+
+      {pendingCompletion && task && (
+        <TimeAllocationModal
+          tenantId={tenantId}
+          jobId={jobId!}
+          jobTitle={job?.title || 'Job'}
+          taskId={task.id}
+          taskTitle={task.title}
+          bookTime={parseFloat(task.bookTime) || 0}
+          timeLogs={timeLogs}
+          effectiveUserId={effectiveUserId || ''}
+          onClose={() => setPendingCompletion(null)}
+          onSuccess={handlePendingTaskSuccess}
+        />
+      )}
+
+      {generalClockInWarning && (
+        <GeneralClockInWarningModal
+          assignedTasks={generalClockInWarning.assignedTasks}
+          onClose={() => setGeneralClockInWarning(null)}
+          onClockIntoTask={async (taskId, taskTitle) => {
+            if (generalClockInWarning.isClockingOther && generalClockInWarning.resolvedStaffName) {
+              await handleClockOther(generalClockInWarning.targetUid, generalClockInWarning.resolvedStaffName, taskId, taskTitle, 'in');
+            } else {
+              await clockIntoJob(jobId!, job?.title || 'Job', taskId, taskTitle);
+            }
+            setGeneralClockInWarning(null);
+          }}
+          onClockIntoGeneral={async () => {
+            if (generalClockInWarning.isClockingOther && generalClockInWarning.resolvedStaffName) {
+              await handleClockOther(generalClockInWarning.targetUid, generalClockInWarning.resolvedStaffName, generalClockInWarning.generalTaskId, generalClockInWarning.generalTaskTitle, 'in');
+            } else {
+              await clockIntoJob(jobId!, job?.title || 'Job', generalClockInWarning.generalTaskId, generalClockInWarning.generalTaskTitle);
+            }
+            setGeneralClockInWarning(null);
           }}
         />
       )}

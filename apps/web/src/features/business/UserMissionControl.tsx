@@ -28,6 +28,7 @@ import { DeviceSettings } from '../../components/DeviceSettings';
 import { TimeClockHistory } from '../timeclock/TimeClockHistory';
 import { useJobClock } from '../timeclock/useJobClock';
 
+
 const getPayrollWeekStart = (d: Date, weekEndDay: number) => {
   const date = new Date(d);
   date.setHours(0, 0, 0, 0);
@@ -47,7 +48,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
   const { status: clockStatus, startTime: clockStartTime, activeSessionId, setStatus: setClockStatus, reset: resetClock } = useTimeclockStore();
   const { open: openSearch } = useSearchStore();
-  const { clockOutOfJob, isProcessing: isJobClockingOut } = useJobClock(tenantId);
+  const { clockIntoJob, clockOutOfJob, isProcessing: isJobClockingOut } = useJobClock(tenantId);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
@@ -142,6 +143,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [sessionJobIds, setSessionJobIds] = useState<string[]>([]);
   const [activeSegments, setActiveSegments] = useState<any[]>([]);
+  const [sessionJobs, setSessionJobs] = useState<any[]>([]);
   const [selectedZone, setSelectedZone] = useState<any>(null);
   const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -530,12 +532,14 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     if (!tenantId || !activeSessionId) {
       setActiveJobIds([]);
       setActiveSegments([]);
+      setSessionJobs([]);
       return;
     }
     const unsub = onSnapshot(doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
         const jobs = data.jobs || [];
+        setSessionJobs(jobs);
         const activeSegs = jobs.filter((j: any) => !j.end);
         setActiveSegments(activeSegs);
         
@@ -547,12 +551,34 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       } else {
         setActiveJobIds([]);
         setActiveSegments([]);
+        setSessionJobs([]);
       }
     });
     return () => unsub();
   }, [tenantId, activeSessionId]);
 
 
+
+  const recentSegments = (() => {
+    const endedJobs = sessionJobs.filter((j: any) => j.end);
+    const getMs = (val: any) => {
+      if (!val) return 0;
+      return val.toDate ? val.toDate().getTime() : new Date(val).getTime();
+    };
+    const sorted = [...endedJobs].sort((a, b) => getMs(b.end) - getMs(a.end));
+    
+    const unique: any[] = [];
+    const seen = new Set<string>();
+    for (const j of sorted) {
+      const key = `${j.id}_${j.taskId || 'general'}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(j);
+      }
+      if (unique.length >= 3) break;
+    }
+    return unique;
+  })();
 
   const myJobs = allActiveJobs.filter(job => {
     return myAssignedTasks.some(task => 
@@ -677,13 +703,19 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       sessionBookMs = Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
     }
 
+    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+
     if (sessionDate.getTime() >= todayStart.getTime()) {
-      todayMs += workMs;
+      if (!isManual) {
+        todayMs += workMs;
+      }
       todayBookMs += sessionBookMs;
     }
 
     if (sessionDate.getTime() >= weekStart.getTime()) {
-      weekMs += workMs;
+      if (!isManual) {
+        weekMs += workMs;
+      }
     }
   });
 
@@ -2126,108 +2158,184 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
           {propViewMode === 'time' && (
             <div className="space-y-6 mt-6 max-w-4xl">
               {/* Active Session & Today's Summary Card */}
-              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 animate-in fade-in duration-300">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-500">
-                      <Clock className="w-5 h-5 text-indigo-505" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-zinc-900 dark:text-white text-base">Active Session Controls</h3>
-                      <p className="text-xs text-zinc-500 font-medium font-semibold">Manage your attendance and live breaks</p>
-                    </div>
-                  </div>
-                  
-                  {/* Today's Net Worked / Paid Summary */}
-                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 pt-1">
-                    <div>
-                      <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Today's Worked</span>
-                      <span className="font-mono text-sm font-black text-zinc-800 dark:text-white mt-0.5 block">{formatDuration(todayMs)}</span>
-                    </div>
-                    <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
-                      <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider block">Today's Book Time</span>
-                      <span className="font-mono text-sm font-black text-amber-650 dark:text-amber-400 mt-0.5 block">{formatDuration(todayBookMs)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Clock Status Timer & Controls */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
-                  {/* Live Active Status Badge & Timer */}
-                  <div className="bg-zinc-50 dark:bg-zinc-955 px-4 py-2.5 rounded-2xl border border-zinc-205 dark:border-zinc-850 flex items-center justify-between gap-6">
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-2 h-2 rounded-full",
-                        clockStatus === 'clocked_out' ? "bg-zinc-400" :
-                        clockStatus === 'clocked_in' ? "bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500 animate-pulse"
-                      )} />
-                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
-                        {clockStatus.replace('_', ' ')}
-                      </span>
-                    </div>
-                    {clockStatus !== 'clocked_out' && clockStartTime && (
-                      <span className="text-base font-mono font-black text-zinc-900 dark:text-white tabular-nums">
-                        {clockStatus === 'clocked_in'
-                          ? formatDuration(calculateNetWorkMs())
-                          : formatDuration(Math.max(0, currentTime - clockStartTime))
-                        }
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Actions buttons */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    {isClockProcessing ? (
-                      <div className="flex items-center gap-2 px-6 py-3 text-zinc-400 text-sm font-bold bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800">
-                        <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-                        <span>Processing...</span>
+              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl md:rounded-3xl p-5 shadow-sm flex flex-col gap-6 animate-in fade-in duration-300">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-500">
+                        <Clock className="w-5 h-5 text-indigo-505" />
                       </div>
-                    ) : (
-                      <>
-                        {clockStatus === 'clocked_out' ? (
-                          <button
-                            onClick={handleClockIn}
-                            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-bold shadow-md shadow-emerald-500/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                          >
-                            <LogIn className="w-4 h-4" /> Clock In
-                          </button>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            {clockStatus === 'clocked_in' ? (
-                              <>
+                      <div>
+                        <h3 className="font-black text-zinc-900 dark:text-white text-base">Active Session Controls</h3>
+                        <p className="text-xs text-zinc-500 font-medium font-semibold">Manage your attendance and live breaks</p>
+                      </div>
+                    </div>
+                    
+                    {/* Today's Net Worked / Paid Summary */}
+                    <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 pt-1">
+                      <div>
+                        <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Today's Worked</span>
+                        <span className="font-mono text-sm font-black text-zinc-800 dark:text-white mt-0.5 block">{formatDuration(todayMs)}</span>
+                      </div>
+                      <div className="border-l border-zinc-200 dark:border-zinc-800 pl-4">
+                        <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider block">Today's Book Time</span>
+                        <span className="font-mono text-sm font-black text-amber-650 dark:text-amber-400 mt-0.5 block">{formatDuration(todayBookMs)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Clock Status Timer & Controls */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                    {/* Live Active Status Badge & Timer */}
+                    <div className="bg-zinc-50 dark:bg-zinc-955 px-4 py-2.5 rounded-2xl border border-zinc-205 dark:border-zinc-850 flex items-center justify-between gap-6">
+                      <div className="flex items-center gap-2">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          clockStatus === 'clocked_out' ? "bg-zinc-400" :
+                          clockStatus === 'clocked_in' ? "bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500 animate-pulse"
+                        )} />
+                        <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider">
+                          {clockStatus.replace('_', ' ')}
+                        </span>
+                      </div>
+                      {clockStatus !== 'clocked_out' && clockStartTime && (
+                        <span className="text-base font-mono font-black text-zinc-900 dark:text-white tabular-nums">
+                          {clockStatus === 'clocked_in'
+                            ? formatDuration(calculateNetWorkMs())
+                            : formatDuration(Math.max(0, currentTime - clockStartTime))
+                          }
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Actions buttons */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isClockProcessing ? (
+                        <div className="flex items-center gap-2 px-6 py-3 text-zinc-400 text-sm font-bold bg-zinc-50 dark:bg-zinc-955 rounded-2xl border border-zinc-200 dark:border-zinc-800">
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                          <span>Processing...</span>
+                        </div>
+                      ) : (
+                        <>
+                          {clockStatus === 'clocked_out' ? (
+                            <button
+                              onClick={handleClockIn}
+                              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-bold shadow-md shadow-emerald-500/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                            >
+                              <LogIn className="w-4 h-4" /> Clock In
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {clockStatus === 'clocked_in' ? (
+                                <>
+                                  <button
+                                    onClick={() => handleStartBreak('lunch')}
+                                    className="px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/20 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                                  >
+                                    <Pizza className="w-4 h-4" /> Lunch
+                                  </button>
+                                  <button
+                                    onClick={() => handleStartBreak('normal')}
+                                    className="px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/20 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                                  >
+                                    <Coffee className="w-4 h-4" /> Break
+                                  </button>
+                                  <button
+                                    onClick={handleClockOut}
+                                    className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-rose-500/10 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                                  >
+                                    <Square className="w-4 h-4" /> Clock Out
+                                  </button>
+                                </>
+                              ) : (
                                 <button
-                                  onClick={() => handleStartBreak('lunch')}
-                                  className="px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/20 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                                  onClick={handleEndBreak}
+                                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-bold shadow-md shadow-indigo-500/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                                 >
-                                  <Pizza className="w-4 h-4" /> Lunch
+                                  <Play className="w-4 h-4" /> Resume Work
                                 </button>
-                                <button
-                                  onClick={() => handleStartBreak('normal')}
-                                  className="px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-2xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-500/20 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                  <Coffee className="w-4 h-4" /> Break
-                                </button>
-                                <button
-                                  onClick={handleClockOut}
-                                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-rose-500/10 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                  <Square className="w-4 h-4" /> Clock Out
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={handleEndBreak}
-                                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-sm font-bold shadow-md shadow-indigo-500/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                              >
-                                <Play className="w-4 h-4" /> Resume Work
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* Task-Level Attendance & Clock-In Switches */}
+                {clockStatus !== 'clocked_out' && (activeSegments.length > 0 || recentSegments.length > 0) && (
+                  <div className="w-full border-t border-zinc-100 dark:border-zinc-800/80 pt-5 mt-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Active Clocked In Tasks */}
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-widest flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Currently Clocked In Tasks
+                      </h4>
+                      {activeSegments.length === 0 ? (
+                        <p className="text-xs text-zinc-500 italic py-2">Not clocked into any specific tasks right now.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {activeSegments.map((seg, idx) => (
+                            <div key={idx} className="p-3 bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-150 dark:border-zinc-850 rounded-2xl flex items-center justify-between gap-3 shadow-sm hover:border-zinc-200 dark:hover:border-zinc-800 transition-all animate-in fade-in duration-200">
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block truncate">
+                                  {seg.name}
+                                </span>
+                                <span className="text-xs font-black text-zinc-850 dark:text-zinc-250 block truncate mt-0.5">
+                                  {seg.taskName || 'General Labor'}
+                                </span>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  await clockOutOfJob(seg.id, seg.taskId || undefined);
+                                }}
+                                disabled={isClockProcessing || isJobClockingOut}
+                                className="px-3.5 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:shadow-lg shadow-rose-500/10 active:scale-[0.98] disabled:opacity-50"
+                              >
+                                Clock Out
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Recent Tasks (Clock Back In) */}
+                    <div className="space-y-3">
+                      <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-550 uppercase tracking-widest">
+                        Recent Tasks (Clock Back In)
+                      </h4>
+                      {recentSegments.length === 0 ? (
+                        <p className="text-xs text-zinc-500 italic py-2">No recent tasks completed in this session.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {recentSegments.map((seg, idx) => (
+                            <div key={idx} className="p-3 bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-150 dark:border-zinc-850 rounded-2xl flex items-center justify-between gap-3 shadow-sm hover:border-zinc-200 dark:hover:border-zinc-800 transition-all animate-in fade-in duration-200">
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest block truncate">
+                                  {seg.name}
+                                </span>
+                                <span className="text-xs font-black text-zinc-850 dark:text-zinc-250 block truncate mt-0.5">
+                                  {seg.taskName || 'General Labor'}
+                                </span>
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  await clockIntoJob(seg.id, seg.name, seg.taskId || undefined, seg.taskName || undefined);
+                                }}
+                                disabled={isClockProcessing || isJobClockingOut}
+                                className="px-3.5 py-2 bg-indigo-500 hover:bg-indigo-650 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md hover:shadow-lg shadow-indigo-500/10 active:scale-[0.98] disabled:opacity-50"
+                              >
+                                Clock In
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Current Pay Period Summary Card */}

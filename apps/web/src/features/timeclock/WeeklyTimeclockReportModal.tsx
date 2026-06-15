@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   X, Printer, Download, Search, AlertTriangle, 
   CheckCircle, Calendar, ArrowRight, Clock, Info,
-  Building2
+  Building2, ChevronDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -112,6 +112,8 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'reconcile' | 'print'>('reconcile');
   const [expandedEmployeeId, setExpandedEmployeeId] = useState<string | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [deselectedUserIds, setDeselectedUserIds] = useState<Record<string, boolean>>({});
 
   // Fetch business settings
   const { data: business } = useQuery({
@@ -283,7 +285,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   }, [sessions]);
 
   const colSpanCount = useMemo(() => {
-    return 5 
+    return 6 
       + (showWeek1Columns ? 1 : 0)
       + (showWeek1Columns && showQbColumns ? 1 : 0)
       + (showWeek2Columns ? 1 : 0)
@@ -656,10 +658,11 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       .filter(emp => {
         const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesDiscrepancy = !showQbColumns || !showDiscrepanciesOnly || emp.hasDiscrepancy;
+        const matchesDepartment = selectedDepartment === 'all' || emp.departmentId === selectedDepartment;
         
         // Hide if no sessions exist AND they are searched, unless we search by name specifically
         const hasSessions = emp.sessions.length > 0;
-        return matchesSearch && matchesDiscrepancy && (hasSessions || searchTerm !== '');
+        return matchesSearch && matchesDiscrepancy && matchesDepartment && (hasSessions || searchTerm !== '');
       })
       .sort((a, b) => {
         const aDept = departmentsList?.find((d: any) => d.id === a.departmentId)?.name || 'Unassigned';
@@ -673,7 +676,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
         if (deptCompare !== 0) return deptCompare;
         return a.name.localeCompare(b.name);
       });
-  }, [sessions, staffList, departmentsList, searchTerm, showDiscrepanciesOnly, week1Start, week1End, week2Start, week2End, showQbColumns]);
+  }, [sessions, staffList, departmentsList, searchTerm, showDiscrepanciesOnly, week1Start, week1End, week2Start, week2End, showQbColumns, selectedDepartment]);
 
   // Overall totals for report summary cards
   const overallTotals = useMemo(() => {
@@ -684,6 +687,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
     let discrepancyCount = 0;
 
     reportData.forEach(emp => {
+      if (deselectedUserIds[emp.userId]) return; // Skip deselected employees
       nativeMs += emp.totals.totalNativeMs;
       qbMs += emp.totals.totalQbMs;
       bookMs += emp.totals.totalBookMs;
@@ -699,7 +703,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       varianceHrs: (nativeMs - qbMs) / 3600000,
       discrepancyCount
     };
-  }, [reportData]);
+  }, [reportData, deselectedUserIds]);
 
   // Download CSV logic
   const handleExportCSV = () => {
@@ -886,7 +890,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
         }
         
         /* Modal framing adjustments */
-        .fixed {
+        #weekly-timeclock-report-modal-wrapper {
           position: absolute !important;
           top: 0 !important;
           left: 0 !important;
@@ -922,6 +926,8 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
           margin-top: 1rem !important;
           margin-bottom: 2rem !important;
           page-break-inside: auto !important;
+          table-layout: fixed !important;
+          font-size: 9px !important;
         }
 
         tr {
@@ -931,6 +937,12 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
         thead {
           display: table-header-group !important;
+        }
+
+        th, td {
+          padding: 6px 4px !important;
+          word-wrap: break-word !important;
+          overflow-wrap: break-word !important;
         }
 
         /* Page break before each employee timesheet card in Print View */
@@ -1086,16 +1098,40 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
           )}
 
           {/* Search and Flag Filter */}
-          <div className="flex flex-col md:flex-row gap-4 items-center justify-between pt-2">
-            <div className="relative w-full md:max-w-md">
-              <Search className="absolute left-4.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-              <input 
-                type="text" 
-                placeholder="Search employee name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-11 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white text-xs"
-              />
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between pt-2 w-full">
+            <div className="flex flex-col sm:flex-row gap-3 w-full md:max-w-2xl">
+              <div className="relative flex-1">
+                <Search className="absolute left-4.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input 
+                  type="text" 
+                  placeholder="Search employee name..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-11 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500/50 outline-none text-zinc-900 dark:text-white text-xs font-semibold"
+                />
+              </div>
+
+              {departmentsList && departmentsList.length > 0 && (
+                <div className="relative shrink-0 w-full sm:w-48">
+                  <select
+                    value={selectedDepartment}
+                    onChange={(e) => {
+                      setSelectedDepartment(e.target.value);
+                      setDeselectedUserIds({}); // Reset selections when switching departments
+                    }}
+                    className="w-full appearance-none bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl pl-4 pr-10 py-2.5 text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500/50 outline-none cursor-pointer"
+                  >
+                    <option value="all">All Departments</option>
+                    {departmentsList.map((d: any) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                    <option value="">Unassigned</option>
+                  </select>
+                  <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                </div>
+              )}
             </div>
 
             {showQbColumns && (
@@ -1205,6 +1241,23 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                 <table className="w-full text-xs text-left">
                   <thead className="bg-zinc-50 dark:bg-zinc-850/60 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
                     <tr>
+                      <th className="px-6 py-4 w-12 text-center print-hidden">
+                        <input 
+                          type="checkbox"
+                          checked={reportData.length > 0 && reportData.every(emp => !deselectedUserIds[emp.userId])}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setDeselectedUserIds(prev => {
+                              const next = { ...prev };
+                              reportData.forEach(emp => {
+                                next[emp.userId] = !checked;
+                              });
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                        />
+                      </th>
                       <th className="px-6 py-4">Employee</th>
                       <th className="px-6 py-4 text-center">Pay Type</th>
                       {showWeek1Columns && (
@@ -1242,6 +1295,19 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                       return (
                         <Fragment key={emp.userId}>
                           <tr className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10 transition-colors">
+                            <td className="px-6 py-4 text-center w-12 print-hidden">
+                              <input 
+                                type="checkbox"
+                                checked={!deselectedUserIds[emp.userId]}
+                                onChange={() => {
+                                  setDeselectedUserIds(prev => ({
+                                    ...prev,
+                                    [emp.userId]: !prev[emp.userId]
+                                  }));
+                                }}
+                                className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 cursor-pointer"
+                              />
+                            </td>
                             <td className="px-6 py-4 font-bold text-zinc-900 dark:text-white">
                               <Link
                                 to={`/business/${tenantId}/staff/${emp.staffId}`}
@@ -1485,9 +1551,86 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
             
             /* TAB 2: Printable Detailed Sheets View */
             <div className="space-y-12">
+              {/* Print Selection Control Panel (Hidden on Print) */}
+              <div className="bg-zinc-50 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 print-hidden space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-zinc-900 dark:text-white uppercase tracking-wider">
+                      Print Selection Options
+                    </h4>
+                    <p className="text-xs text-zinc-500">
+                      Toggle who to include in the printed report. Each employee prints on their own page.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setDeselectedUserIds(prev => {
+                          const next = { ...prev };
+                          reportData.forEach(emp => {
+                            next[emp.userId] = false;
+                          });
+                          return next;
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-350 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Select All ({reportData.length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDeselectedUserIds(prev => {
+                          const next = { ...prev };
+                          reportData.forEach(emp => {
+                            next[emp.userId] = true;
+                          });
+                          return next;
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-350 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2.5 pt-2">
+                  {reportData.map(emp => {
+                    const isSelected = !deselectedUserIds[emp.userId];
+                    return (
+                      <button
+                        key={emp.userId}
+                        onClick={() => {
+                          setDeselectedUserIds(prev => ({
+                            ...prev,
+                            [emp.userId]: !prev[emp.userId]
+                          }));
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/50 shadow-sm'
+                            : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-400 border-zinc-200 dark:border-zinc-800'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-indigo-500' : 'bg-zinc-300 dark:bg-zinc-700'}`} />
+                        {emp.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {(() => {
                 let lastDeptId = 'INITIAL_VAL';
-                return reportData.map((emp, index) => {
+                const printableEmps = reportData.filter(emp => !deselectedUserIds[emp.userId]);
+                if (printableEmps.length === 0) {
+                  return (
+                    <div className="p-12 text-center text-zinc-500 italic border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl print:border-none">
+                      No employees selected for printing. Please select at least one employee.
+                    </div>
+                  );
+                }
+                return printableEmps.map((emp, index) => {
                   // Filter out QuickBooks sync sessions from native lists
                   const nativeSess = emp.sessions.filter((s: TimeSession) => s.source !== 'QuickBooks');
                   const qbSess = emp.sessions.filter((s: TimeSession) => s.source === 'QuickBooks');
@@ -1574,35 +1717,23 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                           </div>
                         </div>
 
-                        {/* Calculations Explanations (Small line items) */}
-                        <div className="mb-6 p-4 bg-zinc-50/60 dark:bg-zinc-950/20 border border-zinc-150 dark:border-zinc-800/80 rounded-2xl text-[10px] text-zinc-500 dark:text-zinc-400 leading-normal">
-                          <span className="font-extrabold uppercase text-[8px] tracking-wider text-zinc-400 dark:text-zinc-555 block mb-1.5 font-sans">How metrics are derived:</span>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-1.5 font-sans">
-                            <div><strong>Period Clocked:</strong> Sum of shift clocked hours.</div>
-                            <div><strong>Idle Time:</strong> Shift hours not clocked onto a specific job/task.</div>
-                            <div><strong>Job Time (On-Task):</strong> Period Clocked minus Idle Time.</div>
-                            <div><strong>Book Hours:</strong> Total book credit hours from completed tasks.</div>
-                            <div><strong>Job Efficiency:</strong> (Book Hours / Job Time) × 100%.</div>
-                            <div><strong>Overall Efficiency:</strong> (Book Hours / Period Clocked) × 100%.</div>
-                            {emp.payType === 'flat_rate' && (
-                              <div className="md:col-span-2 lg:col-span-2"><strong>Pay Hours:</strong> Hours paid for flat-rate (earned book hours + hourly shop time/allowance).</div>
-                            )}
-                          </div>
-                        </div>
+
 
                     {/* Detailed Log Table */}
                     <div className="overflow-x-auto print:overflow-visible print:block print:static print:w-full print:h-auto">
                       <table className="w-full text-xs text-left">
                         <thead className="bg-zinc-50 dark:bg-zinc-850/50 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
                           <tr>
-                            <th className="px-4 py-3">Date</th>
-                            <th className="px-4 py-3">Type</th>
-                            <th className="px-4 py-3">Shift times</th>
-                            <th className="px-4 py-3">Breaks</th>
-                            <th className="px-4 py-3">Jobs / Tasks Clocked</th>
-                            <th className="px-4 py-3 text-right">Actual Hours</th>
-                            <th className="px-4 py-3 text-right">Book Hours</th>
-                            <th className="px-4 py-3 text-right">Calculated Pay</th>
+                            <th className="px-4 py-3 w-[11%] print:w-[10%]">Date</th>
+                            <th className="px-4 py-3 w-[8%] print:w-[7%] text-center font-bold">Type</th>
+                            <th className="px-4 py-3 w-[17%] print:w-[14%]">Shift times</th>
+                            <th className="px-4 py-3 w-[10%] print:w-[7%]">Breaks</th>
+                            <th className="px-4 py-3 w-[24%] print:w-[22%]">Jobs / Tasks Clocked</th>
+                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Actual</th>
+                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Book</th>
+                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Calc Pay</th>
+                            <th className="px-4 py-3 text-center w-[3%] print:w-[6%] print:border-l print:border-zinc-300 font-bold">Tech</th>
+                            <th className="px-4 py-3 text-center w-[3%] print:w-[6%] print:border-l print:border-zinc-300 font-bold">Sup</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1616,32 +1747,35 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
                             return (
                               <tr key={session.id} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
-                                <td className="px-4 py-3 font-bold whitespace-nowrap">
+                                <td className="px-4 py-3 font-bold whitespace-nowrap print:text-[9px]">
                                   {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
                                 </td>
-                                <td className="px-4 py-3">
-                                  <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-350 px-1.5 py-0.5 rounded text-[9px] font-black uppercase">
+                                <td className="px-4 py-3 text-center whitespace-nowrap print:px-2">
+                                  <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-350 px-1.5 py-0.5 rounded text-[9px] font-black uppercase whitespace-nowrap animate-none">
                                     Native
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 font-mono font-medium">
-                                  {session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-                                  {' → '}
-                                  {session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}
+                                <td className="px-4 py-3 font-mono font-medium print:text-[9px]">
+                                  <div className="font-mono text-xs print:text-[9px] whitespace-nowrap leading-tight">
+                                    <div>{session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</div>
+                                    <div className="text-zinc-400 print:hidden">→</div>
+                                    <div className="hidden print:block border-b border-zinc-200 dark:border-zinc-800 my-0.5" />
+                                    <div>{session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</div>
+                                  </div>
                                 </td>
-                                <td className="px-4 py-3 text-zinc-500">
-                                  {session.breaks?.length > 0 ? `${session.breaks.length} breaks (${(breakMs / 60000).toFixed(0)}m)` : 'None'}
+                                <td className="px-4 py-3 text-zinc-500 print:text-[9px]">
+                                  {session.breaks?.length > 0 ? `${session.breaks.length} bk (${(breakMs / 60000).toFixed(0)}m)` : 'None'}
                                 </td>
-                                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 print:text-[9px]">
                                   <div className="space-y-1.5">
                                     {(session.jobs || []).map((j: any, i: number) => (
-                                      <div key={i} className="flex flex-col text-[10px] max-w-xs">
-                                        <div className="flex justify-between">
-                                          <span className="truncate pr-2">{j.name} {j.taskName ? `(${j.taskName})` : ''}</span>
-                                          {j.bookTime > 0 && <span className="font-mono font-bold text-indigo-500">({j.bookTime}h)</span>}
+                                      <div key={i} className="flex flex-col text-[10px] max-w-xs print:max-w-none">
+                                        <div className="flex justify-between print:flex-col print:items-start">
+                                          <span className="truncate pr-2 print:whitespace-normal print:break-words print:text-wrap">{j.name} {j.taskName ? `(${j.taskName})` : ''}</span>
+                                          {j.bookTime > 0 && <span className="font-mono font-bold text-indigo-500 print:text-[9px]">({j.bookTime}h)</span>}
                                         </div>
                                         {j.notes && (
-                                          <div className="text-[9px] text-zinc-450 dark:text-zinc-500 italic pl-2 mt-0.5 leading-tight">
+                                          <div className="text-[9px] text-zinc-450 dark:text-zinc-500 italic pl-2 mt-0.5 leading-tight print:whitespace-normal print:break-words">
                                             Note: "{j.notes}"
                                           </div>
                                         )}
@@ -1650,7 +1784,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                     {(!session.jobs || session.jobs.length === 0) && <span className="italic text-[10px] text-zinc-400">No jobs clocked</span>}
                                     
                                     {(session.notes || session.staffNote) && (
-                                      <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-1.5 mt-1.5 space-y-1 text-[9px] max-w-xs">
+                                      <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-1.5 mt-1.5 space-y-1 text-[9px] max-w-xs print:max-w-none">
                                         {session.notes && (
                                           <div className="text-zinc-500 dark:text-zinc-400 italic">
                                             <span className="font-bold text-zinc-450 dark:text-zinc-550 not-italic">Admin Note:</span> "{session.notes}"
@@ -1665,14 +1799,20 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                     )}
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold">
+                                <td className="px-4 py-3 text-right font-mono font-bold print:text-[9px]">
                                   {formatDurationDecimal(workMs)}
                                 </td>
-                                <td className="px-4 py-3 text-right font-mono text-indigo-500/80">
+                                <td className="px-4 py-3 text-right font-mono text-indigo-500/80 print:text-[9px]">
                                   {(session.jobs || []).reduce((acc: number, j: any) => acc + (j.bookTime || 0), 0).toFixed(2)}
                                 </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 print:text-[9px]">
                                   {formatDurationDecimal(payMs)}
+                                </td>
+                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
+                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                </td>
+                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
+                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
                                 </td>
                               </tr>
                             );
@@ -1685,35 +1825,44 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
                             return (
                               <tr key={session.id} className="bg-indigo-500/5 dark:bg-indigo-550/5">
-                                <td className="px-4 py-3 font-bold whitespace-nowrap">
+                                <td className="px-4 py-3 font-bold whitespace-nowrap print:text-[9px]">
                                   {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
                                 </td>
-                                <td className="px-4 py-3">
-                                  <span className="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black uppercase">
+                                <td className="px-4 py-3 text-center whitespace-nowrap print:px-2">
+                                  <span className="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black uppercase whitespace-nowrap">
                                     QB Sync
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 font-mono font-medium text-indigo-600 dark:text-indigo-400">
-                                  {session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}
-                                  {' → '}
-                                  {session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                <td className="px-4 py-3 font-mono font-medium text-indigo-600 dark:text-indigo-400 print:text-[9px]">
+                                  <div className="font-mono text-xs print:text-[9px] whitespace-nowrap leading-tight">
+                                    <div>{session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</div>
+                                    <div className="text-zinc-400 print:hidden">→</div>
+                                    <div className="hidden print:block border-b border-zinc-200 dark:border-zinc-850 my-0.5" />
+                                    <div>{session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</div>
+                                  </div>
                                 </td>
-                                <td className="px-4 py-3 text-zinc-400">—</td>
-                                <td className="px-4 py-3 text-indigo-500/80 max-w-xs truncate font-medium">
+                                <td className="px-4 py-3 text-zinc-400 print:text-[9px]">—</td>
+                                <td className="px-4 py-3 text-indigo-500/80 max-w-xs truncate font-medium print:max-w-none print:whitespace-normal print:break-words print:text-wrap print:text-[9px]">
                                   {session.jobs?.[0]?.name || 'Imported QuickBooks Log'}
                                 </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 print:text-[9px]">
                                   {formatDurationDecimal(totalMs)}
                                 </td>
-                                <td className="px-4 py-3 text-right text-zinc-400">—</td>
-                                <td className="px-4 py-3 text-right text-zinc-400">—</td>
+                                <td className="px-4 py-3 text-right text-zinc-400 print:text-[9px]">—</td>
+                                <td className="px-4 py-3 text-right text-zinc-400 print:text-[9px]">—</td>
+                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
+                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                </td>
+                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
+                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                </td>
                               </tr>
                             );
                           })}
 
                           {emp.sessions.length === 0 && (
                             <tr>
-                              <td colSpan={8} className="px-4 py-8 text-center text-zinc-400 italic">No recorded shifts for this employee in range.</td>
+                              <td colSpan={10} className="px-4 py-8 text-center text-zinc-400 italic">No recorded shifts for this employee in range.</td>
                             </tr>
                           )}
                         </tbody>
@@ -1842,10 +1991,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                       <div className="space-y-4">
                         <div className="space-y-1 text-left">
                           <div className="w-48 border-b border-black h-5" />
-                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Employee Initials</span>
-                        </div>
-                        <div className="space-y-1 text-left">
-                          <div className="w-48 border-b border-black h-5" />
                           <span className="text-[9px] uppercase font-bold text-zinc-400 block">Employee Signature</span>
                         </div>
                       </div>
@@ -1853,10 +1998,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                         Printed for {business?.name || 'Business'} via UpfittersOS on {formatDateFull(new Date())}
                       </div>
                       <div className="space-y-4 text-right">
-                        <div className="space-y-1">
-                          <div className="w-48 border-b border-black h-5 ml-auto" />
-                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">Supervisor Initials</span>
-                        </div>
                         <div className="space-y-1">
                           <div className="w-48 border-b border-black h-5 ml-auto" />
                           <span className="text-[9px] uppercase font-bold text-zinc-400 block">Supervisor Signature</span>
@@ -1886,7 +2027,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-md animate-in fade-in duration-350 print:bg-white print:p-0 print:backdrop-blur-none print:block print:static print:w-full print:h-auto print:overflow-visible">
+    <div id="weekly-timeclock-report-modal-wrapper" className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-md animate-in fade-in duration-350 print:bg-white print:p-0 print:backdrop-blur-none print:block print:static print:w-full print:h-auto print:overflow-visible">
       {styleBlock}
       {renderContent()}
     </div>

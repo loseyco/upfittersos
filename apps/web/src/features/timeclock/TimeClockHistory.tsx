@@ -47,6 +47,209 @@ interface TimeSession {
   staffNote?: string;
 }
 
+interface JobWithTasks {
+  jobId: string;
+  jobName: string;
+  taskIds: string[];
+}
+
+interface JobPhotoGroup {
+  jobName: string;
+  images: string[];
+}
+
+function SessionBreakdownSection({ 
+  tenantId, 
+  session,
+  now
+}: { 
+  tenantId: string; 
+  session: TimeSession;
+  now: number;
+}) {
+  const [jobPhotos, setJobPhotos] = useState<JobPhotoGroup[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!tenantId || !session.jobs || session.jobs.length === 0) {
+      setJobPhotos([]);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+
+    const fetchAllPhotos = async () => {
+      try {
+        const uniqueJobsMap: Record<string, JobWithTasks> = {};
+        session.jobs!.forEach(j => {
+          if (!j.id) return;
+          if (!uniqueJobsMap[j.id]) {
+            uniqueJobsMap[j.id] = {
+              jobId: j.id,
+              jobName: j.name || 'Job',
+              taskIds: []
+            };
+          }
+          if (j.taskId && !uniqueJobsMap[j.id].taskIds.includes(j.taskId)) {
+            uniqueJobsMap[j.id].taskIds.push(j.taskId);
+          }
+        });
+
+        const uniqueJobs = Object.values(uniqueJobsMap);
+        const results: JobPhotoGroup[] = [];
+
+        const promises = uniqueJobs.map(async (job) => {
+          if (job.taskIds.length === 0) return;
+          const allUrls: string[] = [];
+          const taskPromises = job.taskIds.map(async (taskId) => {
+            const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${job.jobId}/tasks`, taskId));
+            if (taskSnap.exists()) {
+              const data = taskSnap.data();
+              const notes = data.task_notes || [];
+              notes.forEach((n: any) => {
+                if (n.images && Array.isArray(n.images)) {
+                  allUrls.push(...n.images);
+                }
+              });
+            }
+          });
+          await Promise.all(taskPromises);
+          if (allUrls.length > 0) {
+            results.push({
+              jobName: job.jobName,
+              images: allUrls
+            });
+          }
+        });
+
+        await Promise.all(promises);
+
+        if (active) {
+          setJobPhotos(results);
+        }
+      } catch (err) {
+        console.warn('Error fetching session breakdown photos:', err);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchAllPhotos();
+    return () => { active = false; };
+  }, [tenantId, session.jobs]);
+
+  const hasPhotos = jobPhotos.length > 0;
+  const hasBreaks = session.breaks && session.breaks.length > 0;
+
+  if (loading) {
+    return (
+      <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 w-full text-left space-y-3">
+        <span className="block text-[11px] font-extrabold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider animate-pulse">
+          Session Activity & Breakdown
+        </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-pulse">
+          <div className="space-y-2">
+            <div className="h-3 bg-zinc-200 dark:bg-zinc-805 rounded w-24" />
+            <div className="flex gap-1.5">
+              <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
+              <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasPhotos && !hasBreaks) return null;
+
+  const calculateDuration = (start: any, end: any) => {
+    if (!start) return 0;
+    const s = start.toDate ? start.toDate().getTime() : new Date(start).getTime();
+    const e = end ? (end.toDate ? end.toDate().getTime() : new Date(end).getTime()) : now;
+    return Math.max(0, e - s);
+  };
+
+  const formatDuration = (ms: number) => {
+    const hours = Math.floor(ms / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
+  const formatTimeLocal = (ts: any) => {
+    if (!ts) return '--';
+    const dVal = ts.toDate ? ts.toDate() : new Date(ts);
+    return dVal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 w-full text-left space-y-3">
+      <span className="block text-[11px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+        Session Activity & Breakdown
+      </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Shifts Column */}
+        {hasPhotos && (
+          <div className="space-y-2">
+            <span className="block text-[10px] font-extrabold text-zinc-500 dark:text-zinc-450 uppercase tracking-wider">
+              Shift Photos
+            </span>
+            <div className="space-y-1.5">
+              {jobPhotos.map((jp, idx) => (
+                <div key={idx} className="text-xs bg-zinc-50/50 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-zinc-150/40 dark:border-zinc-850/50 space-y-1.5">
+                  <div className="font-bold text-zinc-850 dark:text-zinc-250 truncate">
+                    {jp.jobName}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {jp.images.map((url, imgIdx) => (
+                      <a 
+                        key={imgIdx} 
+                        href={url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        onClick={e => e.stopPropagation()}
+                        className="relative w-12 h-12 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800/80 bg-zinc-100 dark:bg-zinc-950 hover:scale-[1.05] transition-all shadow-sm flex-shrink-0"
+                      >
+                        <img src={url} className="w-full h-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Breaks Column */}
+        {hasBreaks && (
+          <div className="space-y-2">
+            <span className="block text-[10px] font-extrabold text-zinc-500 dark:text-zinc-450 uppercase tracking-wider">
+              Breaks & Lunches Taken
+            </span>
+            <div className="space-y-1.5">
+              {session.breaks.map((breakSeg, breakIdx) => {
+                const breakDurationMs = calculateDuration(breakSeg.start, breakSeg.end);
+                const durationStr = formatDuration(breakDurationMs);
+
+                return (
+                  <div key={breakIdx} className="text-xs bg-amber-500/[0.02] dark:bg-amber-500/[0.01] p-2.5 rounded-xl border border-amber-500/10">
+                    <div className="font-bold text-amber-655 dark:text-amber-400 capitalize">
+                      {breakSeg.type} Break
+                    </div>
+                    <div className="text-[10px] font-mono font-bold text-amber-655 dark:text-amber-400 mt-1.5 flex justify-between items-center">
+                      <span>{formatTimeLocal(breakSeg.start)} - {breakSeg.end ? formatTimeLocal(breakSeg.end) : 'Active Now'}</span>
+                      <span className="bg-amber-500/10 px-1.5 py-0.5 rounded text-[10px]">{durationStr}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const { user, impersonatedStaff } = useAuthStore();
   const effectiveUserId = impersonatedStaff?.id || user?.uid;
@@ -342,6 +545,9 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
     if (!sessionDate) return;
 
+    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    if (isManual) return;
+
     const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
     const breakMs = (session.breaks || []).reduce((acc, b) => acc + calculateDuration(b.start, b.end), 0);
     const workMs = totalMs - breakMs;
@@ -359,6 +565,8 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const sessionHourlyPayMs = sessions?.reduce((acc, session) => {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
     if (!sessionDate || sessionDate.getTime() < weekStart.getTime()) return acc;
+    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    if (isManual) return acc;
     const sPayType = session.payType || resolvedPayType;
     return acc + calculateSessionPayMs(session, sPayType);
   }, 0) || 0;
@@ -381,7 +589,26 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
 
   const correctionsCount = correctionsSessions.length;
 
-  const displayedSessions = activeTab === 'corrections' ? correctionsSessions : sessions;
+  const filteredSessions = sessions?.filter(session => {
+    // 1. Filter out manual entry sessions from the main history feed to avoid duplicates/clutter
+    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    if (isManual) return false;
+
+    // 2. If this session is completed, and there is an active session for the same day, filter it out
+    const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
+    if (sessionDate && session.status === 'completed') {
+      const hasActive = sessions?.some(s => {
+        if (s.status !== 'active' && s.status !== 'on_break') return false;
+        const sDate = s.clockIn.timestamp?.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
+        return sDate && sDate.toDateString() === sessionDate.toDateString();
+      });
+      if (hasActive) return false;
+    }
+
+    return true;
+  }) || [];
+
+  const displayedSessions = activeTab === 'corrections' ? correctionsSessions : filteredSessions;
 
   return (
     <div className="space-y-6">
@@ -538,135 +765,87 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
             <div 
               key={session.id} 
               onClick={() => setEditingSession(session)}
-              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/30 hover:bg-zinc-50/50 dark:hover:bg-zinc-950/40 transition-all group flex items-center justify-between gap-4 cursor-pointer"
+              className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm hover:border-indigo-500/30 hover:bg-zinc-50/50 dark:hover:bg-zinc-950/40 transition-all group flex flex-col gap-4 cursor-pointer"
             >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-zinc-50 dark:bg-zinc-800 rounded-xl text-zinc-400 group-hover:bg-indigo-500/10 group-hover:text-indigo-500 transition-colors">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
-                    {formatDate(session.clockIn.timestamp)}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={cn(
-                      "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight",
-                      session.status === 'completed' ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600"
-                    )}>
-                      {session.status}
-                    </span>
-                    {session.verificationStatus === 'pending' && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-amber-500 text-white animate-pulse">
-                        Needs Verification
-                      </span>
-                    )}
-                    {session.verificationStatus === 'verified' && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
-                        Verified
-                      </span>
-                    )}
-                    {request && !session.verificationStatus && (
-                      <span className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ring-1 ring-inset",
-                        (request as any).status === 'pending' ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                      )}>
-                        Edit {(request as any).status}
-                      </span>
-                    )}
-                    {session.isRemote && (
-                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-tight">
-                        <MapPin className="w-2.5 h-2.5" /> Remote
-                      </span>
-                    )}
-                    {!session.isRemote && session.clockIn.onSite === false && (
-                      <span className="flex items-center gap-1 text-[10px] font-bold text-rose-505 uppercase">
-                        <MapPin className="w-3 h-3" /> Off-site
-                      </span>
-                    )}
+              <div className="flex items-center justify-between gap-4 w-full">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-zinc-50 dark:bg-zinc-800 rounded-xl text-zinc-400 group-hover:bg-indigo-500/10 group-hover:text-indigo-500 transition-colors">
+                    <Calendar className="w-5 h-5" />
                   </div>
+                  <div>
+                    <p className="text-sm font-bold text-zinc-900 dark:text-white leading-tight">
+                      {formatDate(session.clockIn.timestamp)}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight",
+                        session.status === 'completed' ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600"
+                      )}>
+                        {session.status}
+                      </span>
+                      {session.verificationStatus === 'pending' && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-amber-500 text-white animate-pulse">
+                          Needs Verification
+                        </span>
+                      )}
+                      {session.verificationStatus === 'verified' && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
+                          Verified
+                        </span>
+                      )}
+                      {request && !session.verificationStatus && (
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ring-1 ring-inset",
+                          (request as any).status === 'pending' ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
+                        )}>
+                          Edit {(request as any).status}
+                        </span>
+                      )}
+                      {session.isRemote && (
+                        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-tight">
+                          <MapPin className="w-2.5 h-2.5" /> Remote
+                        </span>
+                      )}
+                      {!session.isRemote && session.clockIn.onSite === false && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-rose-505 uppercase">
+                          <MapPin className="w-3 h-3" /> Off-site
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <div className="text-right sm:text-left">
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Hourly Time</span>
+                    <span className="font-mono font-black text-sm text-zinc-900 dark:text-white">{formatDuration(workMs)}</span>
+                  </div>
+                  <div className="text-right sm:text-left">
+                    <span className="text-[10px] uppercase font-bold text-indigo-500 block tracking-wider">Book Time</span>
+                    <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">{formatDuration(bookMs)}</span>
+                  </div>
+                  
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setEditingSession(session); }}
+                    className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all cursor-pointer md:opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Edit Time Entry"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-6">
-                <div className="text-right sm:text-left">
-                  <span className="text-[10px] uppercase font-bold text-zinc-400 block tracking-wider">Hourly Time</span>
-                  <span className="font-mono font-black text-sm text-zinc-900 dark:text-white">{formatDuration(workMs)}</span>
-                </div>
-                <div className="text-right sm:text-left">
-                  <span className="text-[10px] uppercase font-bold text-indigo-500 block tracking-wider">Book Time</span>
-                  <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">{formatDuration(bookMs)}</span>
-                </div>
-                
-                <button 
-                  onClick={(e) => { e.stopPropagation(); setEditingSession(session); }}
-                  className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-all cursor-pointer md:opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Edit Time Entry"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                </button>
-              </div>
+              {/* Session Activity & Breakdown Details */}
+              <SessionBreakdownSection 
+                tenantId={tenantId}
+                session={session}
+                now={now}
+              />
             </div>
           );
         })}
 
-        {/* Completed Tasks section */}
-        {activeTab === 'sessions' && tasksList && tasksList.length > 0 && (
-          <div className="space-y-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-black uppercase tracking-wider text-zinc-900 dark:text-white">
-                {isFlatRate ? 'Completed Flat-Rate Tasks (Paid This Week)' : 'Completed Book-Time Tasks (Tracked for Efficiency)'}
-              </h4>
-              <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2.5 py-0.5 rounded-lg font-mono">
-                Total: {(completedBookMs / 3600000).toFixed(2)}h
-              </span>
-            </div>
 
-            <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-800/80 rounded-2xl bg-white dark:bg-zinc-900">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-zinc-50 dark:bg-zinc-955 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
-                  <tr>
-                    <th className="px-4 py-3">Date Completed</th>
-                    <th className="px-4 py-3">Job Name</th>
-                    <th className="px-4 py-3">Task Name</th>
-                    <th className="px-4 py-3 text-right">Share %</th>
-                    <th className="px-4 py-3 text-right">Book Hours</th>
-                    {isFlatRate && <th className="px-4 py-3 text-right">Paid Hours</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {tasksList.map((t: any, i: number) => {
-                    const compDate = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt || t.qcCompletedAt);
-                    return (
-                      <tr key={i} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-950/20 text-zinc-700 dark:text-zinc-300">
-                        <td className="px-4 py-3 font-bold whitespace-nowrap">
-                          {compDate.toLocaleDateString([], { month: 'short', day: 'numeric' })} ({compDate.toLocaleDateString([], { weekday: 'short' })})
-                        </td>
-                        <td className="px-4 py-3 font-medium truncate max-w-[150px]">{t.jobName}</td>
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-zinc-900 dark:text-white">{t.title || 'Unnamed Task'}</span>
-                          {t.isRework && (
-                            <span className="ml-2 bg-rose-500/10 text-rose-600 dark:text-rose-450 px-1.5 py-0.5 rounded font-black text-[9px] uppercase tracking-wide">
-                              Rework
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono">{(t.share * 100).toFixed(0)}%</td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-zinc-900 dark:text-white">
-                          {(t.originalBookHours || t.bookTime || 0).toFixed(2)}h
-                        </td>
-                        {isFlatRate && (
-                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-450">
-                            {t.isRework ? '0.00h' : `${t.earnedBookHours.toFixed(2)}h`}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
         {/* Edit Request Modal */}
         {requestingEdit && (
