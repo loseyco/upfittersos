@@ -166,15 +166,17 @@ export function TutorialModal() {
           {/* Main Container */}
           <div className="p-6 md:p-8 space-y-6 overflow-y-auto max-h-[60vh] no-scrollbar">
             {/* Description card */}
-            <div className="bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-100/50 dark:border-indigo-900/20 rounded-2xl p-5 space-y-2">
-              <h3 className="text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                <HelpCircle className="w-3.5 h-3.5" />
-                Quick Guide Summary
-              </h3>
-              <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-350 leading-relaxed">
-                {activeTutorial.description}
-              </p>
-            </div>
+            {activeTutorial.summary && (
+              <div className="bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-100/50 dark:border-indigo-900/20 rounded-2xl p-5 space-y-2">
+                <h3 className="text-xs font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  Quick Guide Summary
+                </h3>
+                <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-350 leading-relaxed">
+                  {activeTutorial.summary}
+                </p>
+              </div>
+            )}
 
             {/* Quick How-To Steps */}
             <div className="space-y-4">

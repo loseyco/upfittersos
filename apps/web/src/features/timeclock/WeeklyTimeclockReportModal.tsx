@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   X, Printer, Download, Search, AlertTriangle, 
   CheckCircle, Calendar, ArrowRight, Info,
-  Building2, ChevronDown, Pencil
+  Building2, ChevronDown, Pencil, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
@@ -613,7 +613,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
             // Calculate actual clocked hours and collect shift segments for this task by this employee in this period
             let taskClockedMs = 0;
-            const taskSegments: Array<{ start: any, end: any }> = [];
+            const taskSegments: Array<{ start: any, end: any, notes?: string }> = [];
             if (emp.sessions) {
               emp.sessions.forEach((sess: any) => {
                 if (sess.jobs) {
@@ -624,7 +624,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                       const duration = Math.max(0, end - start);
                       if (duration > 5000) {
                         taskClockedMs += duration;
-                        taskSegments.push({ start: job.start, end: job.end });
+                        taskSegments.push({ start: job.start, end: job.end, notes: job.notes });
                       }
                     }
                   });
@@ -649,13 +649,14 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
               }
             }
 
-            // Always add to book time tracking
-            emp.totals.totalBookMs += earnedMs;
+            // Always add to book time tracking (flat-rate tasks only for true efficiency measurement)
+            const bookTimeEarnedMs = isHourlyTask ? 0 : (task.isRework ? 0 : originalBookMs);
+            emp.totals.totalBookMs += bookTimeEarnedMs;
             if (isTaskWeek1) {
-              emp.totals.week1BookMs += earnedMs;
+              emp.totals.week1BookMs += bookTimeEarnedMs;
             }
             if (isTaskWeek2) {
-              emp.totals.week2BookMs += earnedMs;
+              emp.totals.week2BookMs += bookTimeEarnedMs;
             }
 
             if (!emp.completedTasks) {
@@ -674,15 +675,19 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
             emp.completedTasks.push({
               id: task.id,
+              jobId: task.jobId || '',
               name: task.title || 'Unnamed Task',
               jobName: task.jobName || 'Job',
               completedAt: task.completedAt,
               share,
-              bookHours: earnedMs / 3600000,
-              originalBookHours: originalBookMs / 3600000,
+              payBasis: task.payBasis || (parseFloat(task.bookTime) > 0 ? 'book_time' : 'hourly'),
+              bookHours: isHourlyTask ? 0 : ((parseFloat(task.bookTime) || 0) * share),
+              originalBookHours: (parseFloat(task.bookTime) || 0) * share,
               isRework: !!task.isRework,
               clockedHours,
-              segments: formattedSegments
+              segments: formattedSegments,
+              notes: task.description || '',
+              techNotes: taskSegments.map(seg => seg.notes).filter(Boolean).join('; ')
             });
           }
         });
@@ -1548,7 +1553,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                               : 0;
 
                             const completedBookMs = emp.payType === 'flat_rate'
-                              ? (emp.completedTasks || []).reduce((acc: number, t: any) => acc + (t.bookHours * 3600000), 0)
+                              ? (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time').reduce((acc: number, t: any) => acc + (t.bookHours * 3600000), 0)
                               : 0;
 
                             return (
@@ -1563,6 +1568,22 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                         Pay Type: {emp.payType === 'flat_rate' ? 'Flat-Rate' : emp.payType === 'salary' ? 'Salary' : 'Hourly'}
                                       </span>
                                     </div>
+
+                                    {emp.payType === 'flat_rate' && (emp.totals.totalNativeMs - emp.totals.totalPayMs) > 10 * 3600000 && (
+                                       <div className="bg-amber-550/10 dark:bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 flex gap-3 text-[11px] text-amber-800 dark:text-amber-300 leading-normal">
+                                         <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 animate-bounce" />
+                                         <div className="space-y-1">
+                                           <p className="font-bold uppercase tracking-wider text-[10px]">Low Pay-to-Clocked Ratio Alert</p>
+                                           <p>
+                                             This technician clocked <strong className="font-mono">{(emp.totals.totalNativeMs / 3600000).toFixed(2)}h</strong> of shift time but is only earning <strong className="font-mono">{(emp.totals.totalPayMs / 3600000).toFixed(2)}h</strong> of pay.
+                                           </p>
+                                           <ul className="list-disc pl-4 space-y-1 mt-1 font-sans text-[10px]">
+                                             <li>Check if completed flat-rate tasks are missing supervisor/QC sign-off.</li>
+                                             <li>Check if the technician was doing training or shop projects but forgot to select <strong>Hourly</strong> basis when clocking into tasks.</li>
+                                           </ul>
+                                         </div>
+                                       </div>
+                                     )}
 
                                     {emp.payType === 'flat_rate' ? (
                                       <div className="space-y-4">
@@ -1584,45 +1605,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           </div>
                                         </div>
 
-                                        {emp.completedTasks && emp.completedTasks.length > 0 && (
-                                          <div className="border border-zinc-150 dark:border-zinc-800 rounded-xl overflow-hidden">
-                                            <div className="bg-zinc-50 dark:bg-zinc-900/50 px-4 py-2 border-b border-zinc-150 dark:border-zinc-800">
-                                              <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Earned Task Breakdown</span>
-                                            </div>
-                                            <table className="w-full text-left border-collapse">
-                                              <thead>
-                                                <tr className="bg-zinc-50/20 dark:bg-zinc-900/20 text-[9px] uppercase font-bold text-zinc-450 border-b border-zinc-150 dark:border-zinc-800">
-                                                  <th className="px-4 py-2">Completed Date</th>
-                                                  <th className="px-4 py-2">Job Name</th>
-                                                  <th className="px-4 py-2">Task</th>
-                                                  <th className="px-4 py-2 text-right">Share %</th>
-                                                  <th className="px-4 py-2 text-right font-bold text-emerald-600 dark:text-emerald-400">Earned Hours</th>
-                                                </tr>
-                                              </thead>
-                                              <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850 font-medium text-zinc-700 dark:text-zinc-300">
-                                                {emp.completedTasks.map((t: any, idx: number) => {
-                                                  const compDate = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
-                                                  return (
-                                                    <tr key={idx} className="text-[11px]">
-                                                      <td className="px-4 py-2 whitespace-nowrap text-zinc-450 font-mono">{compDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>
-                                                      <td className="px-4 py-2 truncate max-w-[150px]">{t.jobName}</td>
-                                                      <td className="px-4 py-2 truncate max-w-[200px] text-zinc-500 dark:text-zinc-400">{t.name}</td>
-                                                      <td className="px-4 py-2 text-right font-mono">{(t.share * 100).toFixed(0)}%</td>
-                                                      <td className="px-4 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                                        {t.isRework ? (
-                                                          <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">Rework</span>
-                                                        ) : (
-                                                          `${t.bookHours.toFixed(2)}h`
-                                                        )}
-                                                      </td>
-                                                    </tr>
-                                                  );
-                                                })}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        )}
-
                                         <div className="bg-indigo-50/30 dark:bg-indigo-950/5 p-3.5 rounded-xl border border-indigo-100/50 dark:border-indigo-900/30 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 text-[13px] font-bold">
                                           <span className="text-zinc-550 dark:text-zinc-450">Calculation Formula:</span>
                                           <span className="font-mono text-indigo-650 dark:text-indigo-400 text-right">
@@ -1640,7 +1622,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           </div>
                                           <div className="bg-zinc-50 dark:bg-zinc-900/60 p-3 rounded-xl border border-zinc-150 dark:border-zinc-800 space-y-1">
                                             <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest block">Tracked Book Time</span>
-                                            <p className="text-sm font-black text-emerald-600 dark:text-emerald-450 font-mono">{(emp.totals.totalBookMs / 3600000).toFixed(2)}h</p>
+                                            <p className="text-sm font-black text-emerald-600 dark:text-emerald-455 font-mono">{(emp.totals.totalBookMs / 3600000).toFixed(2)}h</p>
                                             <p className="text-[10px] text-zinc-450 leading-relaxed mt-1">Total book hours completed on assigned tasks (tracked for efficiency, does not affect pay).</p>
                                           </div>
                                         </div>
@@ -1656,6 +1638,105 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                       <div className="space-y-2">
                                         <p className="font-bold text-zinc-850 dark:text-zinc-200">Salary Pay Period: {totalOS.toFixed(2)}h clocked.</p>
                                         <p className="text-[11px] text-zinc-450">Salary employees receive their regular base pay. Timecard tracking shows clocked actual duration ({totalOS.toFixed(2)}h).</p>
+                                      </div>
+                                    )}
+
+                                    {/* Shared Completed Tasks Breakdown for Tab 1 */}
+                                    {emp.completedTasks && emp.completedTasks.length > 0 && (
+                                      <div className="border border-zinc-150 dark:border-zinc-800 rounded-xl overflow-hidden mt-6">
+                                        <div className="bg-zinc-50 dark:bg-zinc-900/50 px-4 py-2 border-b border-zinc-150 dark:border-zinc-800 flex justify-between items-center">
+                                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (In this period)</span>
+                                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-450 bg-emerald-500/10 px-2 py-0.5 rounded">
+                                            Total Book Completed: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
+                                          </span>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                          <table className="w-full text-left border-collapse text-[11px]">
+                                            <thead>
+                                              <tr className="bg-zinc-50/20 dark:bg-zinc-900/20 text-[9px] uppercase font-bold text-zinc-450 border-b border-zinc-150 dark:border-zinc-800">
+                                                <th className="px-3 py-2 w-[8%]">Completed</th>
+                                                <th className="px-3 py-2 w-[28%]">Job & Task Name</th>
+                                                <th className="px-3 py-2 text-center w-[8%]">Type</th>
+                                                <th className="px-3 py-2 text-right w-[8%]">Book Time</th>
+                                                <th className="px-3 py-2 text-right w-[8%]">Clocked Actual</th>
+                                                <th className="px-3 py-2 text-right w-[6%]">Share</th>
+                                                <th className="px-3 py-2 text-right w-[8%] font-bold text-emerald-600 dark:text-emerald-450">Earned</th>
+                                                <th className="px-3 py-2 w-[18%]">Notes / Comments</th>
+                                                <th className="px-3 py-2 text-center w-[4%] font-bold">Tech</th>
+                                                <th className="px-3 py-2 text-center w-[4%] font-bold">Sup</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850 font-medium text-zinc-700 dark:text-zinc-300">
+                                              {emp.completedTasks.map((t: any, idx: number) => {
+                                                const compDate = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
+                                                return (
+                                                  <tr key={idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/10">
+                                                    <td className="px-3 py-2 whitespace-nowrap text-zinc-450 font-mono">
+                                                      {compDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                                    </td>
+                                                    <td className="px-3 py-2 whitespace-normal break-words">
+                                                      <div className="flex items-center gap-1.5">
+                                                        <span className="font-bold text-zinc-900 dark:text-white truncate max-w-[120px]" title={t.jobName}>
+                                                          {t.jobName}
+                                                        </span>
+                                                        <a 
+                                                          href={`/business/${tenantId}/jobs/${t.jobId}`} 
+                                                          target="_blank" 
+                                                          rel="noopener noreferrer" 
+                                                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
+                                                          title="Open job details in a new tab"
+                                                        >
+                                                          <ExternalLink className="w-3.5 h-3.5" />
+                                                        </a>
+                                                      </div>
+                                                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate max-w-[180px]" title={t.name}>
+                                                        {t.name}
+                                                      </div>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center">
+                                                      <span className={`px-1 py-0.5 rounded uppercase font-black text-[8px] ${
+                                                        t.payBasis === 'hourly'
+                                                          ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                                                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                                      }`}>
+                                                        {t.payBasis === 'hourly' ? 'Hourly' : 'Book'}
+                                                      </span>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                                                      {t.originalBookHours.toFixed(2)}h
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-mono text-zinc-400">
+                                                      {t.clockedHours.toFixed(2)}h
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-mono">
+                                                      {(t.share * 100).toFixed(0)}%
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-455">
+                                                      {t.isRework ? (
+                                                        <span className="bg-rose-500/10 text-rose-600 dark:text-rose-455 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">Rework</span>
+                                                      ) : t.payBasis === 'hourly' ? (
+                                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Paid Hourly</span>
+                                                      ) : (
+                                                        `${t.bookHours.toFixed(2)}h`
+                                                      )}
+                                                    </td>
+                                                    <td className="px-3 py-2 whitespace-normal break-words text-[10px] text-zinc-550 dark:text-zinc-400">
+                                                      {t.notes && <div className="font-medium text-zinc-700 dark:text-zinc-300 italic">Task: {t.notes}</div>}
+                                                      {t.techNotes && <div className="mt-0.5 text-zinc-600 dark:text-zinc-500">Tech: {t.techNotes}</div>}
+                                                      {!t.notes && !t.techNotes && <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center align-middle">
+                                                      <div className="w-6 border-b border-zinc-400 dark:border-zinc-600 h-3 mx-auto" />
+                                                    </td>
+                                                    <td className="px-3 py-2 text-center align-middle">
+                                                      <div className="w-6 border-b border-zinc-400 dark:border-zinc-600 h-3 mx-auto" />
+                                                    </td>
+                                                  </tr>
+                                                );
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
                                       </div>
                                     )}
                                   </div>
@@ -1758,11 +1839,58 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                   const nativeSess = emp.sessions.filter((s: TimeSession) => s.source !== 'QuickBooks');
                   const qbSess = emp.sessions.filter((s: TimeSession) => s.source === 'QuickBooks');
 
-                  const overallActualHours = emp.totals.totalNativeMs / 3600000;
-                  const overallBookHours = emp.totals.totalBookMs / 3600000;
-                  const overallEffPercent = overallActualHours > 0 ? Math.round((overallBookHours / overallActualHours) * 100) : 0;
-
+                  // Compute map of taskId -> totalClockedMs for all tasks clocked by this employee in this timeframe
+                  const taskTotalClockedMsMap: Record<string, number> = {};
+                  if (emp.sessions) {
+                    emp.sessions.forEach((sess: any) => {
+                      if (sess.jobs) {
+                        sess.jobs.forEach((job: any) => {
+                          if (job.taskId) {
+                            const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
+                            const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
+                            const duration = Math.max(0, end - start);
+                            if (duration > 0) {
+                              taskTotalClockedMsMap[job.taskId] = (taskTotalClockedMsMap[job.taskId] || 0) + duration;
+                            }
+                          }
+                        });
+                      }
+                    });
+                  }
+                  const rawStaff = (staffList || []).find((s: any) => s.id === emp.userId || s.userId === emp.userId);
                   const dept = (departmentsList || []).find((d: any) => d.id === emp.departmentId);
+                  let activeCreditMs = 0;
+                  if (rawStaff?.payPeriodBookTimeCredit && rawStaff.payPeriodBookTimeCredit > 0) {
+                    activeCreditMs = rawStaff.payPeriodBookTimeCredit * 3600000;
+                  } else if (dept?.weeklyBookTimeCredit && dept.weeklyBookTimeCredit > 0) {
+                    activeCreditMs = dept.weeklyBookTimeCredit * 3600000;
+                  }
+                  
+                  let totalCreditMs = 0;
+                  if (activeCreditMs > 0) {
+                    if (emp.totals.week1NativeMs > 0 || emp.totals.week1QbMs > 0) totalCreditMs += activeCreditMs;
+                    if (emp.totals.week2NativeMs > 0 || emp.totals.week2QbMs > 0) totalCreditMs += activeCreditMs;
+                  }
+
+                  const sessionHourlyPayMs = emp.payType === 'flat_rate'
+                    ? emp.sessions.filter((s: TimeSession) => s.source !== 'QuickBooks').reduce((acc: number, s: TimeSession) => {
+                        const sPayType = s.payType || emp.payType;
+                        return acc + calculateSessionPayMs(s, sPayType);
+                      }, 0)
+                    : 0;
+
+                  const completedBookMs = emp.payType === 'flat_rate'
+                    ? (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time').reduce((acc: number, t: any) => acc + (t.bookHours * 3600000), 0)
+                    : 0;
+
+                  // New efficiency formula: completed book time of flat rate tasks / actual clocked hours on those tasks
+                  const completedFlatRateTasks = (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time');
+                  const totalFlatRateBookHours = completedFlatRateTasks.reduce((sum: number, t: any) => sum + t.bookHours, 0);
+                  const totalFlatRateClockedHours = completedFlatRateTasks.reduce((sum: number, t: any) => sum + t.clockedHours, 0);
+                  const overallEffPercent = totalFlatRateClockedHours > 0 
+                    ? Math.round((totalFlatRateBookHours / totalFlatRateClockedHours) * 100) 
+                    : (emp.payType === 'flat_rate' ? 0 : 100);
+
                   const deptName = dept?.name || 'Unassigned';
                   const showDeptDivider = (emp.departmentId || 'unassigned') !== lastDeptId;
                   if (showDeptDivider) {
@@ -1772,7 +1900,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                   return (
                     <Fragment key={emp.userId}>
                       {showDeptDivider && (
-                        <div className={`border-b-2 border-zinc-950 pb-3 mb-6 mt-12 print:border-b-2 print:border-zinc-950 print:pb-2 print:mb-6 print:mt-0 ${index > 0 ? 'print-page-break' : ''}`}>
+                        <div className={`border-b-2 border-zinc-955 pb-3 mb-6 mt-12 print:border-b-2 print:border-zinc-950 print:pb-2 print:mb-6 print:mt-0 ${index > 0 ? 'print-page-break' : ''}`}>
                           <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-2">
                               <Building2 className="w-5 h-5 text-indigo-500 print:text-zinc-850" />
@@ -1797,42 +1925,45 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                               Timesheet: {emp.name}
                             </h4>
                             <p className="text-xs text-zinc-500 font-medium">
-                              Pay Type: <span className="font-bold text-zinc-850 dark:text-zinc-300 uppercase">{emp.payType}</span> | Department: <span className="font-bold text-zinc-850 dark:text-zinc-300 uppercase">{deptName}</span> | Role: Technician
+                              Pay Type: <span className="font-bold text-zinc-850 dark:text-zinc-300 uppercase">{emp.payType}</span> | Department: <span className="font-bold text-zinc-855 dark:text-zinc-300 uppercase">{deptName}</span> | Role: Technician
                             </p>
                           </div>
                       <div className="text-right flex items-center sm:block gap-6">
-                        <div className="inline-block text-left sm:text-right mr-4">
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
                           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Period Clocked</span>
                           <span className="text-sm font-black text-zinc-900 dark:text-white font-mono">
                             {(emp.totals.totalNativeMs / 3600000).toFixed(2)}h
                           </span>
                         </div>
-                        {emp.totals.totalBookMs > 0 && (
-                          <div className="inline-block text-left sm:text-right mr-4">
-                            <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">Overall Eff</span>
-                            <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono">
-                              {overallEffPercent}%
-                            </span>
-                          </div>
-                        )}
                         {emp.payType === 'flat_rate' && (
                           <>
-                            <div className="inline-block text-left sm:text-right mr-4">
-                              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Period Book Hours</span>
-                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-450 font-mono">
-                                {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
+                            <div className="inline-block text-left sm:text-right mr-4 align-top">
+                              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">Overall Eff</span>
+                              <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono" title={`${totalFlatRateBookHours.toFixed(2)}h completed book / ${totalFlatRateClockedHours.toFixed(2)}h clocked on completed tasks`}>
+                                {totalFlatRateClockedHours > 0 ? `${overallEffPercent}%` : '—'}
                               </span>
                             </div>
-                            <div className="inline-block text-left sm:text-right mr-4">
-                              <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block">Period Pay Hours</span>
-                              <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                {(emp.totals.totalPayMs / 3600000).toFixed(2)}h
+                            <div className="inline-block text-left sm:text-right mr-4 align-top">
+                              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Period Book Hours</span>
+                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-455 font-mono">
+                                {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
                               </span>
                             </div>
                           </>
                         )}
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
+                          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block">Period Pay Hours</span>
+                          <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                            {(emp.totals.totalPayMs / 3600000).toFixed(2)}h
+                          </span>
+                          {emp.payType === 'flat_rate' && (
+                            <span className="text-[9px] text-zinc-400 block font-sans leading-none mt-0.5">
+                              ({(sessionHourlyPayMs / 3600000).toFixed(2)}h Hr + {(completedBookMs / 3600000).toFixed(2)}h Book{totalCreditMs > 0 ? ` + ${(totalCreditMs / 3600000).toFixed(2)}h Cr` : ''})
+                            </span>
+                          )}
+                        </div>
                             {emp.totals.totalQbMs > 0 && (
-                              <div className="mt-1 sm:mt-0 inline-block text-left sm:text-right">
+                              <div className="mt-1 sm:mt-0 inline-block text-left sm:text-right align-top">
                                 <span className="text-xs font-bold text-indigo-500 font-mono block">
                                   QB Sync: {(emp.totals.totalQbMs / 3600000).toFixed(2)}h
                                 </span>
@@ -1887,6 +2018,18 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                               return `${jobNo}-${customer}-${taskName}`;
                             };
 
+                            const isLongShift = workMs > 14 * 3600000;
+                            const isUnclosed = !session.clockOut?.timestamp && (Date.now() - clockInDate.getTime()) > 16 * 3600000;
+                            
+                            const clockInHour = clockInDate.getHours();
+                            const clockOutHour = session.clockOut?.timestamp 
+                              ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).getHours()
+                              : null;
+                            const isOvernight = session.clockOut?.timestamp && (
+                              clockOutHour! >= 22 || clockOutHour! < 5 || clockInHour < 5 ||
+                              (new Date(session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : session.clockOut.timestamp).getDate() !== clockInDate.getDate())
+                            );
+
                             if (session.jobs && session.jobs.length > 0) {
                               const sessionEnd = session.clockOut?.timestamp || Date.now();
                               return (
@@ -1902,6 +2045,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           <span className="bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
                                             Native
                                           </span>
+                                          {isLongShift && (
+                                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse" title="Shift duration exceeds 14 hours">
+                                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                              Long Shift ({(workMs / 3600000).toFixed(1)}h)
+                                            </span>
+                                          )}
+                                          {isUnclosed && (
+                                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse" title="Active for over 16 hours. Forgot to clock out?">
+                                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                              Forgot Clock Out
+                                            </span>
+                                          )}
+                                          {isOvernight && !isLongShift && (
+                                            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1" title="Clocked during late night or early morning hours">
+                                              <Info className="w-3 h-3 text-amber-500 shrink-0" />
+                                              Overnight / Late Hours
+                                            </span>
+                                          )}
                                         </div>
                                         <div className="flex items-center space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
                                           <div>
@@ -1943,15 +2104,79 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
                                     const isHourlySegment = resolvedPayBasis === 'hourly';
                                     const segmentBookTime = isHourlySegment ? actualHours : resolvedBookHours;
+
+                                    const totalClockedMsForTask = taskTotalClockedMsMap[j.taskId || ''] || segmentDuration;
+                                    const totalActualHoursForTask = totalClockedMsForTask / 3600000;
                                     const taskEffPercent = isHourlySegment 
                                       ? 100 
-                                      : (actualHours >= 0.10 && segmentBookTime > 0 ? Math.round((segmentBookTime / actualHours) * 100) : null);
+                                      : (totalActualHoursForTask >= 0.10 && segmentBookTime > 0 ? Math.round((segmentBookTime / totalActualHoursForTask) * 100) : null);
+
+                                    // Check task status and compute badge
+                                    let statusBadge = null;
+                                    if (isHourlySegment) {
+                                      statusBadge = (
+                                        <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
+                                          ✓ Paid Hourly
+                                        </span>
+                                      );
+                                    } else if (taskRef) {
+                                      const status = (taskRef.status || '').toLowerCase();
+                                      const isCompleted = ['completed', 'qc', 'qc complete'].includes(status);
+                                      const compTimeStr = taskRef.completedAt || taskRef.qcCompletedAt;
+                                      const compTime = compTimeStr ? new Date(compTimeStr).getTime() : 0;
+                                      const isWithinPeriod = compTime >= startDate.getTime() && compTime <= endDate.getTime();
+                                      const isRework = !!taskRef.isRework;
+
+                                      if (isRework) {
+                                        statusBadge = (
+                                          <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
+                                            ⚠️ Rework (Unpaid)
+                                          </span>
+                                        );
+                                      } else if (isCompleted && isWithinPeriod) {
+                                        statusBadge = (
+                                          <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 border border-emerald-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
+                                            ✓ Paid (Completed)
+                                          </span>
+                                        );
+                                      } else if (isCompleted && !isWithinPeriod) {
+                                        const compDateStr = new Date(compTime).toLocaleDateString([], { month: 'short', day: 'numeric' });
+                                        statusBadge = (
+                                          <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-550 border border-zinc-200 dark:border-zinc-700 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none" title={`Completed on ${compDateStr} (Paid in another period)`}>
+                                            Paid on {compDateStr}
+                                          </span>
+                                        );
+                                      } else {
+                                        statusBadge = (
+                                          <span className="bg-amber-500/10 text-amber-605 dark:text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
+                                            ⏳ In Progress (Unpaid)
+                                          </span>
+                                        );
+                                      }
+                                    } else {
+                                      statusBadge = (
+                                        <span className="bg-amber-500/10 text-amber-605 dark:text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
+                                          ⏳ In Progress (Unpaid)
+                                        </span>
+                                      );
+                                    }
 
                                     return (
                                       <tr key={`${session.id}-seg-${segmentIdx}`} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
                                         <td className="px-2 py-2.5 text-zinc-800 dark:text-zinc-300 print:text-[9px] font-medium whitespace-normal break-words">
-                                          <div>{renderDetailsText(j)}</div>
-                                          <div className="mt-1 flex items-center gap-1.5 print:mt-0.5">
+                                          <div className="flex items-center gap-1.5">
+                                            <span>{renderDetailsText(j)}</span>
+                                            <a 
+                                              href={`/business/${tenantId}/jobs/${j.id}`} 
+                                              target="_blank" 
+                                              rel="noopener noreferrer" 
+                                              className="text-indigo-650 dark:text-indigo-400 hover:text-indigo-805 dark:hover:text-indigo-300 print:hidden shrink-0"
+                                              title="Open job details in a new tab"
+                                            >
+                                              <ExternalLink className="w-3.5 h-3.5" />
+                                            </a>
+                                          </div>
+                                          <div className="mt-1 flex flex-wrap items-center gap-1.5 print:mt-0.5">
                                             <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none ${
                                               isHourlySegment
                                                 ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/55 dark:border-indigo-900/30'
@@ -1959,6 +2184,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                             }`}>
                                               {isHourlySegment ? 'Hourly' : 'Book Time'}
                                             </span>
+                                            {statusBadge}
                                           </div>
                                         </td>
                                         <td 
@@ -2039,6 +2265,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           <span className="bg-zinc-200 dark:bg-zinc-700 text-zinc-850 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
                                             Native
                                           </span>
+                                          {isLongShift && (
+                                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse" title="Shift duration exceeds 14 hours">
+                                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                              Long Shift ({(workMs / 3600000).toFixed(1)}h)
+                                            </span>
+                                          )}
+                                          {isUnclosed && (
+                                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1 animate-pulse" title="Active for over 16 hours. Forgot to clock out?">
+                                              <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                                              Forgot Clock Out
+                                            </span>
+                                          )}
+                                          {isOvernight && !isLongShift && (
+                                            <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider flex items-center gap-1" title="Clocked during late night or early morning hours">
+                                              <Info className="w-3 h-3 text-amber-500 shrink-0" />
+                                              Overnight / Late Hours
+                                            </span>
+                                          )}
                                         </div>
                                         <div className="flex items-center space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
                                           <div>
@@ -2228,6 +2472,103 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Completed Tasks Breakdown for printable sheets */}
+                    {emp.completedTasks && emp.completedTasks.length > 0 && (
+                      <div className="mt-8 space-y-3 text-left">
+                        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (In this period)</span>
+                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-450 bg-emerald-500/10 px-2 py-0.5 rounded">
+                            Total Book Completed: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
+                          </span>
+                        </div>
+                        <div className="border border-zinc-150 dark:border-zinc-800 rounded-xl overflow-hidden">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-zinc-50/50 dark:bg-zinc-900/50 text-[9px] uppercase font-bold text-zinc-450 border-b border-zinc-150 dark:border-zinc-800">
+                                <th className="px-2 py-2 w-[8%]">Completed</th>
+                                <th className="px-2 py-2 w-[28%]">Job & Task Name</th>
+                                <th className="px-2 py-2 text-center w-[8%]">Type</th>
+                                <th className="px-2 py-2 text-right w-[8%]">Book Time</th>
+                                <th className="px-2 py-2 text-right w-[8%]">Clocked Actual</th>
+                                <th className="px-2 py-2 text-right w-[6%]">Share</th>
+                                <th className="px-2 py-2 text-right w-[8%] font-bold text-emerald-600 dark:text-emerald-450">Earned</th>
+                                <th className="px-2 py-2 w-[18%]">Notes / Comments</th>
+                                <th className="px-2 py-2 text-center w-[4%] font-bold print:border-l print:border-zinc-300">Tech</th>
+                                <th className="px-2 py-2 text-center w-[4%] font-bold print:border-l print:border-zinc-300">Sup</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-zinc-150 dark:divide-zinc-850 font-medium text-zinc-700 dark:text-zinc-300">
+                              {emp.completedTasks.map((t: any, idx: number) => {
+                                const compDate = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
+                                return (
+                                  <tr key={idx} className="text-[11px]">
+                                    <td className="px-2 py-2 whitespace-nowrap text-zinc-455 font-mono">{compDate.toLocaleDateString([], { month: 'short', day: 'numeric' })}</td>
+                                    <td className="px-2 py-2 whitespace-normal break-words">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-bold text-zinc-900 dark:text-white truncate max-w-[120px]" title={t.jobName}>
+                                          {t.jobName}
+                                        </span>
+                                        <a 
+                                          href={`/business/${tenantId}/jobs/${t.jobId}`} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer" 
+                                          className="text-indigo-650 dark:text-indigo-400 hover:text-indigo-805 dark:hover:text-indigo-300 print:hidden"
+                                          title="Open job details in a new tab"
+                                        >
+                                          <ExternalLink className="w-3.5 h-3.5" />
+                                        </a>
+                                      </div>
+                                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 truncate max-w-[180px]" title={t.name}>
+                                        {t.name}
+                                      </div>
+                                    </td>
+                                    <td className="px-2 py-2 text-center">
+                                      <span className={`px-1 py-0.5 rounded uppercase font-black text-[8px] ${
+                                        t.payBasis === 'hourly'
+                                          ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                      }`}>
+                                        {t.payBasis === 'hourly' ? 'Hourly' : 'Book'}
+                                      </span>
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-mono text-zinc-400">
+                                      {t.originalBookHours.toFixed(2)}h
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-mono text-zinc-400">
+                                      {t.clockedHours.toFixed(2)}h
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-mono">
+                                      {(t.share * 100).toFixed(0)}%
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-450">
+                                      {t.isRework ? (
+                                        <span className="bg-rose-500/10 text-rose-600 dark:text-rose-455 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">Rework</span>
+                                      ) : t.payBasis === 'hourly' ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Paid Hourly</span>
+                                      ) : (
+                                        `${t.bookHours.toFixed(2)}h`
+                                      )}
+                                    </td>
+                                    <td className="px-2 py-2 whitespace-normal break-words text-[10px] text-zinc-550 dark:text-zinc-400">
+                                      {t.notes && <div className="font-medium text-zinc-700 dark:text-zinc-300 italic">Task: {t.notes}</div>}
+                                      {t.techNotes && <div className="mt-0.5 text-zinc-605 dark:text-zinc-500">Tech: {t.techNotes}</div>}
+                                      {!t.notes && !t.techNotes && <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>}
+                                    </td>
+                                    <td className="px-2 py-2 text-center print:border-l print:border-zinc-300 align-middle">
+                                      <div className="w-6 border-b border-zinc-400 dark:border-zinc-600 h-3 mx-auto" />
+                                    </td>
+                                    <td className="px-2 py-2 text-center print:border-l print:border-zinc-300 align-middle">
+                                      <div className="w-6 border-b border-zinc-400 dark:border-zinc-600 h-3 mx-auto" />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Signature block for printable sheets */}
                     <div className="hidden print:flex justify-between items-end mt-12 pt-8 border-t border-dashed border-zinc-350">

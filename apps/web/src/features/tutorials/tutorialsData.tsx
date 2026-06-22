@@ -26,6 +26,7 @@ export interface Tutorial {
   category: string;
   sections: TutorialSection[];
   quickSteps?: QuickStep[];
+  summary?: string;
 }
 
 export const getTutorialsData = (business: any, staffMember: any, permissions: any): Record<string, Tutorial> => {
@@ -413,58 +414,106 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
     timeclock: {
       title: "Timecard & Payroll Management",
       description: "A guide for administrators to audit staff logs, adjust timestamps, verify geolocation maps, compare QuickBooks records, and export CSV reports.",
+      summary: "Audit staff hours with precision: reconcile clocked timesheets against QuickBooks imports, track detailed flat-rate vs. hourly task logs with built-in efficiency metrics, resolve anomaly flags (like missing clock-outs or offsite sessions), and export final CSV payloads for payroll integration.",
       category: "Management & Office",
       quickSteps: [
         {
-          title: "Audit Shift Logs",
-          description: "Adjust clock-in/out timestamps, manage corrections, and resolve shift anomalies.",
+          title: "Audit & Reconcile Hours",
+          description: "Verify clocked shifts, review anomaly flags (like extreme hours), and approve staff correction requests.",
           icon: FileSpreadsheet
         },
         {
-          title: "Compare QuickBooks Records",
-          description: "Perform side-by-side verification of UpfittersOS hours against QuickBooks records.",
-          icon: RefreshCw
+          title: "Audit Task Payouts",
+          description: "Review completed book-time vs. hourly tasks to ensure flat-rate techs are paid accurately without double-pay.",
+          icon: ShieldCheck
         },
         {
-          title: "Export Payroll Summaries",
-          description: "Download employee CSV totals and segments for easy upload into payroll software.",
+          title: "Print & Sign-Off Sheets",
+          description: "Generate printed timesheets with signature lines for technician and supervisor verification.",
+          icon: ClipboardList
+        },
+        {
+          title: "Compare & Export Data",
+          description: "Compare variance against imported QuickBooks records and export payroll CSV summaries.",
           icon: Download
         }
       ],
       sections: [
         {
-          title: "Auditing & Editing Logs",
+          title: "Weekly Timeclock Reconciliation",
           icon: FileSpreadsheet,
           content: (
+            <div className="space-y-2 text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
+              <p>
+                The <strong>Weekly Reconciliation</strong> dashboard allows administrators to audit timesheets before finalizing payroll. The header displays key summary statistics:
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li><strong>Clocked Hours:</strong> Total physical hours logged on the clock by the technician.</li>
+                <li><strong>Pay Hours:</strong> The calculated hours to be paid (accounting for hourly shift rates, completed book-time tasks, and credits).</li>
+                <li><strong>Book Hours:</strong> The total flat-rate hours from completed production tasks.</li>
+              </ul>
+            </div>
+          )
+        },
+        {
+          title: "Hourly vs. Flat-Rate Payout Logic",
+          icon: ShieldCheck,
+          content: (
+            <div className="space-y-2 text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
+              <p>
+                To support blended pay structures, the system distinguishes between pay types:
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li><strong>Hourly Staff:</strong> Paid strictly for their physical clocked time. Completed tasks are displayed for oversight and references but do not add to pay.</li>
+                <li><strong>Flat-Rate Staff:</strong> Paid for physical hours clocked on <em>hourly-designated</em> tasks (e.g. training, shop maintenance) plus the allocated book hours for completed production tasks.</li>
+                <li><strong>Prevention of Double-Pay:</strong> Completed tasks designated as hourly are automatically excluded from flat-rate payouts to prevent paying for them twice (once on the clock and once as a completed task).</li>
+              </ul>
+            </div>
+          )
+        },
+        {
+          title: "Fair Overall Efficiency Metric",
+          icon: Activity,
+          content: (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
-              Managers can view weekly logs for all staff members, manually adjust clock-in/out timestamps, add missing sessions, and write notes to document modifications.
+              Technician efficiency is calculated strictly on completed flat-rate tasks: <code className="bg-zinc-100 dark:bg-zinc-800/80 px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 font-mono">Overall Efficiency = (Completed Book Hours / Actual Clocked Hours on those tasks) × 100</code>. By excluding hourly training/shop work and active/uncompleted tasks, top technicians are not penalized for working on non-flat-rate jobs or training apprentices.
             </p>
           )
         },
         {
-          title: "Anomaly Highlighting",
+          title: "Anomaly Flags & Verification Links",
           icon: AlertTriangle,
           content: (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
-              The logs page automatically highlights potential anomalies in red or amber, such as missing clock-outs (overnight sessions), extreme shift lengths, or off-site clock-ins.
+              Potential anomalies—such as overnight clock-ins, extreme shift lengths (like a 27-hour day), or offsite punches—are highlighted in red or amber. Next to task names, administrators can click the <strong>shortcut external link icon</strong> to open specific task details in a new tab without losing their place on the reconciliation sheet.
             </p>
           )
         },
         {
-          title: "QuickBooks Payroll Comparison",
+          title: "Print Sheets & Physical Sign-Off",
+          icon: ClipboardList,
+          content: (
+            <div className="space-y-2 text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
+              <p>
+                Click <strong>Print Timesheets</strong> to generate physical documents for your shop. When clicked:
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>The system automatically switches the dashboard view to the optimized print template.</li>
+                <li>The page title is temporarily formatted (e.g. <code className="bg-zinc-100 dark:bg-zinc-800/80 px-1 py-0.5 rounded text-indigo-650 dark:text-indigo-400 font-mono">Weekly_Timeclock_Reconciliation_Report_...</code>) so if you save as a PDF, the filename is generated correctly.</li>
+                <li>Your browser's native print/PDF dialog opens instantly. You can print physically or save the timesheets directly as a PDF document.</li>
+              </ul>
+              <p className="mt-1">
+                The printed timesheet includes individual employee cards with their detailed completed tasks, hourly/book classification, notes, and supervisor/technician sign-off signature slots.
+              </p>
+            </div>
+          )
+        },
+        {
+          title: "QuickBooks Comparison & Exports",
           icon: RefreshCw,
           content: (
             <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
-              Administrators can open the weekly payroll comparison view to inspect logged shift hours side-by-side with imported QuickBooks records. The dashboard automatically calculates variance discrepancies to flag potential payroll issues.
-            </p>
-          )
-        },
-        {
-          title: "CSV Payroll Data Exports",
-          icon: Download,
-          content: (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold leading-relaxed">
-              Use the <strong>Export Summary</strong> button to download employee totals, QuickBooks hours, and variance summaries. Use <strong>Export Detailed Logs</strong> to download individual raw clock-in/out shift segments for easy upload into payroll software.
+              Compare local UpfittersOS clocked hours side-by-side with imported QuickBooks records to calculate variances. Use <strong>Export Summary</strong> to download employee totals, or <strong>Export Detailed Logs</strong> to download raw clock-in/out segments for easy upload into payroll software.
             </p>
           )
         }

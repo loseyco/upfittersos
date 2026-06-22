@@ -75,6 +75,7 @@ import { HelpCenter } from '../tutorials/HelpCenter';
 import { SOPCenter } from '../sops/SOPCenter';
 import { SalesCrmManager } from './sales/SalesCrmManager';
 import { StaffLocationsPage } from './StaffLocationsPage';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -169,6 +170,40 @@ export function TenantDashboard() {
       navigate(`/business/${tenantId}/upfitters`, { replace: true });
     }
   }, [activeTab, navigate, tenantId]);
+
+  // Periodic background geolocation tracking for active users (even if not clocked in)
+  useEffect(() => {
+    if (!tenantId || tenantId === 'GLOBAL' || !user?.uid || impersonatedStaff) return;
+
+    const trackActiveLocation = async () => {
+      try {
+        const location = await getCurrentLocation(5000);
+        if (location.lat !== null && location.lng !== null) {
+          await updateStaffLastLocation(
+            tenantId,
+            user.uid,
+            user.email,
+            location,
+            "App Active"
+          );
+        }
+      } catch (e) {
+        console.error("Error in background geolocation tracking:", e);
+      }
+    };
+
+    // Track on initial mount/activation
+    trackActiveLocation();
+
+    // Track every 5 minutes if browser tab is active/visible
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        trackActiveLocation();
+      }
+    }, 300000);
+
+    return () => clearInterval(interval);
+  }, [tenantId, user?.uid, impersonatedStaff]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleTabClick = (tabId: string, state?: any) => {
