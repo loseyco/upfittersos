@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp, collectionGroup, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle, Info, Timer, TrendingUp } from 'lucide-react';
+import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle, Info, Timer, TrendingUp, FileSignature } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
@@ -43,6 +43,10 @@ interface TimeSession {
   status: string;
   verificationStatus?: string;
   payType?: string;
+  manuallyEdited?: boolean;
+  lastEditedBy?: string;
+  lastEditedById?: string;
+  approvedBy?: string;
   notes?: string;
   staffNote?: string;
 }
@@ -352,6 +356,22 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const daysToSubtract = day === 0 ? 6 : day - 1;
   weekStart.setDate(weekStart.getDate() - daysToSubtract);
 
+  const { data: tenantTasksList } = useQuery({
+    queryKey: ['tenant-tasks-list', tenantId],
+    queryFn: async () => {
+      if (!tenantId) return [];
+      const q = query(
+        collectionGroup(db, 'tasks'),
+        where('tenantId', '==', tenantId)
+      );
+      const snap = await getDocs(q);
+      return snap.docs
+        .filter(d => d.ref.path.startsWith(`businesses/${tenantId}/`))
+        .map(d => ({ id: d.id, ...d.data() } as any));
+    },
+    enabled: !!tenantId
+  });
+
   const { data: tasksList } = useQuery({
     queryKey: ['my-completed-tasks', tenantId, effectiveUserId, staffMember?.id, staffMember?.userId],
     queryFn: async () => {
@@ -372,11 +392,13 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
       // Filter tasks assigned to this user and completed this week
       const userTasks = tasks.filter((task: any) => {
         const assignments = task.assignedStaff || [];
+        const hasStaff = assignments.length > 0;
+        const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
         const isAssigned = assignments.some((assign: any) => 
           assign.id === effectiveUserId || 
           assign.id === staffMember?.id || 
           assign.id === staffMember?.userId
-        );
+        ) || isDepartmentStaff;
         if (!isAssigned) return false;
 
         const compTimeStr = task.completedAt || task.qcCompletedAt;
@@ -497,11 +519,27 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
       const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : sessionEnd;
       const segMs = Math.max(0, end - start);
 
-      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
-      if (j.bookTime && j.bookTime > 0) {
-        taskBookTime[key] = j.bookTime * 3600000;
+      const taskRef = tenantTasksList?.find((t: any) => t.id === j.taskId);
+      let resolvedPayBasis = 'hourly';
+      let resolvedBookTime = 0;
+
+      if (taskRef) {
+        resolvedBookTime = parseFloat(taskRef.bookTime) || 0;
+        resolvedPayBasis = taskRef.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+      } else {
+        resolvedBookTime = j.bookTime || 0;
+        resolvedPayBasis = j.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
       }
-      taskPayBasis[key] = j.payBasis || 'book_time';
+
+      if (resolvedBookTime === 0) {
+        resolvedPayBasis = 'hourly';
+      }
+
+      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+      if (resolvedBookTime > 0) {
+        taskBookTime[key] = resolvedBookTime * 3600000;
+      }
+      taskPayBasis[key] = resolvedPayBasis;
     });
 
     let totalPayMs = 0;
@@ -753,8 +791,24 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
             const taskBookTime: Record<string, number> = {};
             session.jobs.forEach((j: any, idx: number) => {
               const key = j.taskId || `manual-${idx}-${j.name}`;
-              if (j.bookTime && j.bookTime > 0) {
-                taskBookTime[key] = j.bookTime * 3600000;
+              const taskRef = tenantTasksList?.find((t: any) => t.id === j.taskId);
+              let resolvedBookTime = 0;
+              let resolvedPayBasis = 'hourly';
+
+              if (taskRef) {
+                resolvedBookTime = parseFloat(taskRef.bookTime) || 0;
+                resolvedPayBasis = taskRef.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+              } else {
+                resolvedBookTime = j.bookTime || 0;
+                resolvedPayBasis = j.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+              }
+
+              if (resolvedBookTime === 0) {
+                resolvedPayBasis = 'hourly';
+              }
+
+              if (resolvedPayBasis !== 'hourly' && resolvedBookTime > 0) {
+                taskBookTime[key] = resolvedBookTime * 3600000;
               }
             });
             return Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
@@ -784,7 +838,8 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                         {session.status}
                       </span>
                       {session.verificationStatus === 'pending' && (
-                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-amber-500 text-white animate-pulse">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-indigo-650 text-white dark:bg-indigo-500 border border-indigo-755 dark:border-indigo-455 animate-pulse shadow-[0_0_8px_rgba(79,70,229,0.4)] flex items-center gap-1">
+                          <FileSignature className="w-3 h-3 shrink-0" />
                           Needs Verification
                         </span>
                       )}

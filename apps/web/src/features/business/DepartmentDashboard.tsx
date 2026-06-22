@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
-  Hammer, Package, Clock, Filter, AlertCircle, Car, Warehouse, ListChecks, User, Palette, Wrench,
-  Maximize, Minimize
+  Hammer, Clock, Filter, Car, Warehouse, User, Palette, Wrench,
+  Maximize, Minimize, MapPin
 } from 'lucide-react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
@@ -52,9 +52,12 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
   }, []);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
-  const [partsRequests, setPartsRequests] = useState<any[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [jobsTasks, setJobsTasks] = useState<Record<string, any[]>>({});
   
   const [searchQuery, setSearchQuery] = useState('');
+  const [locationFilter, setLocationFilter] = useState<'all' | 'bay' | 'parking' | 'unassigned'>('all');
 
   useEffect(() => {
     if (!tenantId) return;
@@ -69,17 +72,61 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
       setLastUpdated(new Date());
     }, (err) => console.error("Jobs listener error:", err));
 
-    const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), snap => {
-      setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), snap => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLastUpdated(new Date());
-    }, (err) => console.error("Parts listener error:", err));
+    }, (err) => console.error("Zones listener error:", err));
+
+    const unsubDepts = onSnapshot(collection(db, `businesses/${tenantId}/departments`), snap => {
+      setDepartments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLastUpdated(new Date());
+    }, (err) => console.error("Departments listener error:", err));
 
     return () => {
       unsubVehicles();
       unsubJobs();
-      unsubParts();
+      unsubZones();
+      unsubDepts();
     };
   }, [tenantId]);
+
+  const activeAllJobs = allJobs.filter(j => !['Closed', 'Completed', 'Cancelled'].includes(j.status));
+
+  // Subscribe to tasks for each active job shop-wide
+  const activeJobIdsStr = activeAllJobs
+    .map(j => j.id)
+    .filter(Boolean)
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const activeJobIds = activeJobIdsStr ? activeJobIdsStr.split(',') : [];
+    if (activeJobIds.length === 0) {
+      setJobsTasks({});
+      return;
+    }
+
+    const unsubscribers: (() => void)[] = [];
+
+    activeJobIds.forEach(jobId => {
+      const q = collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`);
+      const unsub = onSnapshot(q, (snap) => {
+        const tasksList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setJobsTasks(prev => ({
+          ...prev,
+          [jobId]: tasksList
+        }));
+      }, (err) => {
+        console.error(`Could not subscribe to tasks for job ${jobId}:`, err);
+      });
+      unsubscribers.push(unsub);
+    });
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [tenantId, activeJobIdsStr]);
 
   const calculateDuration = (timestamp: any) => {
     if (!timestamp) return '---';
@@ -94,24 +141,100 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
     return `${mins}m`;
   };
 
-  // Filter jobs by department tag or if the department name is in the title/status (fallback)
-  const departmentJobs = allJobs.filter(j => 
-    j.tags?.some((t: string) => t.toLowerCase() === tagFilter.toLowerCase()) ||
-    j.title?.toLowerCase().includes(tagFilter.toLowerCase()) ||
-    j.notes?.toLowerCase().includes(tagFilter.toLowerCase())
-  ).filter(j => {
+  const formatEstCompletion = (date: Date) => {
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    
+    const tomorrow = new Date();
+    tomorrow.setDate(now.getDate() + 1);
+    const isTomorrow = date.toDateString() === tomorrow.toDateString();
+    
+    const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    
+    if (isToday) {
+      return `Today at ${timeStr}`;
+    } else if (isTomorrow) {
+      return `Tomorrow at ${timeStr}`;
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ` at ${timeStr}`;
+    }
+  };
+
+  // Find the Graphics department in the fetched departments list
+  const graphicsDept = departments.find(d => d.name?.toLowerCase() === 'graphics' || d.name?.toLowerCase().includes('graphics'));
+  const graphicsDeptId = graphicsDept?.id;
+
+  // Filter active jobs that have at least one task assigned to the Graphics department
+  const jobsWithGraphicsTasks = activeAllJobs.map(job => {
+    const jobTasks = jobsTasks[job.id] || [];
+    const graphicsTasks = jobTasks.filter((t: any) => {
+      if (graphicsDeptId) {
+        return t.departmentId === graphicsDeptId;
+      }
+      // Fallback check: task departmentId, title, or description matches tagFilter case-insensitively
+      const filterLower = tagFilter.toLowerCase();
+      return t.departmentId === tagFilter || 
+             t.title?.toLowerCase().includes(filterLower) || 
+             t.description?.toLowerCase().includes(filterLower);
+    });
+
+    const upstreamTasks = jobTasks.filter((t: any) => {
+      if (graphicsDeptId) {
+        return t.departmentId !== graphicsDeptId;
+      }
+      // Fallback check: task departmentId, title, or description does not match tagFilter
+      const filterLower = tagFilter.toLowerCase();
+      return t.departmentId !== tagFilter && 
+             !t.title?.toLowerCase().includes(filterLower) && 
+             !t.description?.toLowerCase().includes(filterLower);
+    });
+
+    return {
+      ...job,
+      graphicsTasks,
+      upstreamTasks
+    };
+  }).filter(job => job.graphicsTasks.length > 0);
+
+  // Apply location filter and search query filter
+  const filteredJobs = jobsWithGraphicsTasks.filter(job => {
+    const jobZone = zones.find(z => z.currentJobId === job.id);
+    
+    // Location Filter
+    if (locationFilter === 'bay' && (!jobZone || jobZone.type !== 'bay')) return false;
+    if (locationFilter === 'parking' && (!jobZone || jobZone.type !== 'parking')) return false;
+    if (locationFilter === 'unassigned' && jobZone) return false;
+
+    // Search Filter
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    return j.title?.toLowerCase().includes(q) || j.jobNumber?.toLowerCase().includes(q) || j.customerName?.toLowerCase().includes(q);
+    const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
+    const vehicleStr = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.vin}`.toLowerCase() : '';
+    return (
+      job.title?.toLowerCase().includes(q) ||
+      job.jobNumber?.toLowerCase().includes(q) ||
+      job.customerName?.toLowerCase().includes(q) ||
+      (jobZone?.name || '').toLowerCase().includes(q) ||
+      vehicleStr.includes(q)
+    );
   });
 
-  const activeJobs = departmentJobs.filter(j => !['Closed', 'Completed', 'Cancelled'].includes(j.status));
-  const blockedJobs = activeJobs.filter(j => j.status === 'Blocked' || (j.blockers || []).some((b: any) => b.status === 'active'));
-  
-  const pendingParts = partsRequests.filter(pr => 
-    activeJobs.some(j => j.id === pr.jobId) && 
-    (pr.status === 'pending' || pr.status === 'ordered')
-  );
+  // Sort by next ready (upstream work completion):
+  // 1. Jobs with uncompleted Graphics tasks go first, sorted by remaining upstream hours (non-Graphics uncompleted tasks bookTime) ascending.
+  // 2. Jobs with all Graphics tasks completed go last.
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    const aGraphicsRemaining = a.graphicsTasks.filter((t: any) => t.status !== 'completed').length;
+    const bGraphicsRemaining = b.graphicsTasks.filter((t: any) => t.status !== 'completed').length;
+
+    if (aGraphicsRemaining === 0 && bGraphicsRemaining > 0) return 1; // Completed Graphics goes last
+    if (aGraphicsRemaining > 0 && bGraphicsRemaining === 0) return -1; // Completed Graphics goes last
+    if (aGraphicsRemaining === 0 && bGraphicsRemaining === 0) return 0;
+    
+    const aUpstreamHours = a.upstreamTasks.filter((t: any) => t.status !== 'completed').reduce((sum: number, t: any) => sum + (parseFloat(t.bookTime) || 0), 0);
+    const bUpstreamHours = b.upstreamTasks.filter((t: any) => t.status !== 'completed').reduce((sum: number, t: any) => sum + (parseFloat(t.bookTime) || 0), 0);
+
+    return aUpstreamHours - bUpstreamHours;
+  });
 
   return (
     <div 
@@ -150,22 +273,12 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
             ) : (
               <Warehouse className="w-6 h-6 text-indigo-500" />
             )}
-            {departmentName} Control Board
+            {departmentName} Tasks Location Board
           </h1>
-          <p className="text-sm text-zinc-500">Managing active units and production flow for {departmentName}.</p>
+          <p className="text-sm text-zinc-500">Track and manage jobs with {departmentName} tasks assigned and their current shop bay/parking locations.</p>
         </div>
         
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto shrink-0">
-          <div className="relative w-full md:w-96">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input 
-              type="text"
-              placeholder="Search active jobs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-zinc-900 dark:text-white"
-            />
-          </div>
           {!isFullscreen && (
             <button 
               onClick={toggleFullscreen}
@@ -178,151 +291,213 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-indigo-500/10 rounded-lg">
-              {departmentName.includes('Fabrication') ? (
-                <Hammer className="w-4 h-4 text-indigo-500" />
-              ) : departmentName.includes('Graphics') ? (
-                <Palette className="w-4 h-4 text-indigo-500" />
-              ) : departmentName.includes('F.A.S.T') ? (
-                <Wrench className="w-4 h-4 text-indigo-500" />
-              ) : (
-                <Warehouse className="w-4 h-4 text-indigo-500" />
-              )}
-            </div>
-            <p className="text-xs font-black uppercase tracking-widest text-zinc-500">Active Units</p>
+      <div className="space-y-6">
+        {/* Filters Row */}
+        <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            {(['all', 'bay', 'parking', 'unassigned'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setLocationFilter(f)}
+                className={cn(
+                  "px-3.5 py-1.5 text-xs font-bold rounded-xl border transition-all cursor-pointer",
+                  locationFilter === f
+                    ? "bg-indigo-500 border-indigo-500 text-white shadow-sm shadow-indigo-500/20"
+                    : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                )}
+              >
+                {f === 'all' && 'All Locations'}
+                {f === 'bay' && '⚡ In Bay'}
+                {f === 'parking' && '🅿️ In Parking'}
+                {f === 'unassigned' && '⚪ Unassigned'}
+              </button>
+            ))}
           </div>
-          <p className="text-3xl font-black text-zinc-900 dark:text-white">{activeJobs.length}</p>
-        </div>
-        
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-red-500/10 rounded-lg"><AlertCircle className="w-4 h-4 text-red-500" /></div>
-            <p className="text-xs font-black uppercase tracking-widest text-zinc-500">Blockers</p>
+          <div className="relative w-full sm:w-72">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+            <input 
+              type="text"
+              placeholder="Search jobs / locations..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-xs transition-all text-zinc-900 dark:text-white font-medium"
+            />
           </div>
-          <p className="text-3xl font-black text-zinc-900 dark:text-white">{blockedJobs.length}</p>
         </div>
 
-        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-amber-500/10 rounded-lg"><Package className="w-4 h-4 text-amber-500" /></div>
-            <p className="text-xs font-black uppercase tracking-widest text-zinc-500">Parts Needed</p>
+        {sortedJobs.length === 0 ? (
+          <div className="p-16 text-center bg-zinc-50 dark:bg-zinc-950 rounded-3xl border border-dashed border-zinc-200 dark:border-zinc-800">
+            <MapPin className="w-8 h-8 text-zinc-400 mx-auto mb-3" />
+            <p className="text-zinc-500 italic font-medium">No active jobs with {departmentName} tasks matching current filters.</p>
           </div>
-          <p className="text-3xl font-black text-zinc-900 dark:text-white">{pendingParts.length}</p>
-        </div>
-      </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {sortedJobs.map(job => {
+              const jobZone = zones.find(z => z.currentJobId === job.id);
+              const tasks = job.graphicsTasks;
+              const completedTasks = tasks.filter((t: any) => t.status === 'completed').length;
+              const totalTasks = tasks.length;
+              const completionPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+              const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
+              const vehicleDisplay = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : (job.vehicleId || 'No Vehicle Assigned');
+              
+              const stayStart = jobZone ? (jobZone.type === 'bay' ? (job.currentBaySessionStart || jobZone.lastAssignedAt) : (job.currentParkingSessionStart || jobZone.lastAssignedAt)) : null;
+              const durationStr = stayStart ? calculateDuration(stayStart) : null;
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <section className="space-y-4">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <ListChecks className="w-5 h-5 text-indigo-500" />
-            Active Production Queue
-          </h2>
-          <div className="grid gap-4">
-            {activeJobs.length === 0 ? (
-              <div className="p-12 text-center bg-zinc-50 dark:bg-zinc-950 rounded-3xl border border-dashed border-zinc-200 dark:border-zinc-800">
-                <p className="text-zinc-500 italic">No active jobs found for {departmentName}.</p>
-              </div>
-            ) : (
-              activeJobs.map(job => {
-                const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
-                const vehicleDisplay = vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : (job.vehicleId || 'No Vehicle Assigned');
-                const isBlocked = job.status === 'Blocked' || (job.blockers || []).some((b: any) => b.status === 'active');
-                
-                return (
-                  <div 
-                    key={job.id}
-                    onClick={() => {
-                      navigate(`/business/${tenantId}/job/${job.id}`);
-                    }}
-                    className={cn(
-                      "p-5 bg-white dark:bg-zinc-900 border rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer group",
-                      isBlocked ? "border-red-200 dark:border-red-900/30" : "border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50"
-                    )}
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-bold text-zinc-900 dark:text-white group-hover:text-indigo-500 transition-colors">
-                          {job.jobNumber ? `#${job.jobNumber} ` : ''}{job.title}
-                        </h3>
-                        <p className="text-xs text-zinc-500 flex items-center gap-1.5 mt-1">
-                          <User className="w-3 h-3" />
-                          {job.customerName || 'No Customer'}
-                        </p>
+              const todoUpstreamTasks = job.upstreamTasks.filter((t: any) => t.status !== 'completed');
+              const remainingUpstreamHours = todoUpstreamTasks.reduce((sum: number, t: any) => sum + (parseFloat(t.bookTime) || 0), 0);
+              const estReadyDate = remainingUpstreamHours > 0 
+                ? new Date(Date.now() + remainingUpstreamHours * 3600000) 
+                : null;
+
+              return (
+                <div 
+                  key={job.id}
+                  onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                  className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl overflow-hidden hover:shadow-xl hover:border-indigo-500/30 transition-all duration-300 flex flex-col group cursor-pointer"
+                >
+                  {/* Location Stay Banner */}
+                  {jobZone ? (
+                    <div className={cn(
+                      "px-5 py-3 border-b flex items-center justify-between text-xs font-bold",
+                      jobZone.type === 'bay'
+                        ? "bg-gradient-to-r from-amber-500/10 to-orange-500/10 dark:from-amber-500/5 dark:to-orange-500/5 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                        : "bg-gradient-to-r from-cyan-500/10 to-blue-500/10 dark:from-cyan-500/5 dark:to-blue-500/5 text-cyan-600 dark:text-cyan-400 border-cyan-500/20"
+                    )}>
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-indigo-500" />
+                        <span>{jobZone.type === 'bay' ? 'Production Bay' : 'Parking Lot'}: {jobZone.name}</span>
                       </div>
-                      <span className={cn(
-                        "px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest",
-                        isBlocked ? "bg-red-500 text-white" : "bg-indigo-500/10 text-indigo-600"
+                      {durationStr && (
+                        <div className="flex items-center gap-1 bg-white/60 dark:bg-black/20 px-2 py-0.5 rounded-full text-[10px]">
+                          <Clock className="w-3 h-3 text-zinc-500" />
+                          <span>Here: {durationStr}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-5 py-3 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs text-zinc-500 font-bold">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-zinc-400" />
+                        <span>No Location Assigned</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Card Content */}
+                  <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                    {/* Job Details */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+                          {job.jobNumber ? `#${job.jobNumber}` : 'No Job #'}
+                        </span>
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                          ['Closed', 'Completed', 'Cancelled'].includes(job.status)
+                            ? "bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700"
+                            : job.status === 'Blocked' || (job.blockers || []).some((b: any) => b.status === 'active')
+                            ? "bg-red-500/10 text-red-600 border-red-500/20 dark:bg-red-500/5"
+                            : "bg-indigo-500/10 text-indigo-600 border-indigo-500/20 dark:bg-indigo-500/5 dark:text-indigo-400"
+                        )}>
+                          {job.status}
+                        </span>
+                      </div>
+                      <h3 className="font-black text-base text-zinc-900 dark:text-white group-hover:text-indigo-500 transition-colors line-clamp-1">
+                        {job.title}
+                      </h3>
+                      <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5" />
+                        {job.customerName || 'No Customer'}
+                      </p>
+                    </div>
+
+                    {/* Vehicle & Est Completion */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 rounded-xl border border-zinc-100 dark:border-zinc-800/40">
+                        <Car className="w-4 h-4 shrink-0 text-zinc-400" />
+                        <span className="line-clamp-1">{vehicleDisplay}</span>
+                      </div>
+                      
+                      <div className={cn(
+                        "flex items-center gap-2 text-[11px] font-bold px-3 py-1.5 rounded-xl border",
+                        remainingUpstreamHours > 0
+                          ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/60 dark:border-indigo-900/30 animate-pulse"
+                          : "bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/60 dark:border-emerald-900/30"
                       )}>
-                        {job.status}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                      <div className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                        <Car className="w-3.5 h-3.5" />
-                        {vehicleDisplay}
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px] font-bold text-zinc-400">
-                        <Clock className="w-3 h-3" />
-                        {calculateDuration(job.updatedAt)} ago
+                        <Clock className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {remainingUpstreamHours > 0 && estReadyDate
+                            ? `Est. Ready: ${formatEstCompletion(estReadyDate)}`
+                            : '✅ Ready for Graphics'}
+                        </span>
                       </div>
                     </div>
+
+                    {/* Task Progress Bar */}
+                    {totalTasks > 0 && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500">
+                          <span>Task Progress</span>
+                          <span>{completedTasks}/{totalTasks} ({completionPercent}%)</span>
+                        </div>
+                        <div className="w-full bg-zinc-100 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className="bg-indigo-500 h-full transition-all duration-300"
+                            style={{ width: `${completionPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tasks List */}
+                    {totalTasks > 0 ? (
+                      <div className="border-t border-zinc-100 dark:border-zinc-800/60 pt-3 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Tasks</p>
+                        <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+                          {tasks.map((task: any) => {
+                            const isTaskActive = task.status === 'active' || task.status === 'in-progress';
+                            const isTaskCompleted = task.status === 'completed';
+                            
+                            return (
+                              <div 
+                                key={task.id}
+                                className={cn(
+                                  "p-2 rounded-xl flex items-center justify-between text-xs transition-colors border",
+                                  isTaskActive
+                                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400 dark:bg-emerald-500/5"
+                                    : isTaskCompleted
+                                    ? "bg-zinc-50 dark:bg-zinc-950/40 border-zinc-100 dark:border-zinc-800/40 text-zinc-400 dark:text-zinc-500 line-through"
+                                    : "bg-white dark:bg-zinc-900 border-zinc-100 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400"
+                                )}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isTaskActive && (
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                  )}
+                                  <span className="font-bold truncate">{task.title}</span>
+                                </div>
+                                {task.bookTime > 0 && (
+                                  <span className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 px-1.5 py-0.5 rounded-md font-bold shrink-0">
+                                    {task.bookTime} hrs
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="border-t border-zinc-100 dark:border-zinc-800/60 pt-3 text-center">
+                        <span className="text-[10px] text-zinc-400 italic">No tasks created for this job yet</span>
+                      </div>
+                    )}
                   </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Package className="w-5 h-5 text-amber-500" />
-            Parts & Blockers
-          </h2>
-          <div className="space-y-4">
-            {blockedJobs.map(job => (
-              <div 
-                key={job.id} 
-                onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
-                className="p-4 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl cursor-pointer hover:border-red-500/50 transition-colors"
-              >
-                <p className="text-xs font-black text-red-600 uppercase tracking-widest mb-1">Production Blocked</p>
-                <h4 className="font-bold text-sm text-zinc-900 dark:text-white mb-2">{job.title}</h4>
-                <div className="p-3 bg-white dark:bg-zinc-900 rounded-xl border border-red-100 dark:border-red-900/20 text-xs text-red-600 font-medium">
-                  {job.blocker || job.blockers?.find((b: any) => b.status === 'active')?.message || 'Job marked as blocked.'}
                 </div>
-              </div>
-            ))}
-
-            {pendingParts.map(part => (
-              <div 
-                key={part.id} 
-                onClick={() => {
-                  if (part.jobId) {
-                    navigate(`/business/${tenantId}/job/${part.jobId}`);
-                  }
-                }}
-                className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-2xl cursor-pointer hover:border-amber-500/50 transition-colors"
-              >
-                <p className="text-xs font-black text-amber-600 uppercase tracking-widest mb-1">Part Awaiting • Qty: {part.quantity || 1}</p>
-                <h4 className="font-bold text-sm text-zinc-900 dark:text-white mb-1">{part.partName}</h4>
-                <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500 uppercase">
-                  <span>Job: {allJobs.find(j => j.id === part.jobId)?.title}</span>
-                  <span className="text-amber-600">{part.status}</span>
-                </div>
-              </div>
-            ))}
-
-            {blockedJobs.length === 0 && pendingParts.length === 0 && (
-              <div className="p-12 text-center bg-emerald-50 dark:bg-emerald-950/20 rounded-3xl border border-dashed border-emerald-200 dark:border-emerald-800/30">
-                <p className="text-emerald-600 dark:text-emerald-400 italic">No pending parts or blockers!</p>
-              </div>
-            )}
+              );
+            })}
           </div>
-        </section>
+        )}
       </div>
     </div>
   );

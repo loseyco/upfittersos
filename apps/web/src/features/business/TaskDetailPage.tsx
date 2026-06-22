@@ -19,8 +19,14 @@ import { StaffLink } from './StaffPerformance';
 import { TimeAllocationModal } from './TimeAllocationModal';
 import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 
@@ -779,7 +785,7 @@ export function TaskDetailPage({
 
   const handleClockInClick = async () => {
     if (!task) return;
-    const isGeneral = isGeneralTask(task.title);
+    const isGeneral = isGeneralTask(task);
     const targetUid = effectiveUserId || user?.uid;
     const isClockingOther = !!(effectiveUserId && effectiveUserId !== user?.uid);
     const resolvedStaffName = isClockingOther 
@@ -795,7 +801,7 @@ export function TaskDetailPage({
         const snap = await getDocs(q);
         const allTasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
         const assignedTasks = allTasks.filter(t => 
-          !isGeneralTask(t.title) && 
+          !isGeneralTask(t) && 
           t.status !== 'QC' && 
           t.status !== 'QC Complete' && 
           t.status !== 'completed' && 
@@ -855,8 +861,13 @@ export function TaskDetailPage({
     try {
       if (!task) return;
 
+      if ((nextStatus === 'QC' || nextStatus === 'QC Complete') && task.canComplete === false) {
+        toast.error("This task cannot be marked as complete.");
+        return;
+      }
+
       // Intercept if they are marking complete
-      if (nextStatus === 'QC' && !isGeneralTask(task.title) && !bypassVerification) {
+      if (nextStatus === 'QC' && !isGeneralTask(task) && !bypassVerification) {
         setPendingCompletion({
           currentStatus,
           action
@@ -1007,7 +1018,9 @@ export function TaskDetailPage({
   );
 
   const loggedMs = getTaskLoggedMs();
-  const isAssigned = isGeneralTask(task.title) || 
+  const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
+  const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
+  const isAssigned = isGeneralTask(task) || 
                     isSuperAdmin || 
                     task.assignedStaffIds?.includes(effectiveUserId) || 
                     task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
@@ -1018,8 +1031,9 @@ export function TaskDetailPage({
                     (staffMember?.userId && (
                       task.assignedStaffIds?.includes(staffMember.userId) || 
                       task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
-                    ));
-  const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
+                    )) ||
+                    isDepartmentStaff;
+  const isUnassigned = !isGeneralTask(task) && !task.departmentId && !hasStaff;
 
   const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
   const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || isUnassigned || (canPerformQC && task.status === 'QC');
@@ -1073,7 +1087,7 @@ export function TaskDetailPage({
                 const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                   ? task.actualTime 
                   : (loggedMs / 3600000);
-                const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
+                const isOverBook = !task.isAccidental && !isGeneralTask(task) && bookHours > 0 && clockedHours > bookHours;
                 const diff = clockedHours - bookHours;
                 if (isOverBook) {
                   return (
@@ -1139,7 +1153,7 @@ export function TaskDetailPage({
                   )
                 )}
                
-               {task.status !== 'QC Complete' && !isGeneralTask(task.title) && (
+               {task.status !== 'QC Complete' && !isGeneralTask(task) && task.canComplete !== false && (
                    task.status === 'QC' ? (
                      <div className="flex items-center gap-2">
                        {canPerformQC ? (
@@ -1278,7 +1292,7 @@ export function TaskDetailPage({
             <div className="pt-4 border-t border-white/10 mt-4">
               <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-2">Override Task Completion & QA</span>
               <div className="flex flex-wrap gap-3">
-                {task.status !== 'QC Complete' && task.status !== 'QC' && (
+                {task.status !== 'QC Complete' && task.status !== 'QC' && task.canComplete !== false && (
                   <button 
                     onClick={() => handleTaskStatusChange(task.status || 'pending')}
                     className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-650 text-white rounded-xl text-xs font-bold uppercase tracking-widest transition-all shadow-md shadow-indigo-500/20"
@@ -1431,13 +1445,13 @@ export function TaskDetailPage({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl">
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Allotted Time</span>
-                <span className="font-mono text-xl font-bold">{!isGeneralTask(task.title) ? `${task.bookTime || 0}h` : 'N/A'}</span>
+                <span className="font-mono text-xl font-bold">{!isGeneralTask(task) ? `${task.bookTime || 0}h` : 'N/A'}</span>
               </div>
               <div className="p-4 bg-zinc-50 dark:bg-zinc-950 rounded-2xl">
                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block mb-1">Time Worked</span>
                 <span className={cn(
                   "font-mono text-xl font-bold",
-                  !isGeneralTask(task.title) && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
+                  !isGeneralTask(task) && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
                 )}>
                   {formatMs(loggedMs)}
                 </span>

@@ -23,8 +23,14 @@ import { QuickAddVehicleModal } from './VehicleSelector';
 import { QuickAddJobModal } from './JobSelectionComponents';
 import { ConfirmModal } from '../../components/ConfirmModal';
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 
@@ -583,11 +589,11 @@ export function MissionControl({ tenantId, onTabChange }: MissionControlProps) {
     // Calculate job progress
     const jobProgressList = activeJobs.map((job: any) => {
       const tasks = jobTasksData.find(d => d.jobId === job.id)?.tasks || [];
-      const nonGeneralTasks = tasks.filter((t: any) => !isGeneralTask(t.title));
-      const totalBookHours = nonGeneralTasks.reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+      const nonGeneralTasks = tasks.filter((t: any) => !isGeneralTask(t));
+      const totalBookHours = nonGeneralTasks.reduce((acc: number, t: any) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
       const completedBookHours = nonGeneralTasks
         .filter((t: any) => t.status === 'QC' || t.status === 'QC Complete')
-        .reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+        .reduce((acc: number, t: any) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
       const progress = totalBookHours > 0 
         ? Math.round((completedBookHours / totalBookHours) * 100) 
         : (tasks.length > 0 && tasks.every((t: any) => t.status === 'QC' || t.status === 'QC Complete') ? 100 : 0);

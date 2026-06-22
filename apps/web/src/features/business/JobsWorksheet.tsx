@@ -1020,6 +1020,13 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const handleUpdateTaskStatus = async (jobId: string, taskId: string, nextStatus: string) => {
     setIsUpdating(jobId);
     try {
+      const task = tasksMap[jobId]?.find((t: any) => t.id === taskId);
+      if ((nextStatus === 'QC' || nextStatus === 'QC Complete') && task?.canComplete === false) {
+        toast.error("This task cannot be marked as complete.");
+        setIsUpdating(null);
+        return;
+      }
+
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId);
       const updateData: any = {
         status: nextStatus,
@@ -1308,10 +1315,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
                 const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
-                const totalBookTime = nonGeneralTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                const totalBookTime = nonGeneralTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
                 const remainingBookTime = nonGeneralTasks
                   .filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed')
-                  .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                  .reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
                 // Parts aggregation
                 const jobParts = partsRequests.filter(p => p.jobId === job.id);
@@ -1742,7 +1749,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                                 {/* General Status Dropdown */}
                                                 <div className="w-[120px] text-left">
                                                   <ExcelSearchableSelect
-                                                    options={['pending', 'in_progress', 'QC', 'QC Complete', 'Rework']}
+                                                    options={task.canComplete === false ? ['pending', 'in_progress', 'Rework'] : ['pending', 'in_progress', 'QC', 'QC Complete', 'Rework']}
                                                     value={task.status || 'pending'}
                                                     onChange={(val) => handleUpdateTaskStatus(job.id, task.id, val)}
                                                     getLabel={(s) => s.toUpperCase()}
@@ -1770,7 +1777,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                                     </button>
                                                   </>
                                                 ) : (
-                                                  task.status !== 'QC Complete' && (
+                                                  task.status !== 'QC Complete' && task.canComplete !== false && (
                                                     <button
                                                       onClick={() => handleUpdateTaskStatus(job.id, task.id, 'QC')}
                                                       className="px-2.5 py-1 bg-indigo-650 hover:bg-indigo-700 text-white font-extrabold rounded-lg text-[9px] uppercase tracking-wider transition active:scale-95 shadow-sm"
@@ -2048,7 +2055,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
 
                             const remainingBookTime = nonGeneralTasks
                               .filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed')
-                              .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                              .reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
                             const jobParts = partsRequests
                                .filter(p => p.jobId === job.id)

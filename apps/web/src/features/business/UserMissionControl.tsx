@@ -27,6 +27,7 @@ import { useSearchStore } from '../../lib/store/searchStore';
 import { DeviceSettings } from '../../components/DeviceSettings';
 import { TimeClockHistory } from '../timeclock/TimeClockHistory';
 import { useJobClock } from '../timeclock/useJobClock';
+import { getCurrentLocation, updateStaffLastLocation, calculateDistance } from '../../lib/locationService';
 
 
 const getPayrollWeekStart = (d: Date, weekEndDay: number) => {
@@ -743,7 +744,10 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         doneBookHours += bookTime;
       }
     } else {
-      scheduledBookHours += bookTime;
+      const isJobActive = allActiveJobs.some(j => j.id === t.jobId);
+      if (isJobActive) {
+        scheduledBookHours += bookTime;
+      }
     }
   });
 
@@ -895,21 +899,59 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         }
       }
 
+      const loc = await getCurrentLocation();
+      let onSite = true;
+      let isRemote = false;
+
+      // Fetch business settings
+      let settings: any = null;
+      try {
+        const settingsSnap = await getDoc(doc(db, 'businesses', tenantId));
+        if (settingsSnap.exists()) {
+          settings = settingsSnap.data();
+        }
+      } catch (err) {
+        console.warn("Could not load business settings", err);
+      }
+
+      if (loc.lat !== null && loc.lng !== null) {
+        if (settings?.siteLat && settings?.siteLng) {
+          const dist = calculateDistance(
+            loc.lat, loc.lng,
+            parseFloat(settings.siteLat), parseFloat(settings.siteLng)
+          );
+          onSite = dist <= (settings.siteRadius || 500);
+        }
+        isRemote = !onSite;
+      } else {
+        isRemote = true;
+        onSite = false;
+      }
+
+      if (isRemote && settings && !settings.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
+        toast.error("Clocking in off-site is not allowed for your account.");
+        setIsClockProcessing(false);
+        return;
+      }
+
       const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
         userId: effectiveUserId,
         userName: actualName,
         staffName: actualName,
         clockIn: {
           timestamp: new Date(),
-          lat: null,
-          lng: null,
-          onSite: true
+          lat: loc.lat,
+          lng: loc.lng,
+          accuracy: loc.accuracy,
+          onSite
         },
-        isRemote: false,
+        isRemote,
         status: 'active',
         breaks: [],
         createdAt: new Date()
       });
+
+      await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Clocked In");
 
       setClockStatus('clocked_in', Date.now(), docRef.id);
       toast.success("Clocked in successfully");
@@ -943,18 +985,56 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         lastJob.end = new Date();
       }
 
+      const loc = await getCurrentLocation();
+      let onSite = true;
+
+      // Fetch business settings
+      let settings: any = null;
+      try {
+        const settingsSnap = await getDoc(doc(db, 'businesses', tenantId));
+        if (settingsSnap.exists()) {
+          settings = settingsSnap.data();
+        }
+      } catch (err) {
+        console.warn("Could not load business settings", err);
+      }
+
+      let allowedClockOut = true;
+      if (loc.lat !== null && loc.lng !== null) {
+        if (settings?.siteLat && settings?.siteLng) {
+          const dist = calculateDistance(
+            loc.lat, loc.lng,
+            parseFloat(settings.siteLat), parseFloat(settings.siteLng)
+          );
+          onSite = dist <= (settings.siteRadius || 500);
+          allowedClockOut = dist <= ((settings.siteRadius || 500) * 2);
+        }
+      } else {
+        onSite = false;
+        allowedClockOut = false;
+      }
+
+      if (!allowedClockOut && settings && !settings.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
+        toast.error("Clocking out off-site (beyond twice the site radius) is not allowed for your account.");
+        setIsClockProcessing(false);
+        return;
+      }
+
       await updateDoc(sessionRef, {
         clockOut: {
           timestamp: new Date(),
-          lat: null,
-          lng: null,
-          onSite: true
+          lat: loc.lat,
+          lng: loc.lng,
+          accuracy: loc.accuracy,
+          onSite
         },
         status: 'completed',
         breaks,
         jobs,
         updatedAt: new Date()
       });
+
+      await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Clocked Out");
 
       resetClock();
       toast.success("Clocked out successfully");
@@ -989,11 +1069,15 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         };
       }
       
+      const loc = await getCurrentLocation();
+
       breaks.push({
         type,
         start: new Date(),
         isPaid: type === 'lunch' ? false : true,
-        suspendedJob
+        suspendedJob,
+        startLat: loc.lat,
+        startLng: loc.lng
       });
 
       await updateDoc(sessionRef, {
@@ -1002,6 +1086,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         status: 'on_break',
         updatedAt: new Date()
       });
+
+      await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, `Started Break (${type})`);
 
       setClockStatus(type === 'lunch' ? 'on_lunch' : 'on_break', Date.now(), activeSessionId);
       toast.info(`Started ${type} break`);
@@ -1024,9 +1110,13 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       const jobs = [...(sessionData?.jobs || [])];
       
       let suspendedJob = null;
+      const loc = await getCurrentLocation();
+
       if (breaks.length > 0) {
         const lastBreak = breaks[breaks.length - 1];
         lastBreak.end = new Date();
+        lastBreak.endLat = loc.lat;
+        lastBreak.endLng = loc.lng;
         suspendedJob = lastBreak.suspendedJob;
       }
 
@@ -1047,6 +1137,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         status: 'active',
         updatedAt: new Date()
       });
+
+      await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Ended Break");
 
       const originalClockIn = sessionData?.clockIn?.timestamp?.toMillis ? sessionData.clockIn.timestamp.toMillis() : new Date(sessionData?.clockIn?.timestamp || Date.now()).getTime();
       setClockStatus('clocked_in', originalClockIn, activeSessionId);
@@ -1676,7 +1768,12 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         <div className="bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60 text-center">
           <span className="text-[10px] font-bold text-zinc-400 uppercase block">Tasks In Queue</span>
           <span className="font-mono text-lg font-black text-zinc-800 dark:text-white mt-0.5 block">
-            {myAssignedTasks.filter(t => t.status !== 'completed' && t.status !== 'QC' && t.status !== 'QC Complete').length}
+            {myAssignedTasks.filter(t => 
+              t.status !== 'completed' && 
+              t.status !== 'QC' && 
+              t.status !== 'QC Complete' &&
+              allActiveJobs.some(j => j.id === t.jobId)
+            ).length}
           </span>
         </div>
         <div className="bg-zinc-50 dark:bg-zinc-955 p-2.5 rounded-xl border border-zinc-150 dark:border-zinc-900/60 text-center">
@@ -2671,7 +2768,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                           {(() => {
                             const jobTasks = myAssignedTasks.filter(t => t.jobId === job.id);
                             const incompleteTasks = jobTasks.filter(t => t.status !== 'completed' && t.status !== 'QC' && t.status !== 'QC Complete');
-                            const remainingBookTime = incompleteTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
+                            const remainingBookTime = incompleteTasks.reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
                             return (
                               <p className="text-[10px] font-bold text-indigo-500 mt-2 flex items-center gap-1 uppercase tracking-widest">
                                 <Clock className="w-3.5 h-3.5" />

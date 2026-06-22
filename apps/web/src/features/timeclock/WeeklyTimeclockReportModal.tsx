@@ -1,14 +1,16 @@
 import { useState, useMemo, useEffect, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { collection, query, where, orderBy, getDocs, doc, getDoc, collectionGroup } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, doc, getDoc, collectionGroup, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
   X, Printer, Download, Search, AlertTriangle, 
-  CheckCircle, Calendar, ArrowRight, Clock, Info,
-  Building2, ChevronDown
+  CheckCircle, Calendar, ArrowRight, Info,
+  Building2, ChevronDown, Pencil
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { TimeSessionEditorModal } from './TimeSessionEditorModal';
+import { useAuthStore } from '../../lib/auth/store';
 
 interface TimeSession {
   id: string;
@@ -50,6 +52,7 @@ interface TimeSession {
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;
+  approvedBy?: string;
 }
 
 interface WeeklyTimeclockReportModalProps {
@@ -108,12 +111,70 @@ const formatSegmentTime = (start: any, end: any) => {
 
 export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false }: WeeklyTimeclockReportModalProps) {
   const [preset, setPreset] = useState<RangePreset>('current_week');
+  const [hasSetDefaultPreset, setHasSetDefaultPreset] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
-  const [activeTab, setActiveTab] = useState<'reconcile' | 'print'>('reconcile');
+  const [activeTab, setActiveTab] = useState<'reconcile' | 'print'>('print');
   const [expandedEmployeeId, setExpandedEmployeeId] = useState<string | null>(null);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [deselectedUserIds, setDeselectedUserIds] = useState<Record<string, boolean>>({});
+  const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
+  const { user } = useAuthStore();
+  const [editingNote, setEditingNote] = useState<{
+    sessionId: string;
+    field: 'notes' | 'staffNote' | 'segment';
+    segmentIndex?: number;
+    value: string;
+  } | null>(null);
+
+  const handleSaveInlineNote = async (
+    sessionId: string,
+    newValue: string,
+    field: 'notes' | 'staffNote' | 'segment',
+    segmentIndex?: number
+  ) => {
+    try {
+      const sessionObj = sessions?.find(s => s.id === sessionId);
+      if (!sessionObj) return;
+
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, sessionId);
+
+      const updates: any = {
+        updatedAt: new Date(),
+      };
+
+      if (user) {
+        updates.lastEditedBy = user.displayName || user.email || 'Admin';
+        updates.lastEditedById = user.uid;
+      }
+
+      if (field === 'segment' && segmentIndex !== undefined) {
+        const updatedJobs = (sessionObj.jobs || []).map((jobSeg, idx) => {
+          if (idx === segmentIndex) {
+            return {
+              ...jobSeg,
+              notes: newValue.trim()
+            };
+          }
+          return jobSeg;
+        });
+        updates.jobs = updatedJobs;
+      } else if (field === 'staffNote') {
+        updates.staffNote = newValue.trim();
+      } else if (field === 'notes') {
+        updates.notes = newValue.trim();
+      }
+
+      await updateDoc(sessionRef, updates);
+      toast.success("Note updated");
+      refetchSessions();
+    } catch (e) {
+      console.error("Failed to update note inline:", e);
+      toast.error("Failed to update note");
+    } finally {
+      setEditingNote(null);
+    }
+  };
 
   // Fetch business settings
   const { data: business } = useQuery({
@@ -128,11 +189,12 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
   // Set default preset once business settings load
   useEffect(() => {
-    if (business) {
+    if (business && !hasSetDefaultPreset) {
       const cycle = business.payrollCycle || 'weekly';
       setPreset(cycle === 'weekly' ? 'current_week' : 'monday_combo');
+      setHasSetDefaultPreset(true);
     }
-  }, [business]);
+  }, [business, hasSetDefaultPreset]);
 
   const comboLabel = useMemo(() => {
     const weekEndDay = business?.payrollWeekEndDay !== undefined ? Number(business.payrollWeekEndDay) : 0;
@@ -205,7 +267,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   }, [preset]);
 
   // Fetch all time sessions in range
-  const { data: sessions, isLoading: sessionsLoading } = useQuery({
+  const { data: sessions, isLoading: sessionsLoading, refetch: refetchSessions } = useQuery({
     queryKey: ['report-time-sessions', tenantId, startDate.getTime(), endDate.getTime()],
     queryFn: async () => {
       const q = query(
@@ -235,6 +297,21 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       const snap = await getDocs(collection(db, `businesses/${tenantId}/departments`));
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
     }
+  });
+
+  // Fetch jobs list
+  const { data: jobsList, isLoading: jobsLoading } = useQuery({
+    queryKey: ['report-jobs-list', tenantId],
+    queryFn: async () => {
+      if (!tenantId) return {};
+      const snap = await getDocs(collection(db, `businesses/${tenantId}/jobs`));
+      const jobsMap: Record<string, any> = {};
+      snap.docs.forEach(doc => {
+        jobsMap[doc.id] = { id: doc.id, ...doc.data() };
+      });
+      return jobsMap;
+    },
+    enabled: !!tenantId
   });
 
   // Fetch tasks list to verify completion status for flat-rate employees
@@ -328,11 +405,27 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : sessionEnd;
       const segMs = Math.max(0, end - start);
 
-      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
-      if (j.bookTime && j.bookTime > 0) {
-        taskBookTime[key] = j.bookTime * 3600000;
+      const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+      let resolvedPayBasis = 'hourly';
+      let resolvedBookTime = 0;
+
+      if (taskRef) {
+        resolvedBookTime = parseFloat(taskRef.bookTime) || 0;
+        resolvedPayBasis = taskRef.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+      } else {
+        resolvedBookTime = j.bookTime || 0;
+        resolvedPayBasis = j.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
       }
-      taskPayBasis[key] = j.payBasis || 'book_time';
+
+      if (resolvedBookTime === 0) {
+        resolvedPayBasis = 'hourly';
+      }
+
+      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+      if (resolvedBookTime > 0) {
+        taskBookTime[key] = resolvedBookTime * 3600000;
+      }
+      taskPayBasis[key] = resolvedPayBasis;
     });
 
     let totalPayMs = 0;
@@ -499,12 +592,8 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
         const isCompleted = ['completed', 'qc', 'qc complete'].includes(status);
         if (!isCompleted) return;
 
-        // Skip hourly tasks (since they are paid hourly in sessions)
-        if (task.payBasis === 'hourly') return;
-
-        const bookHours = parseFloat(task.bookTime) || 0;
-        if (bookHours <= 0) return;
-
+        const isHourlyTask = task.payBasis === 'hourly';
+        const bookHours = isHourlyTask ? 0 : (parseFloat(task.bookTime) || 0);
         const bookMs = bookHours * 3600000;
 
         // Distribute book time to assigned staff members
@@ -522,14 +611,35 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
             const isTaskWeek1 = compTime >= week1Start.getTime() && compTime <= week1End.getTime();
             const taskWeekPayType = getPayTypeForWeek(emp, isTaskWeek1);
 
+            // Calculate actual clocked hours and collect shift segments for this task by this employee in this period
+            let taskClockedMs = 0;
+            const taskSegments: Array<{ start: any, end: any }> = [];
+            if (emp.sessions) {
+              emp.sessions.forEach((sess: any) => {
+                if (sess.jobs) {
+                  sess.jobs.forEach((job: any) => {
+                    if (job.taskId === task.id) {
+                      const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
+                      const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
+                      const duration = Math.max(0, end - start);
+                      if (duration > 5000) {
+                        taskClockedMs += duration;
+                        taskSegments.push({ start: job.start, end: job.end });
+                      }
+                    }
+                  });
+                }
+              });
+            }
+
             const share = (parseFloat(assign.percentage) || 100) / 100;
             const originalBookMs = bookMs * share;
-            const earnedMs = task.isRework ? 0 : originalBookMs;
+            const earnedMs = isHourlyTask ? taskClockedMs : (task.isRework ? 0 : originalBookMs);
 
             const isTaskWeek2 = compTime >= week2Start.getTime() && compTime <= week2End.getTime();
 
-            // Only add to pay hours if flat-rate
-            if (taskWeekPayType === 'flat_rate') {
+            // Only add to pay hours if flat-rate and not an hourly task (paid in sessions)
+            if (taskWeekPayType === 'flat_rate' && !isHourlyTask) {
               emp.totals.totalPayMs += earnedMs;
               if (isTaskWeek1) {
                 emp.totals.week1PayMs += earnedMs;
@@ -550,27 +660,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
             if (!emp.completedTasks) {
               emp.completedTasks = [];
-            }
-            
-            // Calculate actual clocked hours and collect shift segments for this task by this employee in this period
-            let taskClockedMs = 0;
-            const taskSegments: Array<{ start: any, end: any }> = [];
-            if (emp.sessions) {
-              emp.sessions.forEach((sess: any) => {
-                if (sess.jobs) {
-                  sess.jobs.forEach((job: any) => {
-                    if (job.taskId === task.id) {
-                      const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
-                      const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
-                      const duration = Math.max(0, end - start);
-                      if (duration > 5000) {
-                        taskClockedMs += duration;
-                        taskSegments.push({ start: job.start, end: job.end });
-                      }
-                    }
-                  });
-                }
-              });
             }
 
             // Sort segments chronologically
@@ -685,9 +774,11 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
     let bookMs = 0;
     let payMs = 0;
     let discrepancyCount = 0;
+    let selectedCount = 0;
 
     reportData.forEach(emp => {
       if (deselectedUserIds[emp.userId]) return; // Skip deselected employees
+      selectedCount++;
       nativeMs += emp.totals.totalNativeMs;
       qbMs += emp.totals.totalQbMs;
       bookMs += emp.totals.totalBookMs;
@@ -696,6 +787,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
     });
 
     return {
+      selectedCount,
       nativeHrs: nativeMs / 3600000,
       qbHrs: qbMs / 3600000,
       bookHrs: bookMs / 3600000,
@@ -767,8 +859,21 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
   const handlePrint = () => {
     setActiveTab('print');
+    
+    // Format dates for the PDF filename
+    const startStr = startDate.toISOString().split('T')[0];
+    const endStr = endDate.toISOString().split('T')[0];
+    const originalTitle = document.title;
+    
+    // Dynamically set document title for the PDF filename
+    document.title = `Weekly_Timeclock_Reconciliation_Report_${startStr}_to_${endStr}`;
+    
     setTimeout(() => {
       window.print();
+      // Restore the original title after the print dialog is handled
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 100);
     }, 150);
   };
 
@@ -810,8 +915,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
           const taskBookTime: Record<string, number> = {};
           s.jobs.forEach((j: any, idx: number) => {
             const key = j.taskId || `manual-${idx}-${j.name}`;
-            if (j.bookTime && j.bookTime > 0) {
-              taskBookTime[key] = j.bookTime * 3600000;
+            const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+            let resolvedBookTime = 0;
+            let resolvedPayBasis = 'hourly';
+
+            if (taskRef) {
+              resolvedBookTime = parseFloat(taskRef.bookTime) || 0;
+              resolvedPayBasis = taskRef.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+            } else {
+              resolvedBookTime = j.bookTime || 0;
+              resolvedPayBasis = j.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+            }
+
+            if (resolvedBookTime === 0) {
+              resolvedPayBasis = 'hourly';
+            }
+
+            if (resolvedPayBasis !== 'hourly' && resolvedBookTime > 0) {
+              taskBookTime[key] = resolvedBookTime * 3600000;
             }
           });
           return Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
@@ -1175,8 +1296,10 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
           {/* Overall Stats Cards */}
           <div className={`grid grid-cols-2 ${showQbColumns ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4`}>
             <div className="bg-zinc-50 dark:bg-zinc-950/20 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 shadow-sm flex flex-col justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Total Employees</span>
-              <p className="text-2xl font-black text-zinc-900 dark:text-white mt-1">{reportData.length}</p>
+              <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Selected Employees</span>
+              <p className="text-2xl font-black text-zinc-900 dark:text-white mt-1">
+                {overallTotals.selectedCount} <span className="text-xs text-zinc-500 font-semibold">/ {reportData.length}</span>
+              </p>
             </div>
             
             <div className="bg-zinc-50 dark:bg-zinc-950/20 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800/80 shadow-sm flex flex-col justify-between">
@@ -1227,7 +1350,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
             )}
           </div>
 
-          {sessionsLoading || staffLoading || !tasksList ? (
+          {sessionsLoading || staffLoading || !tasksList || jobsLoading ? (
             <div className="p-12 text-center text-zinc-500 italic">Processing timesheets...</div>
           ) : reportData.length === 0 ? (
             <div className="p-12 text-center text-zinc-500 italic border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl">
@@ -1635,19 +1758,15 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                   const nativeSess = emp.sessions.filter((s: TimeSession) => s.source !== 'QuickBooks');
                   const qbSess = emp.sessions.filter((s: TimeSession) => s.source === 'QuickBooks');
 
-                  const rawStaff = staffList?.find((s: any) => s.id === emp.userId || s.userId === emp.userId);
+                  const overallActualHours = emp.totals.totalNativeMs / 3600000;
+                  const overallBookHours = emp.totals.totalBookMs / 3600000;
+                  const overallEffPercent = overallActualHours > 0 ? Math.round((overallBookHours / overallActualHours) * 100) : 0;
+
                   const dept = (departmentsList || []).find((d: any) => d.id === emp.departmentId);
                   const deptName = dept?.name || 'Unassigned';
                   const showDeptDivider = (emp.departmentId || 'unassigned') !== lastDeptId;
                   if (showDeptDivider) {
                     lastDeptId = emp.departmentId || 'unassigned';
-                  }
-
-                  let activeCreditMs = 0;
-                  if (rawStaff?.payPeriodBookTimeCredit && rawStaff.payPeriodBookTimeCredit > 0) {
-                    activeCreditMs = rawStaff.payPeriodBookTimeCredit * 3600000;
-                  } else if (dept?.weeklyBookTimeCredit && dept.weeklyBookTimeCredit > 0) {
-                    activeCreditMs = dept.weeklyBookTimeCredit * 3600000;
                   }
 
                   return (
@@ -1668,7 +1787,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                         </div>
                       )}
 
-                      <div 
+                       <div 
                         className={`bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[2rem] p-8 shadow-sm print:border-none print:shadow-none print:p-0 ${!showDeptDivider ? 'print-page-break' : ''}`}
                       >
                         {/* Sheet Header */}
@@ -1688,6 +1807,14 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             {(emp.totals.totalNativeMs / 3600000).toFixed(2)}h
                           </span>
                         </div>
+                        {emp.totals.totalBookMs > 0 && (
+                          <div className="inline-block text-left sm:text-right mr-4">
+                            <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">Overall Eff</span>
+                            <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono">
+                              {overallEffPercent}%
+                            </span>
+                          </div>
+                        )}
                         {emp.payType === 'flat_rate' && (
                           <>
                             <div className="inline-block text-left sm:text-right mr-4">
@@ -1716,24 +1843,18 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             )}
                           </div>
                         </div>
-
-
-
                     {/* Detailed Log Table */}
                     <div className="overflow-x-auto print:overflow-visible print:block print:static print:w-full print:h-auto">
                       <table className="w-full text-xs text-left">
                         <thead className="bg-zinc-50 dark:bg-zinc-850/50 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
                           <tr>
-                            <th className="px-4 py-3 w-[11%] print:w-[10%]">Date</th>
-                            <th className="px-4 py-3 w-[8%] print:w-[7%] text-center font-bold">Type</th>
-                            <th className="px-4 py-3 w-[17%] print:w-[14%]">Shift times</th>
-                            <th className="px-4 py-3 w-[10%] print:w-[7%]">Breaks</th>
-                            <th className="px-4 py-3 w-[24%] print:w-[22%]">Jobs / Tasks Clocked</th>
-                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Actual</th>
-                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Book</th>
-                            <th className="px-4 py-3 text-right w-[8%] print:w-[9%]">Calc Pay</th>
-                            <th className="px-4 py-3 text-center w-[3%] print:w-[6%] print:border-l print:border-zinc-300 font-bold">Tech</th>
-                            <th className="px-4 py-3 text-center w-[3%] print:w-[6%] print:border-l print:border-zinc-300 font-bold">Sup</th>
+                            <th className="px-2 py-3 w-[42%] print:w-[42%]">Job# - Customer - TaskName</th>
+                            <th className="px-2 py-3 w-[26%] print:w-[26%]">Notes / Comments</th>
+                            <th className="px-2 py-3 text-right w-[8%] print:w-[8%]">Actual</th>
+                            <th className="px-2 py-3 text-right w-[8%] print:w-[8%]">Book</th>
+                            <th className="px-2 py-3 text-right w-[6%] print:w-[6%] font-bold text-amber-500">Eff %</th>
+                            <th className="px-2 py-3 text-center w-[5%] print:w-[5%] print:border-l print:border-zinc-300 font-bold">Tech</th>
+                            <th className="px-2 py-3 text-center w-[5%] print:w-[5%] print:border-l print:border-zinc-300 font-bold">Sup</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1743,79 +1864,261 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
                             const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
                             const workMs = totalMs - breakMs;
-                            const payMs = calculateSessionPayMs(session, session.payType || emp.payType);
 
-                            return (
-                              <tr key={session.id} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
-                                <td className="px-4 py-3 font-bold whitespace-nowrap print:text-[9px]">
-                                  {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
-                                </td>
-                                <td className="px-4 py-3 text-center whitespace-nowrap print:px-2">
-                                  <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-350 px-1.5 py-0.5 rounded text-[9px] font-black uppercase whitespace-nowrap animate-none">
-                                    Native
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 font-mono font-medium print:text-[9px]">
-                                  <div className="font-mono text-xs print:text-[9px] whitespace-nowrap leading-tight">
-                                    <div>{session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</div>
-                                    <div className="text-zinc-400 print:hidden">→</div>
-                                    <div className="hidden print:block border-b border-zinc-200 dark:border-zinc-800 my-0.5" />
-                                    <div>{session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}</div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 text-zinc-500 print:text-[9px]">
-                                  {session.breaks?.length > 0 ? `${session.breaks.length} bk (${(breakMs / 60000).toFixed(0)}m)` : 'None'}
-                                </td>
-                                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 print:text-[9px]">
-                                  <div className="space-y-1.5">
-                                    {(session.jobs || []).map((j: any, i: number) => (
-                                      <div key={i} className="flex flex-col text-[10px] max-w-xs print:max-w-none">
-                                        <div className="flex justify-between print:flex-col print:items-start">
-                                          <span className="truncate pr-2 print:whitespace-normal print:break-words print:text-wrap">{j.name} {j.taskName ? `(${j.taskName})` : ''}</span>
-                                          {j.bookTime > 0 && <span className="font-mono font-bold text-indigo-500 print:text-[9px]">({j.bookTime}h)</span>}
+                            const clockInTimeStr = clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            const clockOutTimeStr = session.clockOut?.timestamp
+                              ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : 'Active';
+
+                            const breakTextConcise = (session.breaks || []).map((b: any) => {
+                              const bStart = b.start?.toDate ? b.start.toDate() : new Date(b.start);
+                              const bEnd = b.end ? (b.end.toDate ? b.end.toDate() : new Date(b.end)) : null;
+                              const bStartStr = bStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                              const bEndStr = bEnd ? bEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active';
+                              const bDuration = bEnd ? calculateDuration(b.start, b.end) : 0;
+                              return `${bStartStr} - ${bEndStr} (${formatDurationDecimal(bDuration)}h)`;
+                            }).join(', ');
+
+                            const renderDetailsText = (j: any) => {
+                              const job = jobsList?.[j.id];
+                              const jobNo = job?.jobNumber || job?.title || j.name || 'N/A';
+                              const customer = job?.customerName || 'N/A';
+                              const taskName = j.taskName || 'General';
+                              return `${jobNo}-${customer}-${taskName}`;
+                            };
+
+                            if (session.jobs && session.jobs.length > 0) {
+                              const sessionEnd = session.clockOut?.timestamp || Date.now();
+                              return (
+                                <Fragment key={session.id}>
+                                  {/* Subheader Row */}
+                                  <tr className="bg-zinc-100/90 dark:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300 border-t border-b border-zinc-200 dark:border-zinc-800/80 font-semibold">
+                                    <td colSpan={7} className="px-3 py-2">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center space-x-2">
+                                          <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">
+                                            {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
+                                          </span>
+                                          <span className="bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
+                                            Native
+                                          </span>
                                         </div>
-                                        {j.notes && (
-                                          <div className="text-[9px] text-zinc-450 dark:text-zinc-500 italic pl-2 mt-0.5 leading-tight print:whitespace-normal print:break-words">
-                                            Note: "{j.notes}"
+                                        <div className="flex items-center space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
+                                          <div>
+                                            Clock: <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockInTimeStr}</span> to <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockOutTimeStr}</span>
                                           </div>
-                                        )}
+                                          {session.breaks && session.breaks.length > 0 && (
+                                            <div>
+                                              Breaks: <span className="font-bold text-zinc-900 dark:text-zinc-100">{breakTextConcise}</span>
+                                            </div>
+                                          )}
+                                          <div>
+                                            Total: <span className="text-zinc-900 dark:text-zinc-100 font-bold">{formatDurationDecimal(workMs)}h</span>
+                                          </div>
+                                        </div>
                                       </div>
-                                    ))}
-                                    {(!session.jobs || session.jobs.length === 0) && <span className="italic text-[10px] text-zinc-400">No jobs clocked</span>}
+                                    </td>
+                                  </tr>
+                                  {/* Task Rows */}
+                                  {session.jobs.map((j: any, segmentIdx: number) => {
+                                    const segmentEnd = j.end || sessionEnd;
+                                    const segmentDuration = calculateDuration(j.start, segmentEnd);
+                                    const actualHours = segmentDuration / 3600000;
                                     
-                                    {(session.notes || session.staffNote) && (
-                                      <div className="border-t border-zinc-200/50 dark:border-zinc-800/50 pt-1.5 mt-1.5 space-y-1 text-[9px] max-w-xs print:max-w-none">
-                                        {session.notes && (
-                                          <div className="text-zinc-500 dark:text-zinc-400 italic">
-                                            <span className="font-bold text-zinc-450 dark:text-zinc-550 not-italic">Admin Note:</span> "{session.notes}"
+                                    const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+                                    let resolvedPayBasis = 'hourly';
+                                    let resolvedBookHours = 0;
+
+                                    if (taskRef) {
+                                      resolvedBookHours = parseFloat(taskRef.bookTime) || 0;
+                                      resolvedPayBasis = taskRef.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                    } else {
+                                      resolvedBookHours = j.bookTime || 0;
+                                      resolvedPayBasis = j.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                    }
+
+                                    if (resolvedBookHours === 0) {
+                                      resolvedPayBasis = 'hourly';
+                                    }
+
+                                    const isHourlySegment = resolvedPayBasis === 'hourly';
+                                    const segmentBookTime = isHourlySegment ? actualHours : resolvedBookHours;
+                                    const taskEffPercent = isHourlySegment 
+                                      ? 100 
+                                      : (actualHours >= 0.10 && segmentBookTime > 0 ? Math.round((segmentBookTime / actualHours) * 100) : null);
+
+                                    return (
+                                      <tr key={`${session.id}-seg-${segmentIdx}`} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
+                                        <td className="px-2 py-2.5 text-zinc-800 dark:text-zinc-300 print:text-[9px] font-medium whitespace-normal break-words">
+                                          <div>{renderDetailsText(j)}</div>
+                                          <div className="mt-1 flex items-center gap-1.5 print:mt-0.5">
+                                            <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none ${
+                                              isHourlySegment
+                                                ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/55 dark:border-indigo-900/30'
+                                                : 'bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-450 border border-emerald-100/55 dark:border-emerald-900/30'
+                                            }`}>
+                                              {isHourlySegment ? 'Hourly' : 'Book Time'}
+                                            </span>
                                           </div>
-                                        )}
-                                        {session.staffNote && (
-                                          <div className="text-zinc-500 dark:text-zinc-400 italic">
-                                            <span className="font-bold text-zinc-450 dark:text-zinc-550 not-italic">Tech Note:</span> "{session.staffNote}"
+                                        </td>
+                                        <td 
+                                          className="px-2 py-2.5 text-zinc-700 dark:text-zinc-300 print:text-[9px] whitespace-normal break-words transition-colors group"
+                                          title={editingNote?.sessionId === session.id && editingNote?.field === 'segment' && editingNote?.segmentIndex === segmentIdx ? undefined : "Click to edit notes"}
+                                        >
+                                          {editingNote?.sessionId === session.id && editingNote?.field === 'segment' && editingNote?.segmentIndex === segmentIdx ? (
+                                            <input
+                                              type="text"
+                                              className="w-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 px-2 py-1 border border-indigo-500 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                              value={editingNote.value}
+                                              onChange={(e) => setEditingNote({ ...editingNote, value: e.target.value })}
+                                              onBlur={() => handleSaveInlineNote(session.id, editingNote.value, 'segment', segmentIdx)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  handleSaveInlineNote(session.id, editingNote.value, 'segment', segmentIdx);
+                                                } else if (e.key === 'Escape') {
+                                                  setEditingNote(null);
+                                                }
+                                              }}
+                                              autoFocus
+                                              onClick={(e) => e.stopPropagation()}
+                                            />
+                                          ) : (
+                                            <div 
+                                              className="flex items-center justify-between gap-1 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 p-1 rounded min-h-[24px]"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setEditingNote({
+                                                  sessionId: session.id,
+                                                  field: 'segment',
+                                                  segmentIndex: segmentIdx,
+                                                  value: j.notes || ''
+                                                });
+                                              }}
+                                            >
+                                              {j.notes ? (
+                                                <span className="italic text-[10px] text-zinc-700 dark:text-zinc-300 font-medium">{j.notes}</span>
+                                              ) : (
+                                                <span className="text-zinc-300 dark:text-zinc-700 italic group-hover:text-zinc-400">—</span>
+                                              )}
+                                              <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pl-1 print:hidden" />
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td className="px-2 py-2.5 text-right font-mono font-bold print:text-[9px] whitespace-normal break-words text-zinc-900 dark:text-zinc-100">
+                                          {formatDurationDecimal(segmentDuration)}
+                                        </td>
+                                        <td className="px-2 py-2.5 text-right font-mono text-indigo-650 dark:text-indigo-400 print:text-[9px] whitespace-normal break-words">
+                                          {segmentBookTime > 0 ? segmentBookTime.toFixed(2) : '0.00'}
+                                        </td>
+                                        {/* Eff % */}
+                                        <td className="px-2 py-2.5 text-right font-mono font-bold text-amber-600 dark:text-amber-400 print:text-[9px] whitespace-normal break-words">
+                                          {taskEffPercent !== null ? `${taskEffPercent}%` : '—'}
+                                        </td>
+                                        <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                          <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                        </td>
+                                        <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                          <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </Fragment>
+                              );
+                            } else {
+                              return (
+                                <Fragment key={session.id}>
+                                  {/* Subheader Row */}
+                                  <tr className="bg-zinc-100/90 dark:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300 border-t border-b border-zinc-200 dark:border-zinc-800/80 font-semibold">
+                                    <td colSpan={7} className="px-3 py-2">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center space-x-2">
+                                          <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs">
+                                            {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
+                                          </span>
+                                          <span className="bg-zinc-200 dark:bg-zinc-700 text-zinc-850 dark:text-zinc-200 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
+                                            Native
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
+                                          <div>
+                                            Clock: <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockInTimeStr}</span> to <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockOutTimeStr}</span>
                                           </div>
-                                        )}
+                                          {session.breaks && session.breaks.length > 0 && (
+                                            <div>
+                                              Breaks: <span className="font-bold text-zinc-900 dark:text-zinc-100">{breakTextConcise}</span>
+                                            </div>
+                                          )}
+                                          <div>
+                                            Total: <span className="text-zinc-900 dark:text-zinc-100 font-bold">{formatDurationDecimal(workMs)}h</span>
+                                          </div>
+                                        </div>
                                       </div>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold print:text-[9px]">
-                                  {formatDurationDecimal(workMs)}
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono text-indigo-500/80 print:text-[9px]">
-                                  {(session.jobs || []).reduce((acc: number, j: any) => acc + (j.bookTime || 0), 0).toFixed(2)}
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 print:text-[9px]">
-                                  {formatDurationDecimal(payMs)}
-                                </td>
-                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
-                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
-                                </td>
-                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
-                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
-                                </td>
-                              </tr>
-                            );
+                                    </td>
+                                  </tr>
+                                  {/* Fallback Row */}
+                                  <tr className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
+                                    <td className="px-2 py-2.5 text-zinc-500 italic print:text-[9px] font-medium whitespace-normal break-words">
+                                      No jobs clocked
+                                    </td>
+                                    <td 
+                                      className="px-2 py-2.5 text-zinc-700 dark:text-zinc-300 print:text-[9px] whitespace-normal break-words transition-colors group"
+                                      title={editingNote?.sessionId === session.id && editingNote?.field === 'staffNote' ? undefined : "Click to edit notes"}
+                                    >
+                                      {editingNote?.sessionId === session.id && editingNote?.field === 'staffNote' ? (
+                                        <input
+                                          type="text"
+                                          className="w-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 px-2 py-1 border border-indigo-500 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                          value={editingNote.value}
+                                          onChange={(e) => setEditingNote({ ...editingNote, value: e.target.value })}
+                                          onBlur={() => handleSaveInlineNote(session.id, editingNote.value, 'staffNote')}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              handleSaveInlineNote(session.id, editingNote.value, 'staffNote');
+                                            } else if (e.key === 'Escape') {
+                                              setEditingNote(null);
+                                            }
+                                          }}
+                                          autoFocus
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      ) : (
+                                        <div 
+                                          className="flex items-center justify-between gap-1 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 p-1 rounded min-h-[24px]"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingNote({
+                                              sessionId: session.id,
+                                              field: 'staffNote',
+                                              value: session.staffNote || ''
+                                            });
+                                          }}
+                                        >
+                                          {session.staffNote ? (
+                                            <span className="italic text-[10px] text-zinc-700 dark:text-zinc-300 font-medium">Tech Note: "{session.staffNote}"</span>
+                                          ) : (
+                                            <span className="text-zinc-300 dark:text-zinc-700 italic group-hover:text-zinc-400">—</span>
+                                          )}
+                                          <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pl-1 print:hidden" />
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right font-mono font-bold print:text-[9px] whitespace-normal break-words text-zinc-900 dark:text-zinc-100">
+                                      {formatDurationDecimal(workMs)}
+                                    </td>
+                                    <td className="px-2 py-2.5 text-right font-mono text-zinc-400 print:text-[9px]">—</td>
+                                    {/* Eff % */}
+                                    <td className="px-2 py-2.5 text-right font-mono text-zinc-400 print:text-[9px]">—</td>
+                                    <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                      <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                    </td>
+                                    <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                      <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                    </td>
+                                  </tr>
+                                </Fragment>
+                              );
+                            }
                           })}
 
                           {/* List QuickBooks Punches */}
@@ -1823,168 +2126,108 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             const clockInDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
                             const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
 
+                            const qbClockInTimeStr = clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            const qbClockOutTimeStr = session.clockOut?.timestamp
+                              ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                              : 'Active';
+
                             return (
-                              <tr key={session.id} className="bg-indigo-500/5 dark:bg-indigo-550/5">
-                                <td className="px-4 py-3 font-bold whitespace-nowrap print:text-[9px]">
-                                  {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
-                                </td>
-                                <td className="px-4 py-3 text-center whitespace-nowrap print:px-2">
-                                  <span className="bg-indigo-600 text-white px-1.5 py-0.5 rounded text-[9px] font-black uppercase whitespace-nowrap">
-                                    QB Sync
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 font-mono font-medium text-indigo-600 dark:text-indigo-400 print:text-[9px]">
-                                  <div className="font-mono text-xs print:text-[9px] whitespace-nowrap leading-tight">
-                                    <div>{session.clockIn.timestamp ? clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</div>
-                                    <div className="text-zinc-400 print:hidden">→</div>
-                                    <div className="hidden print:block border-b border-zinc-200 dark:border-zinc-850 my-0.5" />
-                                    <div>{session.clockOut?.timestamp ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate() : new Date(session.clockOut.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}</div>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3 text-zinc-400 print:text-[9px]">—</td>
-                                <td className="px-4 py-3 text-indigo-500/80 max-w-xs truncate font-medium print:max-w-none print:whitespace-normal print:break-words print:text-wrap print:text-[9px]">
-                                  {session.jobs?.[0]?.name || 'Imported QuickBooks Log'}
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 print:text-[9px]">
-                                  {formatDurationDecimal(totalMs)}
-                                </td>
-                                <td className="px-4 py-3 text-right text-zinc-400 print:text-[9px]">—</td>
-                                <td className="px-4 py-3 text-right text-zinc-400 print:text-[9px]">—</td>
-                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
-                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
-                                </td>
-                                <td className="px-4 py-3 text-center print:border-l print:border-zinc-300">
-                                  <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
-                                </td>
-                              </tr>
+                              <Fragment key={session.id}>
+                                {/* Subheader Row */}
+                                <tr className="bg-indigo-50/60 dark:bg-indigo-950/20 text-indigo-950 dark:text-indigo-300 border-t border-b border-indigo-100 dark:border-indigo-950/50 font-semibold">
+                                  <td colSpan={7} className="px-3 py-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="font-bold text-indigo-900 dark:text-indigo-100 text-xs">
+                                          {formatDateShort(clockInDate)} ({clockInDate.toLocaleDateString([], { weekday: 'short' })})
+                                        </span>
+                                        <span className="bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider">
+                                          QB Sync
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center space-x-4 text-[10px] text-indigo-700 dark:text-indigo-400 font-mono">
+                                        <div>
+                                          Clock: <span className="font-bold text-indigo-900 dark:text-indigo-100">{qbClockInTimeStr}</span> to <span className="font-bold text-indigo-900 dark:text-indigo-100">{qbClockOutTimeStr}</span>
+                                        </div>
+                                        <div>
+                                          Total: <span className="text-indigo-900 dark:text-indigo-100 font-bold">{formatDurationDecimal(totalMs)}h</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                                {/* Segment Row */}
+                                <tr className="bg-indigo-500/5 dark:bg-indigo-550/5 hover:bg-indigo-500/10 dark:hover:bg-indigo-550/10">
+                                  <td className="px-2 py-2.5 text-indigo-900 dark:text-indigo-350 print:text-[9px] font-medium whitespace-normal break-words">
+                                    {session.jobs?.[0]?.name || 'Imported QuickBooks Log'}
+                                  </td>
+                                  <td 
+                                    className="px-2 py-2.5 text-zinc-700 dark:text-zinc-300 print:text-[9px] whitespace-normal break-words transition-colors group"
+                                    title={editingNote?.sessionId === session.id && editingNote?.field === 'notes' ? undefined : "Click to edit notes"}
+                                  >
+                                    {editingNote?.sessionId === session.id && editingNote?.field === 'notes' ? (
+                                      <input
+                                        type="text"
+                                        className="w-full bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 px-2 py-1 border border-indigo-500 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                        value={editingNote.value}
+                                        onChange={(e) => setEditingNote({ ...editingNote, value: e.target.value })}
+                                        onBlur={() => handleSaveInlineNote(session.id, editingNote.value, 'notes')}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            handleSaveInlineNote(session.id, editingNote.value, 'notes');
+                                          } else if (e.key === 'Escape') {
+                                            setEditingNote(null);
+                                          }
+                                        }}
+                                        autoFocus
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                    ) : (
+                                      <div 
+                                        className="flex items-center justify-between gap-1 cursor-pointer hover:bg-zinc-150 dark:hover:bg-zinc-800/50 p-1 rounded min-h-[24px]"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingNote({
+                                            sessionId: session.id,
+                                            field: 'notes',
+                                            value: session.notes || ''
+                                          });
+                                        }}
+                                      >
+                                        {session.notes ? (
+                                          <span className="italic text-[10px] text-zinc-750 dark:text-zinc-300 font-medium">{session.notes}</span>
+                                        ) : (
+                                          <span className="text-zinc-300 dark:text-zinc-700 italic group-hover:text-zinc-400">—</span>
+                                        )}
+                                        <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pl-1 print:hidden" />
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-2 py-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 print:text-[9px] whitespace-normal break-words">
+                                    {formatDurationDecimal(totalMs)}
+                                  </td>
+                                  <td className="px-2 py-2.5 text-right text-zinc-400 print:text-[9px]">—</td>
+                                  {/* Eff % */}
+                                  <td className="px-2 py-2.5 text-right text-zinc-400 print:text-[9px]">—</td>
+                                  <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                    <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                  </td>
+                                  <td className="px-2 py-2.5 text-center print:border-l print:border-zinc-300 align-middle">
+                                    <div className="w-8 border-b border-zinc-400 dark:border-zinc-600 h-4 mx-auto" />
+                                  </td>
+                                </tr>
+                              </Fragment>
                             );
                           })}
 
                           {emp.sessions.length === 0 && (
                             <tr>
-                              <td colSpan={10} className="px-4 py-8 text-center text-zinc-400 italic">No recorded shifts for this employee in range.</td>
+                              <td colSpan={7} className="px-2 py-8 text-center text-zinc-400 italic">No recorded shifts for this employee in range.</td>
                             </tr>
                           )}
                         </tbody>
                       </table>
                     </div>
-                    
-                    {/* Flat Rate Completed Tasks Payouts section */}
-                    {(emp.payType === 'flat_rate' || emp.payType === 'hourly') && emp.completedTasks && emp.completedTasks.length > 0 && (
-                      <div className="mt-8">
-                        <div className="flex items-center justify-between mb-3 border-b border-zinc-150 dark:border-zinc-800 pb-2">
-                          <h5 className="text-xs font-black uppercase tracking-wider text-zinc-855 dark:text-zinc-250">
-                            {emp.payType === 'hourly' ? 'Completed Book-Time Tasks (Tracked for Efficiency)' : 'Completed Flat-Rate Tasks Paid This Period'}
-                          </h5>
-                          <span className="text-xs font-bold text-emerald-505 bg-emerald-500/10 px-2.5 py-0.5 rounded-lg font-mono">
-                            Total Book Hours: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
-                          </span>
-                        </div>
-                        <div className="overflow-x-auto border border-zinc-150 dark:border-zinc-800/80 rounded-2xl print:border-none print:overflow-visible print:block print:static print:w-full print:h-auto">
-                          <table className="w-full text-xs text-left">
-                            <thead className="bg-zinc-50 dark:bg-zinc-850/50 text-zinc-500 uppercase text-[9px] font-bold tracking-widest border-b border-zinc-200 dark:border-zinc-800">
-                              <tr>
-                                <th className="px-4 py-2.5">Date Completed</th>
-                                <th className="px-4 py-2.5">Job Name</th>
-                                <th className="px-4 py-2.5">Task Name</th>
-                                <th className="px-4 py-2.5 text-right">Share %</th>
-                                <th className="px-4 py-2.5 text-right">Clocked Hours</th>
-                                <th className="px-4 py-2.5 text-right">Book Hours Earned</th>
-                                <th className="px-4 py-2.5 text-right">Efficiency</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                              {emp.completedTasks && emp.completedTasks.length > 0 ? (
-                                emp.completedTasks.map((t: any, i: number) => {
-                                  const compDate = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
-                                  const clocked = t.clockedHours || 0;
-                                  const efficiency = clocked > 0 ? ((t.originalBookHours !== undefined ? t.originalBookHours : t.bookHours) / clocked) * 100 : 0;
-                                  return (
-                                    <tr key={i} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
-                                      <td className="px-4 py-2.5 font-bold whitespace-nowrap">
-                                        <div>
-                                          {formatDateShort(compDate)} ({compDate.toLocaleDateString([], { weekday: 'short' })})
-                                        </div>
-                                        <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-normal mt-0.5">
-                                          at {compDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                      </td>
-                                      <td className="px-4 py-2.5 font-medium">{t.jobName}</td>
-                                      <td className="px-4 py-2.5">
-                                        <div className="font-semibold text-zinc-800 dark:text-zinc-200">{t.name}</div>
-                                        {t.segments && t.segments.length > 0 && (
-                                          <div className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1">
-                                            <span className="font-bold uppercase tracking-wider text-[9px] mr-1.5">Shifts:</span>
-                                            <span className="font-mono text-zinc-550 dark:text-zinc-400">{t.segments.join(' | ')}</span>
-                                          </div>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-mono">{(t.share * 100).toFixed(0)}%</td>
-                                      <td className="px-4 py-2.5 text-right font-mono text-zinc-500">
-                                        {clocked > 0 ? `${clocked.toFixed(2)}h` : (
-                                          <span className="bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-black text-[9px] uppercase whitespace-nowrap">
-                                            No Time Clocked
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-600 dark:text-emerald-450">
-                                        {t.isRework ? (
-                                          <div className="flex flex-col items-end">
-                                            <span className="text-zinc-400 line-through">{(t.originalBookHours || t.bookHours).toFixed(2)}h</span>
-                                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 px-1.5 py-0.5 rounded font-black text-[9px] uppercase whitespace-nowrap mt-0.5">
-                                              Rework (Prev. Paid)
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          `${t.bookHours.toFixed(2)}h`
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-2.5 text-right font-mono">
-                                        {clocked > 0 ? (
-                                          <span className={`font-black ${efficiency >= 100 ? 'text-emerald-600 dark:text-emerald-450' : 'text-amber-500'}`}>
-                                            {efficiency.toFixed(0)}%
-                                          </span>
-                                        ) : (
-                                          <span className="text-zinc-400">—</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                              ) : (
-                                <tr>
-                                  <td colSpan={7} className="px-4 py-6 text-center text-zinc-400 italic">
-                                    No flat-rate tasks marked completed in this period.
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Weekly Allowance Credit */}
-                        {activeCreditMs > 0 && (
-                          <div className="mt-4 p-4 bg-indigo-50/50 dark:bg-indigo-950/10 border border-indigo-100/50 dark:border-indigo-900/40 rounded-2xl flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-500">
-                                <Clock className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold text-zinc-900 dark:text-white">Weekly Book Credit Allowance</p>
-                                <p className="text-[10px] text-zinc-500">
-                                  Cleanup allowance applied (earned when clocked hours exist in the week)
-                                </p>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-sm font-mono font-black text-indigo-600 dark:text-indigo-400">
-                                +{((activeCreditMs * ( ((emp.totals.week1NativeMs > 0 || emp.totals.week1QbMs > 0) ? 1 : 0) + ((emp.totals.week2NativeMs > 0 || emp.totals.week2QbMs > 0) ? 1 : 0) )) / 3600000).toFixed(2)}h
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
 
                     {/* Signature block for printable sheets */}
                     <div className="hidden print:flex justify-between items-end mt-12 pt-8 border-t border-dashed border-zinc-350">
@@ -2022,6 +2265,14 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
       <div className="w-full">
         {styleBlock}
         {renderContent()}
+        {editingSession && (
+          <TimeSessionEditorModal 
+            tenantId={tenantId}
+            session={editingSession}
+            onClose={() => setEditingSession(null)}
+            onSaved={refetchSessions}
+          />
+        )}
       </div>
     );
   }
@@ -2030,6 +2281,14 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
     <div id="weekly-timeclock-report-modal-wrapper" className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-md animate-in fade-in duration-350 print:bg-white print:p-0 print:backdrop-blur-none print:block print:static print:w-full print:h-auto print:overflow-visible">
       {styleBlock}
       {renderContent()}
+      {editingSession && (
+        <TimeSessionEditorModal 
+          tenantId={tenantId}
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSaved={refetchSessions}
+        />
+      )}
     </div>
   );
 }

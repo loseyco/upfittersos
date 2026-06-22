@@ -11,8 +11,14 @@ import type { Zone } from './ZoneModals';
 const QRCode = (_QRCode as any).default || _QRCode;
 import type { Vehicle } from './VehicleSelector';
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 
@@ -158,7 +164,7 @@ const projectWorkingHours = (startDate: Date, totalHours: number, schedule: any)
 
 const calculateDynamicETA = (job: any, tasks: any[], departments: any[]) => {
   if (!tasks || tasks.length === 0) return null;
-  const nonGeneralTasks = tasks.filter(t => t && !isGeneralTask(t.title));
+  const nonGeneralTasks = tasks.filter(t => t && !isGeneralTask(t));
   const incompleteTasks = nonGeneralTasks.filter(t => t && t.status !== 'QC Complete' && t.status !== 'QC');
   
   if (incompleteTasks.length === 0 && (job?.status === 'Ready for Customer' || job?.status === 'Completed')) {
@@ -627,7 +633,7 @@ export function BayMonitor({ tenantId }: { tenantId: string }) {
     const isPartsMissing = requestedCount > 0;
     const isPartsOrderedOrReceived = orderedCount > 0 || receivedCount > 0;
 
-    const nonGeneralTasks = tasks.filter((t: any) => t && !isGeneralTask(t.title));
+    const nonGeneralTasks = tasks.filter((t: any) => t && !isGeneralTask(t));
     const totalTasksCount = nonGeneralTasks.length;
     const readyForQCTasksCount = nonGeneralTasks.filter((t: any) => t && (t.status === 'QC' || t.status === 'QC Complete')).length;
 

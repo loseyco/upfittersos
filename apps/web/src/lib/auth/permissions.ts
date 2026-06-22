@@ -27,6 +27,7 @@ export const PERMISSIONS = {
   'settings.manage': 'Manage Settings',
   'timeclock.view': 'View Timeclock',
   'timeclock.manage': 'Manage Timeclock',
+  'timeclock.approve': 'Approve Timecard Changes',
   'timeclock.offsite': 'Clock In/Out Offsite',
   'reports.view': 'View Reports',
   'performance.view': 'View Leaderboard',
@@ -52,6 +53,7 @@ export const PERMISSIONS = {
   'sales.view': 'View Sales & CRM',
   'sales.manage': 'Manage Sales & CRM',
   'dashboard.customize': 'Customize Personal Dashboard',
+  'development.view': 'View In-Development Features',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;

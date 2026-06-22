@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { calculateDistance, cn } from '../../lib/utils';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 export function TimeClockBar() {
   const navigate = useNavigate();
@@ -292,7 +293,7 @@ export function TimeClockBar() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const validateLocation = async (): Promise<{ lat: number | null; lng: number | null; onSite: boolean } | null> => {
+  const validateLocation = async (isClockOut = false): Promise<{ lat: number | null; lng: number | null; onSite: boolean; accuracy?: number | null } | null> => {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
         resolve({ lat: null, lng: null, onSite: true });
@@ -300,8 +301,9 @@ export function TimeClockBar() {
       }
 
       navigator.geolocation.getCurrentPosition((pos) => {
-        const { latitude, longitude } = pos.coords;
+        const { latitude, longitude, accuracy } = pos.coords;
         let onSite = true;
+        let allowed = true;
 
         if (settings?.siteLat && settings?.siteLng) {
           const dist = calculateDistance(
@@ -309,18 +311,35 @@ export function TimeClockBar() {
             parseFloat(settings.siteLat), parseFloat(settings.siteLng)
           );
           onSite = dist <= (settings.siteRadius || 500);
+          if (isClockOut) {
+            allowed = dist <= ((settings.siteRadius || 500) * 2);
+          } else {
+            allowed = onSite;
+          }
         }
 
-        if (!onSite && !settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
-          toast.error("Clocking in off-site is not allowed for your account.");
+        if (!allowed && !settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
+          const msg = isClockOut 
+            ? "Clocking out off-site (beyond twice the site radius) is not allowed for your account."
+            : "Clocking in off-site is not allowed for your account.";
+          toast.error(msg);
           resolve(null);
           return;
         }
 
-        resolve({ lat: latitude, lng: longitude, onSite });
+        resolve({ lat: latitude, lng: longitude, onSite, accuracy });
       }, (err) => {
-        console.warn("Geolocation failed or denied, proceeding with default location:", err.message);
-        resolve({ lat: null, lng: null, onSite: true });
+        console.warn("Geolocation failed or denied, treating as remote:", err.message);
+        const onSite = false;
+        if (!settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
+          const msg = isClockOut 
+            ? "Could not resolve your location. Clocking out off-site is not allowed."
+            : "Could not resolve your location. Clocking in off-site is not allowed.";
+          toast.error(msg);
+          resolve(null);
+          return;
+        }
+        resolve({ lat: null, lng: null, onSite });
       });
     });
   };
@@ -371,13 +390,18 @@ export function TimeClockBar() {
         payType: resolvedPayType,
         clockIn: {
           timestamp: serverTimestamp(),
-          ...loc
+          lat: loc.lat,
+          lng: loc.lng,
+          accuracy: loc.accuracy || null,
+          onSite: loc.onSite
         },
         isRemote: !loc.onSite,
         status: 'active',
         breaks: [],
         createdAt: serverTimestamp()
       });
+
+      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy || null }, "Clocked In");
 
       setStatus('clocked_in', Date.now(), docRef.id);
       toast.success("Clocked in successfully");
@@ -396,7 +420,7 @@ export function TimeClockBar() {
       setIsProcessing(false);
       return;
     }
-    const loc = await validateLocation();
+    const loc = await validateLocation(true);
     if (!loc) {
       setIsProcessing(false);
       return;
@@ -426,13 +450,18 @@ export function TimeClockBar() {
       await updateDoc(sessionRef, {
         clockOut: {
           timestamp: serverTimestamp(),
-          ...loc
+          lat: loc.lat,
+          lng: loc.lng,
+          accuracy: loc.accuracy || null,
+          onSite: loc.onSite
         },
         status: 'completed',
         breaks,
         jobs,
         updatedAt: serverTimestamp()
       });
+
+      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy || null }, "Clocked Out");
 
       reset();
       toast.success("Clocked out successfully");
@@ -471,11 +500,15 @@ export function TimeClockBar() {
         };
       }
       
+      const loc = await getCurrentLocation();
+
       breaks.push({
         type,
         start: new Date(),
         isPaid: !!(type === 'lunch' ? settings?.lunchPaid : settings?.breakPaid),
-        suspendedJob
+        suspendedJob,
+        startLat: loc.lat,
+        startLng: loc.lng
       });
 
       await updateDoc(sessionRef, {
@@ -484,6 +517,8 @@ export function TimeClockBar() {
         status: 'on_break',
         updatedAt: serverTimestamp()
       });
+
+      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, loc, `Started Break (${type})`);
 
       setStatus(type === 'lunch' ? 'on_lunch' : 'on_break', Date.now(), activeSessionId);
       toast.info(`Started ${type} break`);
@@ -511,9 +546,13 @@ export function TimeClockBar() {
       const jobs = [...(sessionData?.jobs || [])];
       
       let suspendedJob = null;
+      const loc = await getCurrentLocation();
+
       if (breaks.length > 0) {
         const lastBreak = breaks[breaks.length - 1];
         lastBreak.end = new Date();
+        lastBreak.endLat = loc.lat;
+        lastBreak.endLng = loc.lng;
         suspendedJob = lastBreak.suspendedJob;
       }
 
@@ -534,6 +573,8 @@ export function TimeClockBar() {
         status: 'active',
         updatedAt: serverTimestamp()
       });
+
+      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, loc, "Ended Break");
 
       // Resume main clock - we need the original clock in time
       const originalClockIn = sessionData?.clockIn?.timestamp?.toMillis() || Date.now();

@@ -24,8 +24,14 @@ import { StaffLink } from './StaffPerformance';
 import { TimeAllocationModal } from './TimeAllocationModal';
 import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 
@@ -287,10 +293,10 @@ export function JobDetailPage({
       ? (alternateStaffName || staffMember?.name || allStaff.find(s => s.userId === targetUid || s.id === targetUid)?.name || 'Technician')
       : undefined;
 
-    const isGeneral = isGeneralTask(task.title);
+    const isGeneral = isGeneralTask(task);
     if (isGeneral && targetUid) {
       const assignedTasks = tasks.filter(t => 
-        !isGeneralTask(t.title) && 
+        !isGeneralTask(t) && 
         t.status !== 'QC' && 
         t.status !== 'QC Complete' && 
         t.status !== 'completed' && 
@@ -477,7 +483,7 @@ export function JobDetailPage({
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
     
-    const hasGeneral = tasks.some(t => isGeneralTask(t.title));
+    const hasGeneral = tasks.some(t => isGeneralTask(t));
     if (!hasGeneral && !addingGeneralRef.current) {
       addingGeneralRef.current = true;
       const addGeneralTask = async () => {
@@ -685,8 +691,13 @@ export function JobDetailPage({
       const task = tasks.find(t => t.id === taskId);
       if (!task) return;
 
+      if ((nextStatus === 'QC' || nextStatus === 'QC Complete') && task.canComplete === false) {
+        toast.error("This task cannot be marked as complete.");
+        return;
+      }
+
       // Intercept if they are marking complete
-      if (nextStatus === 'QC' && !isGeneralTask(task.title) && !bypassVerification) {
+      if (nextStatus === 'QC' && !isGeneralTask(task) && !bypassVerification) {
         setPendingCompletionTask({
           taskId,
           currentStatus,
@@ -984,7 +995,7 @@ export function JobDetailPage({
   useEffect(() => {
     if (!tasks.length || !job || !tenantId || !jobId) return;
 
-    const nonGeneralTasks = tasks.filter(t => !isGeneralTask(t.title));
+    const nonGeneralTasks = tasks.filter(t => !isGeneralTask(t));
     if (nonGeneralTasks.length === 0) return;
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
@@ -1086,6 +1097,8 @@ export function JobDetailPage({
   // Progress Calculation Logic
   const canViewAll = isSuperAdmin || permissions['jobs.view'] || permissions['tasks.view'];
   const visibleTasks = canViewAll ? tasks : tasks.filter(task => {
+    const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
+    const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
     const isAssigned = 
       task.assignedStaffIds?.includes(effectiveUserId) || 
       task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
@@ -1096,18 +1109,19 @@ export function JobDetailPage({
       (staffMember?.userId && (
         task.assignedStaffIds?.includes(staffMember.userId) || 
         task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
-      ));
-    const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
+      )) ||
+      isDepartmentStaff;
+    const isUnassigned = !isGeneralTask(task) && !task.departmentId && !hasStaff;
     const isClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                          isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
-    return isGeneralTask(task.title) || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
+    return isGeneralTask(task) || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
   });
 
-  const nonGeneralTasks = visibleTasks.filter(t => !isGeneralTask(t.title));
-  const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
+  const nonGeneralTasks = visibleTasks.filter(t => !isGeneralTask(t));
+  const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
   const completedBookHours = nonGeneralTasks
     .filter(t => t.status === 'QC' || t.status === 'QC Complete')
-    .reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
+    .reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
   
   const jobProgress = totalBookHours > 0 
     ? Math.round((completedBookHours / totalBookHours) * 100) 
@@ -1129,7 +1143,7 @@ export function JobDetailPage({
 
     visibleTasks.forEach(task => {
       const isCompleted = task.status === 'QC' || task.status === 'QC Complete';
-      const bookTime = parseFloat(task.bookTime) || 0;
+      const bookTime = task.payBasis === 'hourly' ? 0 : (parseFloat(task.bookTime) || 0);
       
       const assignedStaff = task.assignedStaff || [];
       if (assignedStaff.length === 0) {
@@ -1256,7 +1270,7 @@ export function JobDetailPage({
     const deptHours: Record<string, number> = {};
     incompleteTasks.forEach(t => {
       const d = t.departmentId || 'unassigned';
-      deptHours[d] = (deptHours[d] || 0) + (parseFloat(t.bookTime) || 0);
+      deptHours[d] = (deptHours[d] || 0) + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0));
     });
 
     const totalHours = Object.values(deptHours).reduce((sum, h) => sum + h, 0);
@@ -1331,7 +1345,7 @@ export function JobDetailPage({
         ? task.actualTime 
         : (loggedMs / 3600000);
 
-      if (!isGeneralTask(task.title)) {
+      if (!isGeneralTask(task)) {
         totalBook += bookHours;
       }
       totalActual += actualHours;
@@ -1360,8 +1374,8 @@ export function JobDetailPage({
           const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
           const loggedMs = getTaskLoggedMs(t.id);
           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-          const bookHours = parseFloat(t.bookTime) || 0;
-          const isOverBook = !t.isAccidental && !isGeneralTask(t.title) && bookHours > 0 && clockedHours > bookHours;
+          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
+          const isOverBook = !t.isAccidental && !isGeneralTask(t) && bookHours > 0 && clockedHours > bookHours;
           const diff = clockedHours - bookHours;
 
           return `
@@ -1376,7 +1390,7 @@ export function JobDetailPage({
                       No time logged but complete
                     </span>
                   </div>
-                ` : !isGeneralTask(t.title) && bookHours > 0 ? `
+                ` : !isGeneralTask(t) && bookHours > 0 ? `
                   <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
                     Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
                     ${isOverBook ? `
@@ -1404,8 +1418,8 @@ export function JobDetailPage({
           const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
           const loggedMs = getTaskLoggedMs(t.id);
           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-          const bookHours = parseFloat(t.bookTime) || 0;
-          const isOverBook = !t.isAccidental && !isGeneralTask(t.title) && bookHours > 0 && clockedHours > bookHours;
+          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
+          const isOverBook = !t.isAccidental && !isGeneralTask(t) && bookHours > 0 && clockedHours > bookHours;
           const diff = clockedHours - bookHours;
 
           return `
@@ -1414,7 +1428,7 @@ export function JobDetailPage({
                 <div style="font-weight: bold; color: #18181b;">${t.title}</div>
                 ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
                 <div style="font-size: 11px; color: #6366f1; font-weight: 600; margin-top: 4px;">Assigned: ${staffNames}</div>
-                ${!isGeneralTask(t.title) && bookHours > 0 ? `
+                ${!isGeneralTask(t) && bookHours > 0 ? `
                   <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
                     Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
                     ${isOverBook ? `
@@ -1570,7 +1584,7 @@ export function JobDetailPage({
                 </tr>
                 <tr>
                   <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Dynamic ETA</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #6366f1;">${dynamicETA ? formatJobDate(dynamicETA) : 'Completed / N/A'}</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #6366f1;">${dynamicETA ? formatJobDate(dynamicETA) : (tasks.some(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.payBasis === 'hourly') ? 'N/A (Hourly)' : 'Completed / N/A')}</td>
                 </tr>
                 <tr>
                   <td style="padding: 10px 0 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Total Job Progress</td>
@@ -1875,10 +1889,10 @@ export function JobDetailPage({
                             
                             // Progress Calculation
                             const allCategoryTasks = filteredTasks.filter(t => (t.taskGroup || 'Uncategorized') === group);
-                            const totalBookHours = allCategoryTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                            const totalBookHours = allCategoryTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
                             const completedHours = allCategoryTasks
                               .filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed')
-                              .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                              .reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
                             
                             const groupProgress = totalBookHours > 0 ? Math.round((completedHours / totalBookHours) * 100) : 0;
 
@@ -1938,7 +1952,9 @@ export function JobDetailPage({
                                     return aOrder - bOrder;
                                   }).map(task => {
                                     const loggedMs = getTaskLoggedMs(task.id);
-                                    const isAssigned = isGeneralTask(task.title) || 
+                                    const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
+                                    const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
+                                    const isAssigned = isGeneralTask(task) || 
                                                        isSuperAdmin || 
                                                        task.assignedStaffIds?.includes(effectiveUserId) || 
                                                        task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
@@ -1949,8 +1965,9 @@ export function JobDetailPage({
                                                        (staffMember?.userId && (
                                                          task.assignedStaffIds?.includes(staffMember.userId) || 
                                                          task.assignedStaff?.some((s: any) => s.uid === staffMember.userId || s.id === staffMember.userId)
-                                                       ));
-                                    const isUnassigned = !isGeneralTask(task.title) && (!task.assignedStaff || task.assignedStaff.length === 0);
+                                                       )) ||
+                                                       isDepartmentStaff;
+                                    const isUnassigned = !isGeneralTask(task) && !task.departmentId && !hasStaff;
                                     const isCurrentTask = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
                                                           isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
 
@@ -2007,12 +2024,17 @@ export function JobDetailPage({
                                               )}>
                                                 {task.status || 'Pending'}
                                               </span>
+                                              {task.payBasis === 'hourly' && (
+                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-zinc-100 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                                                  Hourly
+                                                </span>
+                                              )}
                                               {(() => {
-                                                const bookHours = parseFloat(task.bookTime) || 0;
+                                                const bookHours = task.payBasis === 'hourly' ? 0 : (parseFloat(task.bookTime) || 0);
                                                 const clockedHours = task.actualTime !== undefined && task.actualTime > 0 
                                                   ? task.actualTime 
                                                   : (loggedMs / 3600000);
-                                                const isOverBook = !task.isAccidental && !isGeneralTask(task.title) && bookHours > 0 && clockedHours > bookHours;
+                                                const isOverBook = !task.isAccidental && !isGeneralTask(task) && bookHours > 0 && clockedHours > bookHours;
                                                 const diff = clockedHours - bookHours;
                                                 if (isOverBook) {
                                                   return (
@@ -2054,14 +2076,14 @@ export function JobDetailPage({
                                             </div>
                                             {task.description && (
                                               <p className="text-xs text-zinc-500 mb-2">
-                                                {isGeneralTask(task.title) && task.description === 'General shop work and cleanup'
+                                                {isGeneralTask(task) && task.description === 'General shop work and cleanup'
                                                   ? 'General clock in to job when no task clock in here'
                                                   : task.description}
                                               </p>
                                             )}
                                             
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-                                              {!isGeneralTask(task.title) && task.status !== 'QC' && (
+                                              {!isGeneralTask(task) && task.payBasis !== 'hourly' && task.status !== 'QC' && (
                                                 <div className="flex flex-col">
                                                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Allotted Time</span>
                                                   <span className="font-mono text-sm font-bold text-zinc-900 dark:text-white">{task.bookTime || 0}h</span>
@@ -2086,7 +2108,7 @@ export function JobDetailPage({
                                                 ) : (
                                                   <span className={cn(
                                                     "font-mono text-sm font-bold",
-                                                    !isGeneralTask(task.title) && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
+                                                    !isGeneralTask(task) && task.payBasis !== 'hourly' && loggedMs > (task.bookTime || 0) * 3600000 ? "text-rose-500" : "text-emerald-500"
                                                   )}>
                                                     {formatMs(loggedMs)}
                                                   </span>
@@ -2158,7 +2180,7 @@ export function JobDetailPage({
                                                   )
                                                 )}
                                                 
-                                                {task.status !== 'QC Complete' && !isGeneralTask(task.title) && (
+                                                {task.status !== 'QC Complete' && !isGeneralTask(task) && task.canComplete !== false && (
                                                   task.status === 'QC' ? (
                                                     <div className="flex items-center gap-2">
                                                       {canPerformQC ? (
@@ -2354,7 +2376,7 @@ export function JobDetailPage({
                   )}>
                     {dynamicETA 
                       ? dynamicETA.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-                      : 'Not Set'
+                      : (tasks.some(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.payBasis === 'hourly') ? 'N/A (Hourly)' : 'Not Set')
                     }
                   </p>
                 </div>
@@ -2686,7 +2708,7 @@ export function JobDetailPage({
                 <p className="text-xs text-zinc-500 italic text-center py-4">No parts requested for this job.</p>
               ) : (
                 parts.map(part => {
-                  const targetTaskId = part.taskId || tasks.find(t => isGeneralTask(t.title))?.id;
+                  const targetTaskId = part.taskId || tasks.find(t => isGeneralTask(t))?.id;
                   return (
                     <div 
                       key={part.id} 
@@ -3132,7 +3154,7 @@ export function JobDetailPage({
                     </div>
                     <div>
                       <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Dynamic ETA</span>
-                      <span className="font-bold text-indigo-650">{dynamicETA ? formatJobDate(dynamicETA) : 'Completed / N/A'}</span>
+                      <span className="font-bold text-indigo-650">{dynamicETA ? formatJobDate(dynamicETA) : (tasks.some(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.payBasis === 'hourly') ? 'N/A (Hourly)' : 'Completed / N/A')}</span>
                     </div>
                     <div className="col-span-2 sm:col-span-3 mt-2 pt-2 border-t border-indigo-100 flex items-center justify-between">
                       <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Total Job Progress</span>
@@ -3266,7 +3288,7 @@ export function JobDetailPage({
                         {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete').map(t => {
                           const loggedMs = getTaskLoggedMs(t.id);
                           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
                           const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
                           const diff = clockedHours - bookHours;
                           
@@ -3293,7 +3315,7 @@ export function JobDetailPage({
                                       ))
                                     )}
                                   </span>
-                                  {!isGeneralTask(t.title) && bookHours > 0 && (
+                                  {!isGeneralTask(t) && bookHours > 0 && (
                                     <>
                                       <span className="text-zinc-300">•</span>
                                       <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
@@ -3330,7 +3352,7 @@ export function JobDetailPage({
                         {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
                           const loggedMs = getTaskLoggedMs(t.id);
                           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
                           const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
                           const diff = clockedHours - bookHours;
                           
@@ -3364,7 +3386,7 @@ export function JobDetailPage({
                                         No time logged but complete
                                       </span>
                                     </>
-                                  ) : !isGeneralTask(t.title) && bookHours > 0 && (
+                                  ) : !isGeneralTask(t) && bookHours > 0 && (
                                     <>
                                       <span className="text-zinc-300">•</span>
                                       <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>

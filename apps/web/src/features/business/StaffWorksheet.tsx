@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from '../timeclock/TimeSessionEditorModal';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 
 interface StaffMember {
@@ -226,6 +227,8 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
     
     setIsUpdating(staffId);
     try {
+      const loc = await getCurrentLocation();
+
       // 1. CLOCK IN
       if (action === 'in' && !activeSession) {
         await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
@@ -234,15 +237,19 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           staffName: staffName,
           clockIn: {
             timestamp: serverTimestamp(),
-            onSite: true,
-            lat: null,
-            lng: null
+            onSite: !loc.lat ? false : true,
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracy: loc.accuracy
           },
-          isRemote: false,
+          isRemote: !loc.lat,
           status: 'active',
           breaks: [],
           createdAt: serverTimestamp()
         });
+
+        await updateStaffLastLocation(tenantId, userId, undefined, loc, "Clocked In (Manager Override)");
+
         toast.success(`Clocked in ${staffName}`);
       }
 
@@ -270,14 +277,18 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           status: 'completed',
           clockOut: {
             timestamp: serverTimestamp(),
-            onSite: true,
-            lat: null,
-            lng: null
+            onSite: !loc.lat ? false : true,
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracy: loc.accuracy
           },
           breaks,
           jobs,
           updatedAt: serverTimestamp()
         });
+
+        await updateStaffLastLocation(tenantId, userId, undefined, loc, "Clocked Out (Manager Override)");
+
         toast.success(`Clocked out ${staffName}`);
       }
 
@@ -307,7 +318,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           type,
           start: new Date(),
           isPaid: type === 'normal',
-          suspendedJob
+          suspendedJob,
+          startLat: loc.lat,
+          startLng: loc.lng
         });
 
         await updateDoc(sessionRef, {
@@ -316,6 +329,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           status: 'on_break',
           updatedAt: serverTimestamp()
         });
+
+        await updateStaffLastLocation(tenantId, userId, undefined, loc, `Started Break (${type}) (Manager Override)`);
+
         toast.success(`${staffName} is now on break`);
       }
 
@@ -332,6 +348,8 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
         if (breaks.length > 0) {
           const lastBreak = breaks[breaks.length - 1];
           lastBreak.end = new Date();
+          lastBreak.endLat = loc.lat;
+          lastBreak.endLng = loc.lng;
           suspendedJob = lastBreak.suspendedJob;
         }
 
@@ -352,6 +370,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
           status: 'active',
           updatedAt: serverTimestamp()
         });
+
+        await updateStaffLastLocation(tenantId, userId, undefined, loc, "Ended Break (Manager Override)");
+
         toast.success(`Resumed work for ${staffName}`);
       }
 

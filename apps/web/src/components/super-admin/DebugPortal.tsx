@@ -301,7 +301,8 @@ export function DebugPortal() {
       tasks: 'tasks.view',
       canvases: 'whiteboards.view',
       vendors: 'vendors.view',
-      sales: 'sales.view'
+      sales: 'sales.view',
+      locations: 'development.view'
     };
 
     return {

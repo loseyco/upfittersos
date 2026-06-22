@@ -4,7 +4,8 @@ import {
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp
+  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp,
+  Code, MapPin
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -20,7 +21,7 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
@@ -115,6 +116,8 @@ export const ITEMS: NavItem[] = [
   { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
 
+  { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', permission: 'development.view' },
+
   // Help Hub
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },
   
@@ -152,7 +155,7 @@ export const ITEMS: NavItem[] = [
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop';
+  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
   label: string;
   icon: React.ElementType;
 };
@@ -172,6 +175,7 @@ const HUBS: HubType[] = [
   { id: 'help', label: 'Help Center', icon: HelpCircle },
   { id: 'sop', label: 'SOP Center', icon: Workflow },
   { id: 'settings', label: 'Admin & Sync', icon: Settings },
+  { id: 'development', label: 'In Development', icon: Code },
 ];
 
 export function BusinessSidebar({
@@ -216,7 +220,8 @@ export function BusinessSidebar({
   });
 
   // Track the selected Hub (Tier 1)
-  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop'>(() => {
+  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development'>(() => {
+    if (activeTab === 'job' || activeTab === 'task') return 'facility';
     if (activeTab?.startsWith('help_')) return 'help';
     if (activeTab?.startsWith('sop_')) return 'sop';
     const activeItem = ITEMS.find(item => item.id === activeTab);
@@ -226,6 +231,7 @@ export function BusinessSidebar({
   // Keep Tier 1 active hub synchronized when activeTab changes
   useEffect(() => {
     setActiveHub(current => {
+      if (activeTab === 'job' || activeTab === 'task') return 'facility';
       if (activeTab?.startsWith('help_')) return 'help';
       if (activeTab?.startsWith('sop_')) return 'sop';
       const currentHubItems = ITEMS.filter(item => item.hub === current);
@@ -273,6 +279,7 @@ export function BusinessSidebar({
 
   // Filter items based on active role permissions
   const visibleItems = ITEMS.filter(item => {
+    if (item.hub === 'development' && !isSuperAdmin && !permissions['development.view']) return false;
     if (isSuperAdmin) return true;
     if (item.permissions) {
       return item.permissions.some(p => permissions[p]);
@@ -290,7 +297,7 @@ export function BusinessSidebar({
     return visibleItems.filter(item => item.hub === hubId);
   };
 
-  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop', isOverlay = false) => {
+  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development', isOverlay = false) => {
     const hubItems = getSubmenuItemsForHub(hubId);
 
     // Extract unique groups
@@ -336,7 +343,7 @@ export function BusinessSidebar({
                   </h3>
                 )}
                 {groupItems.map(item => {
-                  const isActive = activeTab === item.id;
+                  const isActive = activeTab === item.id || (item.id === 'jobs' && activeTab === 'job') || (item.id === 'tasks' && activeTab === 'task');
                   return (
                     <div key={item.id} className="flex items-center gap-1 w-full">
                       <button

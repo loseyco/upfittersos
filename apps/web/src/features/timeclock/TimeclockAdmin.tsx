@@ -58,12 +58,13 @@ interface TimeSession {
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;
+  approvedBy?: string;
   notes?: string;
   staffNote?: string;
 }
 
 interface Anomaly {
-  type: 'early_in' | 'late_in' | 'late_out' | 'unscheduled_day' | 'overnight' | 'long_shift' | 'manual_edit';
+  type: 'early_in' | 'late_in' | 'late_out' | 'unscheduled_day' | 'overnight' | 'long_shift' | 'manual_edit' | 'approved_by';
   message: string;
   severity: 'warning' | 'info';
 }
@@ -196,7 +197,88 @@ const getSessionAnomalies = (session: TimeSession, staff: any, dept: any): Anoma
     });
   }
 
+  // 6. Approved By
+  if (session.approvedBy) {
+    anomalies.push({
+      type: 'approved_by',
+      message: `Approved by ${session.approvedBy}`,
+      severity: 'info'
+    });
+  }
+
+  const anomalyTypeOrder: Record<string, number> = {
+    long_shift: 1,
+    overnight: 2,
+    unscheduled_day: 3,
+    late_in: 4,
+    late_out: 5,
+    manual_edit: 6,
+    approved_by: 7,
+    early_in: 8
+  };
+
+  anomalies.sort((a, b) => {
+    const orderA = anomalyTypeOrder[a.type] ?? 99;
+    const orderB = anomalyTypeOrder[b.type] ?? 99;
+    return orderA - orderB;
+  });
+
   return anomalies;
+};
+
+const getAnomalyBadgeProps = (type: string) => {
+  switch (type) {
+    case 'unscheduled_day':
+      return {
+        className: 'bg-purple-500/10 text-purple-650 dark:text-purple-400 border border-purple-500/20',
+        icon: Calendar
+      };
+    case 'early_in':
+      return {
+        className: 'bg-blue-500/10 text-blue-650 dark:text-blue-400 border border-blue-500/20',
+        icon: AlertCircle
+      };
+    case 'late_in':
+      return {
+        className: 'bg-orange-500/10 text-orange-655 dark:text-orange-405 border border-orange-500/20',
+        icon: AlertTriangle
+      };
+    case 'late_out':
+      return {
+        className: 'bg-amber-500/10 text-amber-655 dark:text-amber-400 border border-amber-500/20',
+        icon: AlertTriangle
+      };
+    case 'overnight':
+      return {
+        className: 'bg-fuchsia-500/10 text-fuchsia-655 dark:text-fuchsia-400 border border-fuchsia-500/20',
+        icon: Clock
+      };
+    case 'long_shift':
+      return {
+        className: 'bg-rose-500/10 text-rose-600 dark:text-rose-455 border border-rose-500/20',
+        icon: AlertTriangle
+      };
+    case 'manual_edit':
+      return {
+        className: 'bg-teal-500/10 text-teal-650 dark:text-teal-400 border border-teal-500/20',
+        icon: Edit2
+      };
+    case 'approved_by':
+      return {
+        className: 'bg-emerald-500/10 text-emerald-650 dark:text-emerald-400 border border-emerald-500/20',
+        icon: UserCheck
+      };
+    case 'needs_verification':
+      return {
+        className: 'bg-indigo-650 text-white dark:bg-indigo-500 border border-indigo-755 dark:border-indigo-455 animate-pulse shadow-[0_0_8px_rgba(79,70,229,0.4)] font-extrabold',
+        icon: FileSignature
+      };
+    default:
+      return {
+        className: 'bg-zinc-500/10 text-zinc-650 dark:text-zinc-400 border border-zinc-500/20',
+        icon: AlertCircle
+      };
+  }
 };
 
 export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
@@ -684,9 +766,9 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
           }`}
         >
           <span>Needs Reviewed/Request</span>
-          {(pendingRequests.length + flaggedCount) > 0 && (
+          {pendingRequests.length > 0 && (
             <span className="bg-amber-500 text-white font-black text-[9px] px-1.5 py-0.5 rounded-full">
-              {pendingRequests.length + flaggedCount}
+              {pendingRequests.length}
             </span>
           )}
         </button>
@@ -896,11 +978,16 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                                       {creditText}
                                     </span>
                                   )}
-                                  {session.verificationStatus === 'pending' && (
-                                    <span className="text-[9px] font-black text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded leading-none animate-pulse">
-                                      Needs Verification
-                                    </span>
-                                  )}
+                                  {session.verificationStatus === 'pending' && (() => {
+                                    const props = getAnomalyBadgeProps('needs_verification');
+                                    const IconComponent = props.icon;
+                                    return (
+                                      <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded leading-none flex items-center gap-1 shrink-0 ${props.className}`}>
+                                        <IconComponent className="w-2.5 h-2.5 shrink-0" />
+                                        Needs Verification
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                                 {session.notes && (
                                   <div className="text-[10px] text-zinc-655 dark:text-zinc-400 italic mt-1.5 flex items-center gap-1 bg-zinc-50/50 dark:bg-zinc-800/20 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-800/40 max-w-xs truncate" title={session.notes}>
@@ -943,20 +1030,20 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                                     Active
                                   </span>
                                 )}
-                                {anomalies.map((a, idx) => (
-                                  <span 
-                                    key={idx}
-                                    className={`flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase ${
-                                      a.severity === 'warning'
-                                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                                        : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20'
-                                    }`}
-                                    title={a.message}
-                                  >
-                                    {a.severity === 'warning' ? <AlertTriangle className="w-2.5 h-2.5 shrink-0" /> : <AlertCircle className="w-2.5 h-2.5 shrink-0" />}
-                                    {a.message}
-                                  </span>
-                                ))}
+                                {anomalies.map((a, idx) => {
+                                   const props = getAnomalyBadgeProps(a.type);
+                                   const IconComponent = props.icon;
+                                   return (
+                                     <span 
+                                       key={idx}
+                                       className={`flex items-center gap-1 text-[9px] font-extrabold px-1.5 py-0.5 rounded uppercase ${props.className}`}
+                                       title={a.message}
+                                     >
+                                       <IconComponent className="w-2.5 h-2.5 shrink-0" />
+                                       {a.message}
+                                     </span>
+                                   );
+                                 })}
                               </div>
                             </div>
                           </td>
@@ -1417,25 +1504,30 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex flex-wrap gap-1.5">
-                              {needsVerification && (
-                                <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide">
-                                  Needs Verification
-                                </span>
-                              )}
-                              {anomalies.map((anom, idx) => (
-                                <span 
-                                  key={idx} 
-                                  className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide ${
-                                    anom.severity === 'warning' 
-                                      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/20' 
-                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                                  }`}
-                                >
-                                  {anom.message}
-                                </span>
-                              ))}
-                            </div>
+                            <div className="flex flex-wrap gap-1.5 animate-in fade-in-50 duration-200">
+                              {needsVerification && (() => {
+                                 const props = getAnomalyBadgeProps('needs_verification');
+                                 const IconComponent = props.icon;
+                                 return (
+                                   <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide flex items-center gap-1 ${props.className}`}>
+                                     <IconComponent className="w-3 h-3" /> Needs Verification
+                                   </span>
+                                 );
+                               })()}
+                               {anomalies.map((anom, idx) => {
+                                 const props = getAnomalyBadgeProps(anom.type);
+                                 const IconComponent = props.icon;
+                                 return (
+                                   <span 
+                                     key={idx} 
+                                     className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 ${props.className}`}
+                                   >
+                                     <IconComponent className="w-3 h-3" />
+                                     {anom.message}
+                                   </span>
+                                 );
+                               })}
+                             </div>
                           </td>
                           <td className="px-6 py-4 text-right font-mono font-bold text-zinc-900 dark:text-white">
                             {formatDuration(workMs)}

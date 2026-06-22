@@ -3,6 +3,8 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { toast } from 'sonner';
+import { useAuthStore } from '../../lib/auth/store';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 export function useJobClock(tenantId: string) {
   const { activeSessionId } = useTimeclockStore();
@@ -50,6 +52,9 @@ export function useJobClock(tenantId: string) {
         }
       }
 
+      // Get geolocation if available
+      const loc = await getCurrentLocation();
+
       // Start new job segment (without auto-closing others)
       jobs.push({
         id: jobId,
@@ -58,7 +63,9 @@ export function useJobClock(tenantId: string) {
         taskName: taskName || null,
         bookTime,
         payBasis,
-        start: new Date()
+        start: new Date(),
+        startLat: loc.lat,
+        startLng: loc.lng
       });
 
       await updateDoc(sessionRef, {
@@ -71,6 +78,10 @@ export function useJobClock(tenantId: string) {
       await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
         lastWorkedAt: serverTimestamp()
       });
+
+      // Update staff last location
+      const { user } = useAuthStore.getState();
+      await updateStaffLastLocation(tenantId, user?.uid, user?.email, loc, `Started Task: ${taskName || jobName}`);
 
       toast.success(`Clocked into ${taskName || jobName}`);
     } catch (e) {
@@ -95,6 +106,8 @@ export function useJobClock(tenantId: string) {
       let closedCount = 0;
       let closedName = '';
 
+      const loc = await getCurrentLocation();
+
       jobs.forEach((j: any) => {
         if (!j.end) {
           // Flexible match logic:
@@ -106,6 +119,8 @@ export function useJobClock(tenantId: string) {
                           (jobId && taskId && j.id === jobId && j.taskId === taskId);
           if (isMatch) {
             j.end = new Date();
+            j.endLat = loc.lat;
+            j.endLng = loc.lng;
             closedCount++;
             closedName = j.taskName || j.name || 'task';
           }
@@ -118,6 +133,16 @@ export function useJobClock(tenantId: string) {
           jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
           updatedAt: serverTimestamp()
         });
+
+        const { user } = useAuthStore.getState();
+        await updateStaffLastLocation(
+          tenantId, 
+          user?.uid, 
+          user?.email, 
+          loc, 
+          closedCount === 1 ? `Stopped Task: ${closedName}` : `Stopped ${closedCount} active tasks`
+        );
+
         toast.success(closedCount === 1 ? `Clocked out of ${closedName}` : `Clocked out of ${closedCount} active tasks`);
       }
     } catch (e) {
@@ -130,3 +155,4 @@ export function useJobClock(tenantId: string) {
 
   return { clockIntoJob, clockOutOfJob, isProcessing };
 }
+

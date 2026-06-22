@@ -42,6 +42,7 @@ interface TimeSession {
   manuallyEdited?: boolean;
   lastEditedBy?: string;
   lastEditedById?: string;
+  approvedBy?: string;
   notes?: string;
   staffNote?: string;
 }
@@ -57,6 +58,8 @@ interface TimeSessionEditorModalProps {
 export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, requestId }: TimeSessionEditorModalProps) {
   const { user, permissions = {}, isSuperAdmin } = useAuthStore();
   const isAdmin = isSuperAdmin || !!permissions['timeclock.manage'];
+  const isOwnSession = session.userId === user?.uid;
+  const canApprove = (isSuperAdmin || !!permissions['timeclock.approve']) && !isOwnSession;
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clockIn, setClockIn] = useState('');
@@ -247,8 +250,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   }, [session]);
 
   const handleReject = async () => {
-    if (!isAdmin) {
-      toast.error("You do not have permission to resolve correction requests.");
+    if (!canApprove) {
+      toast.error(isOwnSession
+        ? "You cannot reject correction requests for your own timecard."
+        : "You do not have permission to resolve correction requests."
+      );
       return;
     }
     const activeId = requestId || requestDetails?.id;
@@ -447,8 +453,24 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
       if (hasTimelineChanges || session.manuallyEdited) {
         updates.manuallyEdited = true;
-        updates.lastEditedBy = user!.displayName || user!.email || 'Admin';
-        updates.lastEditedById = user!.uid;
+        const activeId = requestId || requestDetails?.id;
+        if (canApprove) {
+          updates.approvedBy = user!.displayName || user!.email || 'Admin';
+          if (activeId) {
+            // Approving a request: the technician (session.userName) requested/made the change.
+            updates.lastEditedBy = requestDetails?.userName || session.userName || 'Technician';
+            updates.lastEditedById = session.userId;
+          } else {
+            // Direct admin edit: the admin made the change.
+            updates.lastEditedBy = user!.displayName || user!.email || 'Admin';
+            updates.lastEditedById = user!.uid;
+          }
+        } else {
+          // Proposing changes (pending verification): the technician/user is editing their own time.
+          updates.lastEditedBy = user!.displayName || user!.email || 'Technician';
+          updates.lastEditedById = user!.uid;
+          updates.approvedBy = ''; // Pending approval
+        }
       }
 
       if (!session.payType) {
@@ -483,8 +505,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       updates.jobs = jobs;
       updates.jobIds = Array.from(new Set(jobs.map((j: any) => j.id)));
 
-      // Admin edits are verified live; technician edits are live but marked pending verification
-      if (isAdmin) {
+      // Edits from users with approval permissions are verified live (unless they edit their own timesheet)
+      if (canApprove) {
         updates.verificationStatus = 'verified';
       } else {
         updates.verificationStatus = 'pending';
@@ -492,8 +514,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
       await updateDoc(sessionRef, updates);
 
-      // Create a pending request automatically if saved by regular staff member
-      if (!isAdmin) {
+      // Create or update a pending request automatically if saved by a user without approval permissions (e.g. self-edits)
+      if (!canApprove) {
         const q = query(
           collection(db, `businesses/${tenantId}/time_edit_requests`),
           where('sessionId', '==', session.id),
@@ -503,9 +525,9 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         
         const requestData = {
           sessionId: session.id,
-          userId: user!.uid,
-          userName: user!.displayName || user!.email,
-          note: staffNote.trim() || 'Staff updated session details directly (needs verification)',
+          userId: session.userId,
+          userName: session.userName || user!.displayName || user!.email,
+          note: staffNote.trim() || (isOwnSession ? 'Self-edit (needs admin approval)' : 'Direct update by manager without approval permission (needs verification)'),
           status: 'pending',
           originalClockIn: session.clockIn.timestamp,
           originalClockOut: session.clockOut?.timestamp || null,
@@ -571,7 +593,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         }
       }
 
-      toast.success(isAdmin ? (hasTimelineChanges ? "Time session updated and verified" : "Note saved successfully") : "Time session updated (needs verification)");
+      toast.success(canApprove ? (hasTimelineChanges ? "Time session updated and verified" : "Note saved successfully") : "Time session updated (needs verification)");
       onSaved();
       onClose();
     } catch (e) {
@@ -635,6 +657,18 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         </div>
 
         <div className="p-6 max-h-[70vh] overflow-y-auto no-scrollbar space-y-8">
+          {isOwnSession && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex items-start gap-3 text-amber-800 dark:text-amber-300">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="text-sm font-bold">Editing Your Own Timecard</p>
+                <p className="text-xs text-zinc-650 dark:text-zinc-400 mt-0.5">
+                  You are editing your own time entry. These changes will save as pending and must be reviewed and approved by another administrator.
+                </p>
+              </div>
+            </div>
+          )}
+
           {(requestId || requestDetails) && (
             <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5 space-y-4 animate-in fade-in duration-300 shadow-inner">
               <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-500/10 pb-3">
@@ -1025,7 +1059,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           {/* Editable Technician Notes */}
           <div className="space-y-2">
             <label className="text-xs font-black text-zinc-400 uppercase tracking-widest ml-1">
-              {isAdmin ? "Technician Notes / Explanation" : "My Notes / Explanation"}
+              {!isOwnSession ? "Technician Notes / Explanation" : "My Notes / Explanation"}
             </label>
             <textarea 
               value={staffNote}
@@ -1051,11 +1085,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         </div>
 
         <div className="p-6 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row gap-3">
-          {(requestId || requestDetails?.id) && isAdmin && (
+          {(requestId || requestDetails?.id) && canApprove && (
             <button 
               disabled={isSubmitting}
               onClick={handleReject}
-              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
+              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
             >
               Reject Request
             </button>
@@ -1071,14 +1105,14 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
               disabled={isSubmitting || !clockIn}
               onClick={handleSave}
               className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
-                (requestId || requestDetails?.id) && isAdmin
+                (requestId || requestDetails?.id) && canApprove
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
                   : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
               }`}
             >
               {isSubmitting ? (
                 'Processing...'
-              ) : (requestId || requestDetails?.id) && isAdmin ? (
+              ) : (requestId || requestDetails?.id) && canApprove ? (
                 <>
                   <Check className="w-4 h-4" /> Approve & Save Request
                 </>
@@ -1092,7 +1126,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
               <button 
                 disabled={isSubmitting}
                 onClick={handleDelete}
-                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
+                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-450 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
                 title="Delete Entry"
               >
                 <Trash2 className="w-4 h-4" />

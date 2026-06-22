@@ -4,7 +4,7 @@ import {
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
   Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
-  ChevronUp, ChevronDown, Award
+  ChevronUp, ChevronDown, Award, Printer
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
@@ -16,10 +16,15 @@ import { StaffLink } from './StaffPerformance';
 import { toast } from 'sonner';
 
 // Helper to determine if a task is a general non-production task
-const isGeneralTask = (title?: string) => {
-  if (!title) return false;
-  const t = title.toLowerCase();
-  return t.includes('general') || t.includes('clock in') || t.includes('clockout') || t.includes('break') || t.includes('lunch') || t.includes('meeting');
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
+  return t === 'general' || t === 'general labor';
 };
 
 // Helper for stopwatch elapsed time formatting
@@ -850,6 +855,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
         const hasAssignedUncompletedTask = allTasks.some(t => 
           t.jobId === job.id &&
           t.status !== 'completed' &&
+          t.status !== 'QC' &&
           t.status !== 'QC Complete' &&
           (t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
         );
@@ -861,8 +867,8 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           t.jobId === job.id &&
           (t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
         );
-        const uncompletedJobTasks = jobMemberTasks.filter(t => t.status !== 'completed' && t.status !== 'QC Complete');
-        const remainingBook = uncompletedJobTasks.reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+        const uncompletedJobTasks = jobMemberTasks.filter(t => t.status !== 'completed' && t.status !== 'QC' && t.status !== 'QC Complete');
+        const remainingBook = uncompletedJobTasks.reduce((acc: number, t: any) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
         // Blocker & parts requests
         const isBlocked = job.status === 'Blocked' || (job.blockers || []).some((b: any) => b.status === 'active');
@@ -894,12 +900,17 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       });
 
       // Calculate overall remaining book time assigned to this member in Upfitting
-      const memberRemainingTasks = allTasks.filter(t => 
-        t.status !== 'completed' &&
-        t.status !== 'QC Complete' &&
-        (t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
-      );
-      const overallRemainingBook = memberRemainingTasks.reduce((acc: number, t: any) => acc + (parseFloat(t.bookTime) || 0), 0);
+      const memberRemainingTasks = allTasks.filter(t => {
+        const job = allJobs.find(j => j.id === t.jobId);
+        if (!job || ['Closed', 'Completed', 'Ready for Customer'].includes(job.status)) return false;
+        return (
+          t.status !== 'completed' &&
+          t.status !== 'QC' &&
+          t.status !== 'QC Complete' &&
+          (t.assignedStaffIds?.includes(member.id) || t.assignedStaff?.some((as: any) => as.id === member.id || as.uid === member.id))
+        );
+      });
+      const overallRemainingBook = memberRemainingTasks.reduce((acc: number, t: any) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
       // Week-specific calculations (Current payroll week)
       const weekEndDay = business?.payrollWeekEndDay !== undefined ? Number(business.payrollWeekEndDay) : 0;
@@ -1235,12 +1246,12 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
     <div 
       ref={containerRef}
       className={cn(
-        "animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col gap-3.5",
+        "animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col gap-3.5 print-page-container",
         isFullscreen ? "p-4 bg-zinc-50 dark:bg-zinc-950 h-screen w-screen overflow-hidden" : "w-full"
       )}
     >
       {/* Header controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 print-hidden">
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-500/20 shrink-0">
             <Wrench className="w-5 h-5 text-indigo-500" />
@@ -1314,8 +1325,16 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           </div>
 
           <button 
+            onClick={() => window.print()}
+            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer print:hidden"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print Status
+          </button>
+
+          <button 
             onClick={toggleFullscreen}
-            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer print:hidden"
           >
             {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
             {isFullscreen ? "Exit" : "Fullscreen"}
@@ -1464,7 +1483,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       )}
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 print-hidden">
         {/* Coverage Stat Card */}
         <div 
           onClick={() => setActiveMainInfo('coverage')}
@@ -1551,15 +1570,13 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
             <AlertTriangle className="w-5 h-5" />
           </div>
         </div>
-      </div>
-
-      {/* Kanban Board Container */}
-      <div className="flex-1 overflow-x-auto pb-2 no-scrollbar min-h-0 snap-x snap-mandatory scroll-smooth">
-        <div className="flex gap-4 h-full p-1">
+      </div>      {/* Kanban Board Container */}
+      <div className="flex-1 overflow-x-auto pb-2 no-scrollbar min-h-0 snap-x snap-mandatory scroll-smooth print-kanban-board">
+        <div className="flex gap-4 h-full p-1 print-kanban-inner">
           {filteredStaffColumns.length === 0 ? (
             <div className="w-full text-center py-20 bg-zinc-50/50 dark:bg-zinc-900/50 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-3xl p-12">
               <ClipboardList className="w-12 h-12 text-zinc-350 dark:text-zinc-700 mx-auto mb-4" />
-              <p className="text-zinc-500 italic">No upfitters match your filter criteria.</p>
+              <p className="text-zinc-550 italic">No upfitters match your filter criteria.</p>
             </div>
           ) : (
             filteredStaffColumns.map((col) => {
@@ -1567,7 +1584,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
               const statusColors = {
                 active: { bg: 'bg-emerald-500/10 border-emerald-500/20', dot: 'bg-emerald-500 animate-pulse', text: 'text-emerald-500' },
                 idle: { bg: 'bg-amber-500/10 border-amber-500/20', dot: 'bg-amber-500 animate-pulse', text: 'text-amber-500' },
-                offline: { bg: 'bg-zinc-100 border-zinc-200/50 dark:bg-zinc-850 dark:border-zinc-800/50', dot: 'bg-zinc-400', text: 'text-zinc-400' }
+                offline: { bg: 'bg-zinc-150 border-zinc-200/50 dark:bg-zinc-850 dark:border-zinc-800/50', dot: 'bg-zinc-400', text: 'text-zinc-400' }
               };
 
               const currentStatus = statusColors[col.clockStatus];
@@ -1580,7 +1597,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
               const todayDay = new Date().getDay() || 7;
               const isScheduledToday = days.includes(todayDay);
               
-              if (isScheduledToday && col.clockStatus === 'offline') {
+              if (isScheduledToday && col.clockStatus === 'offline' && !col.todaySession) {
                 const [sh, sm] = (col.schedule?.startTime || '08:00').split(':').map(Number);
                 const now = new Date();
                 const shiftStart = new Date();
@@ -1610,7 +1627,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
               return (
                 <div 
                   key={col.id} 
-                  className="w-[calc(100vw-2.5rem)] sm:w-[400px] shrink-0 snap-center flex flex-col bg-zinc-50/50 dark:bg-zinc-900/50 backdrop-blur-sm border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-md h-full overflow-hidden relative"
+                  className="w-[calc(100vw-2.5rem)] sm:w-[400px] shrink-0 snap-center flex flex-col bg-zinc-50/50 dark:bg-zinc-900/50 backdrop-blur-sm border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-md h-full overflow-hidden relative print-technician-card"
                 >
                   {/* Explanation overlay popover */}
                   {activeInfo && activeInfo.memberId === col.id && (
@@ -2083,7 +2100,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                       const { assignedJobs, totalTracks } = layoutSessionJobs(session.jobs, sessionEndMs);
                       
                       return (
-                        <div className="border-t border-zinc-200 dark:border-zinc-800/60 pt-3 flex flex-col gap-1.5">
+                        <div className="border-t border-zinc-200 dark:border-zinc-800/60 pt-3 flex flex-col gap-1.5 print-hidden">
                           <button 
                             onClick={() => setActiveInfo({ memberId: col.id, type: 'timeline' })}
                             className="w-full flex justify-between items-center text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest hover:text-indigo-500 transition-colors cursor-pointer group/item text-left"
@@ -2426,7 +2443,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                                   </span>
                                   {col.queuedJobs.length > 1 && (
                                     <div 
-                                      className="flex items-center gap-0.5 bg-zinc-150 dark:bg-zinc-800 p-0.5 rounded-lg border border-zinc-250 dark:border-zinc-700/60" 
+                                      className="flex items-center gap-0.5 bg-zinc-150 dark:bg-zinc-800 p-0.5 rounded-lg border border-zinc-250 dark:border-zinc-700/60 print:hidden" 
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <button
@@ -2804,6 +2821,116 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           </div>
         </div>
       )}
+      {/* ----------------------------------------------------
+          PRINT STYLESHEET
+      ---------------------------------------------------- */}
+      <style>{`
+        @media print {
+          /* Hide global layout element like sidebar, main nav etc */
+          aside, nav, header, [role="navigation"], .no-print, .print-hidden, .print\\:hidden, button, input, select {
+            display: none !important;
+          }
+          
+          /* Override any custom components that act as sidebar or top nav */
+          .bg-zinc-955, .bg-zinc-950, .bg-zinc-900, .bg-zinc-800 {
+            background-color: transparent !important;
+          }
+
+          /* Force body to fit standard printed page without overflow */
+          body, html, #root {
+            background: white !important;
+            color: black !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          /* Remove container limits so all content renders */
+          .print-page-container {
+            padding: 0 !important;
+            margin: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+          }
+
+          /* Grid layout for cards on print */
+          .print-kanban-board {
+            display: block !important;
+            overflow: visible !important;
+            height: auto !important;
+          }
+          .print-kanban-inner {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 2rem !important;
+            height: auto !important;
+            overflow: visible !important;
+            width: 100% !important;
+          }
+
+          /* Individual card print styles */
+          .print-technician-card {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            background: white !important;
+            border: 1px solid #e4e4e7 !important; /* border-zinc-200 */
+            color: black !important;
+            padding: 1.5rem !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
+          }
+          .print-technician-card:not(:last-child) {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+
+          /* Allow scrollable lists inside cards to expand fully on paper */
+          .max-h-60, .max-h-48, .custom-scrollbar {
+            max-height: none !important;
+            overflow: visible !important;
+            height: auto !important;
+          }
+
+          /* Optimize colors for readability on white paper */
+          .text-zinc-900, .text-zinc-800, .text-zinc-700, .dark\\:text-white, .text-black {
+            color: #18181b !important; /* zinc-900 */
+          }
+          .text-zinc-650, .text-zinc-600, .text-zinc-500, .text-zinc-450, .text-zinc-400 {
+            color: #52525b !important; /* zinc-600 */
+          }
+          
+          /* Keep text decorations clean */
+          a, span, h1, h2, h3, h4, h5, h6, p {
+            color: inherit;
+          }
+
+          /* Badges styling for print */
+          .bg-indigo-500\\/10, .bg-indigo-500\\/[0.05], .bg-indigo-500\\/[0.1] {
+            background-color: #f4f4f5 !important;
+            border-color: #d4d4d8 !important;
+            color: #3f3f46 !important;
+          }
+          .bg-emerald-500\\/10, .bg-emerald-500\\/[0.1] {
+            background-color: #f0fdf4 !important;
+            border-color: #bbf7d0 !important;
+            color: #166534 !important;
+          }
+          .bg-amber-500\\/10, .bg-amber-500\\/[0.1] {
+            background-color: #fffbeb !important;
+            border-color: #fde68a !important;
+            color: #92400e !important;
+          }
+          .bg-red-500\\/10, .bg-red-500\\/[0.1] {
+            background-color: #fef2f2 !important;
+            border-color: #fecaca !important;
+            color: #991b1b !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

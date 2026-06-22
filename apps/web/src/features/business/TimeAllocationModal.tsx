@@ -19,8 +19,14 @@ interface TimeAllocationModalProps {
   onSuccess: () => void;
 }
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 

@@ -790,10 +790,10 @@ function PermissionGrid({
     'Inventory & Vehicles': ['vehicles.view', 'vehicles.manage', 'zones.view', 'zones.manage', 'parts.view', 'parts.manage', 'parts_worksheet.view'],
     'Business Operations': ['customers.view', 'customers.manage', 'jobs.view', 'jobs.manage', 'jobs.qc', 'staff.view', 'staff.manage', 'staff_worksheet.view', 'bay_worksheet.view'],
     'Sales & CRM': ['sales.view', 'sales.manage'],
-    'Tasks & Timeclock': ['tasks.view', 'tasks.manage', 'timeclock.view', 'timeclock.manage', 'timeclock.offsite'],
+    'Tasks & Timeclock': ['tasks.view', 'tasks.manage', 'timeclock.view', 'timeclock.manage', 'timeclock.approve', 'timeclock.offsite'],
     'Communication & Facility': ['communication.view', 'facility.view', 'whiteboards.view', 'whiteboards.manage'],
     'System & Data': ['settings.view', 'settings.manage', 'reports.view', 'sync.view', 'sync.manage'],
-    'Experimental': ['experimental.new_modals']
+    'Experimental': ['experimental.new_modals', 'development.view']
   };
 
   return (

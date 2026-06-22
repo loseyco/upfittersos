@@ -5,6 +5,7 @@ import {
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { toast } from 'sonner';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 import { 
   Briefcase, Users, CheckSquare, Clock, Search, 
   RefreshCw, Trash2, Terminal, ArrowRight, Save, FileText, PlusCircle
@@ -512,6 +513,8 @@ export const CommandConsole = ({ tenantId, jobs, customers, staff, activeSession
         }
 
         try {
+          const loc = await getCurrentLocation();
+
           if (sub === 'in') {
             const existing = activeSessions.find(s => s.staffId === matched.id);
             if (existing) {
@@ -524,11 +527,18 @@ export const CommandConsole = ({ tenantId, jobs, customers, staff, activeSession
               status: 'active',
               clockIn: {
                 timestamp: new Date().toISOString(),
-                note: 'Clocked in via QuickDesk Console'
+                note: 'Clocked in via QuickDesk Console',
+                lat: loc.lat,
+                lng: loc.lng,
+                accuracy: loc.accuracy
               },
+              isRemote: !loc.lat,
               jobs: [],
               tenantId
             });
+
+            await updateStaffLastLocation(tenantId, matched.userId || matched.id, matched.email, loc, "Clocked In (QuickDesk)");
+
             playSound('save');
             setHistory([...newHistory, `Success: ${matched.firstName} ${matched.lastName} is now CLOCKED IN.`, '']);
           } else {
@@ -541,10 +551,16 @@ export const CommandConsole = ({ tenantId, jobs, customers, staff, activeSession
               status: 'completed',
               clockOut: {
                 timestamp: new Date().toISOString(),
-                note: 'Clocked out via QuickDesk Console'
+                note: 'Clocked out via QuickDesk Console',
+                lat: loc.lat,
+                lng: loc.lng,
+                accuracy: loc.accuracy
               },
               updatedAt: serverTimestamp()
             });
+
+            await updateStaffLastLocation(tenantId, matched.userId || matched.id, matched.email, loc, "Clocked Out (QuickDesk)");
+
             playSound('save');
             setHistory([...newHistory, `Success: ${matched.firstName} ${matched.lastName} is now CLOCKED OUT.`, '']);
           }

@@ -74,6 +74,7 @@ import { TutorialModal } from '../tutorials/TutorialModal';
 import { HelpCenter } from '../tutorials/HelpCenter';
 import { SOPCenter } from '../sops/SOPCenter';
 import { SalesCrmManager } from './sales/SalesCrmManager';
+import { StaffLocationsPage } from './StaffLocationsPage';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -86,6 +87,7 @@ export function TenantDashboard() {
 
   const titleMap: Record<string, string> = {
     overview: 'My Jobs & Todos',
+    locations: 'Staff Locations',
     time_details: 'Time Clock',
     device_settings: 'Device Settings',
     quickdesk: 'QuickDesk (Classic)',
@@ -756,6 +758,12 @@ export function TenantDashboard() {
             {activeTab === 'events' && (
               <PermissionGate permission="communication.view">
                 <BusinessEvents tenantId={tenantId as string} eventId={eventId} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'locations' && (
+              <PermissionGate permission="development.view">
+                <StaffLocationsPage tenantId={tenantId!} />
               </PermissionGate>
             )}
           </div>

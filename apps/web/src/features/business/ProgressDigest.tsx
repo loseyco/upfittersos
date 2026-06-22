@@ -794,9 +794,12 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
           </div>
 
           {/* Missing Parts */}
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24">
+          <div 
+            onClick={() => navigate(`/business/${tenantId}/parts_worksheet`)}
+            className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between h-24 cursor-pointer hover:shadow-md hover:border-blue-500/50 transition-all group"
+          >
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none">Waiting Parts</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest leading-none group-hover:text-blue-500 transition-colors">Waiting Parts</span>
               <Package className="w-4 h-4 text-blue-500 shrink-0" />
             </div>
             <div className="text-2xl font-black text-zinc-900 dark:text-white mt-1">

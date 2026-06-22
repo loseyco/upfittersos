@@ -13,6 +13,7 @@ import { cn } from '../../lib/utils';
 import { StaffLink } from './StaffPerformance';
 import { toast } from 'sonner';
 import { useWakeLock } from '../../hooks/useWakeLock';
+import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 interface HarnessMissionControlProps {
   tenantId: string;
@@ -332,6 +333,8 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
       // Find operator's active time session
       let activeSession = sessions.find(s => s.userId === operator.userId && s.status === 'active');
 
+      const loc = await getCurrentLocation();
+
       // Auto-Attendance Clock In if not clocked in for the day
       if (!activeSession) {
         toast.info(`Clocking in ${operator.firstName} for the day...`);
@@ -341,17 +344,20 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
           staffName: `${operator.firstName} ${operator.lastName}`.trim(),
           clockIn: {
             timestamp: new Date(),
-            onSite: true,
-            lat: null,
-            lng: null
+            onSite: !loc.lat ? false : true,
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracy: loc.accuracy
           },
-          isRemote: false,
+          isRemote: !loc.lat,
           status: 'active',
           breaks: [],
           jobs: [],
           createdAt: serverTimestamp()
         });
         
+        await updateStaffLastLocation(tenantId, operator.userId || operator.id, operator.email, loc, "Clocked In");
+
         // Use newly generated session as active
         activeSession = {
           id: docRef.id,
@@ -376,7 +382,9 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
         taskId: task.id,
         taskName: task.title,
         bookTime: parseFloat(task.bookTime) || 0,
-        start: new Date()
+        start: new Date(),
+        startLat: loc.lat,
+        startLng: loc.lng
       });
 
       await updateDoc(sessionRef, {
@@ -384,6 +392,8 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
         jobIds: Array.from(new Set(currentJobs.map((j: any) => j.id))),
         updatedAt: serverTimestamp()
       });
+
+      await updateStaffLastLocation(tenantId, operator.userId || operator.id, operator.email, loc, `Started Task: ${task.title}`);
 
       // Update parent Job lastWorkedAt for dashboard lists
       await updateDoc(doc(db, `businesses/${tenantId}/jobs`, task.jobId), {
@@ -414,9 +424,13 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
       const jobsList = [...(sessionSnap.data()?.jobs || [])];
       let matchFound = false;
 
+      const loc = await getCurrentLocation();
+
       jobsList.forEach((j: any) => {
         if (!j.end && j.taskId === task.id && j.id === task.jobId) {
           j.end = new Date();
+          j.endLat = loc.lat;
+          j.endLng = loc.lng;
           matchFound = true;
         }
       });
@@ -426,6 +440,9 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
           jobs: jobsList,
           updatedAt: serverTimestamp()
         });
+        
+        await updateStaffLastLocation(tenantId, selectedOperator?.userId || selectedOperator?.id, selectedOperator?.email, loc, `Stopped Task: ${task.title}`);
+
         toast.success(`Clocked out of ${task.title}`);
       }
     } catch (err: any) {
@@ -451,6 +468,7 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
     try {
       // 1. Close any active clock segments for this task
       const matchSegments = task.activeSegments || [];
+      const loc = await getCurrentLocation();
       for (const seg of matchSegments) {
         const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, seg.sessionId);
         const sessionSnap = await getDoc(sessionRef);
@@ -459,10 +477,16 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
           jobsList.forEach((j: any) => {
             if (!j.end && j.taskId === task.id) {
               j.end = new Date();
+              j.endLat = loc.lat;
+              j.endLng = loc.lng;
             }
           });
           await updateDoc(sessionRef, { jobs: jobsList, updatedAt: serverTimestamp() });
         }
+      }
+      
+      if (operator) {
+        await updateStaffLastLocation(tenantId, operator.userId || operator.id, operator.email, loc, `Completed Task: ${task.title}`);
       }
 
       // 2. Mark task complete in parent job subcollection
@@ -965,6 +989,7 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
                       // Perform task clock-in
                       try {
                         let activeSession = sessions.find(s => s.userId === tech.userId && s.status === 'active');
+                        const loc = await getCurrentLocation();
                         if (!activeSession) {
                           toast.info(`Clocking in ${tech.firstName} for the day...`);
                           const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
@@ -973,17 +998,19 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
                             staffName: `${tech.firstName} ${tech.lastName}`.trim(),
                             clockIn: {
                               timestamp: new Date(),
-                              onSite: true,
-                              lat: null,
-                              lng: null
+                              onSite: !loc.lat ? false : true,
+                              lat: loc.lat,
+                              lng: loc.lng,
+                              accuracy: loc.accuracy
                             },
-                            isRemote: false,
+                            isRemote: !loc.lat,
                             status: 'active',
                             breaks: [],
                             jobs: [],
                             createdAt: serverTimestamp()
                           });
                           activeSession = { id: docRef.id, jobs: [] };
+                          await updateStaffLastLocation(tenantId, tech.userId || tech.id, tech.email, loc, "Clocked In");
                         }
 
                         const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSession.id);
@@ -995,8 +1022,12 @@ export function HarnessMissionControl({ tenantId }: HarnessMissionControlProps) 
                           taskId: task.id,
                           taskName: task.title,
                           bookTime: parseFloat(task.bookTime) || 0,
-                          start: new Date()
+                          start: new Date(),
+                          startLat: loc.lat,
+                          startLng: loc.lng
                         });
+                        
+                        await updateStaffLastLocation(tenantId, tech.userId || tech.id, tech.email, loc, `Started Task: ${task.title}`);
 
                         await updateDoc(sessionRef, {
                           jobs: currentJobs,

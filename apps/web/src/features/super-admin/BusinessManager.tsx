@@ -1,15 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { collection, getDocs, addDoc, serverTimestamp, query, orderBy, limit, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
-import { Plus, Building2, ExternalLink, AlertCircle, Activity, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { Plus, Building2, ExternalLink, AlertCircle, Activity, ChevronDown, ChevronUp, Eye, MapPin, Map, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { toast } from 'sonner';
 import { resolvePermissions } from '../../lib/auth/permissions';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Custom Leaflet staff marker icon
+const staffMarkerIcon = L.divIcon({
+  className: 'custom-staff-marker-icon',
+  html: `<div style="background-color: #4f46e5; width: 28px; height: 28px; border-radius: 50%; border: 3px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; overflow: hidden;"><span style="color: white; font-size: 14px; font-weight: bold; line-height: 1;">👤</span></div>`,
+  iconSize: [28, 28],
+  iconAnchor: [14, 14]
+});
+
+function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      map.setView(center, zoom);
+    }
+  }, [center, zoom, map]);
+  return null;
+}
 
 interface Business {
   id: string;
@@ -278,7 +299,10 @@ export function BusinessManager() {
   const queryClient = useQueryClient();
   const [newBusinessName, setNewBusinessName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [activeTab, setActiveTab] = useState<'tenants' | 'analytics'>('tenants');
+  const [activeTab, setActiveTab] = useState<'tenants' | 'analytics' | 'locations'>('tenants');
+  const [selectedLocationBusinessId, setSelectedLocationBusinessId] = useState<string>('');
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
+  const [mapZoom, setMapZoom] = useState<number>(13);
 
   const { data: businesses, isLoading } = useQuery({
     queryKey: ['businesses'],
@@ -302,6 +326,33 @@ export function BusinessManager() {
       } as FeedbackStats;
     }
   });
+
+  const { data: staffLocations, isLoading: isStaffLocationsLoading } = useQuery({
+    queryKey: ['staff-locations', selectedLocationBusinessId],
+    queryFn: async () => {
+      if (!selectedLocationBusinessId) return [];
+      const snap = await getDocs(collection(db, `businesses/${selectedLocationBusinessId}/staff`));
+      return snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(s => !s.isArchived && s.lastLocation && s.lastLocation.lat !== null && s.lastLocation.lng !== null);
+    },
+    enabled: activeTab === 'locations' && !!selectedLocationBusinessId
+  });
+
+  useEffect(() => {
+    if (activeTab === 'locations' && !selectedLocationBusinessId && businesses && businesses.length > 0) {
+      setSelectedLocationBusinessId(businesses[0].id);
+    }
+  }, [activeTab, businesses, selectedLocationBusinessId]);
+
+  useEffect(() => {
+    if (staffLocations && staffLocations.length > 0) {
+      const firstLoc = staffLocations[0].lastLocation;
+      setMapCenter([firstLoc.lat, firstLoc.lng]);
+    } else {
+      setMapCenter(null);
+    }
+  }, [staffLocations]);
 
   const handleAddBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -433,6 +484,17 @@ export function BusinessManager() {
             <Activity className="w-4 h-4" />
             User Analytics
           </button>
+          <button
+            onClick={() => setActiveTab('locations')}
+            className={`pb-3 font-semibold text-sm transition-all border-b-2 px-1 flex items-center gap-2 ${
+              activeTab === 'locations' 
+                ? 'border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400' 
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <MapPin className="w-4 h-4" />
+            User Locations
+          </button>
         </div>
 
         {activeTab === 'tenants' ? (
@@ -508,7 +570,7 @@ export function BusinessManager() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'analytics' ? (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 shadow-sm mb-6">
               <h3 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
@@ -528,6 +590,116 @@ export function BusinessManager() {
                   onImpersonate={(staffMember) => handleImpersonate(b.id, staffMember)}
                 />
               ))}
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 animate-in fade-in duration-300">
+            {/* Sidebar for staff list */}
+            <div className="lg:col-span-1 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 bg-white dark:bg-zinc-900 shadow-sm flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-bold text-zinc-400 uppercase tracking-widest mb-2">Select Tenant</label>
+                <select
+                  value={selectedLocationBusinessId}
+                  onChange={(e) => {
+                    setSelectedLocationBusinessId(e.target.value);
+                    setMapCenter(null);
+                  }}
+                  className="w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:text-white"
+                >
+                  <option value="">-- Choose Business --</option>
+                  {businesses?.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="border-t border-zinc-100 dark:border-zinc-850 pt-4 flex-1">
+                <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Staff Locations</h3>
+                {isStaffLocationsLoading ? (
+                  <div className="flex items-center justify-center py-8 text-zinc-500 text-sm gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                    Loading staff locations...
+                  </div>
+                ) : !staffLocations || staffLocations.length === 0 ? (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400 italic py-4">No staff members have location updates yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {staffLocations.map((staff: any) => (
+                      <div
+                        key={staff.id}
+                        onClick={() => {
+                          if (staff.lastLocation) {
+                            setMapCenter([staff.lastLocation.lat, staff.lastLocation.lng]);
+                            setMapZoom(16);
+                          }
+                        }}
+                        className="p-3 border border-zinc-100 dark:border-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-750 bg-zinc-50/50 dark:bg-zinc-950/20 hover:bg-zinc-100 dark:hover:bg-zinc-800/40 rounded-xl cursor-pointer transition-all"
+                      >
+                        <div className="font-semibold text-zinc-900 dark:text-white text-sm">
+                          {staff.firstName} {staff.lastName}
+                        </div>
+                        <div className="text-[10px] text-indigo-500 uppercase font-black mt-0.5">
+                          {staff.role || 'Staff'} {staff.techNumber ? `• Tech #${staff.techNumber}` : ''}
+                        </div>
+                        {staff.lastLocation && (
+                          <div className="mt-2 text-xs border-t border-zinc-100 dark:border-zinc-850 pt-2 text-zinc-500 dark:text-zinc-400">
+                            <span className="font-semibold text-zinc-700 dark:text-zinc-300">Action:</span> {staff.lastLocation.action}
+                            <span className="block text-[9px] text-zinc-400 font-mono mt-1">
+                              {staff.lastLocation.updatedAt?.toDate 
+                                ? staff.lastLocation.updatedAt.toDate().toLocaleString() 
+                                : new Date(staff.lastLocation.updatedAt).toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Map Container */}
+            <div className="lg:col-span-3 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 shadow-sm overflow-hidden h-[70vh] relative z-0">
+              {mapCenter ? (
+                <MapContainer
+                  center={mapCenter}
+                  zoom={mapZoom}
+                  className="w-full h-full"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  {staffLocations?.map((staff: any) => (
+                    <Marker
+                      key={staff.id}
+                      position={[staff.lastLocation.lat, staff.lastLocation.lng]}
+                      icon={staffMarkerIcon}
+                    >
+                      <Popup>
+                        <div className="text-zinc-900 p-1">
+                          <h4 className="font-bold text-sm">{staff.firstName} {staff.lastName}</h4>
+                          <p className="text-[10px] text-indigo-600 font-black uppercase mt-0.5">{staff.role || 'Staff'} {staff.techNumber ? `• Tech #${staff.techNumber}` : ''}</p>
+                          <div className="mt-2 text-xs border-t border-zinc-100 pt-1.5 space-y-1">
+                            <p><strong>Last Action:</strong> {staff.lastLocation.action}</p>
+                            <p><strong>Time:</strong> {staff.lastLocation.updatedAt?.toDate ? staff.lastLocation.updatedAt.toDate().toLocaleString() : new Date(staff.lastLocation.updatedAt).toLocaleString()}</p>
+                            {staff.lastLocation.accuracy && (
+                              <p className="text-[10px] text-zinc-400"><strong>Accuracy:</strong> ±{Math.round(staff.lastLocation.accuracy)}m</p>
+                            )}
+                          </div>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ))}
+                  <MapController center={mapCenter} zoom={mapZoom} />
+                </MapContainer>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center p-12 text-center text-zinc-400 bg-zinc-50 dark:bg-zinc-950/20">
+                  <Map className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mb-4" />
+                  <p className="text-sm">No locations available to display on the map.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Select a tenant or wait for staff to clock in/out or start a task.</p>
+                </div>
+              )}
             </div>
           </div>
         )}

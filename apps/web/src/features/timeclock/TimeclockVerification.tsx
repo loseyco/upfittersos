@@ -43,6 +43,10 @@ interface TimeSession {
     notes?: string;
   }>;
   status: string;
+  manuallyEdited?: boolean;
+  lastEditedBy?: string;
+  lastEditedById?: string;
+  approvedBy?: string;
 }
 
 interface TimeclockVerificationProps {
@@ -333,11 +337,27 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
       const end = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : sessionEnd;
       const segMs = Math.max(0, end - start);
 
-      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
-      if (j.bookTime && j.bookTime > 0) {
-        taskBookTime[key] = j.bookTime * 3600000;
+      const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+      let resolvedPayBasis = 'hourly';
+      let resolvedBookTime = 0;
+
+      if (taskRef) {
+        resolvedBookTime = parseFloat(taskRef.bookTime) || 0;
+        resolvedPayBasis = taskRef.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
+      } else {
+        resolvedBookTime = j.bookTime || 0;
+        resolvedPayBasis = j.payBasis || (resolvedBookTime > 0 ? 'book_time' : 'hourly');
       }
-      taskPayBasis[key] = j.payBasis || 'book_time';
+
+      if (resolvedBookTime === 0) {
+        resolvedPayBasis = 'hourly';
+      }
+
+      taskActualTime[key] = (taskActualTime[key] || 0) + segMs;
+      if (resolvedBookTime > 0) {
+        taskBookTime[key] = resolvedBookTime * 3600000;
+      }
+      taskPayBasis[key] = resolvedPayBasis;
     });
 
     let totalPayMs = 0;
@@ -396,7 +416,7 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
       idleMs += sessionIdleMs;
     });
 
-    // Completed flat-rate tasks book time calculation
+    // Completed tasks book time calculation (flat-rate and hourly)
     let bookMs = 0;
     if (tasksList && tasksList.length > 0) {
       tasksList.forEach((task: any) => {
@@ -406,20 +426,38 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
         if (compTime < startDate.getTime() || compTime > endDate.getTime()) return;
 
         const isCompleted = ['completed', 'qc', 'qc complete'].includes((task.status || '').toLowerCase());
-        if (!isCompleted || task.payBasis === 'hourly') return;
+        if (!isCompleted) return;
 
-        const bookHours = parseFloat(task.bookTime) || 0;
-        if (bookHours <= 0) return;
+        const isHourlyTask = task.payBasis === 'hourly';
+        const bookHours = isHourlyTask ? 0 : (parseFloat(task.bookTime) || 0);
 
         const assignments = task.assignedStaff || [];
         assignments.forEach((assign: any) => {
           if (assign.id === resolvedUserId) {
+            let taskClockedMs = 0;
+            if (sessions) {
+              sessions.forEach((sess: any) => {
+                if (sess.jobs) {
+                  sess.jobs.forEach((job: any) => {
+                    if (job.taskId === task.id) {
+                      const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
+                      const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
+                      const duration = Math.max(0, end - start);
+                      if (duration > 5000) {
+                        taskClockedMs += duration;
+                      }
+                    }
+                  });
+                }
+              });
+            }
+
             const share = (parseFloat(assign.percentage) || 100) / 100;
             const originalBookMs = bookHours * 3600000 * share;
-            const earnedMs = task.isRework ? 0 : originalBookMs;
+            const earnedMs = isHourlyTask ? taskClockedMs : (task.isRework ? 0 : originalBookMs);
             
             bookMs += earnedMs;
-            if (resolvedPayType === 'flat_rate') {
+            if (resolvedPayType === 'flat_rate' && !isHourlyTask) {
               payMs += earnedMs;
             }
           }
@@ -1028,7 +1066,25 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
                                   }
 
                                   const j = item.data;
-                                  const isHourly = j.payBasis === 'hourly' || j.bookTime === 0;
+                                  const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+                                  let resolvedPayBasis = 'hourly';
+                                  let resolvedBookHours = 0;
+
+                                  if (taskRef) {
+                                    resolvedBookHours = parseFloat(taskRef.bookTime) || 0;
+                                    resolvedPayBasis = taskRef.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                  } else {
+                                    resolvedBookHours = j.bookTime || 0;
+                                    resolvedPayBasis = j.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                  }
+
+                                  if (resolvedBookHours === 0) {
+                                    resolvedPayBasis = 'hourly';
+                                  }
+
+                                  const isHourlySegment = resolvedPayBasis === 'hourly';
+                                  const segmentBookTime = isHourlySegment ? durationHrs : resolvedBookHours;
+                                  const isHourly = isHourlySegment;
 
                                   return (
                                     <>
@@ -1045,7 +1101,7 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
                                         </div>
                                       </td>
                                       <td className="px-4 py-3 font-mono font-bold text-emerald-600 dark:text-emerald-455">
-                                        {j.bookTime > 0 ? `${j.bookTime.toFixed(2)}h` : '—'}
+                                        {segmentBookTime > 0 ? `${segmentBookTime.toFixed(2)}h` : '—'}
                                       </td>
                                       <td className="px-4 py-3 text-[10px] text-zinc-600 dark:text-zinc-455 font-sans">
                                         <div className="flex flex-col gap-1">
@@ -1069,7 +1125,28 @@ export function TimeclockVerification({ tenantId }: TimeclockVerificationProps) 
                                       {formatDurationDecimal(workMs)}
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono text-indigo-500/80 align-top" rowSpan={rowCount}>
-                                      {(session.jobs || []).reduce((acc: number, j: any) => acc + (j.bookTime || 0), 0).toFixed(2)}
+                                      {(session.jobs || []).reduce((acc: number, jobSeg: any) => {
+                                        const segEnd = jobSeg.end || (session.clockOut?.timestamp || Date.now());
+                                        const segDur = calculateDuration(jobSeg.start, segEnd) / 3600000;
+                                        
+                                        const taskRef = tasksList?.find((t: any) => t.id === jobSeg.taskId);
+                                        let resolvedPayBasis = 'hourly';
+                                        let resolvedBookHours = 0;
+
+                                        if (taskRef) {
+                                          resolvedBookHours = parseFloat(taskRef.bookTime) || 0;
+                                          resolvedPayBasis = taskRef.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                        } else {
+                                          resolvedBookHours = jobSeg.bookTime || 0;
+                                          resolvedPayBasis = jobSeg.payBasis || (resolvedBookHours > 0 ? 'book_time' : 'hourly');
+                                        }
+
+                                        if (resolvedBookHours === 0) {
+                                          resolvedPayBasis = 'hourly';
+                                        }
+
+                                        return acc + (resolvedPayBasis === 'hourly' ? segDur : resolvedBookHours);
+                                      }, 0).toFixed(2)}
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400 align-top" rowSpan={rowCount}>
                                       {formatDurationDecimal(payMs)}

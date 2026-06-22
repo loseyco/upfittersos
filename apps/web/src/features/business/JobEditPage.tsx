@@ -5,7 +5,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   Briefcase, Save, ArrowLeft, User, Car, MapPin, 
   Sparkles, AlertCircle, Trash2, Copy, Clipboard, Plus, CheckSquare,
-  Wrench, Package, X, GripVertical
+  Wrench, Package, X, GripVertical, Edit2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -19,8 +19,14 @@ import { TaskTitleAutocomplete } from './TaskTitleAutocomplete';
 import { projectWorkingHours } from './ScheduleBoard';
 import { PartsRequestModal } from './PartsRequestModal';
 
-const isGeneralTask = (title?: string) => {
-  const t = (title || '').toLowerCase().trim();
+const isGeneralTask = (taskOrTitle?: any) => {
+  if (!taskOrTitle) return false;
+  if (typeof taskOrTitle === 'object') {
+    const t = (taskOrTitle.title || '').toLowerCase().trim();
+    const g = (taskOrTitle.taskGroup || '').toLowerCase().trim();
+    return (t === 'general' || t === 'general labor') && g === 'general';
+  }
+  const t = taskOrTitle.toLowerCase().trim();
   return t === 'general' || t === 'general labor';
 };
 
@@ -83,6 +89,12 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     const interval = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(interval);
   }, [isNew]);
+
+  // Reset tasksLoaded and jobTasks when jobId changes to prevent race conditions
+  useEffect(() => {
+    setTasksLoaded(false);
+    setJobTasks([]);
+  }, [jobId]);
 
   useEffect(() => {
     if (!jobId || !tenantId || isNew) return;
@@ -227,17 +239,20 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
   const addingGeneralRef = useRef(false);
 
-  // Auto-add "General" task if missing
+  // Auto-add "General" task if missing, and deduplicate if duplicates exist
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
-    const hasGeneral = jobTasks.some(t => isGeneralTask(t.title));
-    if (!hasGeneral && !addingGeneralRef.current) {
+    
+    const generalTasks = jobTasks.filter(t => isGeneralTask(t));
+    
+    if (generalTasks.length === 0 && !addingGeneralRef.current) {
       addingGeneralRef.current = true;
       const addGeneralTask = async () => {
         try {
           const q = query(
             collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`),
-            where('title', '==', 'General')
+            where('title', '==', 'General'),
+            where('taskGroup', '==', 'General')
           );
           const snap = await getDocs(q);
           if (snap.empty) {
@@ -258,6 +273,20 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         }
       };
       addGeneralTask();
+    } else if (generalTasks.length > 1) {
+      const deleteExtraGenerals = async () => {
+        try {
+          // Keep the first one, delete the rest
+          const extras = generalTasks.slice(1);
+          for (const extra of extras) {
+            await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, extra.id));
+          }
+          toast.success(`Deduplicated ${extras.length} duplicate General task(s)`);
+        } catch (err) {
+          console.error('Failed to deduplicate General tasks:', err);
+        }
+      };
+      deleteExtraGenerals();
     }
   }, [jobTasks, tasksLoaded, jobId, tenantId, !!job]);
 
@@ -292,7 +321,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!jobTasks.length || !job || !tenantId || !jobId) return;
 
-    const nonGeneralTasks = jobTasks.filter(t => !isGeneralTask(t.title));
+    const nonGeneralTasks = jobTasks.filter(t => !isGeneralTask(t));
     if (nonGeneralTasks.length === 0) return;
 
     const allQCReady = nonGeneralTasks.every(t => t.status === 'QC' || t.status === 'QC Complete');
@@ -418,7 +447,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         scheduledArrivalTime: scheduledArrivalTime ? new Date(scheduledArrivalTime).toISOString() : null,
         scheduledStartDate: scheduledStartDate ? new Date(scheduledStartDate).toISOString() : null,
         scheduledEndDate: scheduledEndDate ? new Date(scheduledEndDate).toISOString() : null,
-        estimatedHours: jobTasks.filter(t => !isGeneralTask(t.title)).reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0),
+        estimatedHours: jobTasks.filter(t => !isGeneralTask(t)).reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0),
         departmentIds: Array.from(new Set(jobTasks.map(t => t.departmentId).filter(Boolean))),
         updatedAt: new Date()
       };
@@ -606,7 +635,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       
       const sourceTasks = tasksSnap.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as any))
-        .filter(t => !isGeneralTask(t.title))
+        .filter(t => !isGeneralTask(t))
         .sort((a, b) => {
           const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : 0;
           const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : 0;
@@ -636,8 +665,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
       if (isNew) {
         setJobTasks(prev => {
-          const generalTasks = prev.filter(t => isGeneralTask(t.title));
-          const nonGeneralTasks = prev.filter(t => !isGeneralTask(t.title));
+          const generalTasks = prev.filter(t => isGeneralTask(t));
+          const nonGeneralTasks = prev.filter(t => !isGeneralTask(t));
           
           const maxSortOrder = nonGeneralTasks.reduce((max, t) => {
             const order = typeof t.sortOrder === 'number' ? t.sortOrder : 0;
@@ -692,7 +721,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       bookTime: sourceTask.bookTime || 0,
       payBasis: sourceTask.payBasis || 'book_time',
       assignedStaff: sourceTask.assignedStaff || [],
-      assignedStaffIds: sourceTask.assignedStaffIds || []
+      assignedStaffIds: sourceTask.assignedStaffIds || [],
+      canComplete: sourceTask.canComplete !== false
     };
 
     if (isNew) {
@@ -724,7 +754,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       bookTime: copiedTaskClipboard.bookTime || 0,
       payBasis: copiedTaskClipboard.payBasis || 'book_time',
       status: 'pending',
-      departmentId: copiedTaskClipboard.departmentId || ''
+      departmentId: copiedTaskClipboard.departmentId || '',
+      canComplete: copiedTaskClipboard.canComplete !== false
     };
 
     if (isNew) {
@@ -953,7 +984,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       bookTime: 0,
       payBasis: 'book_time',
       status: 'pending',
-      departmentId: initialDepartmentId || ''
+      departmentId: initialDepartmentId || '',
+      canComplete: true
     };
 
     if (isNew) {
@@ -1167,7 +1199,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
   const handleBulkAssignUnworked = async (staffId: string, fullName: string) => {
     const unworkedTasks = jobTasks.filter(t => {
-      if (isGeneralTask(t.title)) return false;
+      if (isGeneralTask(t)) return false;
       const loggedMs = getTaskLoggedMs(t.id);
       const hasActualTime = typeof t.actualTime === 'number' && t.actualTime > 0;
       return loggedMs === 0 && !hasActualTime;
@@ -1243,6 +1275,16 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           completedByStaffId: value === 'QC' ? user?.uid : (value === 'pending' ? null : t.completedByStaffId),
           completedByStaffName: value === 'QC' ? (user?.displayName || user?.email || 'Staff') : (value === 'pending' ? null : t.completedByStaffName)
         } : t));
+      } else if (field === 'canComplete') {
+        setJobTasks(prev => prev.map(t => t.id === taskId ? { 
+          ...t, 
+          canComplete: value,
+          completedAt: value ? t.completedAt : null,
+          status: value ? t.status : 'pending',
+          completedBy: value ? t.completedBy : null,
+          completedByStaffId: value ? t.completedByStaffId : null,
+          completedByStaffName: value ? t.completedByStaffName : null
+        } : t));
       } else {
         setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, [field]: value } : t));
       }
@@ -1267,6 +1309,14 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
           [field]: value,
           updatedAt: serverTimestamp()
         };
+
+        if (field === 'canComplete' && value === false) {
+          updateObj.completedAt = null;
+          updateObj.completedBy = null;
+          updateObj.completedByStaffId = null;
+          updateObj.completedByStaffName = null;
+          updateObj.status = 'pending';
+        }
 
         if (field === 'assignedStaff') {
           updateObj.assignedStaffIds = (value || []).map((s: any) => s.id);
@@ -1355,6 +1405,58 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         toast.error('Failed to update task');
       }
     }
+  };
+
+  const handleRenameTaskGroup = async (oldGroupName: string, newGroupName: string) => {
+    if (!newGroupName || !newGroupName.trim() || oldGroupName === newGroupName) return;
+    const trimmedNewName = newGroupName.trim();
+    
+    if (isNew) {
+      setJobTasks(prev => prev.map(t => t.taskGroup === oldGroupName ? { ...t, taskGroup: trimmedNewName } : t));
+      setCustomGroups(prev => {
+        const next = prev.map(g => g === oldGroupName ? trimmedNewName : g);
+        return Array.from(new Set(next));
+      });
+    } else {
+      try {
+        const tasksToUpdate = jobTasks.filter(t => t.taskGroup === oldGroupName);
+        if (tasksToUpdate.length > 0) {
+          const batch = writeBatch(db);
+          tasksToUpdate.forEach(t => {
+            const docRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
+            batch.update(docRef, {
+              taskGroup: trimmedNewName,
+              updatedAt: serverTimestamp()
+            });
+          });
+          await batch.commit();
+        }
+        setCustomGroups(prev => {
+          const next = prev.map(g => g === oldGroupName ? trimmedNewName : g);
+          return Array.from(new Set(next));
+        });
+        toast.success(`Successfully renamed task group to "${trimmedNewName}"`);
+      } catch (err) {
+        console.error('Failed to rename task group:', err);
+        toast.error('Failed to rename task group.');
+      }
+    }
+  };
+
+  const handleDeleteTaskGroup = async (groupName: string) => {
+    if (isGeneralTask(groupName)) return;
+
+    // Check if the group contains any tasks
+    const hasTasks = jobTasks.some(t => t.taskGroup === groupName);
+    if (hasTasks) {
+      toast.error('Cannot delete a task group that has tasks. Please delete or move all tasks in this group first.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete the empty task group "${groupName}"?`)) return;
+
+    setCustomGroups(prev => prev.filter(g => g !== groupName));
+    toast.success(`Removed task group "${groupName}"`);
   };
 
 
@@ -1483,8 +1585,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                     setFormData((prev: any) => {
                       if (!newStart) return { ...prev, scheduledStartDate: '' };
                       
-                      const remainingHours = jobTasks.filter(t => !isGeneralTask(t.title)).reduce((acc, t) => {
-                        const book = parseFloat(t.bookTime) || 0;
+                      const remainingHours = jobTasks.filter(t => !isGeneralTask(t)).reduce((acc, t) => {
+                        const book = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
                         const actual = parseFloat(t.actualTime) || 0;
                         return acc + Math.max(0, book - actual);
                       }, 0);
@@ -1557,7 +1659,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                 <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Job Tasks</h3>
               </div>
               <div className="flex items-center gap-3">
-                {jobTasks.filter(t => !isGeneralTask(t.title)).length === 0 && (
+                {jobTasks.filter(t => !isGeneralTask(t)).length === 0 && (
                   <button 
                     type="button"
                     onClick={() => setIsCopyTasksOpen(true)}
@@ -1566,7 +1668,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                     <Copy className="w-4 h-4" /> Copy Tasks From Job
                   </button>
                 )}
-                {jobTasks.filter(t => !isGeneralTask(t.title)).length > 0 && (
+                {jobTasks.filter(t => !isGeneralTask(t)).length > 0 && (
                   <div className="w-52 print-hidden">
                     <InlineSearchableSelect
                       value=""
@@ -1627,9 +1729,36 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                     {/* Header Row */}
                     <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-955 border-b border-zinc-200 dark:border-zinc-800 rounded-t-3xl">
                       <div className="flex items-center gap-3">
-                        <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                        {!isGeneralTask(group) ? (
+                          <div className="flex items-center gap-2 group/header">
+                            <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newName = window.prompt(`Rename task group "${group}" to:`, group);
+                                if (newName && newName.trim() && newName.trim() !== group) {
+                                  handleRenameTaskGroup(group, newName.trim());
+                                }
+                              }}
+                              className="opacity-0 group-hover/header:opacity-100 p-1 text-zinc-400 hover:text-indigo-500 hover:bg-zinc-150 dark:hover:bg-zinc-800 rounded transition-all cursor-pointer flex items-center justify-center"
+                              title="Rename Category"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTaskGroup(group)}
+                              className="opacity-0 group-hover/header:opacity-100 p-1 text-zinc-400 hover:text-rose-500 hover:bg-zinc-150 dark:hover:bg-zinc-800 rounded transition-all cursor-pointer flex items-center justify-center"
+                              title="Delete Category"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <h4 className="text-sm font-black uppercase tracking-widest text-indigo-500">{group}</h4>
+                        )}
                         <span className="text-[10px] font-bold text-zinc-500 bg-zinc-200 dark:bg-zinc-800 px-2 py-1 rounded-lg shrink-0">
-                          {tasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0).toFixed(1)}h Total
+                          {tasks.reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0).toFixed(1)}h Total
                         </span>
                       </div>
                     </div>
@@ -1650,13 +1779,14 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[55px] text-center">Book</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[100px] text-center">Actual</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[220px]">Notes</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[95px] text-center">Can Complete</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[140px]">Completed Date</th>
                             <th className="p-2 text-center w-[105px]">QA Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-850">
                           {tasks.map((task, idx) => {
-                            const isGen = isGeneralTask(task.title);
+                            const isGen = isGeneralTask(task);
                             return (
                               <tr 
                                 key={task.id} 
@@ -1894,10 +2024,26 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                   />
                                 </td>
 
+                                {/* 8.5. Can Complete */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 text-center">
+                                  {isGen ? (
+                                    <span className="text-zinc-400 dark:text-zinc-655 font-medium">N/A</span>
+                                  ) : (
+                                    <input
+                                      type="checkbox"
+                                      checked={task.canComplete !== false}
+                                      onChange={e => updateTaskField(task.id, 'canComplete', e.target.checked)}
+                                      className="w-4 h-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer accent-indigo-500"
+                                    />
+                                  )}
+                                </td>
+
                                 {/* 9. Completed Date */}
                                 <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
                                   {isGen ? (
                                     <span className="px-2 py-1 text-zinc-450 dark:text-zinc-655 font-medium">N/A</span>
+                                  ) : task.canComplete === false ? (
+                                    <span className="px-2 py-1 text-zinc-400 dark:text-zinc-600 italic block text-center">Cannot complete</span>
                                   ) : (
                                     <input
                                       type="datetime-local"
@@ -1911,7 +2057,9 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                 {/* 10. QA Status */}
                                 <td className="p-1 text-center">
                                   {isGen ? (
-                                    <span className="text-zinc-400 dark:text-zinc-650 font-medium">N/A</span>
+                                    <span className="text-zinc-400 dark:text-zinc-655 font-medium">N/A</span>
+                                  ) : task.canComplete === false ? (
+                                    <span className="text-zinc-450 dark:text-zinc-600 italic">Disabled</span>
                                   ) : (
                                     <select
                                       value={task.status || 'pending'}

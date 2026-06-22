@@ -1147,7 +1147,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
     
     if (viewMode === 'staff' && rowId !== 'unassigned') {
       const staffTasks = tasks.filter(t => t.jobId === jobId && t.assignedStaffIds?.includes(rowId));
-      const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+      const staffBookTime = staffTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
       if (staffBookTime > 0) {
         estimatedHours = staffBookTime;
       } else {
@@ -1272,7 +1272,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
           
           let estHours = parseFloat(j.scheduledHours || j.estimatedHours);
           const staffTasks = tasks.filter(t => t.jobId === j.id && t.assignedStaffIds?.includes(rowId));
-          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
           if (staffBookTime > 0) {
             estHours = staffBookTime;
           } else if (isNaN(estHours) || estHours <= 0) {
@@ -1306,7 +1306,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         let otherEstHours = parseFloat(otherJob.scheduledHours || otherJob.estimatedHours) || 1;
         if (viewMode === 'staff') {
           const staffTasks = tasks.filter(t => t.jobId === otherJob.id && t.assignedStaffIds?.includes(rowId));
-          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
           if (staffBookTime > 0) {
             otherEstHours = staffBookTime;
           }
@@ -1488,7 +1488,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
         
         if (viewMode === 'staff' && rowKey !== 'unassigned') {
           const staffTasks = tasks.filter(t => t.jobId === job.id && t.assignedStaffIds?.includes(rowKey));
-          const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+          const staffBookTime = staffTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
           if (staffBookTime > 0) {
             estimatedHours = staffBookTime;
           } else {
@@ -1856,7 +1856,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                   t.assignedStaffIds.forEach((staffId: string) => {
                     const staff = staffList.find(s => s.id === staffId);
                     if (!staff) return;
-                    const hours = parseFloat(t.bookTime) || 0;
+                    const hours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
                     const existing = taskStaffSummary.find(item => item.id === staffId);
                     if (existing) {
                       existing.hours += hours;
@@ -2004,7 +2004,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                     <span className="text-zinc-500">
                       {job._unscheduledStaffId ? (() => {
                         const staffTasks = tasks.filter(t => t.jobId === job.id && t.assignedStaffIds?.includes(job._unscheduledStaffId));
-                        const staffBookTime = staffTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+                         const staffBookTime = staffTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
                         if (staffBookTime > 0) {
                           return `${Number(staffBookTime.toFixed(1))}h of ${Number(parseFloat(job.estimatedHours || '0').toFixed(1))}h`;
                         }

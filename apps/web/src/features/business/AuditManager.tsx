@@ -620,7 +620,7 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
         }
 
         // Only sum metrics for tasks assigned to this department
-        const estimatedHours = jobDeptTasks.reduce((sum: number, t: any) => sum + (parseFloat(t.bookTime) || 0), 0);
+        const estimatedHours = jobDeptTasks.reduce((sum: number, t: any) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
         let jobLoggedMins = 0;
         const jobTechs = new Set<string>();
@@ -682,7 +682,7 @@ export function AuditManager({ tenantId }: AuditManagerProps) {
         return { ...j };
       }
 
-      const estimatedHours = jobDeptTasks.reduce((sum: number, t: any) => sum + (parseFloat(t.bookTime) || 0), 0);
+      const estimatedHours = jobDeptTasks.reduce((sum: number, t: any) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
 
       let jobLoggedMins = 0;
       const jobTechs = new Set<string>();
