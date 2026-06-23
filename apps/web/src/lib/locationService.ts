@@ -5,50 +5,114 @@ export interface GeoLocation {
   lat: number | null;
   lng: number | null;
   accuracy: number | null;
+  type?: 'gps' | 'ip' | null;
 }
 
-export function getCurrentLocation(timeoutMs = 7000): Promise<GeoLocation> {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) {
-      resolve({ lat: null, lng: null, accuracy: null });
-      return;
+export async function getIpLocation(): Promise<GeoLocation> {
+  try {
+    const res = await fetch('https://ipapi.co/json/');
+    if (!res.ok) throw new Error(`ipapi.co returned status ${res.status}`);
+    const data = await res.json();
+    if (typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+      return {
+        lat: data.latitude,
+        lng: data.longitude,
+        accuracy: 15000, // 15km approximate
+        type: 'ip'
+      };
     }
-    
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        console.warn("Geolocation timeout exceeded.");
-        resolve({ lat: null, lng: null, accuracy: null });
+  } catch (err) {
+    console.warn("Failed to resolve IP location from ipapi.co fallback:", err);
+    try {
+      const res = await fetch('https://freeipapi.com/api/json');
+      if (!res.ok) throw new Error(`freeipapi.com returned status ${res.status}`);
+      const data = await res.json();
+      if (typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+        return {
+          lat: data.latitude,
+          lng: data.longitude,
+          accuracy: 25000,
+          type: 'ip'
+        };
       }
-    }, timeoutMs);
+    } catch (err2) {
+      console.warn("Failed to resolve IP location from freeipapi.com fallback:", err2);
+    }
+  }
+  return { lat: null, lng: null, accuracy: null, type: null };
+}
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy || null,
-          });
-        }
-      },
-      (error) => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timer);
-          console.warn("Geolocation tracking error:", error);
-          resolve({ lat: null, lng: null, accuracy: null });
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: timeoutMs,
-        maximumAge: 0
+export function getCurrentLocation(timeoutMs = 7000, forceGps = true): Promise<GeoLocation> {
+  return new Promise((resolve) => {
+    const getGpsLocation = () => {
+      if (!navigator.geolocation) {
+        getIpLocation().then(resolve);
+        return;
       }
-    );
+      
+      let resolved = false;
+      const timer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          console.warn("Geolocation timeout exceeded. Falling back to IP.");
+          getIpLocation().then(resolve);
+        }
+      }, timeoutMs);
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            resolve({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy || null,
+              type: 'gps'
+            });
+          }
+        },
+        (error) => {
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timer);
+            console.warn("Geolocation tracking error. Falling back to IP:", error);
+            getIpLocation().then(resolve);
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: timeoutMs,
+          maximumAge: 0
+        }
+      );
+    };
+
+    if (!forceGps) {
+      if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+        try {
+          navigator.permissions.query({ name: 'geolocation' })
+            .then((status) => {
+              if (status.state === 'granted') {
+                getGpsLocation();
+              } else {
+                getIpLocation().then(resolve);
+              }
+            })
+            .catch((err) => {
+              console.warn("Error querying geolocation permission, falling back to IP:", err);
+              getIpLocation().then(resolve);
+            });
+        } catch (err) {
+          console.warn("Exception thrown querying geolocation permission, falling back to IP:", err);
+          getIpLocation().then(resolve);
+        }
+      } else {
+        getIpLocation().then(resolve);
+      }
+    } else {
+      getGpsLocation();
+    }
   });
 }
 
@@ -92,6 +156,7 @@ export async function updateStaffLastLocation(
           lat: location.lat,
           lng: location.lng,
           accuracy: location.accuracy,
+          type: location.type || 'gps',
           updatedAt: new Date(),
           action
         }

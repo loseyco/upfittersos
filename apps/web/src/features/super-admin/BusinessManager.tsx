@@ -681,11 +681,12 @@ export function BusinessManager() {
                           <h4 className="font-bold text-sm">{staff.firstName} {staff.lastName}</h4>
                           <p className="text-[10px] text-indigo-600 font-black uppercase mt-0.5">{staff.role || 'Staff'} {staff.techNumber ? `• Tech #${staff.techNumber}` : ''}</p>
                           <div className="mt-2 text-xs border-t border-zinc-100 pt-1.5 space-y-1">
-                            <p><strong>Last Action:</strong> {staff.lastLocation.action}</p>
-                            <p><strong>Time:</strong> {staff.lastLocation.updatedAt?.toDate ? staff.lastLocation.updatedAt.toDate().toLocaleString() : new Date(staff.lastLocation.updatedAt).toLocaleString()}</p>
-                            {staff.lastLocation.accuracy && (
-                              <p className="text-[10px] text-zinc-400"><strong>Accuracy:</strong> ±{Math.round(staff.lastLocation.accuracy)}m</p>
-                            )}
+                             <p><strong>Last Action:</strong> {staff.lastLocation.action}</p>
+                             <p><strong>Source:</strong> {staff.lastLocation.type === 'ip' ? 'IP Address (Approximate)' : 'GPS Device (High Accuracy)'}</p>
+                             <p><strong>Time:</strong> {staff.lastLocation.updatedAt?.toDate ? staff.lastLocation.updatedAt.toDate().toLocaleString() : new Date(staff.lastLocation.updatedAt).toLocaleString()}</p>
+                             {staff.lastLocation.accuracy && (
+                               <p className="text-[10px] text-zinc-400"><strong>Accuracy:</strong> ±{Math.round(staff.lastLocation.accuracy)}m</p>
+                             )}
                           </div>
                         </div>
                       </Popup>

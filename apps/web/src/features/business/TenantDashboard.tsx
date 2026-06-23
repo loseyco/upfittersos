@@ -177,7 +177,7 @@ export function TenantDashboard() {
 
     const trackActiveLocation = async () => {
       try {
-        const location = await getCurrentLocation(5000);
+        const location = await getCurrentLocation(5000, false);
         if (location.lat !== null && location.lng !== null) {
           await updateStaffLastLocation(
             tenantId,
