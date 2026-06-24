@@ -379,9 +379,14 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const handleSave = async () => {
     setIsSubmitting(true);
     try {
-      const clockInDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
-      const clockInDateStr = clockInDate.toISOString().split('T')[0];
+      const proposedClockInDate = new Date(clockIn);
+      const proposedClockInDateStr = proposedClockInDate.toISOString().split('T')[0];
       
+      const originalClockInDate = session.clockIn?.timestamp
+        ? (session.clockIn.timestamp.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp))
+        : null;
+      const originalClockInDateStr = originalClockInDate ? originalClockInDate.toISOString().split('T')[0] : null;
+
       const verificationsSnap = await getDocs(
         query(
           collection(db, `businesses/${tenantId}/timeclock_verifications`),
@@ -389,30 +394,18 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         )
       );
       
-      const isVerified = verificationsSnap.docs.some(doc => {
+      const isLocked = verificationsSnap.docs.some(doc => {
         const v = doc.data();
-        return clockInDateStr >= v.startDate && clockInDateStr <= v.endDate;
+        const proposedLocked = proposedClockInDateStr >= v.startDate && proposedClockInDateStr <= v.endDate;
+        const originalLocked = originalClockInDateStr ? (originalClockInDateStr >= v.startDate && originalClockInDateStr <= v.endDate) : false;
+        return proposedLocked || originalLocked;
       });
       
-      if (isVerified) {
+      if (isLocked) {
         toast.error("This entry is locked because it belongs to a verified pay period. Unlock the timesheet first to make edits.");
         setIsSubmitting(false);
         return;
       }
-
-      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
-      
-      // Determine if there are actual changes to the shift timeline (times, breaks, jobs, or remote status)
-      // notes changes are excluded from this check
-      const originalClockInTime = session.clockIn.timestamp?.toDate 
-        ? session.clockIn.timestamp.toDate().getTime() 
-        : new Date(session.clockIn.timestamp).getTime();
-      const newClockInTime = new Date(clockIn).getTime();
-
-      const originalClockOutTime = session.clockOut?.timestamp
-        ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate().getTime() : new Date(session.clockOut.timestamp).getTime())
-        : null;
-      const newClockOutTime = clockOut ? new Date(clockOut).getTime() : null;
 
       const normalizeBreak = (b: any) => ({
         type: b.type,
@@ -431,10 +424,124 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         bookTime: j.bookTime || 0
       });
 
-      const normalizedOrigBreaks = (session.breaks || []).map(normalizeBreak);
       const normalizedNewBreaks = breaks.map(normalizeBreak);
-      const normalizedOrigJobs = (session.jobs || []).map(normalizeJob);
       const normalizedNewJobs = jobs.map(normalizeJob);
+
+      if (!session.id) {
+        // Construct brand new session document
+        const newSessionData: any = {
+          userId: session.userId,
+          userName: session.userName,
+          clockIn: {
+            timestamp: new Date(clockIn),
+            location: 'Manual Entry',
+            onSite: true
+          },
+          clockOut: clockOut ? {
+            timestamp: new Date(clockOut),
+            location: 'Manual Entry',
+            onSite: true
+          } : null,
+          isRemote,
+          breaks,
+          jobs,
+          jobIds: Array.from(new Set(jobs.map((j: any) => j.id))),
+          status: clockOut ? 'completed' : 'active',
+          verificationStatus: canApprove ? 'verified' : 'pending',
+          manuallyEdited: true,
+          notes: notes.trim(),
+          staffNote: staffNote.trim(),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        if (canApprove) {
+          newSessionData.approvedBy = user!.displayName || user!.email || 'Admin';
+          newSessionData.lastEditedBy = user!.displayName || user!.email || 'Admin';
+          newSessionData.lastEditedById = user!.uid;
+        } else {
+          newSessionData.lastEditedBy = user!.displayName || user!.email || 'Technician';
+          newSessionData.lastEditedById = user!.uid;
+        }
+
+        // Fetch user's payType if not present
+        try {
+          const staffSnap = await getDoc(doc(db, `businesses/${tenantId}/staff`, session.userId));
+          if (staffSnap.exists()) {
+            const sd = staffSnap.data();
+            if (sd.payType && sd.payType !== 'inherit') {
+              newSessionData.payType = sd.payType;
+            } else if (sd.departmentId) {
+              const deptRef = doc(db, `businesses/${tenantId}/departments`, sd.departmentId);
+              const deptSnap = await getDoc(deptRef);
+              if (deptSnap.exists()) {
+                newSessionData.payType = deptSnap.data().defaultPayType || 'hourly';
+              }
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to resolve payType for new manual session:", err);
+        }
+
+        const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), newSessionData);
+        const newSessionId = docRef.id;
+
+        // Create a pending request automatically if saved by a user without approval permissions (e.g. self-edits)
+        if (!canApprove) {
+          const requestData = {
+            sessionId: newSessionId,
+            userId: session.userId,
+            userName: session.userName || user!.displayName || user!.email,
+            note: staffNote.trim() || 'Self-edit (needs admin approval)',
+            status: 'pending',
+            originalClockIn: null,
+            originalClockOut: null,
+            proposedClockIn: new Date(clockIn),
+            proposedClockOut: clockOut ? new Date(clockOut) : null,
+            originalBreaks: [],
+            proposedBreaks: breaks,
+            originalJobs: [],
+            proposedJobs: jobs,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          };
+          await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), requestData);
+        } else {
+          // Log activity for approved new shift
+          await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+            type: 'time_session',
+            title: 'Shift Added Manually',
+            message: `Added new manual shift for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`,
+            timestamp: serverTimestamp(),
+            severity: 'success',
+            author: user!.displayName || user!.email || 'Admin',
+            metadata: {
+              sessionId: newSessionId
+            }
+          });
+        }
+
+        toast.success(canApprove ? "Time session created and verified" : "Time session created (needs verification)");
+        onSaved();
+        onClose();
+        return;
+      }
+
+      // EXISTING SESSION FLOW
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+      
+      const originalClockInTime = session.clockIn.timestamp?.toDate 
+        ? session.clockIn.timestamp.toDate().getTime() 
+        : new Date(session.clockIn.timestamp).getTime();
+      const newClockInTime = new Date(clockIn).getTime();
+
+      const originalClockOutTime = session.clockOut?.timestamp
+        ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate().getTime() : new Date(session.clockOut.timestamp).getTime())
+        : null;
+      const newClockOutTime = clockOut ? new Date(clockOut).getTime() : null;
+
+      const normalizedOrigBreaks = (session.breaks || []).map(normalizeBreak);
+      const normalizedOrigJobs = (session.jobs || []).map(normalizeJob);
 
       const hasTimelineChanges = 
         originalClockInTime !== newClockInTime ||
@@ -457,16 +564,13 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         if (canApprove) {
           updates.approvedBy = user!.displayName || user!.email || 'Admin';
           if (activeId) {
-            // Approving a request: the technician (session.userName) requested/made the change.
             updates.lastEditedBy = requestDetails?.userName || session.userName || 'Technician';
             updates.lastEditedById = session.userId;
           } else {
-            // Direct admin edit: the admin made the change.
             updates.lastEditedBy = user!.displayName || user!.email || 'Admin';
             updates.lastEditedById = user!.uid;
           }
         } else {
-          // Proposing changes (pending verification): the technician/user is editing their own time.
           updates.lastEditedBy = user!.displayName || user!.email || 'Technician';
           updates.lastEditedById = user!.uid;
           updates.approvedBy = ''; // Pending approval
@@ -505,7 +609,6 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       updates.jobs = jobs;
       updates.jobIds = Array.from(new Set(jobs.map((j: any) => j.id)));
 
-      // Edits from users with approval permissions are verified live (unless they edit their own timesheet)
       if (canApprove) {
         updates.verificationStatus = 'verified';
       } else {
@@ -514,7 +617,6 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
       await updateDoc(sessionRef, updates);
 
-      // Create or update a pending request automatically if saved by a user without approval permissions (e.g. self-edits)
       if (!canApprove) {
         const q = query(
           collection(db, `businesses/${tenantId}/time_edit_requests`),
@@ -558,7 +660,6 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             resolvedBy: user!.displayName || user!.email || 'admin'
           });
 
-          // Log activity for approved request
           await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
             type: 'time_session',
             title: 'Correction Approved',
@@ -573,7 +674,6 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             }
           });
         } else {
-          // Log standard admin edit (no request associated)
           const activityMessage = hasTimelineChanges
             ? `Manually updated and verified time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`
             : `Added/updated note on time entry for ${session.userName || 'Technician'} by ${user!.displayName || user!.email || 'Admin'}`;
@@ -647,9 +747,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           <div>
             <h3 className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-indigo-500" />
-              Edit Time Entry
+              {session.id ? "Edit Time Entry" : "Add Time Entry"}
             </h3>
-            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider mt-0.5">{session.userName} • {session.id.slice(0,8)}</p>
+            <p className="text-xs text-zinc-500 font-medium uppercase tracking-wider mt-0.5">
+              {session.userName} {session.id ? `• ${session.id.slice(0, 8)}` : "• New Shift"}
+            </p>
           </div>
           <button onClick={onClose} className="p-2 text-zinc-400 hover:text-zinc-600 transition-colors">
             <X className="w-5 h-5" />
@@ -1122,11 +1224,11 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                 </>
               )}
             </button>
-            {isAdmin && (
+            {isAdmin && session.id && (
               <button 
                 disabled={isSubmitting}
                 onClick={handleDelete}
-                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-450 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
+                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
                 title="Delete Entry"
               >
                 <Trash2 className="w-4 h-4" />

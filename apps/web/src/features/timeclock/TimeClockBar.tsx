@@ -433,11 +433,9 @@ export function TimeClockBar() {
 
       // If currently on break, end it first
       const breaks = [...(sessionData?.breaks || [])];
-      if (status === 'on_lunch' || status === 'on_break') {
-        const lastBreak = breaks[breaks.length - 1];
-        if (!lastBreak.end) {
-          lastBreak.end = new Date();
-        }
+      const activeBreak = breaks.find(b => !b.end);
+      if (activeBreak) {
+        activeBreak.end = new Date();
       }
 
       // Also clock out of any active job

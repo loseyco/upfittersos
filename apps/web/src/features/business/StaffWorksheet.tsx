@@ -260,11 +260,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
         const sessionData = sessionSnap.data();
         
         const breaks = [...(sessionData?.breaks || [])];
-        if (activeSession.status === 'on_break') {
-          const lastBreak = breaks[breaks.length - 1];
-          if (lastBreak && !lastBreak.end) {
-            lastBreak.end = new Date();
-          }
+        const activeBreak = breaks.find(b => !b.end);
+        if (activeBreak) {
+          activeBreak.end = new Date();
         }
         
         const jobs = [...(sessionData?.jobs || [])];
@@ -539,11 +537,9 @@ export function StaffWorksheet({ tenantId }: { tenantId: string }) {
         const sessionData = sessionSnap.data();
         
         const breaks = [...(sessionData?.breaks || [])];
-        if (session.status === 'on_break') {
-          const lastBreak = breaks[breaks.length - 1];
-          if (lastBreak && !lastBreak.end) {
-            lastBreak.end = new Date();
-          }
+        const activeBreak = breaks.find(b => !b.end);
+        if (activeBreak) {
+          activeBreak.end = new Date();
         }
         
         const jobs = [...(sessionData?.jobs || [])];

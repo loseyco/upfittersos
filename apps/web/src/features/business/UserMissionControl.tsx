@@ -972,11 +972,9 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       const sessionData = sessionSnap.data();
 
       const breaks = [...(sessionData?.breaks || [])];
-      if (clockStatus === 'on_lunch' || clockStatus === 'on_break') {
-        const lastBreak = breaks[breaks.length - 1];
-        if (!lastBreak.end) {
-          lastBreak.end = new Date();
-        }
+      const activeBreak = breaks.find(b => !b.end);
+      if (activeBreak) {
+        activeBreak.end = new Date();
       }
 
       const jobs = [...(sessionData?.jobs || [])];

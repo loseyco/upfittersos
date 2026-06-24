@@ -145,11 +145,9 @@ export function LiveTimeclockBoard({ tenantId }: LiveTimeclockBoardProps) {
         const sessionSnap = await getDoc(sessionRef);
         const sessionData = sessionSnap.data();
         const breaks = [...(sessionData?.breaks || [])];
-        if (session.status === 'on_break') {
-          const lastBreak = breaks[breaks.length - 1];
-          if (lastBreak && !lastBreak.end) {
-            lastBreak.end = new Date();
-          }
+        const activeBreak = breaks.find(b => !b.end);
+        if (activeBreak) {
+          activeBreak.end = new Date();
         }
         const jobs = [...(sessionData?.jobs || [])];
         const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;

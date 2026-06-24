@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp, collectionGroup, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
-import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle, Info, Timer, TrendingUp, FileSignature } from 'lucide-react';
+import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle, Info, Timer, TrendingUp, FileSignature, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
@@ -750,34 +750,54 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex items-center border-b border-zinc-200 dark:border-zinc-800 gap-6">
+      {/* Tabs & Add Shift Button */}
+      <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 flex-wrap gap-4">
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => setActiveTab('sessions')}
+            className={cn(
+              "pb-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer",
+              activeTab === 'sessions'
+                ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            )}
+          >
+            Recent Sessions
+          </button>
+          <button
+            onClick={() => setActiveTab('corrections')}
+            className={cn(
+              "pb-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center gap-2",
+              activeTab === 'corrections'
+                ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            )}
+          >
+            <span>Corrections & Needs Review</span>
+            {correctionsCount > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+                {correctionsCount}
+              </span>
+            )}
+          </button>
+        </div>
+
         <button
-          onClick={() => setActiveTab('sessions')}
-          className={cn(
-            "pb-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer",
-            activeTab === 'sessions'
-              ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-              : "border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-          )}
+          onClick={() => {
+            setEditingSession({
+              id: '',
+              userId: effectiveUserId || '',
+              userName: staffMember?.name || user?.displayName || user?.email || '',
+              clockIn: { timestamp: null },
+              clockOut: { timestamp: null },
+              breaks: [],
+              jobs: [],
+              status: 'completed'
+            });
+          }}
+          className="mb-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-2xl shadow-md shadow-indigo-500/10 transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
         >
-          Recent Sessions
-        </button>
-        <button
-          onClick={() => setActiveTab('corrections')}
-          className={cn(
-            "pb-3 text-sm font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer flex items-center gap-2",
-            activeTab === 'corrections'
-              ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
-              : "border-transparent text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-          )}
-        >
-          <span>Corrections & Needs Review</span>
-          {correctionsCount > 0 && (
-            <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">
-              {correctionsCount}
-            </span>
-          )}
+          <Plus className="w-4 h-4" /> Add Shift
         </button>
       </div>
 
