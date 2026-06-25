@@ -55,6 +55,7 @@ import { BayMonitor } from './BayMonitor';
 import { ParkingMonitor } from './ParkingMonitor';
 import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { QuickBooksAudit } from './QuickBooksAudit';
+import { QBJobDetailsPlaceholder } from './QBJobDetailsPlaceholder';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
 import { TaskDetailPage } from './TaskDetailPage';
@@ -170,6 +171,13 @@ export function TenantDashboard() {
       navigate(`/business/${tenantId}/upfitters`, { replace: true });
     }
   }, [activeTab, navigate, tenantId]);
+
+  // Plural to Singular Jobs Redirect: redirect /jobs/:jobId to /job/:jobId
+  useEffect(() => {
+    if (activeTab === 'jobs' && pathParts[1]) {
+      navigate(`/business/${tenantId}/job/${pathParts[1]}`, { replace: true });
+    }
+  }, [activeTab, pathParts, tenantId, navigate]);
 
   // Periodic background geolocation tracking for active users (even if not clocked in)
   useEffect(() => {
@@ -742,6 +750,10 @@ export function TenantDashboard() {
               <PermissionGate permission="sync.view">
                 <QuickBooksAudit tenantId={tenantId!} />
               </PermissionGate>
+            )}
+
+            {activeTab === 'qb_job_details' && (
+              <QBJobDetailsPlaceholder tenantId={tenantId!} />
             )}
 
             {activeTab === 'qb_customers' && (

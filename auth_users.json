@@ -1,0 +1,470 @@
+{"users": [
+{
+  "localId": "0QXHlnxG8lWuUghDLGA2OxdT8fr1",
+  "email": "loseyp@gmail.com",
+  "emailVerified": true,
+  "displayName": "PJ Losey",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocITjk-UWkYaGm1YXNsQYZSKw7TRD4gt1zU7QX79t4VL2zOmGKFhtA=s96-c",
+  "lastSignedInAt": "1779812475676",
+  "createdAt": "1774495104686",
+  "customAttributes": "{\"role\":\"super_admin\",\"roles\":[\"super_admin\",\"system_owner\"],\"tenantId\":\"GLOBAL\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "114750403251015785195",
+      "email": "loseyp@gmail.com",
+      "displayName": "PJ Losey",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocITjk-UWkYaGm1YXNsQYZSKw7TRD4gt1zU7QX79t4VL2zOmGKFhtA=s96-c"
+    }
+  ]
+},
+{
+  "localId": "1RgGpEut0vMbvO8bxin8aC7KXON2",
+  "email": "james@saegrp.com",
+  "emailVerified": true,
+  "displayName": "james fausher",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKSdpbJSC1_r2X336bKzgZ4sVNZGtBye6PoaF8f0Ipy9iryPw=s96-c",
+  "lastSignedInAt": "1778178540302",
+  "createdAt": "1776118737289",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"staff\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "117889911767200113756",
+      "email": "james@saegrp.com",
+      "displayName": "james fausher",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKSdpbJSC1_r2X336bKzgZ4sVNZGtBye6PoaF8f0Ipy9iryPw=s96-c"
+    }
+  ]
+},
+{
+  "localId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+  "email": "a.benitez@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Adrian Benitez",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocI4L3ec5bML8Gk9PjfF0ofBkk819UQZjQ7LpPdLFHSiAP8xRQ=s96-c",
+  "lastSignedInAt": "1780403400084",
+  "createdAt": "1780320903313",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "116576350365787117009",
+      "email": "a.benitez@saegrp.com",
+      "displayName": "Adrian Benitez",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocI4L3ec5bML8Gk9PjfF0ofBkk819UQZjQ7LpPdLFHSiAP8xRQ=s96-c"
+    }
+  ]
+},
+{
+  "localId": "4WTxjiYfj2e2nxbO6UCqJD9Eojf1",
+  "email": "matt@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Matt Dziewior",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKOkuIi9NC2Zc38hXynun8uKuKMOXoVz93W2Cu2V8BbozHlig=s96-c",
+  "lastSignedInAt": "1780324363515",
+  "createdAt": "1776118788036",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"upfitter\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "108892493377833146684",
+      "email": "matt@saegrp.com",
+      "displayName": "Matt Dziewior",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKOkuIi9NC2Zc38hXynun8uKuKMOXoVz93W2Cu2V8BbozHlig=s96-c"
+    }
+  ]
+},
+{
+  "localId": "65md1LrKv3bg9inabmcQ89vRm2W2",
+  "email": "j.briggs@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Jason Briggs",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKDWH_xTbw2P5Twb2AX-c6ST4kBMG3YM7sLhgLcpa_v8Nz-9g=s96-c",
+  "lastSignedInAt": "1778611404820",
+  "createdAt": "1778611404820",
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "114936593859381386834",
+      "email": "j.briggs@saegrp.com",
+      "displayName": "Jason Briggs",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocKDWH_xTbw2P5Twb2AX-c6ST4kBMG3YM7sLhgLcpa_v8Nz-9g=s96-c"
+    }
+  ]
+},
+{
+  "localId": "7tU9K5CJF4ShFTCdQbCH9Ak016i1",
+  "email": "n.hume@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Natalie Hume",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJP-DjeYupcZTYXr7nPnLfvaFy8IEj-7605Fa_bSzW2-I1YLw=s96-c",
+  "lastSignedInAt": "1780316840903",
+  "createdAt": "1780316740306",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "114991412815364072946",
+      "email": "n.hume@saegrp.com",
+      "displayName": "Natalie Hume",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJP-DjeYupcZTYXr7nPnLfvaFy8IEj-7605Fa_bSzW2-I1YLw=s96-c"
+    }
+  ]
+},
+{
+  "localId": "7xa8rztbiMNIb3MHWWWrq95hiny1",
+  "email": "tammy@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "QyikRX/H91DksWvOF8UiPu8Wpt/UF9xegqeLOegAem36MAgSzoYZZj+qt/BtajCD0M3DPUG9YP4mVSmo8HtZ0w==",
+  "salt": "IGNHkKOHf/p2DA==",
+  "createdAt": "1776118761338",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"office\",\"roles\":[\"office\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": []
+},
+{
+  "localId": "AD0W2PKnLuXxZ2IdynuIkGvfykQ2",
+  "email": "paul@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Paul Oeffling",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJnKbJqvQ4cZOP4WWVMUy_glTRj7e87VelzvVgZGBxFDj24Tg=s96-c",
+  "lastSignedInAt": "1778695337968",
+  "createdAt": "1774926219394",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"manager\",\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"roles\":[\"manager\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "108923506281698589787",
+      "email": "paul@saegrp.com",
+      "displayName": "Paul Oeffling",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJnKbJqvQ4cZOP4WWVMUy_glTRj7e87VelzvVgZGBxFDj24Tg=s96-c"
+    }
+  ]
+},
+{
+  "localId": "BWCO8CQqlEO4ZPVUZathCV30e0G2",
+  "email": "i.anderson@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "NSWV2J9+e3xeDWNGkcQ17P3YWkYgVVUSjVcTSaG3XRd2UWBxq7aa8aNZ6PPYpOeOvQ3K2sGoqvI75si6M5mdlQ==",
+  "salt": "ZhH3hyWXjwMu4Q==",
+  "displayName": "Isabella Anderson",
+  "createdAt": "1780678296745",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "D2OLFJne17gUnrTZShoIr3N23ZT2",
+  "email": "g.wzientek@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "CZYDoN0jFGPCelj3wSTgLGkm3e3IoKxJn6+oJIuEBvK08KK9hNRPVeq/8RZYn3/zCS10/Znv0OSwAyRx1M7XeQ==",
+  "salt": "ROwdrsfBb3hoow==",
+  "createdAt": "1776118836814",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"staff\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": []
+},
+{
+  "localId": "DQ0vVx6eyqUHuVwfOYMMAaMmKgj1",
+  "email": "j.pugh@saegpr.com",
+  "emailVerified": false,
+  "passwordHash": "kfIV0FHfpNu/Gr+raCewjtAc40tDZVb8qVF9+CcIAmcL7EdcOiYda0edCW+JlKaDrSZ0MBz4P4eztCAvFBHGHg==",
+  "salt": "FNqOsXZ1p19CRA==",
+  "displayName": "Jake Pugh",
+  "createdAt": "1780087180810",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "Hd34ox7cd9bVDGbdvnXnBAo2k1T2",
+  "email": "qbtest@losey.co",
+  "emailVerified": true,
+  "passwordHash": "BKVP3uq0I/jKkheUV35tHZulumm6dW0F7em63SyKtQ2aKdXc4OgzBxPrKt/ADjKHIFS4dn1ECNzxLv1jb5KVUQ==",
+  "salt": "JVXBRoOMB8OjCg==",
+  "displayName": "QuickBooks Test Owner",
+  "lastSignedInAt": "1778617459322",
+  "createdAt": "1776891648152",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"business_owner\",\"tenantId\":\"6Jv3VUr8lwHmE19gGSAR\"}",
+  "providerUserInfo": []
+},
+{
+  "localId": "ItLnjNX2fYO0hZnB95TAS9oDwRJ2",
+  "email": "mattdanielsfilms@gmail.com",
+  "emailVerified": true,
+  "displayName": "Matt Films Official",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIYzumaB45QyCfgEElGmcjaYAXKVPZdAk1RElid60sGOAZ6Ldk=s96-c",
+  "lastSignedInAt": "1779814483802",
+  "createdAt": "1779814483802",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "108811936853299031624",
+      "email": "mattdanielsfilms@gmail.com",
+      "displayName": "Matt Films Official",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIYzumaB45QyCfgEElGmcjaYAXKVPZdAk1RElid60sGOAZ6Ldk=s96-c"
+    }
+  ]
+},
+{
+  "localId": "J7Z1TyMJeDaKgUYDA3Da73qNqbf1",
+  "email": "eric@saegrp.com",
+  "emailVerified": true,
+  "passwordHash": "OkhWhJk6ou/OgFrUwlWuxSFZtKyNhru93YU+iV1cmDbE3g+a0vhtrW2pSgcSDiN6sqfKr/QZ6yxmk8dIIQd4AA==",
+  "salt": "qWfdFqQOYy0new==",
+  "displayName": "Eric Schildkraut",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIATeCb6W8tZ_imVOmuogqqZeUhhcY4o4KzvpDII2Asav3FxA=s96-c",
+  "lastSignedInAt": "1779993603548",
+  "createdAt": "1774926192053",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"admin\",\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"roles\":[\"admin\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "102196687812685594691",
+      "email": "eric@saegrp.com",
+      "displayName": "Eric Schildkraut",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIATeCb6W8tZ_imVOmuogqqZeUhhcY4o4KzvpDII2Asav3FxA=s96-c"
+    }
+  ]
+},
+{
+  "localId": "MPoiMdkwfvQks9tpKp5gDeMGtDj1",
+  "email": "anthonyblack0824@comcast.net",
+  "emailVerified": false,
+  "passwordHash": "Nktv0r3z8tOYtBK5SZLTEdcJEb726Ig5bxAAkbZMyx7ErOwS9sap/PQTs0uMVP9J3XvttGGKpjp6Ocm2TDEKYA==",
+  "salt": "X7pFgm92UCwBfg==",
+  "displayName": "Anthony Black",
+  "createdAt": "1779122256439",
+  "disabled": true,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "OWKvj58pbrPrkYnD69NVf7HXMNj2",
+  "email": "philip@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Philip Couch",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIRtXlhmQo5BNCWKKsYv5p6WceQh0i-hHs1NATs11yOLm9S0g=s96-c",
+  "lastSignedInAt": "1780490881842",
+  "createdAt": "1779117583044",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "117154396106266910875",
+      "email": "philip@saegrp.com",
+      "displayName": "Philip Couch",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIRtXlhmQo5BNCWKKsYv5p6WceQh0i-hHs1NATs11yOLm9S0g=s96-c"
+    }
+  ]
+},
+{
+  "localId": "P2PrOfoq6PNDVWdstZkGSLLdttI3",
+  "email": "j.ramirez@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "S8B70jMxwWBfBY8JOPsZ8Nxihp1NNNejzBUEYlJr+cygpOMdqldOYM8gR4fmpEw3T+K+wdDJoUzCiqywDpr5oQ==",
+  "salt": "nQRFocNV1i5h5g==",
+  "displayName": "Jeffery Ramirez",
+  "createdAt": "1780678645198",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "WHF1dBTpkdcTAEDJVSYj9pvhXO32",
+  "email": "d.urban@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Daniel Urban",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLSDhb6HitoMJUITfctS5tnHjatay_w2wtAnxv3sds1pVXYHA=s96-c",
+  "lastSignedInAt": "1782129250271",
+  "createdAt": "1780492143395",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "104076210252674532911",
+      "email": "d.urban@saegrp.com",
+      "displayName": "Daniel Urban",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLSDhb6HitoMJUITfctS5tnHjatay_w2wtAnxv3sds1pVXYHA=s96-c"
+    }
+  ]
+},
+{
+  "localId": "X0i0TPJ1qZgbzbgBjc6EsFN14F63",
+  "email": "tom@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "2LZgpbdyGyxnbabyYrLVpf/W3ktQDW98q1kfP13KnfbCQ/3eaHL7IkjXyi7CTprRvFBHMTWqN3mgvX7W16/Ssw==",
+  "salt": "tlJSQnD/m0fBSw==",
+  "createdAt": "1776118817220",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"staff\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": []
+},
+{
+  "localId": "ZLP4ZfV0yFYCpwFkLjhAINUHNGa2",
+  "email": "monitor@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "6UOqkmRKHgFp0K4LtaEErL4E2y9tGLLfy+mUDqYj+8CLxcbjkNj2jdYqoGytQPuEL7pLOSUmM7NtizaRwWrIIA==",
+  "salt": "XqDpRNaIjy/2SA==",
+  "lastSignedInAt": "1782403203542",
+  "createdAt": "1779230385583",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "drADhRLfCObWkZi5kxW6i144oCM2",
+  "email": "t.mortensen@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "1WFdXzDXZly9UpVMJ1u8QownBcOOPWBIZ1gyMVxw2NYuYipdAmp8nyXxEziHvWOHwUgeoRN4CO+d/D7kQVslPA==",
+  "salt": "N9BM8Ir3ukcdUA==",
+  "displayName": "Tammy Mortensen",
+  "createdAt": "1780677089891",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "hWmm4vLvhWMwfkw0OtScAmM6eEv1",
+  "email": "josie@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Josie Schuette",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLpjVdrt8pOwTQk0OFCMFLje_l3FL9R4uw475ITVeRvUfO1mA=s96-c",
+  "lastSignedInAt": "1779914413874",
+  "createdAt": "1776118776580",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"office\",\"roles\":[\"office\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "115384562559781035397",
+      "email": "josie@saegrp.com",
+      "displayName": "Josie Schuette",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLpjVdrt8pOwTQk0OFCMFLje_l3FL9R4uw475ITVeRvUfO1mA=s96-c"
+    }
+  ]
+},
+{
+  "localId": "lEXlxZrjSVQ14VqdCB9TZHNEsbk1",
+  "email": "subagent@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "IpLbNOWKXwUfnHihcj/YGLaGH9p1Br4flKkzXlAcvGZOmdRgq7DiyA8mUPG30Bxjddzd99y8vj6QfsMDQvq8kA==",
+  "salt": "MVSITffoX5A1FA==",
+  "displayName": "Sub Agent",
+  "lastSignedInAt": "1774570275968",
+  "createdAt": "1774570275968",
+  "providerUserInfo": []
+},
+{
+  "localId": "mJMq41cWWYgPu1QfIJmkiNjYsdv2",
+  "email": "j.pugh@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "NYRFy9RCFbLHIfDE+5JVd2AkN9DhiCd/1MUlbUUuyKRoOSZptp9gbmmIM/Lny/5VTzVchggfqBihewXPhpMEuQ==",
+  "salt": "2IjycREnE/eMjQ==",
+  "createdAt": "1776118830979",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"office\",\"roles\":[\"office\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": []
+},
+{
+  "localId": "mcsWUB0mPDRaYBbzs7RgSHc002c2",
+  "email": "e.spearman@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Ellie Spearman",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJJeBxBrmRP7mxziM5pBcwCE4Liq6o0o-KIixw49QWhZ2-5TSs=s96-c",
+  "lastSignedInAt": "1780920266467",
+  "createdAt": "1776118824258",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"staff\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "116695229581355957829",
+      "email": "e.spearman@saegrp.com",
+      "displayName": "Ellie Spearman",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJJeBxBrmRP7mxziM5pBcwCE4Liq6o0o-KIixw49QWhZ2-5TSs=s96-c"
+    }
+  ]
+},
+{
+  "localId": "nyMfUmY9uigfypm6FCdqaPVPe0w2",
+  "email": "c.bartha@saegrp.com",
+  "emailVerified": false,
+  "passwordHash": "j0IbPOadOfhwSGbUojvOssY9W0x/abg0ENNaM471oKioVPu9rlztZtGPCTIUvhZIoHPPu2R31iJ35sy7/2qmUA==",
+  "salt": "goASgVe1+ByGBQ==",
+  "displayName": "Chris Bartha",
+  "createdAt": "1780678334997",
+  "disabled": false,
+  "customAttributes": "{\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\",\"role\":\"staff\",\"roles\":[\"staff\"]}",
+  "providerUserInfo": []
+},
+{
+  "localId": "pDe0DDb6HJPd2ZJUXAJjt0V4HNa2",
+  "email": "s.benitez@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Silverio Benitez",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLpv9B09DoaqYlG2swA5Qw8wMxaa7MzzyXMPVz8bA7cC5yCmw=s96-c",
+  "lastSignedInAt": "1782389976790",
+  "createdAt": "1776118803966",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"upfitter\",\"roles\":[\"upfitter\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "101776702943235465889",
+      "email": "s.benitez@saegrp.com",
+      "displayName": "Silverio Benitez",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocLpv9B09DoaqYlG2swA5Qw8wMxaa7MzzyXMPVz8bA7cC5yCmw=s96-c"
+    }
+  ]
+},
+{
+  "localId": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+  "email": "p.losey@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Patrick Losey",
+  "photoUrl": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/users%2Ft6u4VkkNYQhwJ2hP0sLUEh3bloR2%2Favatar?alt=media&token=a0df25d4-2d82-4e34-9810-54c4afd0e306&t=1775070317830",
+  "lastSignedInAt": "1782397393459",
+  "createdAt": "1774490501682",
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"manager\",\"parts_manager\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "114332251294134055748",
+      "email": "p.losey@saegrp.com",
+      "displayName": "Patrick Losey",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocIBuIe0ocqXvHCvOwI0PYQoKfwyJq36VM8aqk8OZOsRGXIDlec=s96-c"
+    }
+  ]
+},
+{
+  "localId": "xGxbShhqE7ZNLqBSh8xKjXahJU13",
+  "email": "c.auney@saegrp.com",
+  "emailVerified": true,
+  "displayName": "Chris Auney",
+  "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJeTsQsaf0usAH_kDht_DWqYC0qWPrOVie8k3adNgJkiTtxHw=s96-c",
+  "lastSignedInAt": "1781890032309",
+  "createdAt": "1776118811837",
+  "disabled": false,
+  "customAttributes": "{\"role\":\"staff\",\"roles\":[\"staff\"],\"tenantId\":\"7jlg4IA2G6lvDJ0S5Vbp\"}",
+  "providerUserInfo": [
+    {
+      "providerId": "google.com",
+      "rawId": "108869955632313385989",
+      "email": "c.auney@saegrp.com",
+      "displayName": "Chris Auney",
+      "photoUrl": "https://lh3.googleusercontent.com/a/ACg8ocJeTsQsaf0usAH_kDht_DWqYC0qWPrOVie8k3adNgJkiTtxHw=s96-c"
+    }
+  ]
+}]}

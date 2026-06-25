@@ -1018,25 +1018,10 @@ export function TaskDetailPage({
   );
 
   const loggedMs = getTaskLoggedMs();
-  const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
-  const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
-  const isAssigned = isGeneralTask(task) || 
-                    isSuperAdmin || 
-                    task.assignedStaffIds?.includes(effectiveUserId) || 
-                    task.assignedStaff?.some((s: any) => s.uid === effectiveUserId || s.id === effectiveUserId) ||
-                    (staffMember?.id && (
-                      task.assignedStaffIds?.includes(staffMember.id) || 
-                      task.assignedStaff?.some((s: any) => s.uid === staffMember.id || s.id === staffMember.id)
-                    )) ||
-                    (staffMember?.userId && (
-                      task.assignedStaffIds?.includes(staffMember.userId) || 
-                      task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
-                    )) ||
-                    isDepartmentStaff;
-  const isUnassigned = !isGeneralTask(task) && !task.departmentId && !hasStaff;
 
   const canPerformQC = isSuperAdmin || permissions['jobs.qc'];
-  const hasAccess = isSuperAdmin || permissions['tasks.view'] || isAssigned || isUnassigned || (canPerformQC && task.status === 'QC');
+  // Allow all staff to view task details page
+  const hasAccess = true;
 
   if (!hasAccess) {
     return (
@@ -1117,7 +1102,7 @@ export function TaskDetailPage({
         </div>
 
         <div className="flex items-center gap-2">
-           {(isAssigned || isUnassigned || canClockOthers) && (
+           {true && (
              <>
                {isCurrentTask ? (
                   <button 

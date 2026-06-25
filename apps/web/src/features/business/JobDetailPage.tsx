@@ -1095,27 +1095,8 @@ export function JobDetailPage({
   }, [job?.blockers, job?.status, tenantId, jobId]);
   
   // Progress Calculation Logic
-  const canViewAll = isSuperAdmin || permissions['jobs.view'] || permissions['tasks.view'];
-  const visibleTasks = canViewAll ? tasks : tasks.filter(task => {
-    const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
-    const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
-    const isAssigned = 
-      task.assignedStaffIds?.includes(effectiveUserId) || 
-      task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
-      (staffMember?.id && (
-        task.assignedStaffIds?.includes(staffMember.id) || 
-        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
-      )) ||
-      (staffMember?.userId && (
-        task.assignedStaffIds?.includes(staffMember.userId) || 
-        task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
-      )) ||
-      isDepartmentStaff;
-    const isUnassigned = !isGeneralTask(task) && !task.departmentId && !hasStaff;
-    const isClockedIn = activeTasks.some(at => at.jobId === jobId && at.taskId === task.id) || 
-                         isUserClockedIntoTask(effectiveUserId || '', task.id, staffMember?.name);
-    return isGeneralTask(task) || isAssigned || isUnassigned || isClockedIn || (permissions['jobs.qc'] && task.status === 'QC');
-  });
+  // Allow all staff to see all tasks of a job
+  const visibleTasks = tasks;
 
   const nonGeneralTasks = visibleTasks.filter(t => !isGeneralTask(t));
   const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
@@ -1869,15 +1850,28 @@ export function JobDetailPage({
                       return acc;
                     }, {} as Record<string, any[]>);
 
+                    const getIconForSection = (title: string) => {
+                      if (title === "Currently Clocked In") return <Timer className="w-5 h-5 text-indigo-500 animate-pulse" />;
+                      if (title === "Assigned to You") return <Briefcase className="w-5 h-5 text-indigo-500" />;
+                      if (title === "Other Job Tasks") return <Users className="w-5 h-5 text-zinc-500" />;
+                      return <CheckCircle2 className="w-5 h-5 text-emerald-500" />;
+                    };
+
                     return (
                       <div className="space-y-6">
                         {sectionTitle && (
                           <div className="flex items-center gap-3 pt-6 pb-2 border-b border-zinc-200 dark:border-zinc-800">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                            {getIconForSection(sectionTitle)}
                             <h3 className="text-sm font-black uppercase tracking-widest text-zinc-700 dark:text-zinc-300">
                               {sectionTitle}
                             </h3>
-                            <span className="text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full font-bold">
+                            <span className={cn(
+                              "text-xs px-2 py-0.5 rounded-full font-bold",
+                              sectionTitle === "Currently Clocked In" ? "bg-indigo-500/10 text-indigo-600" :
+                              sectionTitle === "Assigned to You" ? "bg-indigo-500/10 text-indigo-600" :
+                              sectionTitle === "Other Job Tasks" ? "bg-zinc-500/10 text-zinc-650" :
+                              "bg-emerald-500/10 text-emerald-600"
+                            )}>
                               {tasksToRender.length}
                             </span>
                           </div>
@@ -2146,7 +2140,7 @@ export function JobDetailPage({
                                           </div>
 
                                           <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0 w-full md:w-auto">
-                                             {(isAssigned || isUnassigned || canClockOthers) && (
+                                             {true && (
                                               <>
                                                 {isCurrentTask ? (
                                                   <button 
@@ -2301,6 +2295,25 @@ export function JobDetailPage({
                   );
                   const remainingActiveTasksList = activeTasksList.filter(t => !clockedInTasksList.some(ct => ct.id === t.id));
 
+                  const isUserAssignedTask = (task: any) => {
+                    const hasStaff = task.assignedStaff && task.assignedStaff.length > 0;
+                    const isDepartmentStaff = !!task.departmentId && !hasStaff && staffMember?.departmentId === task.departmentId;
+                    return task.assignedStaffIds?.includes(effectiveUserId) || 
+                           task.assignedStaff?.some((s: any) => (s.uid || s.id) === effectiveUserId) ||
+                           (staffMember?.id && (
+                             task.assignedStaffIds?.includes(staffMember.id) || 
+                             task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.id)
+                           )) ||
+                           (staffMember?.userId && (
+                             task.assignedStaffIds?.includes(staffMember.userId) || 
+                             task.assignedStaff?.some((s: any) => (s.uid || s.id) === staffMember.userId)
+                           )) ||
+                           isDepartmentStaff;
+                  };
+
+                  const myActiveTasksList = remainingActiveTasksList.filter(t => isUserAssignedTask(t));
+                  const otherActiveTasksList = remainingActiveTasksList.filter(t => !isUserAssignedTask(t));
+
                   return (
                     <div className="space-y-8">
                       {clockedInTasksList.length > 0 && (
@@ -2308,7 +2321,16 @@ export function JobDetailPage({
                           {renderGroupedTasks(clockedInTasksList, "Currently Clocked In")}
                         </div>
                       )}
-                      {renderGroupedTasks(remainingActiveTasksList)}
+                      
+                      {myActiveTasksList.length > 0 ? (
+                        <>
+                          {renderGroupedTasks(myActiveTasksList, "Assigned to You")}
+                          {renderGroupedTasks(otherActiveTasksList, "Other Job Tasks")}
+                        </>
+                      ) : (
+                        renderGroupedTasks(otherActiveTasksList)
+                      )}
+
                       <div id="qc-tasks-section">
                         {renderGroupedTasks(completedTasksList, "Ready for QC & Completed")}
                       </div>
