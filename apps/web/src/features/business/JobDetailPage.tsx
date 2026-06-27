@@ -7,7 +7,8 @@ import {
   Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, XCircle,
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
   AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight,
-  Search, Users, X, ShieldAlert, Printer, FileText, Mail, Send
+  Search, Users, X, ShieldAlert, Printer, FileText, Mail, Send,
+  ChevronLeft, ChevronRight, Download, ExternalLink, Camera
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -170,6 +171,12 @@ export function JobDetailPage({
   const [emailSubject, setEmailSubject] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
+  // CompanyCam Photos States
+  const [ccPhotos, setCcPhotos] = useState<any[]>([]);
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
+  const [photosError, setPhotosError] = useState<string | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
+
   // Fetch Customer details for report emailing defaults
   useEffect(() => {
     if (showReportModal && job?.customerId && tenantId) {
@@ -285,6 +292,149 @@ export function JobDetailPage({
         (session.jobs || []).some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
     });
   };
+
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const handleConnectCompanyCam = async () => {
+    try {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const apiBase = isLocal 
+        ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
+        : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+        
+      const token = await auth.currentUser?.getIdToken();
+      const redirectUri = window.location.origin + window.location.pathname;
+
+      const res = await fetch(`${apiBase}/companycam/oauth/url?redirectUri=${encodeURIComponent(redirectUri)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to get auth URL');
+      }
+
+      const { url } = await res.json();
+      if (url) {
+        window.location.href = url;
+      }
+    } catch (err: any) {
+      console.error('Error initiating CompanyCam OAuth:', err);
+      toast.error('Failed to initiate CompanyCam connection: ' + err.message);
+    }
+  };
+
+  // Listen for CompanyCam OAuth redirect code in query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (!code || !tenantId || !jobId) return;
+
+    const exchangeCode = async () => {
+      setIsLoadingPhotos(true);
+      setPhotosError(null);
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const apiBase = isLocal 
+          ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
+          : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+
+        const redirectUri = window.location.origin + window.location.pathname;
+
+        const exchangeRes = await fetch(`${apiBase}/companycam/oauth/exchange`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            code,
+            redirectUri,
+            tenantId
+          })
+        });
+
+        if (!exchangeRes.ok) {
+          const errData = await exchangeRes.json().catch(() => ({}));
+          throw new Error(errData.error || 'Failed to exchange auth code');
+        }
+
+        toast.success('CompanyCam account connected successfully!');
+        
+        // Clean URL query params so reloading doesn't exchange again
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+
+        // Trigger a re-run of fetchCcPhotos
+        setRefreshTrigger(prev => prev + 1);
+      } catch (err: any) {
+        console.error('Error exchanging CompanyCam code:', err);
+        setPhotosError('Authentication failed: ' + err.message);
+        toast.error('Failed to connect CompanyCam: ' + err.message);
+      } finally {
+        setIsLoadingPhotos(false);
+      }
+    };
+
+    exchangeCode();
+  }, [tenantId, jobId]);
+
+  // Fetch CompanyCam photos if the job is linked
+  useEffect(() => {
+    const fetchCcPhotos = async () => {
+      const ccProjectId = job?.companyCamId || job?.companyCamProjectId;
+      if (!jobId || !ccProjectId) return;
+      setIsLoadingPhotos(true);
+      setPhotosError(null);
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const apiBaseLocal = 'http://localhost:5001/saegroup-c6487/us-central1/api';
+        const apiBaseProd = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+        
+        let res;
+        if (isLocal) {
+          try {
+            res = await fetch(`${apiBaseLocal}/jobs/${jobId}/companycam-photos`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-tenant-id': tenantId
+              }
+            });
+          } catch (localErr) {
+            console.warn("Local functions emulator not reachable, falling back to production/staging API", localErr);
+            res = await fetch(`${apiBaseProd}/jobs/${jobId}/companycam-photos`, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'x-tenant-id': tenantId
+              }
+            });
+          }
+        } else {
+          res = await fetch(`${apiBaseProd}/jobs/${jobId}/companycam-photos`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'x-tenant-id': tenantId
+            }
+          });
+        }
+
+        if (!res.ok) {
+          throw new Error(`Failed to fetch photos: ${res.statusText}`);
+        }
+        const data = await res.json();
+        setCcPhotos(data);
+      } catch (err: any) {
+        console.error("Error fetching CompanyCam photos:", err);
+        setPhotosError(err.message);
+      } finally {
+        setIsLoadingPhotos(false);
+      }
+    };
+    fetchCcPhotos();
+  }, [jobId, job?.companyCamId, job?.companyCamProjectId, refreshTrigger]);
 
   const handleClockInClick = async (task: any, alternateStaffUid?: string, alternateStaffName?: string) => {
     const targetUid = alternateStaffUid || effectiveUserId || user?.uid;
@@ -2939,6 +3089,224 @@ export function JobDetailPage({
           </div>
         </div>
       </div>
+
+      {/* CompanyCam Photos Carousel */}
+      {(job?.companyCamId || job?.companyCamProjectId) && (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm no-print">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 rounded-xl">
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-zinc-900 dark:text-white text-lg">CompanyCam Media Gallery</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">Real-time photos from the linked project</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleConnectCompanyCam}
+                className="self-start sm:self-center flex items-center gap-1.5 px-4 py-2 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-850 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm font-semibold"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Connect Account</span>
+              </button>
+              <a
+                href={`https://app.companycam.com/projects/${job.companyCamId || job.companyCamProjectId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="self-start sm:self-center flex items-center gap-1.5 px-4 py-2 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-850 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm font-semibold"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span>Open in CompanyCam</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {isLoadingPhotos ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 text-zinc-450 dark:text-zinc-500">
+              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs font-bold uppercase tracking-wider">Retrieving project photos...</span>
+            </div>
+          ) : photosError ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-3 text-rose-500">
+              <AlertCircle className="w-8 h-8" />
+              <div className="text-center">
+                <span className="text-sm font-bold block">Failed to load CompanyCam photos</span>
+                <span className="text-xs opacity-75 block mt-0.5">{photosError}</span>
+              </div>
+              <button
+                onClick={handleConnectCompanyCam}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/10 mt-1"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Connect your CompanyCam Account</span>
+              </button>
+            </div>
+          ) : ccPhotos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 text-zinc-400 dark:text-zinc-655 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl">
+              <Camera className="w-8 h-8 opacity-40" />
+              <span className="text-sm font-bold">No photos uploaded to this project yet.</span>
+            </div>
+          ) : (
+            <div className="relative group/carousel">
+              {/* Scroll Container */}
+              <div 
+                id="cc-photos-carousel"
+                className="flex gap-4 overflow-x-auto pb-2 scroll-smooth snap-x snap-mandatory scrollbar-none"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              >
+                {ccPhotos.map((photo, index) => {
+                  const imgUrl = photo.uris?.[0]?.uri || '';
+                  const dateStr = photo.captured_at 
+                    ? new Date(photo.captured_at * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                    : 'Unknown Date';
+                    
+                  return (
+                    <div 
+                      key={photo.id || index}
+                      onClick={() => setSelectedPhotoIndex(index)}
+                      className="relative flex-shrink-0 w-64 h-48 rounded-2xl overflow-hidden cursor-pointer snap-start shadow-sm border border-zinc-100 dark:border-zinc-800 group/item transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
+                    >
+                      <img 
+                        src={imgUrl} 
+                        alt={`CompanyCam photo by ${photo.creator_name || 'Technician'}`}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover/item:scale-105"
+                        loading="lazy"
+                      />
+                      
+                      {/* Gradient overlay with info */}
+                      <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/85 via-black/40 to-transparent text-white flex flex-col justify-end transition-opacity duration-300 opacity-90 group-hover/item:opacity-100">
+                        <span className="text-[10px] font-bold text-indigo-300 truncate uppercase tracking-wider">{photo.creator_name || 'Technician'}</span>
+                        <span className="text-xs font-semibold mt-0.5 truncate">{dateStr}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Left Navigation Arrow */}
+              <button 
+                onClick={() => {
+                  const el = document.getElementById('cc-photos-carousel');
+                  if (el) el.scrollLeft -= 320;
+                }}
+                className="absolute left-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/90 dark:bg-zinc-900/90 hover:bg-white dark:hover:bg-zinc-800 text-zinc-800 dark:text-white rounded-full shadow-lg border border-zinc-200 dark:border-zinc-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity z-10 duration-200 hover:scale-105 active:scale-95"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              
+              {/* Right Navigation Arrow */}
+              <button 
+                onClick={() => {
+                  const el = document.getElementById('cc-photos-carousel');
+                  if (el) el.scrollLeft += 320;
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-2.5 bg-white/90 dark:bg-zinc-900/90 hover:bg-white dark:hover:bg-zinc-800 text-zinc-800 dark:text-white rounded-full shadow-lg border border-zinc-200 dark:border-zinc-700 opacity-0 group-hover/carousel:opacity-100 transition-opacity z-10 duration-200 hover:scale-105 active:scale-95"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Lightbox Overlay */}
+      {selectedPhotoIndex !== null && (
+        createPortal(
+          <div 
+            className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setSelectedPhotoIndex(null);
+              if (e.key === 'ArrowLeft') {
+                setSelectedPhotoIndex(prev => prev !== null ? (prev > 0 ? prev - 1 : ccPhotos.length - 1) : null);
+              }
+              if (e.key === 'ArrowRight') {
+                setSelectedPhotoIndex(prev => prev !== null ? (prev < ccPhotos.length - 1 ? prev + 1 : 0) : null);
+              }
+            }}
+            tabIndex={0}
+            ref={(el) => el?.focus()}
+          >
+            {/* Top Bar */}
+            <div className="flex items-center justify-between p-4 bg-gradient-to-b from-black/60 to-transparent text-white z-10">
+              <div>
+                <h4 className="font-bold text-sm text-white">
+                  Photo {selectedPhotoIndex + 1} of {ccPhotos.length}
+                </h4>
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">
+                  Project: {job.title}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href={ccPhotos[selectedPhotoIndex]?.uris?.[0]?.uri || ''}
+                  download={`cc_photo_${selectedPhotoIndex}.jpg`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 hover:bg-white/10 rounded-xl transition-colors text-white"
+                  title="Open Original Image"
+                >
+                  <Download className="w-5 h-5" />
+                </a>
+                
+                <button
+                  onClick={() => setSelectedPhotoIndex(null)}
+                  className="p-2 hover:bg-white/10 rounded-xl transition-colors text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Main Image View */}
+            <div className="relative flex-1 flex items-center justify-center p-4">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedPhotoIndex(prev => prev !== null ? (prev > 0 ? prev - 1 : ccPhotos.length - 1) : null);
+                }}
+                className="absolute left-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-sm border border-white/10 hover:scale-105 active:scale-95 transition-all z-10"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+
+              <img
+                src={ccPhotos[selectedPhotoIndex]?.uris?.[0]?.uri || ''}
+                alt={`Photo taken by ${ccPhotos[selectedPhotoIndex]?.creator_name || 'Technician'}`}
+                className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl select-none"
+                onClick={(e) => e.stopPropagation()}
+              />
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedPhotoIndex(prev => prev !== null ? (prev < ccPhotos.length - 1 ? prev + 1 : 0) : null);
+                }}
+                className="absolute right-6 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-sm border border-white/10 hover:scale-105 active:scale-95 transition-all z-10"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Bottom Glassmorphic Info Bar */}
+            <div className="p-6 bg-gradient-to-t from-black/80 via-black/45 to-transparent text-white text-center z-10 flex flex-col items-center">
+              <span className="px-2.5 py-0.5 bg-indigo-500/25 border border-indigo-500/35 rounded-full text-[10px] font-black uppercase tracking-wider text-indigo-300">
+                Uploaded by {ccPhotos[selectedPhotoIndex]?.creator_name || 'Technician'}
+              </span>
+              <p className="text-sm font-semibold mt-2 text-white">
+                {ccPhotos[selectedPhotoIndex]?.captured_at 
+                  ? new Date(ccPhotos[selectedPhotoIndex].captured_at * 1000).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })
+                  : 'Unknown Date'
+                }
+              </p>
+            </div>
+          </div>,
+          document.body
+        )
+      )}
 
       {(isPartRequestOpen || selectedPartForEdit) && (
         <PartsRequestModal 

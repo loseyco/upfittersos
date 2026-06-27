@@ -11,22 +11,32 @@ export class CompanyCamService {
 
   // Dynamically fetch the individual user's CompanyCam API tokens for the specific workspace from Firestore
   private async getUserTokens(): Promise<{ access: string, refresh: string }> {
+    // 1. Try user tokens first
     const doc = await admin.firestore().collection('users').doc(this.userId).get();
-    
-    if (!doc.exists) {
-      throw new Error(`User ${this.userId} not found.`);
+    if (doc.exists) {
+      const data = doc.data();
+      const tenantAuth = data?.companyCamAuth?.[this.tenantId];
+      if (tenantAuth?.token) {
+        return {
+          access: tenantAuth.token,
+          refresh: tenantAuth.refresh || '' 
+        };
+      }
     }
 
-    const data = doc.data();
-    const tenantAuth = data?.companyCamAuth?.[this.tenantId];
-    if (!tenantAuth?.token) {
-      throw new Error(`CompanyCam is not configured for user ${this.userId} in this workspace.`);
+    // 2. Fall back to business/tenant level token
+    const bizDoc = await admin.firestore().collection('businesses').doc(this.tenantId).get();
+    if (bizDoc.exists) {
+      const bizData = bizDoc.data();
+      if (bizData?.companyCamToken) {
+        return {
+          access: bizData.companyCamToken,
+          refresh: bizData.companyCamRefreshToken || ''
+        };
+      }
     }
 
-    return {
-        access: tenantAuth.token,
-        refresh: tenantAuth.refresh || '' 
-    };
+    throw new Error(`CompanyCam is not configured for user ${this.userId} or workspace ${this.tenantId}.`);
   }
 
   // Refreshes the token and saves the new ones to Firestore
@@ -53,15 +63,27 @@ export class CompanyCamService {
 
     const data = await response.json();
     
-    // Save new tokens securely to the user's profile mapped to this specific tenant
-    await admin.firestore().collection('users').doc(this.userId).set({
-        companyCamAuth: {
-            [this.tenantId]: {
-                token: data.access_token,
-                refresh: data.refresh_token
-            }
-        }
-    }, { merge: true });
+    // Check if the user document already has a personal token. If so, update that.
+    const userDoc = await admin.firestore().collection('users').doc(this.userId).get();
+    const hasUserToken = userDoc.exists && userDoc.data()?.companyCamAuth?.[this.tenantId]?.token;
+
+    if (hasUserToken) {
+      // Save new tokens securely to the user's profile mapped to this specific tenant
+      await admin.firestore().collection('users').doc(this.userId).set({
+          companyCamAuth: {
+              [this.tenantId]: {
+                  token: data.access_token,
+                  refresh: data.refresh_token
+              }
+          }
+      }, { merge: true });
+    } else {
+      // Save to business/tenant document
+      await admin.firestore().collection('businesses').doc(this.tenantId).set({
+          companyCamToken: data.access_token,
+          companyCamRefreshToken: data.refresh_token
+      }, { merge: true });
+    }
 
     return data.access_token;
   }

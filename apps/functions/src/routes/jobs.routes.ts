@@ -113,6 +113,39 @@ async function tryCompanyCamSync(jobRef: admin.firestore.DocumentReference, newJ
     return { status: 'failed', reason: 'No Project ID returned' };
 }
 
+// Helper to retrieve job document across V1 (root) and V2 (nested under businesses) collections
+async function getJobDoc(jobId: string, tenantId?: string): Promise<{ ref: admin.firestore.DocumentReference, data: any } | null> {
+    // 1. Try V2 path if tenantId is provided
+    if (tenantId) {
+        const ref = getDb().collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
+        const doc = await ref.get();
+        if (doc.exists) {
+            return { ref, data: doc.data() };
+        }
+    }
+    
+    // 2. Try V1 path (root collection)
+    const ref = getDb().collection('jobs').doc(jobId);
+    const doc = await ref.get();
+    if (doc.exists) {
+        return { ref, data: doc.data() };
+    }
+
+    // 3. Try collection group search as fallback
+    try {
+        const collectionGroup = getDb().collectionGroup('jobs');
+        const snap = await collectionGroup.where(admin.firestore.FieldPath.documentId(), '==', jobId).get();
+        if (!snap.empty) {
+            const doc = snap.docs[0];
+            return { ref: doc.ref, data: doc.data() };
+        }
+    } catch (err) {
+        console.error("Collection group query failed for job document recovery:", err);
+    }
+
+    return null;
+}
+
 // POST /jobs - Create a new job
 jobsRoutes.post('/', authenticate, async (req: Request, res: Response): Promise<Response> => {
     try {
@@ -194,15 +227,15 @@ jobsRoutes.put('/:id', authenticate, async (req: Request, res: Response): Promis
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { ref: jobRef, data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot update this job.' });
@@ -382,15 +415,15 @@ jobsRoutes.delete('/:id', authenticate, async (req: Request, res: Response): Pro
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { ref: jobRef, data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isManagerOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Only managers can delete jobs.' });
@@ -410,15 +443,15 @@ jobsRoutes.post('/:id/companycam-sync', authenticate, async (req: Request, res: 
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { ref: jobRef, data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot sync this job.' });
@@ -446,21 +479,22 @@ jobsRoutes.get('/:id/companycam-photos', authenticate, async (req: Request, res:
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. Cannot view photos for this job.' });
         }
 
-        if (!jobData.companyCamProjectId) {
+        const ccProjectId = jobData.companyCamProjectId || jobData.companyCamId;
+        if (!ccProjectId) {
             // Return natively stored media
             const nativeMedia = (jobData.media || []).map((m: any, idx: number) => {
                 if (typeof m === 'string') {
@@ -476,7 +510,7 @@ jobsRoutes.get('/:id/companycam-photos', authenticate, async (req: Request, res:
         }
 
         const ccService = new CompanyCamService(caller.uid, tenantId);
-        const photos = await ccService.getProjectPhotos(jobData.companyCamProjectId);
+        const photos = await ccService.getProjectPhotos(ccProjectId);
 
         return res.json(photos);
     } catch (error: any) {
@@ -496,15 +530,15 @@ jobsRoutes.post('/:id/companycam-photos', authenticate, async (req: Request, res
             return res.status(400).json({ error: 'Missing or invalid photo URLs' });
         }
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { ref: jobRef, data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden' });
@@ -525,10 +559,11 @@ jobsRoutes.post('/:id/companycam-photos', authenticate, async (req: Request, res
 
         // 2. Send to CompanyCam if synced
         let result = null;
-        if (jobData.companyCamProjectId) {
+        const ccProjectId = jobData.companyCamProjectId || jobData.companyCamId;
+        if (ccProjectId) {
             try {
                 const ccService = new CompanyCamService(caller.uid, tenantId);
-                result = await ccService.createPhotos(jobData.companyCamProjectId, urls);
+                result = await ccService.createPhotos(ccProjectId, urls);
             } catch (ccErr) {
                 console.error("Failed to push native upload to CompanyCam:", ccErr);
             }
@@ -547,16 +582,17 @@ jobsRoutes.post('/:id/sync-media', authenticate, async (req: Request, res: Respo
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
-        if (!jobDoc.exists) return res.status(404).json({ error: 'Job not found' });
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
+        if (!jobInfo) return res.status(404).json({ error: 'Job not found' });
         
-        const jobData = jobDoc.data()!;
+        const { ref: jobRef, data: jobData } = jobInfo;
         if (!isMemberOfTenant(caller, jobData.tenantId)) return res.status(403).json({ error: 'Forbidden' });
-        if (!jobData.companyCamProjectId) return res.json({ message: 'Not synced' });
+        const ccProjectId = jobData.companyCamProjectId || jobData.companyCamId;
+        if (!ccProjectId) return res.json({ message: 'Not synced' });
 
         const ccService = new CompanyCamService(caller.uid, jobData.tenantId);
-        const ccPhotos = await ccService.getProjectPhotos(jobData.companyCamProjectId).catch(() => []);
+        const ccPhotos = await ccService.getProjectPhotos(ccProjectId).catch(() => []);
         
         const downloadedIds: string[] = jobData.ccDownloadedIds || [];
         const { getStorage } = require('firebase-admin/storage');
@@ -612,15 +648,16 @@ jobsRoutes.delete('/:id/media/:mediaId', authenticate, async (req: Request, res:
         const caller = (req as any).user;
         const { id: jobId, mediaId: ccId } = req.params;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
-        if (!jobDoc.exists) return res.status(404).json({ error: 'Job not found' });
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
+        if (!jobInfo) return res.status(404).json({ error: 'Job not found' });
         
-        const jobData = jobDoc.data()!;
+        const { ref: jobRef, data: jobData } = jobInfo;
         if (!isMemberOfTenant(caller, jobData.tenantId)) return res.status(403).json({ error: 'Forbidden' });
 
         // 1. Delete from CompanyCam (if linked AND not purely native)
-        if (jobData.companyCamProjectId && !ccId.toString().startsWith('native_')) {
+        const ccProjectId = jobData.companyCamProjectId || jobData.companyCamId;
+        if (ccProjectId && !ccId.toString().startsWith('native_')) {
             const ccService = new CompanyCamService(caller.uid, jobData.tenantId);
             try {
                 // We must use 'any' to bypass typing if delete method isn't explicitly defined yet, 
@@ -660,15 +697,15 @@ jobsRoutes.post('/:id/report-email', authenticate, async (req: Request, res: Res
         const caller = (req as any).user;
         const jobId = req.params.id;
 
-        const jobRef = getDb().collection('jobs').doc(jobId);
-        const jobDoc = await jobRef.get();
+        const tenantIdParam = req.query.tenantId as string || req.headers['x-tenant-id'] as string || caller.tenantId;
+        const jobInfo = await getJobDoc(jobId, tenantIdParam);
 
-        if (!jobDoc.exists) {
+        if (!jobInfo) {
             return res.status(404).json({ error: 'Job not found' });
         }
 
-        const jobData = jobDoc.data()!;
-        const tenantId = jobData.tenantId;
+        const { data: jobData } = jobInfo;
+        const tenantId = jobData.tenantId || tenantIdParam;
 
         if (!isMemberOfTenant(caller, tenantId)) {
             return res.status(403).json({ error: 'Forbidden. You do not have access to this workspace.' });

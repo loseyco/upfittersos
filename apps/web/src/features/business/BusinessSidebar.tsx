@@ -117,6 +117,7 @@ export const ITEMS: NavItem[] = [
   { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
 
   { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', permission: 'development.view' },
+  { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', permission: 'development.view' },
 
   // Help Hub
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },

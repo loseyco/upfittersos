@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, setDoc, getDoc, serverTimestamp, getDocs } from 'firebase/firestore';
-import { db, storage } from '../../lib/firebase/config';
+import { db, storage, auth } from '../../lib/firebase/config';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   ArrowLeft, Clock, Timer, CheckCircle2, XCircle,
@@ -755,6 +755,37 @@ export function TaskDetailPage({
         'task_note_added',
         `Note added to task ${task.title} by ${user?.displayName || user?.email || staffMember?.name || 'Staff'}`
       );
+
+      // If job is linked to CompanyCam, push the photos there as well
+      const ccProjectId = job?.companyCamId || job?.companyCamProjectId;
+      if (ccProjectId && uploadedUrls.length > 0) {
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const apiBase = isLocal 
+          ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
+          : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+
+        auth.currentUser?.getIdToken().then(token => {
+          fetch(`${apiBase}/jobs/${jobId}/companycam-photos`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+              'x-tenant-id': tenantId
+            },
+            body: JSON.stringify({ urls: uploadedUrls })
+          }).then(res => {
+            if (!res.ok) {
+              console.warn("Failed to push photo URLs to CompanyCam, status:", res.status);
+            } else {
+              console.log("Successfully pushed task note photos to CompanyCam");
+            }
+          }).catch(err => {
+            console.error("Error pushing photos to CompanyCam:", err);
+          });
+        }).catch(tokenErr => {
+          console.error("Failed to retrieve token for CompanyCam upload:", tokenErr);
+        });
+      }
 
       setNewNoteText('');
       setNoteImages([]);

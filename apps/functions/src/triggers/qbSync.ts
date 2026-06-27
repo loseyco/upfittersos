@@ -124,8 +124,9 @@ export const onQbJobWrite = functions.firestore
     };
 
     let jobDestRef = admin.firestore().collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
+    let matchedDoc = null;
 
-    // If we have a job number, try to find an existing native job to merge with
+    // 1. Try matching by Job Number first
     if (qbJobNumber) {
       try {
         const existingQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
@@ -134,12 +135,34 @@ export const onQbJobWrite = functions.firestore
           .get();
         
         if (!existingQuery.empty) {
-          // If we find an existing job by number, we use its ref instead of creating a new ListID-based one
-          jobDestRef = existingQuery.docs[0].ref;
+          matchedDoc = existingQuery.docs[0];
+          jobDestRef = matchedDoc.ref;
           console.log(`Merging QB Job ${jobId} into existing job ${jobDestRef.id} via job number ${qbJobNumber}`);
         }
       } catch (err) {
         console.error(`Failed to check for existing job with number ${qbJobNumber}`, err);
+      }
+    }
+
+    // 2. Fallback to matching by title/name (case-sensitive exact match)
+    if (!matchedDoc) {
+      try {
+        const titleMatches = [data.Name, data.FullName].filter(Boolean);
+        for (const t of titleMatches) {
+          const titleQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
+            .where('title', '==', t)
+            .limit(1)
+            .get();
+          
+          if (!titleQuery.empty) {
+            matchedDoc = titleQuery.docs[0];
+            jobDestRef = matchedDoc.ref;
+            console.log(`Merging QB Job ${jobId} into existing job ${jobDestRef.id} via title matching "${t}"`);
+            break;
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to check for existing job by title matching`, err);
       }
     }
 
