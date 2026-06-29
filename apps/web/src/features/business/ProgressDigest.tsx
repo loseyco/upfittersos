@@ -279,11 +279,17 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
         return status === 'received' || status === 'fulfilled' || status === 'inventoried';
       }).length;
       
-      if (requestedCount > 0) {
+      const waitingParts = jobParts.filter(p => {
+        const status = (p.status || '').toLowerCase();
+        return ['pending', 'requested', 'ordered'].includes(status);
+      });
+
+      if (requestedCount > 0 || orderedCount > 0) {
         sections.missingParts.push({
           jobId: job.id,
           message: `${job.jobNumber ? `#${job.jobNumber} - ` : ''}${job.title}`,
-          subtext: `Waiting on ${requestedCount} pending parts (${orderedCount} ordered, ${receivedCount} received)`
+          subtext: `Waiting on ${requestedCount} pending parts (${orderedCount} ordered, ${receivedCount} received)`,
+          partsList: waitingParts
         });
       }
 
@@ -570,7 +576,14 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
 
     if (reportData.missingParts.length > 0) {
       text += `📦 JOBS CURRENTLY WAITING ON PARTS:\n`;
-      reportData.missingParts.forEach(item => text += `   - Job ${item.message}: ${item.subtext}\n`);
+      reportData.missingParts.forEach(item => {
+        text += `   - Job ${item.message}: ${item.subtext}\n`;
+        if (item.partsList && item.partsList.length > 0) {
+          item.partsList.forEach((p: any) => {
+            text += `     • [${p.status.toUpperCase()}] ${p.qty || 1}x ${p.partName || 'Unnamed Part'}${p.partNumber ? ` (#${p.partNumber})` : ''}\n`;
+          });
+        }
+      });
       text += `\n`;
       totalChanges += reportData.missingParts.length;
     }
@@ -869,6 +882,35 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
                         <ExternalLink className="w-3 h-3 text-zinc-400 shrink-0" />
                       </div>
                       <div className="text-[10px] text-blue-500 font-semibold">{item.subtext}</div>
+                      {item.partsList && item.partsList.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-blue-500/10 dark:border-blue-500/5 flex flex-col gap-1.5 text-xs">
+                          {item.partsList.map((part: any) => (
+                            <div 
+                              key={part.id} 
+                              className="flex justify-between items-center text-zinc-600 dark:text-zinc-300"
+                            >
+                              <span className="truncate flex-1 pr-2 text-xs">
+                                <span className="font-mono text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 px-1 py-0.5 rounded mr-1.5 font-bold">
+                                  {part.qty || 1}x
+                                </span>
+                                <span className="font-bold">{part.partName || 'Unnamed Part'}</span>
+                                {part.partNumber && (
+                                  <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono ml-1.5">
+                                    #{part.partNumber}
+                                  </span>
+                                )}
+                              </span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider shrink-0 ${
+                                (part.status || '').toLowerCase() === 'ordered'
+                                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {part.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
