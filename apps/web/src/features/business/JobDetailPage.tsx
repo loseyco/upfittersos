@@ -225,6 +225,53 @@ export function JobDetailPage({
     return () => unsub();
   }, [jobId, tenantId]);
 
+  const [vehicle, setVehicle] = useState<any>(null);
+
+  // Fetch Vehicle details
+  useEffect(() => {
+    if (!tenantId || !job?.vehicleId) {
+      setVehicle(null);
+      return;
+    }
+
+    let active = true;
+    const fetchVehicle = async () => {
+      try {
+        const vId = job.vehicleId;
+        // Try doc ID lookup
+        const directRef = doc(db, `businesses/${tenantId}/vehicles`, vId);
+        const directSnap = await getDoc(directRef);
+        if (directSnap.exists() && active) {
+          setVehicle({ id: directSnap.id, ...directSnap.data() });
+          return;
+        }
+
+        // Query VIN field
+        const qVin = query(
+          collection(db, `businesses/${tenantId}/vehicles`),
+          where('vin', '==', vId.toUpperCase())
+        );
+        const snapVin = await getDocs(qVin);
+        if (!snapVin.empty && active) {
+          setVehicle({ id: snapVin.docs[0].id, ...snapVin.docs[0].data() });
+          return;
+        }
+
+        if (active) {
+          setVehicle(null);
+        }
+      } catch (e) {
+        console.error("Error fetching vehicle details:", e);
+        if (active) setVehicle(null);
+      }
+    };
+
+    fetchVehicle();
+    return () => {
+      active = false;
+    };
+  }, [tenantId, job?.vehicleId]);
+
   // Set Dynamic Page Title
   useEffect(() => {
     if (!job) return;
@@ -1698,8 +1745,11 @@ export function JobDetailPage({
                   <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${job.status}</td>
                 </tr>
                 <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Vehicle ID</td>
-                  <td style="padding: 6px 0; font-weight: bold; font-family: monospace; color: #18181b;">${job.vehicleId || 'N/A'}</td>
+                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Vehicle</td>
+                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">
+                    ${vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : (job.vehicleId ? 'Linked' : 'N/A')}
+                    ${job.vehicleId ? ` <span style="font-family: monospace; font-size: 11px; color: #71717a;">(${vehicle?.vin || job.vehicleId})</span>` : ''}
+                  </td>
                 </tr>
                 <tr>
                   <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Scheduled Bay</td>
@@ -1796,8 +1846,26 @@ export function JobDetailPage({
             <div className="flex items-center gap-3">
               <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 dark:text-white tracking-tight">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h1>
             </div>
-            <p className="text-base sm:text-lg font-bold text-zinc-500 mt-1">
-              {job.customerName || 'Walk-in Customer'} • {job.vehicleId || 'No Vehicle Linked'}
+            <p className="text-base sm:text-lg font-semibold text-zinc-500 mt-1 flex flex-wrap items-center gap-1.5">
+              <span>{job.customerName || 'Walk-in Customer'}</span>
+              <span className="text-zinc-400 dark:text-zinc-600">•</span>
+              {job.vehicleId ? (
+                <button
+                  onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle?.id || job.vehicleId}`)}
+                  className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-750 dark:hover:text-indigo-300 hover:underline font-mono text-left transition-colors"
+                >
+                  <Car className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                  <span>
+                    {vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : ''}
+                    {vehicle ? ` (${vehicle.vin})` : job.vehicleId}
+                  </span>
+                </button>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-zinc-400 dark:text-zinc-500">
+                  <Car className="w-4 h-4 opacity-50 flex-shrink-0" />
+                  No Vehicle Linked
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -2572,6 +2640,31 @@ export function JobDetailPage({
                   )}
                   <div className="text-xs font-bold leading-snug">
                     {etaComparison.text}
+                  </div>
+                </div>
+              )}
+
+              {job.vehicleId && (
+                <div className="border-t border-white/10 pt-4">
+                  <span className="text-[10px] font-black uppercase tracking-widest opacity-60 flex items-center gap-1.5">
+                    <Car className="w-3.5 h-3.5" /> Vehicle Details
+                  </span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <button
+                      onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle?.id || job.vehicleId}`)}
+                      className="text-left hover:underline text-white font-bold text-sm"
+                    >
+                      {vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : 'Linked Vehicle'}
+                      <span className="block font-mono text-xs text-white/70 font-normal mt-0.5">
+                        {vehicle?.vin || job.vehicleId}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => navigate(`/business/${tenantId}/vehicle/${vehicle?.id || job.vehicleId}`)}
+                      className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-all ml-auto self-center"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               )}
@@ -3527,8 +3620,15 @@ export function JobDetailPage({
                       <span className="font-bold text-zinc-800">{job.title}</span>
                     </div>
                     <div>
-                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Vehicle Link</span>
-                      <span className="font-mono font-bold text-zinc-800 truncate block">{job.vehicleId || 'Not Linked'}</span>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Vehicle</span>
+                      <span className="font-bold text-zinc-800 block">
+                        {vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : (job.vehicleId ? 'Linked' : 'Not Linked')}
+                      </span>
+                      {job.vehicleId && (
+                        <span className="font-mono text-[10px] text-zinc-500 block truncate">
+                          {vehicle?.vin || job.vehicleId}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Scheduled Bay</span>

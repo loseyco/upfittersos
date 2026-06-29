@@ -709,6 +709,7 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
   const [sessions, setSessions] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [unscheduledSearch, setUnscheduledSearch] = useState('');
+  const [hideScheduled, setHideScheduled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSequentialView, setIsSequentialView] = useState(true);
   const viewMode: any = 'staff';
@@ -929,15 +930,23 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
 
     const isSearching = !!unscheduledSearch.trim();
 
+    // Check if the job is already scheduled anywhere on the board
+    const isScheduledOnBoard = viewMode === 'bays'
+      ? !!((j.bayId && j.scheduledStartDate) || isTrackedByBay)
+      : !!(j.scheduledStartDate || (j.staffSchedules && Object.keys(j.staffSchedules).length > 0));
+
+    // If hideScheduled is active, we completely filter out jobs that are on the board, unless the user is searching
+    if (hideScheduled && isScheduledOnBoard && !isSearching) return;
+
     if (viewMode === 'bays') {
-      if (!isSearching) {
+      if (!isSearching && hideScheduled) {
         if ((j.bayId && j.scheduledStartDate) || isTrackedByBay) return;
       }
       
       const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
       const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
       const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
-      if (!isSearching && !(hasEta || hasBookTime || hasStaff)) return;
+      if (!isSearching && hideScheduled && !(hasEta || hasBookTime || hasStaff)) return;
 
       unscheduledJobs.push({ ...j });
     } else {
@@ -945,55 +954,40 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
       const staffWithTasks = Array.from(new Set(incompleteTasks.flatMap(t => t.assignedStaffIds || [])));
 
       if (staffWithTasks.length === 0) {
-        if (!isSearching) {
+        if (!isSearching && hideScheduled) {
           if (j.scheduledStartDate) return;
         }
         
         const hasEta = !!(j.eta || j.expectedFinishTime || j.scheduledEndDate);
         const hasBookTime = parseFloat(j.scheduledHours || j.estimatedHours || '0') > 0;
         const hasStaff = j.assignedStaffIds && j.assignedStaffIds.length > 0;
-        if (!isSearching && !(hasEta || hasBookTime || hasStaff)) return;
+        if (!isSearching && hideScheduled && !(hasEta || hasBookTime || hasStaff)) return;
 
         unscheduledJobs.push({
           ...j,
           _unscheduledStaffId: null
         });
       } else {
-        let addedAny = false;
-        
-        staffWithTasks.forEach((staffId: string) => {
+        // Find if there is any staff member with tasks who is not scheduled yet
+        const unscheduledStaffId = staffWithTasks.find(staffId => {
           const isStaffScheduled = j.staffSchedules && j.staffSchedules[staffId];
           const isLegacyGlobalScheduled = !j.staffSchedules && j.scheduledStartDate;
-          const isScheduled = isStaffScheduled || isLegacyGlobalScheduled;
-
-          if (!isScheduled) {
-            unscheduledJobs.push({
-              ...j,
-              _unscheduledStaffId: staffId
-            });
-            addedAny = true;
-          }
+          return !(isStaffScheduled || isLegacyGlobalScheduled);
         });
 
-        // Also check if there are any unassigned active tasks on this job
-        const hasUnassignedTasks = incompleteTasks.some(t => !t.assignedStaffIds || t.assignedStaffIds.length === 0);
-        if (hasUnassignedTasks) {
-          const isScheduledGlobally = j.scheduledStartDate;
-          if (!isScheduledGlobally) {
+        if (unscheduledStaffId) {
+          unscheduledJobs.push({
+            ...j,
+            _unscheduledStaffId: unscheduledStaffId
+          });
+        } else {
+          // If all assigned staff are scheduled, but we're not hiding scheduled jobs, or if the user is searching
+          if (!hideScheduled || isSearching) {
             unscheduledJobs.push({
               ...j,
               _unscheduledStaffId: null
             });
-            addedAny = true;
           }
-        }
-
-        // Search override: if we didn't add it as unscheduled but the user is actively searching for this job
-        if (isSearching && !addedAny) {
-          unscheduledJobs.push({
-            ...j,
-            _unscheduledStaffId: null
-          });
         }
       }
     }
@@ -1840,6 +1834,17 @@ export function ScheduleBoard({ tenantId }: ScheduleBoardProps) {
                 onChange={(e) => setUnscheduledSearch(e.target.value)}
                 className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all placeholder:text-zinc-500"
               />
+            </div>
+            <div className="flex items-center mb-2">
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={hideScheduled}
+                  onChange={(e) => setHideScheduled(e.target.checked)}
+                  className="rounded border-zinc-300 dark:border-zinc-800 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 bg-white dark:bg-zinc-950"
+                />
+                <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Hide Scheduled Jobs</span>
+              </label>
             </div>
             <p className="text-[10px] text-zinc-500">Drag to timeline to schedule. Showing top 50.</p>
           </div>
