@@ -216,15 +216,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
       currentZoneId: '',
       companyCamId: ''
     });
-    setJobTasks([{
-      id: 'general-init',
-      title: 'General',
-      description: 'General clock in to job when no task clock in here',
-      taskGroup: 'General',
-      bookTime: 0,
-      status: 'pending',
-      assignedStaff: []
-    }]);
+    setJobTasks([]);
     setTasksLoaded(true);
   }, [isNew, tenantId]);
 
@@ -237,43 +229,13 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     return () => unsub();
   }, [jobId, tenantId]);
 
-  const addingGeneralRef = useRef(false);
-
-  // Auto-add "General" task if missing, and deduplicate if duplicates exist
+  // Deduplicate "General" task if duplicates exist
   useEffect(() => {
     if (!jobId || !tenantId || !job || !tasksLoaded) return;
     
     const generalTasks = jobTasks.filter(t => isGeneralTask(t));
     
-    if (generalTasks.length === 0 && !addingGeneralRef.current) {
-      addingGeneralRef.current = true;
-      const addGeneralTask = async () => {
-        try {
-          const q = query(
-            collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`),
-            where('title', '==', 'General'),
-            where('taskGroup', '==', 'General')
-          );
-          const snap = await getDocs(q);
-          if (snap.empty) {
-            await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
-              title: 'General',
-              description: 'General clock in to job when no task clock in here',
-              taskGroup: 'General',
-              bookTime: 0,
-              status: 'pending',
-              tenantId: tenantId,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp()
-            });
-          }
-        } catch (e) {
-          console.error("Error adding general task:", e);
-          addingGeneralRef.current = false;
-        }
-      };
-      addGeneralTask();
-    } else if (generalTasks.length > 1) {
+    if (generalTasks.length > 1) {
       const deleteExtraGenerals = async () => {
         try {
           // Keep the first one, delete the rest
@@ -1836,7 +1798,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                       </div>
                                     )}
                                     <span className="text-[10px] font-bold text-zinc-300 dark:text-zinc-650 w-4 text-right mr-1">{idx + 1}</span>
-                                    {!isGen && (
+                                    {!isGen ? (
                                       <>
                                         <button 
                                           type="button"
@@ -1872,6 +1834,15 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                           <Trash2 className="w-3.5 h-3.5" />
                                         </button>
                                       </>
+                                    ) : (
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleDeleteTask(task.id)}
+                                        className="text-zinc-400 hover:text-rose-500 transition-colors p-0.5 cursor-pointer"
+                                        title="Delete Row"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
                                     )}
                                   </div>
                                 </td>

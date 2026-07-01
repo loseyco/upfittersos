@@ -8,7 +8,8 @@ import {
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
   AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight,
   Search, Users, X, ShieldAlert, Printer, FileText, Mail, Send,
-  ChevronLeft, ChevronRight, Download, ExternalLink, Camera
+  ChevronLeft, ChevronRight, Download, ExternalLink, Camera,
+  Upload, Check, Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -139,6 +140,79 @@ export function JobDetailPage({
   const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
   const [isETAOpen, setIsETAOpen] = useState(false);
   const [parts, setParts] = useState<any[]>([]);
+
+  const [showCcSyncModal, setShowCcSyncModal] = useState(false);
+  const [selectedCcPhotos, setSelectedCcPhotos] = useState<string[]>([]);
+  const [isSyncingCcPhotos, setIsSyncingCcPhotos] = useState(false);
+
+  const allJobPhotos = tasks.flatMap((task: any) => 
+    (task.task_notes || []).flatMap((note: any) => 
+      (note.images || []).map((imgUrl: string) => ({
+        url: imgUrl,
+        taskTitle: task.title,
+        createdAt: note.createdAt,
+        createdByName: note.createdByName
+      }))
+    )
+  );
+
+  const qcNotes = tasks.flatMap((task: any) => 
+    (task.task_notes || [])
+      .filter((note: any) => note.message.startsWith('[QC '))
+      .map((note: any) => {
+        const isPass = note.message.startsWith('[QC VERIFIED]');
+        const cleanMessage = note.message
+          .replace('[QC VERIFIED]', '')
+          .replace('[QC FAILED]', '')
+          .trim();
+        return {
+          id: note.id,
+          taskId: task.id,
+          taskTitle: task.title,
+          isPass,
+          message: cleanMessage,
+          images: note.images || [],
+          createdAt: note.createdAt,
+          createdByName: note.createdByName
+        };
+      })
+  ).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const qcPhotoNotes = qcNotes.filter((qc: any) => qc.images && qc.images.length > 0);
+
+  const handleSyncSelectedPhotos = async () => {
+    if (selectedCcPhotos.length === 0) return;
+    setIsSyncingCcPhotos(true);
+    try {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const apiBase = isLocal 
+        ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
+        : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch(`${apiBase}/jobs/${jobId}/companycam-photos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'x-tenant-id': tenantId
+        },
+        body: JSON.stringify({ urls: selectedCcPhotos })
+      });
+
+      if (res.ok) {
+        toast.success(`Successfully synced ${selectedCcPhotos.length} photos to CompanyCam!`);
+        setShowCcSyncModal(false);
+      } else {
+        toast.error("Failed to sync photos to CompanyCam.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("An error occurred while syncing photos.");
+    } finally {
+      setIsSyncingCcPhotos(false);
+    }
+  };
   const [selectedTaskForPart, setSelectedTaskForPart] = useState<any>(null);
   const [selectedPartForEdit, setSelectedPartForEdit] = useState<any>(null);
   const [taskSearchQuery, setTaskSearchQuery] = useState('');
@@ -170,6 +244,19 @@ export function JobDetailPage({
   const [emailRecipients, setEmailRecipients] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  // Update document title when report modal is open to set default PDF filename
+  useEffect(() => {
+    if (showReportModal) {
+      const originalTitle = document.title;
+      const formattedDate = new Date().toLocaleDateString().replace(/\//g, '-');
+      const newTitle = `${job?.jobNumber || 'NATIVE'}, ${job?.customerName || 'Walk-in'}, ${formattedDate} - progress report`;
+      document.title = newTitle;
+      return () => {
+        document.title = originalTitle;
+      };
+    }
+  }, [showReportModal, job?.jobNumber, job?.customerName]);
 
   // CompanyCam Photos States
   const [ccPhotos, setCcPhotos] = useState<any[]>([]);
@@ -224,6 +311,15 @@ export function JobDetailPage({
     });
     return () => unsub();
   }, [jobId, tenantId]);
+
+  const [hasIntakeForm, setHasIntakeForm] = useState(false);
+  useEffect(() => {
+    if (!tenantId || !jobId) return;
+    const unsub = onSnapshot(doc(db, `businesses/${tenantId}/jobs/${jobId}/intake_form`, 'current'), (snap) => {
+      setHasIntakeForm(snap.exists());
+    });
+    return () => unsub();
+  }, [tenantId, jobId]);
 
   const [vehicle, setVehicle] = useState<any>(null);
 
@@ -674,41 +770,6 @@ export function JobDetailPage({
   };
 
   const [tasksLoaded, setTasksLoaded] = useState(false);
-  const addingGeneralRef = useRef(false);
-
-  // Auto-add "General" task if missing
-  useEffect(() => {
-    if (!jobId || !tenantId || !job || !tasksLoaded) return;
-    
-    const hasGeneral = tasks.some(t => isGeneralTask(t));
-    if (!hasGeneral && !addingGeneralRef.current) {
-      addingGeneralRef.current = true;
-      const addGeneralTask = async () => {
-        try {
-          const q = query(
-            collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`),
-            where('title', '==', 'General')
-          );
-          const snap = await getDocs(q);
-          if (snap.empty) {
-            await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), {
-              title: 'General',
-              description: 'General clock in to job when no task clock in here',
-              bookTime: 0,
-              status: 'pending',
-              tenantId: tenantId,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            });
-          }
-        } catch (e) {
-          console.error("Error adding general task:", e);
-          addingGeneralRef.current = false;
-        }
-      };
-      addGeneralTask();
-    }
-  }, [tasks, tasksLoaded, jobId, tenantId, !!job]);
 
   // Fetch Parts
   useEffect(() => {
@@ -872,9 +933,10 @@ export function JobDetailPage({
 
   const handleTaskStatusChange = async (taskId: string, currentStatus: string, action?: 'pass' | 'fail', bypassVerification = false) => {
     let nextStatus = '';
-    if (currentStatus === 'pending' || currentStatus === 'in_progress' || currentStatus === 'Rework') {
+    const statusLower = (currentStatus || '').toLowerCase();
+    if (statusLower === 'pending' || statusLower === 'in_progress' || statusLower === 'rework') {
       nextStatus = 'QC'; // Mark complete -> Needs QC
-    } else if (currentStatus === 'QC') {
+    } else if (statusLower === 'qc') {
       if (action === 'fail') {
         nextStatus = 'Rework';
       } else {
@@ -1871,6 +1933,37 @@ export function JobDetailPage({
         </div>
 
         <div className="flex items-center gap-2">
+          {(isSuperAdmin || permissions['vehicle_intake.use'] || permissions['jobs.manage'] || permissions['jobs.qc']) && (
+            <button 
+              onClick={() => navigate(`/business/${tenantId}/job/${jobId}/intake`)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 text-white rounded-xl text-sm font-bold shadow-lg transition-all cursor-pointer",
+                hasIntakeForm 
+                  ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20 border border-emerald-500/30"
+                  : "bg-zinc-650 hover:bg-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-500/20"
+              )}
+            >
+              <Car className="w-4 h-4" />
+              {hasIntakeForm ? "View Intake" : "Vehicle Intake"}
+            </button>
+          )}
+          {canPerformQC && (
+            <button 
+              onClick={() => navigate(`/business/${tenantId}/job/${jobId}/qc`)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 text-white rounded-xl text-sm font-bold shadow-lg transition-all",
+                tasks.some(t => t.status === 'QC')
+                  ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20 border border-amber-400/30 animate-pulse"
+                  : "bg-zinc-600 hover:bg-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700 border border-zinc-500/20"
+              )}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              QC Job
+              {tasks.some(t => t.status === 'QC') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+              )}
+            </button>
+          )}
           {(isSuperAdmin || permissions['jobs.manage']) && (
             <>
 
@@ -2666,6 +2759,20 @@ export function JobDetailPage({
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   </div>
+                  <div className="mt-2.5">
+                    <button
+                      onClick={() => navigate(`/business/${tenantId}/job/${jobId}/intake`)}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-bold transition-all border cursor-pointer",
+                        hasIntakeForm 
+                          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20" 
+                          : "bg-white/5 text-zinc-300 border-white/10 hover:bg-white/10"
+                      )}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      {hasIntakeForm ? "Intake Completed" : "Fill Intake Form"}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -3198,6 +3305,19 @@ export function JobDetailPage({
             </div>
             
             <div className="flex items-center gap-2">
+              {allJobPhotos.length > 0 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCcPhotos(allJobPhotos.map(p => p.url));
+                    setShowCcSyncModal(true);
+                  }}
+                  className="self-start sm:self-center flex items-center gap-1.5 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-all shadow-sm font-semibold"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Sync Photos ({allJobPhotos.length})</span>
+                </button>
+              )}
               <button
                 onClick={handleConnectCompanyCam}
                 className="self-start sm:self-center flex items-center gap-1.5 px-4 py-2 bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-950 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-850 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm font-semibold"
@@ -3431,6 +3551,118 @@ export function JobDetailPage({
           onClose={() => setIsETAOpen(false)}
           onSuccess={() => setIsETAOpen(false)}
         />
+      )}
+
+      {showCcSyncModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col gap-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-black text-zinc-900 dark:text-white">Sync Photos to CompanyCam</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Select which photos from UpfittersOS you want to upload to the linked CompanyCam project.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowCcSyncModal(false)}
+                className="bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-400 p-2 rounded-full transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {allJobPhotos.length === 0 ? (
+              <div className="text-center py-12 text-zinc-500 text-sm">
+                No photos found on this job's tasks.
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-xs font-bold border-b border-zinc-100 dark:border-zinc-800 pb-2">
+                  <div className="flex gap-4">
+                    <button 
+                      onClick={() => setSelectedCcPhotos(allJobPhotos.map(p => p.url))}
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      Select All
+                    </button>
+                    <button 
+                      onClick={() => setSelectedCcPhotos([])}
+                      className="text-zinc-500 dark:text-zinc-400 hover:underline"
+                    >
+                      Deselect All
+                    </button>
+                  </div>
+                  <span className="text-zinc-400">
+                    {selectedCcPhotos.length} of {allJobPhotos.length} selected
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto pr-1 my-2 max-h-[45vh]">
+                  {allJobPhotos.map((photo, index) => {
+                    const isSelected = selectedCcPhotos.includes(photo.url);
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedCcPhotos(prev => prev.filter(u => u !== photo.url));
+                          } else {
+                            setSelectedCcPhotos(prev => [...prev, photo.url]);
+                          }
+                        }}
+                        className={cn(
+                          "relative aspect-square rounded-xl overflow-hidden border transition-all text-left group",
+                          isSelected 
+                            ? "border-indigo-500 ring-2 ring-indigo-500/30" 
+                            : "border-zinc-200 dark:border-zinc-800 opacity-60 hover:opacity-90"
+                        )}
+                      >
+                        <img 
+                          src={photo.url} 
+                          alt="Job attachment" 
+                          className="object-cover w-full h-full"
+                        />
+                        <div className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center border border-white/20 shadow-sm transition-all" style={{ backgroundColor: isSelected ? '#4f46e5' : 'rgba(0,0,0,0.4)' }}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="absolute bottom-0 inset-x-0 bg-black/60 p-2 text-[10px] text-white">
+                          <p className="font-bold truncate">{photo.taskTitle}</p>
+                          <p className="opacity-75 truncate">by {photo.createdByName}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+                  <button
+                    onClick={() => setShowCcSyncModal(false)}
+                    className="flex-1 py-3 px-4 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-sm transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={isSyncingCcPhotos || selectedCcPhotos.length === 0}
+                    onClick={handleSyncSelectedPhotos}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-600/55 disabled:cursor-not-allowed text-white py-3 px-4 rounded-xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/10"
+                  >
+                    {isSyncingCcPhotos ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Syncing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4" />
+                        <span>Sync {selectedCcPhotos.length} Photos</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {pendingCompletionTask && (
@@ -3755,13 +3987,6 @@ export function JobDetailPage({
                           </span>
                         </div>
                       </div>
-                      <p className="text-[10px] text-zinc-500 mt-3 pt-2.5 border-t border-zinc-200">
-                        {jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? (
-                          <span>🎉 The team completed this job <strong className="text-emerald-750">{(jobEfficiencyStats.efficiency - 100).toFixed(0)}% more efficiently</strong> than the allotted book time budget.</span>
-                        ) : jobEfficiencyStats.efficiency ? (
-                          <span>⚠️ The job ran <strong className="text-rose-750">{(100 - jobEfficiencyStats.efficiency).toFixed(0)}% over</strong> the budgeted book time allotment.</span>
-                        ) : null}
-                      </p>
                     </div>
                   )}
 
@@ -3829,23 +4054,69 @@ export function JobDetailPage({
                     )}
                   </div>
 
-                  {/* Tasks Done Section */}
+                  {/* Awaiting QC Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      Awaiting QC Inspection
+                    </h2>
+                    {tasks.filter(t => t.status === 'QC').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks awaiting QC.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => t.status === 'QC').map(t => {
+                          const loggedMs = getTaskLoggedMs(t.id);
+                          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title}</h4>
+                                {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                                    Completed by: {(!t.assignedStaff || t.assignedStaff.length === 0) ? (
+                                      'Unassigned'
+                                    ) : (
+                                      t.assignedStaff.map((s: any, idx: number) => (
+                                        <span key={s.userId || s.id || idx}>
+                                          {idx > 0 && ', '}
+                                          {s.name || s.displayName || 'Technician'}
+                                        </span>
+                                      ))
+                                    )}
+                                  </span>
+                                  <span className="text-zinc-300">•</span>
+                                  <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
+                                    Ready for QC
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-zinc-500">{clockedHours.toFixed(1)}h</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QC Verified (Without Photos) Section */}
                   <div className="mb-6 print-no-break">
                     <h2 className="text-xs font-black text-emerald-600 border-b border-emerald-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      What's Done
+                      QC Verified (Without Photos)
                     </h2>
-                    {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').length === 0 ? (
-                      <p className="text-xs text-zinc-400 italic">No tasks completed yet.</p>
+                    {tasks.filter(t => t.status === 'QC Complete' && !qcNotes.some(q => q.taskId === t.id && q.images.length > 0)).length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks verified without photos.</p>
                     ) : (
                       <div className="divide-y divide-zinc-100">
-                        {tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').map(t => {
+                        {tasks.filter(t => t.status === 'QC Complete' && !qcNotes.some(q => q.taskId === t.id && q.images.length > 0)).map(t => {
                           const loggedMs = getTaskLoggedMs(t.id);
                           const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-                          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
-                          const isOverBook = !t.isAccidental && t.title !== 'General' && bookHours > 0 && clockedHours > bookHours;
-                          const diff = clockedHours - bookHours;
                           
+                          const qcNote = qcNotes.find((q: any) => q.taskId === t.id);
+                          const qcByName = t.qcCompletedBy || qcNote?.createdByName;
+
                           return (
                             <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
                               <div>
@@ -3859,37 +4130,17 @@ export function JobDetailPage({
                                       t.assignedStaff.map((s: any, idx: number) => (
                                         <span key={s.userId || s.id || idx}>
                                           {idx > 0 && ', '}
-                                          <StaffLink 
-                                            name={s.name || s.displayName || 'Technician'} 
-                                            tenantId={tenantId} 
-                                            staffId={s.userId || s.id} 
-                                            className="hover:underline hover:text-emerald-800" 
-                                          />
+                                          {s.name || s.displayName || 'Technician'}
                                         </span>
                                       ))
                                     )}
                                   </span>
-                                  {clockedHours === 0 ? (
+                                  {qcByName && (
                                     <>
                                       <span className="text-zinc-300">•</span>
-                                      <span className="px-1.5 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 rounded text-[8px] font-black uppercase tracking-widest border border-zinc-200 dark:border-zinc-700">
-                                        No time logged but complete
+                                      <span className="text-[9px] font-bold text-indigo-650 uppercase tracking-widest">
+                                        QC'd by: {qcByName}
                                       </span>
-                                    </>
-                                  ) : !isGeneralTask(t) && bookHours > 0 && (
-                                    <>
-                                      <span className="text-zinc-300">•</span>
-                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
-                                      {isOverBook ? (
-                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
-                                          <AlertTriangle className="w-2.5 h-2.5" />
-                                          +{diff.toFixed(1)}h Over
-                                        </span>
-                                      ) : (
-                                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[8px] font-black uppercase tracking-widest border border-emerald-100">
-                                          Under Budget
-                                        </span>
-                                      )}
                                     </>
                                   )}
                                 </div>
@@ -3901,6 +4152,72 @@ export function JobDetailPage({
                       </div>
                     )}
                   </div>
+
+                  {/* Quality Control (QC) Section */}
+                  {qcPhotoNotes.length > 0 && (
+                    <div className="mb-6 print-no-break">
+                      <h2 className="text-xs font-black text-indigo-650 border-b border-indigo-200 pb-1 mb-4 uppercase tracking-widest flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                        Quality Control (QC) Inspection
+                      </h2>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {qcPhotoNotes.map((qc: any) => (
+                          <div 
+                            key={qc.id} 
+                            className="border border-zinc-200 rounded-xl overflow-hidden flex flex-col bg-zinc-50/50 print:break-inside-avoid print:bg-white"
+                            style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                          >
+                            {/* Photo (if any) */}
+                            {qc.images && qc.images.length > 0 ? (
+                              <div className="aspect-[4/3] bg-zinc-100 overflow-hidden border-b border-zinc-200">
+                                <img 
+                                  src={qc.images[0]} 
+                                  alt="QC Verification" 
+                                  className="object-cover w-full h-full"
+                                />
+                              </div>
+                            ) : (
+                              <div className="aspect-[4/3] bg-zinc-50 border-b border-zinc-100 flex flex-col items-center justify-center text-zinc-450 gap-1 print:hidden">
+                                <Camera className="w-6 h-6 opacity-30" />
+                                <span className="text-[9px] font-medium">No photo attached</span>
+                              </div>
+                            )}
+
+                            {/* Card Content */}
+                            <div className="p-3 flex-1 flex flex-col justify-between space-y-2 text-[11px]">
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-start gap-1.5">
+                                  <h4 className="font-bold text-zinc-800 line-clamp-2 leading-tight">
+                                    {qc.taskTitle}
+                                  </h4>
+                                  <span className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded font-black uppercase border tracking-wider shrink-0",
+                                    qc.isPass 
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-150" 
+                                      : "bg-rose-50 text-rose-700 border-rose-150"
+                                  )}>
+                                    {qc.isPass ? 'Passed' : 'Failed'}
+                                  </span>
+                                </div>
+
+                                {qc.message && (
+                                  <p className="text-zinc-650 leading-relaxed whitespace-pre-wrap mt-1 print:line-clamp-none">
+                                    {qc.message}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="border-t border-zinc-100 pt-1.5 text-[9px] text-zinc-400 flex flex-col">
+                                <span>Inspector: <strong className="text-zinc-600 font-bold">{qc.createdByName}</strong></span>
+                                <span>Date: {new Date(qc.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Active Job Notes Section */}
                   <div className="mb-6 print-no-break">
@@ -3920,6 +4237,37 @@ export function JobDetailPage({
                             </p>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Print QR Codes Footer */}
+                  <div className="mt-8 pt-6 border-t-2 border-zinc-200 flex justify-end items-center gap-8 print-no-break">
+                    <div className="flex items-center gap-3 text-right">
+                      <div>
+                        <h4 className="text-xs font-bold text-zinc-800">Scan to View Job</h4>
+                        <p className="text-[9px] text-zinc-400 mt-0.5 font-medium">Open in UpfittersOS</p>
+                      </div>
+                      <LogoQRCode 
+                        value={`${window.location.origin}/business/${tenantId}/job/${jobId}`} 
+                        size={60} 
+                        logoUrl={businessLogo}
+                        businessName={businessName}
+                        type="job"
+                      />
+                    </div>
+
+                    {(job.companyCamId || job.companyCamProjectId) && (
+                      <div className="flex items-center gap-3 text-right">
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-800">Scan to View Photos</h4>
+                          <p className="text-[9px] text-zinc-400 mt-0.5 font-medium">Open in CompanyCam</p>
+                        </div>
+                        <LogoQRCode 
+                          value={`https://app.companycam.com/projects/${job.companyCamId || job.companyCamProjectId}`} 
+                          size={60} 
+                          businessName="CC"
+                          type="general"
+                        />
                       </div>
                     )}
                   </div>

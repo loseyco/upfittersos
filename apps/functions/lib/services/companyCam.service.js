@@ -47,22 +47,34 @@ class CompanyCamService {
     // Dynamically fetch the individual user's CompanyCam API tokens for the specific workspace from Firestore
     async getUserTokens() {
         var _a;
+        // 1. Try user tokens first
         const doc = await admin.firestore().collection('users').doc(this.userId).get();
-        if (!doc.exists) {
-            throw new Error(`User ${this.userId} not found.`);
+        if (doc.exists) {
+            const data = doc.data();
+            const tenantAuth = (_a = data === null || data === void 0 ? void 0 : data.companyCamAuth) === null || _a === void 0 ? void 0 : _a[this.tenantId];
+            if (tenantAuth === null || tenantAuth === void 0 ? void 0 : tenantAuth.token) {
+                return {
+                    access: tenantAuth.token,
+                    refresh: tenantAuth.refresh || ''
+                };
+            }
         }
-        const data = doc.data();
-        const tenantAuth = (_a = data === null || data === void 0 ? void 0 : data.companyCamAuth) === null || _a === void 0 ? void 0 : _a[this.tenantId];
-        if (!(tenantAuth === null || tenantAuth === void 0 ? void 0 : tenantAuth.token)) {
-            throw new Error(`CompanyCam is not configured for user ${this.userId} in this workspace.`);
+        // 2. Fall back to business/tenant level token
+        const bizDoc = await admin.firestore().collection('businesses').doc(this.tenantId).get();
+        if (bizDoc.exists) {
+            const bizData = bizDoc.data();
+            if (bizData === null || bizData === void 0 ? void 0 : bizData.companyCamToken) {
+                return {
+                    access: bizData.companyCamToken,
+                    refresh: bizData.companyCamRefreshToken || ''
+                };
+            }
         }
-        return {
-            access: tenantAuth.token,
-            refresh: tenantAuth.refresh || ''
-        };
+        throw new Error(`CompanyCam is not configured for user ${this.userId} or workspace ${this.tenantId}.`);
     }
     // Refreshes the token and saves the new ones to Firestore
     async refreshToken(refreshToken) {
+        var _a, _b, _c;
         if (!refreshToken)
             throw new Error("No refresh token available");
         const clientId = process.env.COMPANYCAM_CLIENT_ID || 'PLACEHOLDER_CLIENT_ID';
@@ -81,15 +93,27 @@ class CompanyCamService {
             throw new Error(`Failed to refresh token: ${response.statusText}`);
         }
         const data = await response.json();
-        // Save new tokens securely to the user's profile mapped to this specific tenant
-        await admin.firestore().collection('users').doc(this.userId).set({
-            companyCamAuth: {
-                [this.tenantId]: {
-                    token: data.access_token,
-                    refresh: data.refresh_token
+        // Check if the user document already has a personal token. If so, update that.
+        const userDoc = await admin.firestore().collection('users').doc(this.userId).get();
+        const hasUserToken = userDoc.exists && ((_c = (_b = (_a = userDoc.data()) === null || _a === void 0 ? void 0 : _a.companyCamAuth) === null || _b === void 0 ? void 0 : _b[this.tenantId]) === null || _c === void 0 ? void 0 : _c.token);
+        if (hasUserToken) {
+            // Save new tokens securely to the user's profile mapped to this specific tenant
+            await admin.firestore().collection('users').doc(this.userId).set({
+                companyCamAuth: {
+                    [this.tenantId]: {
+                        token: data.access_token,
+                        refresh: data.refresh_token
+                    }
                 }
-            }
-        }, { merge: true });
+            }, { merge: true });
+        }
+        else {
+            // Save to business/tenant document
+            await admin.firestore().collection('businesses').doc(this.tenantId).set({
+                companyCamToken: data.access_token,
+                companyCamRefreshToken: data.refresh_token
+            }, { merge: true });
+        }
         return data.access_token;
     }
     async fetch(endpoint, options, isRetry = false) {

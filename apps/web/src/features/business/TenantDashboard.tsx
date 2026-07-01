@@ -58,6 +58,8 @@ import { QuickBooksAudit } from './QuickBooksAudit';
 import { QBJobDetailsPlaceholder } from './QBJobDetailsPlaceholder';
 import { JobDetailPage } from './JobDetailPage';
 import { JobEditPage } from './JobEditPage';
+import { JobQCPage } from './JobQCPage';
+import { JobIntakeFormPage } from './JobIntakeFormPage';
 import { TaskDetailPage } from './TaskDetailPage';
 import { VendorsManager } from './VendorsManager';
 import { FeedbackReports } from '../super-admin/FeedbackReports';
@@ -583,6 +585,18 @@ export function TenantDashboard() {
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
               <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+            )}
+
+            {activeTab === 'job' && pathParts[2] === 'qc' && (
+              <PermissionGate permission="jobs.qc">
+                <JobQCPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'job' && pathParts[2] === 'intake' && (
+              <PermissionGate permission="vehicle_intake.use">
+                <JobIntakeFormPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              </PermissionGate>
             )}
 
             {activeTab === 'job' && (pathParts[2] === 'edit' || pathParts[1] === 'create') && (

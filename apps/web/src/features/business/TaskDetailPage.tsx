@@ -877,9 +877,10 @@ export function TaskDetailPage({
 
   const handleTaskStatusChange = async (currentStatus: string, action?: 'pass' | 'fail', bypassVerification = false) => {
     let nextStatus = '';
-    if (currentStatus === 'pending' || currentStatus === 'in_progress' || currentStatus === 'Blocked' || currentStatus === 'Rework') {
+    const statusLower = (currentStatus || '').toLowerCase();
+    if (statusLower === 'pending' || statusLower === 'in_progress' || statusLower === 'blocked' || statusLower === 'rework') {
       nextStatus = 'QC'; 
-    } else if (currentStatus === 'QC') {
+    } else if (statusLower === 'qc') {
       if (action === 'fail') {
         nextStatus = 'Rework';
       } else {

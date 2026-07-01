@@ -89,10 +89,10 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
     }
   }, [isOpen, value, qbItems]);
 
-  const filtered = qbItems
-    .map(item => item.FullName || item.Name || '')
+  const filtered = (qbItems || [])
+    .map(item => item?.FullName || item?.Name || '')
     .filter((name, idx, self) => name && self.indexOf(name) === idx) // Unique list of names
-    .filter(name => name.toLowerCase().includes(value.toLowerCase()));
+    .filter(name => name.toLowerCase().includes((value || '').toLowerCase()));
 
   const handleSelect = (val: string) => {
     onChange(val);

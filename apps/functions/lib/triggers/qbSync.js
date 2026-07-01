@@ -36,6 +36,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onQbTimeTrackingWrite = exports.onQbEmployeeWrite = exports.onQbJobWrite = exports.onQbCustomerWrite = void 0;
 const functions = __importStar(require("firebase-functions"));
 const admin = __importStar(require("firebase-admin"));
+const parseTimestamp = (val) => {
+    if (!val)
+        return null;
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : admin.firestore.Timestamp.fromDate(d);
+};
 /**
  * Trigger: When a document in qb_customers is created or updated.
  * Goal: Promote to the clean 'customers' collection.
@@ -50,6 +56,8 @@ exports.onQbCustomerWrite = functions.firestore
     const data = change.after.data();
     if (!data)
         return null;
+    const timeModified = parseTimestamp(data.TimeModified) || admin.firestore.FieldValue.serverTimestamp();
+    const timeCreated = parseTimestamp(data.TimeCreated) || admin.firestore.FieldValue.serverTimestamp();
     // Map to V2 Customer Schema
     const mappedData = {
         firstName: data.FirstName || '',
@@ -62,7 +70,8 @@ exports.onQbCustomerWrite = functions.firestore
         source: 'QuickBooks',
         tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
         notes: 'Imported via QBWC.',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: timeCreated,
+        updatedAt: timeModified
     };
     const destRef = admin.firestore().collection('businesses').doc(tenantId).collection('customers').doc(customerId);
     try {
@@ -125,6 +134,8 @@ exports.onQbJobWrite = functions.firestore
     else if (data.CompanyName) {
         qbCustomerName = data.CompanyName;
     }
+    const timeModified = parseTimestamp(data.TimeModified) || admin.firestore.FieldValue.serverTimestamp();
+    const timeCreated = parseTimestamp(data.TimeCreated) || admin.firestore.FieldValue.serverTimestamp();
     // 2. Promote to Job Collection (V2 Schema)
     const jobMappedData = {
         title: data.Name || data.FullName || 'Untitled Job',
@@ -137,10 +148,12 @@ exports.onQbJobWrite = functions.firestore
         tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
         notes: 'Imported via QBWC.',
         vehicleId: vin, // Store the link!
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: timeCreated,
+        updatedAt: timeModified
     };
     let jobDestRef = admin.firestore().collection('businesses').doc(tenantId).collection('jobs').doc(jobId);
-    // If we have a job number, try to find an existing native job to merge with
+    let matchedDoc = null;
+    // 1. Try matching by Job Number first
     if (qbJobNumber) {
         try {
             const existingQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
@@ -148,13 +161,34 @@ exports.onQbJobWrite = functions.firestore
                 .limit(1)
                 .get();
             if (!existingQuery.empty) {
-                // If we find an existing job by number, we use its ref instead of creating a new ListID-based one
-                jobDestRef = existingQuery.docs[0].ref;
+                matchedDoc = existingQuery.docs[0];
+                jobDestRef = matchedDoc.ref;
                 console.log(`Merging QB Job ${jobId} into existing job ${jobDestRef.id} via job number ${qbJobNumber}`);
             }
         }
         catch (err) {
             console.error(`Failed to check for existing job with number ${qbJobNumber}`, err);
+        }
+    }
+    // 2. Fallback to matching by title/name (case-sensitive exact match)
+    if (!matchedDoc) {
+        try {
+            const titleMatches = [data.Name, data.FullName].filter(Boolean);
+            for (const t of titleMatches) {
+                const titleQuery = await admin.firestore().collection('businesses').doc(tenantId).collection('jobs')
+                    .where('title', '==', t)
+                    .limit(1)
+                    .get();
+                if (!titleQuery.empty) {
+                    matchedDoc = titleQuery.docs[0];
+                    jobDestRef = matchedDoc.ref;
+                    console.log(`Merging QB Job ${jobId} into existing job ${jobDestRef.id} via title matching "${t}"`);
+                    break;
+                }
+            }
+        }
+        catch (err) {
+            console.error(`Failed to check for existing job by title matching`, err);
         }
     }
     // Check existing document and tasks for setup requirements
@@ -225,7 +259,8 @@ exports.onQbJobWrite = functions.firestore
             customerId: jobMappedData.customerId,
             source: 'QuickBooks',
             tags: admin.firestore.FieldValue.arrayUnion('QuickBooks'),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: timeCreated,
+            updatedAt: timeModified
         };
         try {
             await vehicleRef.set(vehiclePayload, { merge: true });

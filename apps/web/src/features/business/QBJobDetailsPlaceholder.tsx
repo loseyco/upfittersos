@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   collection, 
   query, 
@@ -12,7 +12,8 @@ import {
   doc,
   updateDoc,
   serverTimestamp,
-  startAfter
+  startAfter,
+  deleteDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage, auth } from '../../lib/firebase/config';
@@ -63,6 +64,11 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
   const [lastVisibleDoc, setLastVisibleDoc] = useState<any>(null);
   const [hasMoreJobs, setHasMoreJobs] = useState(true);
   const [isLoadingMoreJobs, setIsLoadingMoreJobs] = useState(false);
+  const [potentialMergeJob, setPotentialMergeJob] = useState<any | null>(null);
+  const [isMerging, setIsMerging] = useState(false);
+  const [isDebugExpanded, setIsDebugExpanded] = useState(false);
+  const [rawQbJob, setRawQbJob] = useState<any | null>(null);
+  const [activeDebugTab, setActiveDebugTab] = useState<'unified' | 'qb' | 'estimates' | 'invoices' | 'pos'>('unified');
 
   const [searchParams, setSearchParams] = useSearchParams();
   const urlJobId = searchParams.get('id');
@@ -143,6 +149,17 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     .reduce((sum: number, t: any) => sum + (Number(t.bookTime ?? t.bookHours) || 0), 0);
 
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  
+  const isSyncStale = (() => {
+    if (!lastSyncTime) return false;
+    try {
+      const syncDate = new Date(lastSyncTime);
+      const diffMs = Date.now() - syncDate.getTime();
+      return diffMs > 24 * 60 * 60 * 1000; // 24 hours
+    } catch (e) {
+      return false;
+    }
+  })();
   
   const [isLoadingJobs, setIsLoadingJobs] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
@@ -459,16 +476,83 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
       setIsLoadingJobs(true);
       try {
         const jobsRef = collection(db, `businesses/${tenantId}/jobs`);
-        let q = query(jobsRef, orderBy('createdAt', 'desc'), limit(25));
-        if (searchQuery.trim().length > 0) {
-          // Fetch up to 150 jobs to support searching older jobs server-side
-          q = query(jobsRef, orderBy('createdAt', 'desc'), limit(150));
+        const trimmedSearch = searchQuery.trim();
+        let list: any[] = [];
+        let snap;
+
+        if (trimmedSearch.length > 0) {
+          const queries = [];
+          
+          // 1. Prefix query on jobNumber
+          queries.push(
+            query(
+              jobsRef,
+              where('jobNumber', '>=', trimmedSearch),
+              where('jobNumber', '<=', trimmedSearch + '\uf8ff'),
+              limit(50)
+            )
+          );
+
+          // 2. Prefix query on title
+          queries.push(
+            query(
+              jobsRef,
+              where('title', '>=', trimmedSearch),
+              where('title', '<=', trimmedSearch + '\uf8ff'),
+              limit(50)
+            )
+          );
+
+          // 3. Prefix query on vin (case-insensitive by querying upper-case version too)
+          queries.push(
+            query(
+              jobsRef,
+              where('vin', '>=', trimmedSearch.toUpperCase()),
+              where('vin', '<=', trimmedSearch.toUpperCase() + '\uf8ff'),
+              limit(50)
+            )
+          );
+
+          // Execute queries in parallel and catch any index/query errors
+          const snaps = await Promise.all(
+            queries.map(q => 
+              getDocs(q).catch(err => {
+                console.warn("Search subquery failed:", err);
+                return null;
+              })
+            )
+          );
+
+          snaps.forEach(s => {
+            if (!s) return;
+            s.docs.forEach(doc => {
+              const data = { id: doc.id, ...doc.data() };
+              if (!list.some(item => item.id === data.id)) {
+                list.push(data);
+              }
+            });
+          });
+
+          // 4. Fallback: also pull recent 200 jobs for client-side case-insensitive fuzzy matching
+          try {
+            const qRecent = query(jobsRef, orderBy('createdAt', 'desc'), limit(200));
+            const snapRecent = await getDocs(qRecent);
+            const recentList = snapRecent.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            recentList.forEach(job => {
+              if (!list.some(m => m.id === job.id)) {
+                list.push(job);
+              }
+            });
+          } catch (err) {
+            console.error('Error fetching fallback recent jobs:', err);
+          }
+        } else {
+          // No search query: fetch initial recent page
+          const qRecent = query(jobsRef, orderBy('createdAt', 'desc'), limit(50));
+          snap = await getDocs(qRecent);
+          list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         }
-        const snap = await getDocs(q);
-        const list = snap.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
 
         // If there is a deep-linked job ID, ensure it is fetched and included in the jobs state
         if (urlJobId && !list.some(j => j.id === urlJobId)) {
@@ -488,9 +572,9 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
 
         setJobs(list);
         
-        if (searchQuery.trim().length === 0) {
+        if (trimmedSearch.length === 0 && snap) {
           setLastVisibleDoc(snap.docs[snap.docs.length - 1] || null);
-          setHasMoreJobs(snap.docs.length === 25);
+          setHasMoreJobs(snap.docs.length === 50);
         } else {
           setLastVisibleDoc(null);
           setHasMoreJobs(false);
@@ -511,7 +595,7 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
   }, [searchQuery, tenantId]);
 
   // Fetch subsequent pages of jobs (lazy load on scroll)
-  const fetchMoreJobs = async () => {
+  const fetchMoreJobs = useCallback(async () => {
     if (isLoadingMoreJobs || !hasMoreJobs || !lastVisibleDoc || searchQuery.trim().length > 0) return;
     setIsLoadingMoreJobs(true);
     try {
@@ -520,7 +604,7 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
         jobsRef, 
         orderBy('createdAt', 'desc'), 
         startAfter(lastVisibleDoc), 
-        limit(25)
+        limit(50)
       );
       const snap = await getDocs(q);
       if (!snap.empty) {
@@ -530,7 +614,7 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
         }));
         setJobs(prev => [...prev, ...newJobs]);
         setLastVisibleDoc(snap.docs[snap.docs.length - 1]);
-        setHasMoreJobs(snap.docs.length === 25);
+        setHasMoreJobs(snap.docs.length === 50);
       } else {
         setHasMoreJobs(false);
       }
@@ -539,7 +623,7 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     } finally {
       setIsLoadingMoreJobs(false);
     }
-  };
+  }, [isLoadingMoreJobs, hasMoreJobs, lastVisibleDoc, searchQuery, tenantId]);
 
   const handleSidebarScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -656,6 +740,168 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     };
   }, [selectedJob?.id, tenantId]);
 
+  // Find potential matching job of the opposite type (Native vs QuickBooks) to suggest merging
+  useEffect(() => {
+    if (!selectedJob || !tenantId) {
+      setPotentialMergeJob(null);
+      return;
+    }
+
+    async function findPotentialMerge() {
+      setPotentialMergeJob(null);
+      try {
+        const isSelectedNative = selectedJob.source === 'Native' || !selectedJob.quickbooksId;
+        const targetSource = isSelectedNative ? 'QuickBooks' : 'Native';
+        const jobsRef = collection(db, `businesses/${tenantId}/jobs`);
+        
+        // 1. Try matching by Job Number in Firestore
+        if (selectedJob.jobNumber) {
+          const qNum = query(
+            jobsRef,
+            where('source', '==', targetSource),
+            where('jobNumber', '==', String(selectedJob.jobNumber))
+          );
+          const snapNum = await getDocs(qNum);
+          if (!snapNum.empty) {
+            setPotentialMergeJob({ id: snapNum.docs[0].id, ...snapNum.docs[0].data() });
+            return;
+          }
+        }
+
+        // 2. Try matching by exact Title in Firestore
+        if (selectedJob.title) {
+          const qTitle = query(
+            jobsRef,
+            where('source', '==', targetSource),
+            where('title', '==', selectedJob.title)
+          );
+          const snapTitle = await getDocs(qTitle);
+          if (!snapTitle.empty) {
+            setPotentialMergeJob({ id: snapTitle.docs[0].id, ...snapTitle.docs[0].data() });
+            return;
+          }
+        }
+
+        // 3. Try fuzzy/similar matching on the locally loaded jobs
+        const cleanTitle = (t: string) => (t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const selectedClean = cleanTitle(selectedJob.title);
+        
+        const localMatch = jobs.find(job => {
+          if (job.id === selectedJob.id) return false;
+          const isJobNative = job.source === 'Native' || !job.quickbooksId;
+          const jobSource = isJobNative ? 'Native' : 'QuickBooks';
+          if (jobSource !== targetSource) return false;
+
+          // Check similar title
+          const jobClean = cleanTitle(job.title);
+          if (selectedClean && jobClean && (selectedClean === jobClean || selectedClean.includes(jobClean) || jobClean.includes(selectedClean))) {
+            return true;
+          }
+          return false;
+        });
+
+        if (localMatch) {
+          setPotentialMergeJob(localMatch);
+        }
+      } catch (err) {
+        console.error('Error finding potential merge job:', err);
+      }
+    }
+
+    findPotentialMerge();
+  }, [selectedJob?.id, tenantId, jobs]);
+
+  // Execute job merge: transfer tasks, parts, time sessions from Native to QuickBooks job
+  const handleMergeJobs = async () => {
+    if (!selectedJob || !potentialMergeJob || !tenantId) return;
+
+    const isSelectedNative = selectedJob.source === 'Native' || !selectedJob.quickbooksId;
+    const nativeJob = isSelectedNative ? selectedJob : potentialMergeJob;
+    const qbJob = isSelectedNative ? potentialMergeJob : selectedJob;
+
+    const confirmMerge = window.confirm(
+      `Are you sure you want to merge the native job "${nativeJob.title}" into the QuickBooks job "${qbJob.title}"?\n\nThis will transfer all tasks, parts requests, and time clock sessions to the QuickBooks job and delete the native job.`
+    );
+    if (!confirmMerge) return;
+
+    setIsMerging(true);
+    try {
+      // 1. Transfer Tasks
+      const nativeTasksRef = collection(db, `businesses/${tenantId}/jobs/${nativeJob.id}/tasks`);
+      const qbTasksRef = collection(db, `businesses/${tenantId}/jobs/${qbJob.id}/tasks`);
+      const tasksSnap = await getDocs(nativeTasksRef);
+      
+      const taskPromises = tasksSnap.docs.map(async (taskDoc) => {
+        const taskData = taskDoc.data();
+        // Create the task in the QB job
+        await addDoc(qbTasksRef, {
+          ...taskData,
+          mergedFromJobId: nativeJob.id,
+          mergedAt: serverTimestamp()
+        });
+      });
+      await Promise.all(taskPromises);
+
+      // 2. Transfer Parts Requests
+      const partsRef = collection(db, `businesses/${tenantId}/parts_requests`);
+      const partsQuery = query(partsRef, where('jobId', '==', nativeJob.id));
+      const partsSnap = await getDocs(partsQuery);
+      const partPromises = partsSnap.docs.map(async (partDoc) => {
+        await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, partDoc.id), {
+          jobId: qbJob.id,
+          mergedFromJobId: nativeJob.id,
+          updatedAt: serverTimestamp()
+        });
+      });
+      await Promise.all(partPromises);
+
+      // 3. Transfer Time Sessions
+      const timeRef = collection(db, `businesses/${tenantId}/time_sessions`);
+      const timeQuery = query(timeRef, where('jobIds', 'array-contains', nativeJob.id));
+      const timeSnap = await getDocs(timeQuery);
+      const timePromises = timeSnap.docs.map(async (timeDoc) => {
+        const timeData = timeDoc.data();
+        const updatedJobIds = (timeData.jobIds || []).map((id: string) => 
+          id === nativeJob.id ? qbJob.id : id
+        );
+        const uniqueJobIds = Array.from(new Set(updatedJobIds));
+        await updateDoc(doc(db, `businesses/${tenantId}/time_sessions`, timeDoc.id), {
+          jobIds: uniqueJobIds,
+          updatedAt: serverTimestamp()
+        });
+      });
+      await Promise.all(timePromises);
+
+      // 4. Update QB Job fields if needed
+      const qbJobUpdates: any = {};
+      if (nativeJob.companyCamId && !qbJob.companyCamId) {
+        qbJobUpdates.companyCamId = nativeJob.companyCamId;
+      }
+      if (nativeJob.notes) {
+        qbJobUpdates.notes = qbJob.notes ? `${qbJob.notes}\nMerged Notes: ${nativeJob.notes}` : nativeJob.notes;
+      }
+      if (Object.keys(qbJobUpdates).length > 0) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, qbJob.id), qbJobUpdates);
+      }
+
+      // 5. Delete Native Job
+      await deleteDoc(doc(db, `businesses/${tenantId}/jobs`, nativeJob.id));
+
+      toast.success('Jobs merged successfully!');
+      
+      // Update local jobs list state
+      setJobs(prev => prev.filter(j => j.id !== nativeJob.id));
+      
+      // Select the merged QuickBooks job
+      setSearchParams({ id: qbJob.id, tab: 'overview' }, { replace: true });
+    } catch (err) {
+      console.error('Error merging jobs:', err);
+      toast.error('Failed to merge jobs.');
+    } finally {
+      setIsMerging(false);
+    }
+  };
+
   // Fetch QuickBooks Details (one-time query) for the selected job
   useEffect(() => {
     if (!selectedJob || !tenantId) return;
@@ -665,6 +911,8 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
       setEstimates([]);
       setInvoices([]);
       setPurchaseOrders([]);
+      setRawQbJob(null);
+      setActiveDebugTab('unified');
 
       const jobQbId = selectedJob.quickbooksId || selectedJob.id;
 
@@ -674,19 +922,64 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
         let matchedPos: any[] = [];
 
         if (jobQbId && !jobQbId.startsWith('job_')) {
+          // Helper to check if an Estimate/Invoice/PO matches the selected job precisely
+          const matchJob = (txn: any) => {
+            // 1. VIN-based matching (Strongest Check)
+            const jobVin = (
+              selectedJob.vehicleId || 
+              selectedJob.vehicle?.vin || 
+              selectedJob.qbCustomFields?.vin || 
+              selectedJob.qbCustomFields?.['VIN num'] || 
+              ''
+            ).trim().toUpperCase();
+
+            let txnVin = (txn.qbCustomFields?.vin || txn.qbCustomFields?.['VIN num'] || '').trim().toUpperCase();
+            if (!txnVin && txn.DataExtRet) {
+              const exts = Array.isArray(txn.DataExtRet) ? txn.DataExtRet : [txn.DataExtRet];
+              const vinExt = exts.find((e: any) => e.DataExtName === 'VIN num' || e.DataExtName === 'vin');
+              if (vinExt) {
+                txnVin = (vinExt.DataExtValue || '').trim().toUpperCase();
+              }
+            }
+
+            // If both have a VIN and they don't match, this is NOT the correct job!
+            if (jobVin && txnVin && jobVin !== txnVin) {
+              return false;
+            }
+
+            // If both have a VIN and they match, that is a direct match
+            if (jobVin && txnVin && jobVin === txnVin) {
+              return true;
+            }
+
+            // 2. Fallback to ID and Path/Segment matching
+            if (txn.customerRef === jobQbId || txn.CustomerRef?.ListID === jobQbId) return true;
+            
+            const fullName = (txn.CustomerRef?.FullName || '').toLowerCase();
+            const parts = fullName.split(':').map((p: string) => p.trim());
+            
+            // Match if the job number is an exact segment (e.g. "9461433")
+            if (selectedJob.jobNumber) {
+              const jobNum = selectedJob.jobNumber.toLowerCase().trim();
+              if (parts.includes(jobNum)) return true;
+            }
+            
+            // Match if the leaf node matches the job title exactly (prevent matching parent customer names)
+            if (selectedJob.title && parts.length > 0) {
+              const leafNode = parts[parts.length - 1];
+              if (leafNode === selectedJob.title.toLowerCase().trim()) return true;
+            }
+            
+            return false;
+          };
+
           // 1. Fetch Estimates
           const estRef = collection(db, `businesses/${tenantId}/qb_estimates`);
           const estQuery = query(estRef, orderBy('txnDate', 'desc'), limit(150));
           const estSnap = await getDocs(estQuery);
           const allEsts = estSnap.docs.map(d => ({ id: d.id, ...d.data() }));
           
-          estList = allEsts.filter((est: any) => {
-            if (est.customerRef === jobQbId || est.CustomerRef?.ListID === jobQbId) return true;
-            const fullName = (est.CustomerRef?.FullName || '').toLowerCase();
-            if (selectedJob.title && fullName.includes(selectedJob.title.toLowerCase())) return true;
-            if (selectedJob.jobNumber && fullName.includes(selectedJob.jobNumber.toLowerCase())) return true;
-            return false;
-          });
+          estList = allEsts.filter(matchJob);
           
           // 2. Fetch Invoices
           const invRef = collection(db, `businesses/${tenantId}/qb_invoices`);
@@ -694,33 +987,38 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
           const invSnap = await getDocs(invQuery);
           const allInvs = invSnap.docs.map(d => ({ id: d.id, ...d.data() }));
           
-          invList = allInvs.filter((inv: any) => {
-            if (inv.customerRef === jobQbId || inv.CustomerRef?.ListID === jobQbId) return true;
-            const fullName = (inv.CustomerRef?.FullName || '').toLowerCase();
-            if (selectedJob.title && fullName.includes(selectedJob.title.toLowerCase())) return true;
-            if (selectedJob.jobNumber && fullName.includes(selectedJob.jobNumber.toLowerCase())) return true;
-            return false;
-          });
-
+          invList = allInvs.filter(matchJob);
+ 
           // 3. Fetch Purchase Orders
           const poRef = collection(db, `businesses/${tenantId}/qb_purchase_orders`);
           const poQuery = query(poRef, orderBy('txnDate', 'desc'), limit(150));
           const poSnap = await getDocs(poQuery);
           const allPos = poSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
+ 
           matchedPos = allPos.filter((po: any) => {
-            if (po.customerRef === jobQbId || po.CustomerRef?.ListID === jobQbId) return true;
-            const fullName = (po.CustomerRef?.FullName || '').toLowerCase();
-            if (selectedJob.title && fullName.includes(selectedJob.title.toLowerCase())) return true;
-            if (selectedJob.jobNumber && fullName.includes(selectedJob.jobNumber.toLowerCase())) return true;
+            // Match PO header
+            if (matchJob(po)) return true;
             
+            // Match PO line items
             const lines = getLineItems(po, 'purchaseOrder');
             return lines.some((line: any) => {
               const lineListId = line.CustomerRef?.ListID;
+              if (lineListId === jobQbId) return true;
+              
               const lineFullName = (line.CustomerRef?.FullName || '').toLowerCase();
-              return lineListId === jobQbId || 
-                (selectedJob.title && lineFullName.includes(selectedJob.title.toLowerCase())) ||
-                (selectedJob.jobNumber && lineFullName.includes(selectedJob.jobNumber.toLowerCase()));
+              const lineParts = lineFullName.split(':').map((p: string) => p.trim());
+              
+              if (selectedJob.jobNumber) {
+                const jobNum = selectedJob.jobNumber.toLowerCase().trim();
+                if (lineParts.includes(jobNum)) return true;
+              }
+              
+              if (selectedJob.title && lineParts.length > 0) {
+                const leafNode = lineParts[lineParts.length - 1];
+                if (leafNode === selectedJob.title.toLowerCase().trim()) return true;
+              }
+              
+              return false;
             });
           });
         }
@@ -729,7 +1027,24 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
         setInvoices(invList);
         setPurchaseOrders(matchedPos);
 
-
+        // 4. Fetch raw QuickBooks job document
+        if (jobQbId && !jobQbId.startsWith('job_')) {
+          try {
+            const rawQbRef = doc(db, `businesses/${tenantId}/qb_jobs`, jobQbId);
+            const rawQbSnap = await getDoc(rawQbRef);
+            if (rawQbSnap.exists()) {
+              setRawQbJob({ id: rawQbSnap.id, ...rawQbSnap.data() });
+            } else if (selectedJob.quickbooksId && selectedJob.quickbooksId !== jobQbId) {
+              const rawQbRef2 = doc(db, `businesses/${tenantId}/qb_jobs`, selectedJob.quickbooksId);
+              const rawQbSnap2 = await getDoc(rawQbRef2);
+              if (rawQbSnap2.exists()) {
+                setRawQbJob({ id: rawQbSnap2.id, ...rawQbSnap2.data() });
+              }
+            }
+          } catch (rawQbErr) {
+            console.error('Error fetching raw QB job:', rawQbErr);
+          }
+        }
 
       } catch (err) {
         console.error('Error fetching job details:', err);
@@ -830,57 +1145,109 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     if (!selectedJob || !tenantId || laborLines.length === 0 || isLoadingDetails) return;
 
     const syncLaborTasks = async () => {
-      // Find labor lines from Estimates
+      // Prioritize Estimate labor lines; fall back to Invoice labor lines if no Estimates exist
       const estimateLaborLines = laborLines.filter(line => line.txnType === 'estimate');
-      if (estimateLaborLines.length === 0) return;
-
-      // Group estimate labor lines by item name and sum their quantities
-      const estimateLaborGroup: Record<string, { item: string; description: string; qty: number; refNumber: string }> = {};
-      estimateLaborLines.forEach(line => {
-        const key = line.item.toLowerCase();
-        if (estimateLaborGroup[key]) {
-          estimateLaborGroup[key].qty += line.qty;
-        } else {
-          estimateLaborGroup[key] = {
-            item: line.item,
-            description: line.description,
-            qty: line.qty,
-            refNumber: line.refNumber
-          };
-        }
-      });
+      const invoiceLaborLines = laborLines.filter(line => line.txnType === 'invoice');
+      const linesToSync = estimateLaborLines.length > 0 ? estimateLaborLines : invoiceLaborLines;
+      
+      if (linesToSync.length === 0) return;
 
       try {
-        const groups = Object.values(estimateLaborGroup);
-        const batchPromises = groups.map(async (groupItem) => {
-          // Check if a task with this name already exists in nativeTasks
+        const matchedTaskIds: string[] = [];
+        
+        // Map each labor line item 1-to-1 to a task, keeping their original order
+        const batchPromises = linesToSync.map(async (lineItem, index) => {
+          const itemTitle = lineItem.item;
+          const lineDescription = lineItem.description || `Labor line item from QuickBooks #${lineItem.refNumber}`;
+          const targetSortOrder = index * 10;
+
+          // Find an existing task that matches this line's item and description
           const existingTask = nativeTasks.find((t: any) => 
-            t.name?.toLowerCase() === groupItem.item.toLowerCase() ||
-            (t.title && t.title.toLowerCase() === groupItem.item.toLowerCase())
+            t.source === 'QuickBooks Sync' &&
+            !matchedTaskIds.includes(t.id) &&
+            (
+              // Match by original qbItemName and description
+              (t.qbItemName?.toLowerCase() === lineItem.item.toLowerCase() && (t.description || '').toLowerCase() === lineItem.description.toLowerCase()) ||
+              // Fallback for legacy tasks that were matched only by item name
+              (t.name?.toLowerCase() === lineItem.item.toLowerCase() && !t.qbItemName)
+            )
           );
 
           if (!existingTask) {
-            console.log(`Auto-creating native task for QuickBooks labor item: ${groupItem.item}`);
+            console.log(`Auto-creating native task for QuickBooks labor item: ${lineItem.item} at index ${index}`);
             const tasksRef = collection(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`);
-            await addDoc(tasksRef, {
-              name: groupItem.item,
-              description: groupItem.description || `Labor line item from QuickBooks Estimate #${groupItem.refNumber}`,
-              bookTime: groupItem.qty,
+            const docRef = await addDoc(tasksRef, {
+              name: itemTitle,
+              title: itemTitle,
+              description: lineDescription,
+              qbItemName: lineItem.item,
+              bookTime: lineItem.qty,
+              sortOrder: targetSortOrder,
               payBasis: 'book_time',
               status: 'Pending',
               source: 'QuickBooks Sync',
               createdAt: serverTimestamp()
             });
-          } else if (existingTask.bookTime !== groupItem.qty) {
-            console.log(`Updating book time for existing task ${existingTask.id} to ${groupItem.qty} hrs`);
-            const taskRef = doc(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`, existingTask.id);
-            await updateDoc(taskRef, {
-              bookTime: groupItem.qty
-            });
+            matchedTaskIds.push(docRef.id);
+          } else {
+            matchedTaskIds.push(existingTask.id);
+            
+            // Update fields if they changed
+            const updates: any = {};
+            if (existingTask.bookTime !== lineItem.qty) {
+              updates.bookTime = lineItem.qty;
+            }
+            if (existingTask.description !== lineDescription) {
+              updates.description = lineDescription;
+            }
+            if (existingTask.name !== itemTitle || existingTask.title !== itemTitle) {
+              updates.name = itemTitle;
+              updates.title = itemTitle;
+            }
+            if (existingTask.sortOrder !== targetSortOrder) {
+              updates.sortOrder = targetSortOrder;
+            }
+            if (!existingTask.qbItemName) {
+              updates.qbItemName = lineItem.item;
+            }
+            if (existingTask.taskGroup) {
+              updates.taskGroup = '';
+            }
+
+            if (Object.keys(updates).length > 0) {
+              console.log(`Updating sync task ${existingTask.id}:`, updates);
+              const taskRef = doc(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`, existingTask.id);
+              await updateDoc(taskRef, {
+                ...updates,
+                updatedAt: serverTimestamp()
+              });
+            }
           }
         });
 
         await Promise.all(batchPromises);
+
+        // Check for orphaned tasks (tasks that came from QB sync but are no longer on the estimate/invoice)
+        const orphanedTasks = nativeTasks.filter((t: any) => {
+          if (t.source !== 'QuickBooks Sync') return false;
+          return !matchedTaskIds.includes(t.id);
+        });
+
+        const orphanPromises = orphanedTasks.map(async (task) => {
+          const taskRef = doc(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`, task.id);
+          if (task.status === 'Pending') {
+            console.log(`Auto-deleting orphaned pending task: ${task.name || task.title}`);
+            await deleteDoc(taskRef);
+          } else if (!task.isOrphaned) {
+            console.log(`Flagging orphaned active task: ${task.name || task.title}`);
+            await updateDoc(taskRef, {
+              isOrphaned: true,
+              description: `${task.description || ''}\n\n[Note: This item was removed from the QuickBooks Estimate/Invoice.]`
+            });
+          }
+        });
+
+        await Promise.all(orphanPromises);
       } catch (syncErr) {
         console.error('Error auto-syncing QuickBooks labor tasks:', syncErr);
       }
@@ -1302,10 +1669,19 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
   const filteredJobs = jobs.filter(job => {
     // 1. Search Query filter
     const term = searchQuery.toLowerCase();
+    const vins = [
+      job.vin,
+      job.vehicle?.vin,
+      job.qbCustomFields?.vin,
+      job.qbCustomFields?.['VIN num'],
+      job.vehicleId
+    ].map(v => (v || '').toLowerCase());
+
     const matchesSearch = (
       (job.title || '').toLowerCase().includes(term) ||
       (job.jobNumber || '').toLowerCase().includes(term) ||
-      (job.customerName || '').toLowerCase().includes(term)
+      (job.customerName || '').toLowerCase().includes(term) ||
+      vins.some(v => v.includes(term))
     );
     if (!matchesSearch) return false;
 
@@ -1315,6 +1691,26 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     if (sidebarFilter === 'native') return isNative;
     return true;
   });
+
+  const hasApprovedWorkOrder = estimates.some(est => {
+    const isClosed = est.IsClosed === true || est.IsClosed === 'true' || est.isClosed === true || est.isClosed === 'true';
+    const estimateStatus = est.EstimateStatus || est.estimateStatus || '';
+    return !isClosed && estimateStatus.toLowerCase() === 'accepted';
+  });
+
+  // Automatically load more jobs if the filtered list is short but more exist in the database
+  useEffect(() => {
+    if (
+      sidebarFilter !== 'all' &&
+      filteredJobs.length < 15 &&
+      hasMoreJobs &&
+      !isLoadingJobs &&
+      !isLoadingMoreJobs &&
+      !searchQuery.trim()
+    ) {
+      fetchMoreJobs();
+    }
+  }, [filteredJobs.length, hasMoreJobs, isLoadingJobs, isLoadingMoreJobs, sidebarFilter, searchQuery, fetchMoreJobs]);
 
   return (
     <div className="flex h-[calc(100vh-4rem)] bg-zinc-950 text-white overflow-hidden flex-col md:flex-row">
@@ -1345,20 +1741,37 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                 </button>
               )}
               {lastSyncTime && (
-                <span className="text-[10px] bg-emerald-950/45 text-emerald-450 border border-emerald-900/40 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Connected
+                <span className={cn(
+                  "text-[10px] px-2 py-0.5 rounded font-semibold flex items-center gap-1 border",
+                  isSyncStale 
+                    ? "bg-amber-955/45 text-amber-450 border-amber-900/40" 
+                    : "bg-emerald-955/45 text-emerald-450 border-emerald-900/40"
+                )}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full", isSyncStale ? "bg-amber-500" : "bg-emerald-500 animate-pulse")}></span>
+                  {isSyncStale ? "Sync Stale" : "Connected"}
                 </span>
               )}
             </div>
           </div>
 
           {lastSyncTime && (
-            <div className="mb-3 px-3 py-1.5 rounded-xl bg-zinc-950/60 border border-zinc-850/80 flex items-center justify-between text-[10px] text-zinc-400 font-mono">
-              <span className="flex items-center gap-1 font-semibold text-zinc-500">
-                <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" /> Last Sync:
+            <div className={cn(
+              "mb-3 px-3 py-1.5 rounded-xl border flex items-center justify-between text-[10px] font-mono",
+              isSyncStale 
+                ? "bg-amber-955/15 border-amber-900/30 text-amber-400" 
+                : "bg-zinc-950/60 border-zinc-850/80 text-zinc-400"
+            )}>
+              <span className="flex items-center gap-1 font-semibold">
+                {isSyncStale ? (
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-550 shrink-0" />
+                ) : (
+                  <Clock className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                )}
+                Last Sync:
               </span>
-              <span className="font-bold text-zinc-300">{lastSyncTime}</span>
+              <span className={cn("font-bold", isSyncStale ? "text-amber-400" : "text-zinc-300")}>
+                {lastSyncTime} {isSyncStale && "(Over 24h)"}
+              </span>
             </div>
           )}
           <div className="relative">
@@ -1533,14 +1946,65 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                     )}
                   </div>
                   {lastSyncTime && (
-                    <span className="text-[11px] text-zinc-500 flex items-center gap-1 font-medium font-mono">
-                      <Clock className="w-3.5 h-3.5 text-zinc-650" />
-                      Last Sync: {lastSyncTime}
+                    <span className={cn(
+                      "text-[11px] flex items-center gap-1 font-medium font-mono",
+                      isSyncStale ? "text-amber-500" : "text-zinc-500"
+                    )}>
+                      {isSyncStale ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0 animate-pulse" />
+                      ) : (
+                        <Clock className="w-3.5 h-3.5 text-zinc-650" />
+                      )}
+                      Last Sync: {lastSyncTime} {isSyncStale && "(Stale)"}
                     </span>
                   )}
                 </div>
               </div>
             </div>
+
+            {/* Merge Suggestion Banner */}
+            {potentialMergeJob && (
+              <div className="mx-6 mt-4 p-4 rounded-2xl bg-indigo-950/45 border border-indigo-850/70 text-sm text-zinc-300 flex items-center justify-between gap-4 animate-in slide-in-from-top-4 duration-300 shadow-lg relative overflow-hidden group">
+                <div className="absolute inset-y-0 left-0 w-1 bg-indigo-500"></div>
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-indigo-900/40 rounded-xl border border-indigo-800/40 text-indigo-400 mt-0.5">
+                    <Briefcase className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-zinc-100 flex items-center gap-2">
+                      Matching {selectedJob.source === 'Native' || !selectedJob.quickbooksId ? 'QuickBooks' : 'Native'} Job Found
+                      <span className="text-[10px] bg-indigo-900/60 text-indigo-350 px-2 py-0.5 rounded-md font-semibold">Merge Suggestion</span>
+                    </h4>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      We found an existing job in the database that seems to match this one:
+                      <strong className="text-zinc-250 ml-1">
+                        {potentialMergeJob.title} {potentialMergeJob.jobNumber ? `(#${potentialMergeJob.jobNumber})` : ''}
+                      </strong>.
+                      Would you like to merge them to combine all tasks, parts, and time sessions?
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    disabled={isMerging}
+                    onClick={handleMergeJobs}
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 flex items-center gap-1.5 cursor-pointer border border-indigo-500/30"
+                  >
+                    {isMerging ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Merging...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>Merge Jobs</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Flat Tabs Switcher */}
             <div className="px-6 border-b border-zinc-800 bg-zinc-900/25 flex overflow-x-auto whitespace-nowrap gap-x-2 shrink-0 scroll-smooth custom-scrollbar pb-1.5">
@@ -1657,8 +2121,8 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                     : "border-transparent text-zinc-400 hover:text-zinc-205"
                 )}
               >
-                <Layers className="w-4 h-4 text-zinc-450" />
-                QB Estimates
+                <Layers className="w-4 h-4 text-zinc-455" />
+                {hasApprovedWorkOrder ? 'QB Work Orders' : 'QB Estimates'}
                 <span className="bg-zinc-850 text-zinc-455 px-2 py-0.5 rounded-full text-xs font-mono">
                   {estimates.length}
                 </span>
@@ -1972,6 +2436,108 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                           </div>
                         )}
                       </div>
+
+                      {/* Raw Database Fields Debug Card */}
+                      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-lg space-y-4">
+                        <button
+                          type="button"
+                          onClick={() => setIsDebugExpanded(prev => !prev)}
+                          className="w-full flex items-center justify-between font-bold text-zinc-450 text-xs uppercase tracking-wider hover:text-zinc-200 transition-colors"
+                        >
+                          <span className="flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-zinc-500" />
+                            Raw Database Fields ({Object.keys(selectedJob).length} fields {rawQbJob ? `+ QB fields` : ''})
+                          </span>
+                          <span className="text-xs bg-zinc-850 text-zinc-400 px-2 py-0.5 rounded-md border border-zinc-800 flex items-center gap-1">
+                            {isDebugExpanded ? 'Hide' : 'Show'} Details
+                            <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", isDebugExpanded && "rotate-180")} />
+                          </span>
+                        </button>
+
+                        {isDebugExpanded && (
+                          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                            {/* Inner Tab Selector */}
+                            <div className="flex flex-wrap bg-zinc-950 p-1 rounded-xl border border-zinc-850 gap-1 max-w-max">
+                              <button
+                                type="button"
+                                onClick={() => setActiveDebugTab('unified')}
+                                className={cn(
+                                  "text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all text-center",
+                                  activeDebugTab === 'unified' ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-350"
+                                )}
+                              >
+                                Unified Job
+                              </button>
+                              {rawQbJob && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveDebugTab('qb')}
+                                  className={cn(
+                                    "text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all text-center",
+                                    activeDebugTab === 'qb' ? "bg-zinc-800 text-blue-450 shadow-sm" : "text-zinc-500 hover:text-zinc-350"
+                                  )}
+                                >
+                                  Raw QB Customer
+                                </button>
+                              )}
+                              {estimates.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveDebugTab('estimates')}
+                                  className={cn(
+                                    "text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all text-center",
+                                    activeDebugTab === 'estimates' ? "bg-zinc-800 text-emerald-450 shadow-sm" : "text-zinc-500 hover:text-zinc-350"
+                                  )}
+                                >
+                                  Raw Estimates ({estimates.length})
+                                </button>
+                              )}
+                              {invoices.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveDebugTab('invoices')}
+                                  className={cn(
+                                    "text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all text-center",
+                                    activeDebugTab === 'invoices' ? "bg-zinc-800 text-purple-400 shadow-sm" : "text-zinc-500 hover:text-zinc-350"
+                                  )}
+                                >
+                                  Raw Invoices ({invoices.length})
+                                </button>
+                              )}
+                              {purchaseOrders.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveDebugTab('pos')}
+                                  className={cn(
+                                    "text-[10px] font-bold py-1 px-2.5 rounded-lg transition-all text-center",
+                                    activeDebugTab === 'pos' ? "bg-zinc-800 text-amber-450 shadow-sm" : "text-zinc-500 hover:text-zinc-350"
+                                  )}
+                                >
+                                  Raw POs ({purchaseOrders.length})
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-850 overflow-x-auto max-h-[500px] custom-scrollbar">
+                              <pre className="text-[11px] font-mono text-indigo-300 leading-relaxed whitespace-pre-wrap break-all">
+                                {(() => {
+                                  if (activeDebugTab === 'qb') return JSON.stringify(rawQbJob, null, 2);
+                                  if (activeDebugTab === 'estimates') return JSON.stringify(estimates, null, 2);
+                                  if (activeDebugTab === 'invoices') return JSON.stringify(invoices, null, 2);
+                                  if (activeDebugTab === 'pos') return JSON.stringify(purchaseOrders, null, 2);
+                                  return JSON.stringify(selectedJob, null, 2);
+                                })()}
+                              </pre>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 font-mono flex flex-wrap gap-x-4 gap-y-1 bg-zinc-950/40 p-3 rounded-xl border border-zinc-850">
+                              <span><strong>Document ID:</strong> {selectedJob.id}</span>
+                              <span><strong>Source:</strong> {selectedJob.source || 'Native'}</span>
+                              <span><strong>QuickBooks ListID:</strong> {selectedJob.quickbooksId || 'N/A'}</span>
+                              {rawQbJob && <span><strong>QB Sync ID:</strong> {rawQbJob.id}</span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -2150,13 +2716,19 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                                                 {task.name || task.title || 'Untitled Task'}
                                               </span>
                                               {/* Source badge */}
-                                              {task.quickbooksId || task.qbLineId || task.serviceRef || task.source === 'QuickBooks' ? (
+                                              {task.quickbooksId || task.qbLineId || task.serviceRef || task.source === 'QuickBooks' || task.source === 'QuickBooks Sync' ? (
                                                 <span className="text-[8px] px-1.5 py-0.5 rounded bg-blue-955/40 text-blue-450 border border-blue-900/40 font-bold uppercase tracking-wider">
                                                   QB
                                                 </span>
                                               ) : (
                                                 <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-955/40 text-emerald-450 border border-emerald-900/40 font-bold uppercase tracking-wider">
                                                   App
+                                                </span>
+                                              )}
+                                              {task.isOrphaned && (
+                                                <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-955/40 text-amber-450 border border-amber-900/40 font-bold uppercase tracking-wider flex items-center gap-1">
+                                                  <AlertCircle className="w-3 h-3 text-amber-500 shrink-0" />
+                                                  Removed from Estimate
                                                 </span>
                                               )}
                                             </div>
@@ -2825,18 +3397,41 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
                     estimates.length === 0 ? (
                       <EmptyState message="No synced Estimates found for this Job." icon={Layers} />
                     ) : (
-                      estimates.map((est) => (
-                        <TransactionCard 
-                          key={est.id}
-                          title={`Estimate #${est.refNumber || 'Draft'}`}
-                          date={est.txnDate}
-                          amount={est.subtotal}
-                          status={est.isClosed ? 'Closed' : 'Active'}
-                          statusType={est.isClosed ? 'info' : 'success'}
-                          lines={getLineItems(est, 'estimate')}
-                          formatCurrency={formatCurrency}
-                        />
-                      ))
+                      estimates.map((est) => {
+                        const isClosed = est.IsClosed === true || est.IsClosed === 'true' || est.isClosed === true || est.isClosed === 'true';
+                        const isActive = est.IsActive !== false && est.IsActive !== 'false' && est.isActive !== false && est.isActive !== 'false';
+                        const estimateStatus = est.EstimateStatus || est.estimateStatus || '';
+                        
+                        let statusText = 'Pending Quote';
+                        let statusType: 'success' | 'info' | 'warning' | 'error' = 'warning';
+                        
+                        if (isClosed) {
+                          statusText = 'Closed / Invoiced';
+                          statusType = 'info';
+                        } else if (estimateStatus.toLowerCase() === 'accepted') {
+                          statusText = 'Approved Work Order';
+                          statusType = 'success';
+                        } else if (estimateStatus.toLowerCase() === 'rejected') {
+                          statusText = 'Rejected';
+                          statusType = 'error';
+                        } else if (!isActive) {
+                          statusText = 'Inactive';
+                          statusType = 'error';
+                        }
+
+                        return (
+                          <TransactionCard 
+                            key={est.id}
+                            title={`Estimate #${est.refNumber || 'Draft'}`}
+                            date={est.txnDate}
+                            amount={est.subtotal}
+                            status={statusText}
+                            statusType={statusType}
+                            lines={getLineItems(est, 'estimate')}
+                            formatCurrency={formatCurrency}
+                          />
+                        );
+                      })
                     )
                   )}
 
