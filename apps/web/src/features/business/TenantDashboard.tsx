@@ -74,6 +74,7 @@ import { PartsWorksheet } from './PartsWorksheet';
 import { JobsWorksheet } from './JobsWorksheet';
 import { ProgressDigest } from './ProgressDigest';
 import { WeeklyMeetingNotes } from './WeeklyMeetingNotes';
+import { ForemanTodoList } from './ForemanTodoList';
 import { TutorialModal } from '../tutorials/TutorialModal';
 import { HelpCenter } from '../tutorials/HelpCenter';
 import { SOPCenter } from '../sops/SOPCenter';
@@ -439,6 +440,12 @@ export function TenantDashboard() {
             {activeTab === 'upfitters' && (
               <PermissionGate permission="foreman.view">
                 <UpfittersDashboard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'foreman_todo' && (
+              <PermissionGate permission="foreman.view">
+                <ForemanTodoList tenantId={tenantId!} />
               </PermissionGate>
             )}
 

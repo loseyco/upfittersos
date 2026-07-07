@@ -181,6 +181,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [editingVin, setEditingVin] = useState<{ [jobId: string]: string }>({});
+  const [editingCcId, setEditingCcId] = useState<{ [jobId: string]: string }>({});
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
   const [colFilters, setColFilters] = useState<Record<string, string>>({
     priority: 'all',
@@ -273,6 +275,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   // Column Resizing State (Excel style)
   const [colWidths, setColWidths] = useState<Record<string, number>>({
     jobInfo: 220,
+    vin: 160,
+    companyCam: 150,
     priority: 80,
     dueDate: 130,
     dynamicETA: 130,
@@ -537,19 +541,37 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       const pB = getPriorityVal(b);
       if (pA !== pB) return pB - pA; // Highest priority first
 
-      // 2. Sort by Blockers & Status
-      const statusWeight = (j: any) => {
+      // 2. Sort by Due Date (ascending: earliest first)
+      const getDueDateVal = (j: any) => {
+        if (!j.expectedFinishTime) return Infinity;
+        const date = j.expectedFinishTime.toDate ? j.expectedFinishTime.toDate() : new Date(j.expectedFinishTime);
+        return isNaN(date.getTime()) ? Infinity : date.getTime();
+      };
+
+      const dA = getDueDateVal(a);
+      const dB = getDueDateVal(b);
+      if (dA !== dB) return dA - dB;
+
+      // 3. Sort by Job Status (Workflow order)
+      const getStatusWeight = (j: any) => {
         const activeBlockers = (j.blockers || []).filter((b: any) => b.status === 'active');
         if (activeBlockers.length > 0 || j.status === 'Blocked') return 0;
         if (j.status === 'Active') return 1;
-        if (j.status === 'Open') return 2;
-        return 3;
+        if (j.status === 'Ready for QC') return 2;
+        if (j.status === 'Almost Ready') return 3;
+        if (j.status === 'Open') return 4;
+        if (j.status === 'On Hold') return 5;
+        if (j.status === 'Ready for Customer') return 6;
+        if (j.status === 'Completed') return 7;
+        if (j.status === 'Closed') return 8;
+        return 9;
       };
-      const wa = statusWeight(a);
-      const wb = statusWeight(b);
+
+      const wa = getStatusWeight(a);
+      const wb = getStatusWeight(b);
       if (wa !== wb) return wa - wb;
 
-      // 3. Sort by last updated
+      // 4. Sort by last updated
       return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
     });
   }, [jobsList, vehiclesList, searchTerm, selectedStatusFilter, tasksMap, colFilters, zonesList, partsRequests]);
@@ -627,6 +649,40 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       toast.success(`Priority updated to ${newPriority}`);
     } catch (err: any) {
       toast.error(`Failed to update priority: ${err.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleVinChange = async (jobId: string, newVin: string) => {
+    if (!canManage) return;
+    setIsUpdating(jobId);
+    try {
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
+      await updateDoc(jobRef, {
+        vehicleId: newVin.trim().toUpperCase(),
+        updatedAt: serverTimestamp()
+      });
+      toast.success(`VIN updated successfully`);
+    } catch (err: any) {
+      toast.error(`Failed to update VIN: ${err.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleCompanyCamIdChange = async (jobId: string, newCcId: string) => {
+    if (!canManage) return;
+    setIsUpdating(jobId);
+    try {
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
+      await updateDoc(jobRef, {
+        companyCamId: newCcId.trim(),
+        updatedAt: serverTimestamp()
+      });
+      toast.success(`CompanyCam Project ID updated`);
+    } catch (err: any) {
+      toast.error(`Failed to update CompanyCam Project ID: ${err.message}`);
     } finally {
       setIsUpdating(null);
     }
@@ -1259,23 +1315,29 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
           {/* Header Row */}
           <thead>
             <tr className="bg-zinc-150 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-extrabold uppercase select-none sticky top-0 z-40">
-              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.jobInfo }}>
-                Job # & Details {renderResizeHandle('jobInfo')}
-              </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.priority }}>
                 Priority {renderHeaderFilter('priority', [{ value: 'all', label: 'All Priorities' }, { value: 'urgent', label: 'Urgent (5)' }, { value: 'high', label: 'High (4)' }, { value: 'medium', label: 'Medium (3)' }, { value: 'low', label: 'Low (2/1/0)' }])} {renderResizeHandle('priority')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.dueDate }}>
                 Due Date {renderResizeHandle('dueDate')}
               </th>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.status }}>
+                Job Status {renderHeaderFilter('status', [{ value: 'all', label: 'All Statuses' }, { value: 'Active', label: 'Active / Open' }, { value: 'Blocked', label: 'Blocked' }, { value: 'Ready for QC', label: 'Ready for QC' }, { value: 'Ready for Customer', label: 'Ready for Customer' }, { value: 'Almost Ready', label: 'Almost Ready' }, { value: 'On Hold', label: 'On Hold' }])} {renderResizeHandle('status')}
+              </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.dynamicETA }}>
                 Est Completion {renderResizeHandle('dynamicETA')}
               </th>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.jobInfo }}>
+                Job # & Details {renderResizeHandle('jobInfo')}
+              </th>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.vin }}>
+                VIN {renderResizeHandle('vin')}
+              </th>
+              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.companyCam }}>
+                CompanyCam {renderResizeHandle('companyCam')}
+              </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.location }}>
                 Location / Bay {renderHeaderFilter('location', [{ value: 'all', label: 'All Locations' }, ...uniqueBays.map(b => ({ value: b, label: b }))])} {renderResizeHandle('location')}
-              </th>
-              <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.status }}>
-                Job Status {renderHeaderFilter('status', [{ value: 'all', label: 'All Statuses' }, { value: 'Active', label: 'Active / Open' }, { value: 'Blocked', label: 'Blocked' }, { value: 'Ready for QC', label: 'Ready for QC' }, { value: 'Ready for Customer', label: 'Ready for Customer' }, { value: 'Almost Ready', label: 'Almost Ready' }, { value: 'On Hold', label: 'On Hold' }])} {renderResizeHandle('status')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.crew }}>
                 Active Staff {renderResizeHandle('crew')}
@@ -1296,7 +1358,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
           <tbody>
             {filteredJobs.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-16 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
+                <td colSpan={12} className="p-16 text-center text-zinc-400 dark:text-zinc-500 font-medium italic">
                   No jobs match the selected filter configuration.
                 </td>
               </tr>
@@ -1357,11 +1419,16 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 const isBlocked = activeBlockers.length > 0 || job.status === 'Blocked';
 
                 // Row Highlights consistent with Staff Worksheet
+                const isReadyForQC = job.status === 'Ready for QC' || (totalTasks > 0 && completedTasks === totalTasks);
+                const isReadyForCustomer = job.status === 'Ready for Customer';
+
                 let rowHighlightClass = 'bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900/40';
                 if (isBlocked) {
                   rowHighlightClass = 'bg-red-500/[0.04] dark:bg-red-500/[0.02] hover:bg-red-500/[0.08]';
+                } else if (isReadyForCustomer || isReadyForQC) {
+                  rowHighlightClass = 'bg-emerald-500/[0.06] dark:bg-emerald-500/[0.03] hover:bg-emerald-500/[0.1]';
                 } else if (job.status === 'Active' || job.status === 'Open') {
-                  rowHighlightClass = 'bg-emerald-500/[0.04] dark:bg-emerald-500/[0.02] hover:bg-emerald-500/[0.08]';
+                  rowHighlightClass = 'bg-blue-500/[0.04] dark:bg-blue-500/[0.02] hover:bg-blue-500/[0.08]';
                 } else if (job.status === 'Completed' || job.status === 'Closed') {
                   rowHighlightClass = 'bg-zinc-100/50 dark:bg-zinc-900/10 hover:bg-zinc-150/50 dark:hover:bg-zinc-800/20';
                 }
@@ -1383,50 +1450,6 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                         isUpdating === job.id && "opacity-60 pointer-events-none"
                       )}
                     >
-                      {/* 1. Job # & Details */}
-                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle font-bold text-zinc-900 dark:text-white">
-                        <div className="flex items-center gap-2 px-1 min-w-0">
-                          <div className={cn(
-                            "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0",
-                            isBlocked ? "bg-red-500/10 text-red-600" :
-                              job.status === 'Active' ? "bg-emerald-500/10 text-emerald-600" :
-                                "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
-                          )}>
-                            {job.jobNumber ? '#' : 'J'}
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer flex items-center gap-1" onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}>
-                              {job.jobNumber ? `#${job.jobNumber} - ${job.title}` : job.title}
-                              {needsSetup && (
-                                <span 
-                                  className="inline-flex shrink-0 cursor-help"
-                                  title={`Setup Required: Missing ${[
-                                    !hasVin ? 'VIN/Vehicle' : '',
-                                    !hasTasks ? 'Tasks/Crew' : '',
-                                    !hasStatus ? 'Workflow Status' : ''
-                                  ].filter(Boolean).join(', ')}`}
-                                >
-                                  <AlertTriangle 
-                                    className="w-3.5 h-3.5 text-amber-500 animate-pulse" 
-                                  />
-                                </span>
-                              )}
-                            </span>
-                            <div className="flex items-center gap-2 mt-0.5 text-[9px] font-semibold text-zinc-400 leading-none">
-                              {job.customerName && <span className="truncate max-w-[100px]">Cust: {job.customerName}</span>}
-                              {vehicleLabel && <span className="truncate max-w-[120px]">🚙 {vehicleLabel}</span>}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
-                            className="p-1 text-zinc-400 hover:text-indigo-500 rounded transition shrink-0 ml-auto"
-                            title="View Job Details"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </td>
-
                       {/* 1b. Priority (Searchable / Editable Inline) */}
                       <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center">
                         <div className={cn(
@@ -1475,6 +1498,26 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                         </div>
                       </td>
 
+                      {/* 4. Job Status (Searchable / Editable Inline) */}
+                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
+                        <div className={cn(
+                          "w-full font-bold",
+                          isBlocked ? "text-red-650 dark:text-red-455" :
+                            job.status === 'Active' ? "text-emerald-650 dark:text-emerald-455" :
+                              "text-zinc-650 dark:text-zinc-400"
+                        )}>
+                          <ExcelSearchableSelect
+                            options={['Open', 'Active', 'Blocked', 'Almost Ready', 'On Hold', 'Ready for QC', 'Ready for Customer', 'Completed', 'Closed']}
+                            value={job.status || 'Open'}
+                            onChange={(val) => handleStatusChange(job.id, val)}
+                            getLabel={(s) => s}
+                            getValue={(s) => s}
+                            placeholder="Choose Status..."
+                            disabled={!canManage}
+                          />
+                        </div>
+                      </td>
+
                       {/* 2b. Est Completion (Dynamic ETA) */}
                       <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center">
                         <div className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 px-1">
@@ -1484,6 +1527,126 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             if (!eta) return 'Not Set';
                             return eta.toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
                           })()}
+                        </div>
+                      </td>
+
+                      {/* 1. Job # & Details */}
+                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle font-bold text-zinc-900 dark:text-white">
+                        <div className="flex items-center gap-2 px-1 min-w-0">
+                          <div className={cn(
+                            "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shrink-0",
+                            isBlocked ? "bg-red-500/10 text-red-600" :
+                              job.status === 'Active' ? "bg-emerald-500/10 text-emerald-600" :
+                                "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                          )}>
+                            {job.jobNumber ? '#' : 'J'}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer flex items-center gap-1" onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}>
+                              {job.jobNumber ? `#${job.jobNumber} - ${job.title}` : job.title}
+                              {needsSetup && (
+                                <span 
+                                  className="inline-flex shrink-0 cursor-help"
+                                  title={`Setup Required: Missing ${[
+                                    !hasVin ? 'VIN/Vehicle' : '',
+                                    !hasTasks ? 'Tasks/Crew' : '',
+                                    !hasStatus ? 'Workflow Status' : ''
+                                  ].filter(Boolean).join(', ')}`}
+                                >
+                                  <AlertTriangle 
+                                    className="w-3.5 h-3.5 text-amber-500 animate-pulse" 
+                                  />
+                                </span>
+                              )}
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5 text-[9px] font-semibold text-zinc-400 leading-none">
+                              {job.customerName && <span className="truncate max-w-[100px]">Cust: {job.customerName}</span>}
+                              {vehicleLabel && <span className="truncate max-w-[120px]">🚙 {vehicleLabel}</span>}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                            className="p-1 text-zinc-400 hover:text-indigo-500 rounded transition shrink-0 ml-auto"
+                            title="View Job Details"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* VIN (Editable Inline) */}
+                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center">
+                        <div className="flex items-center justify-center px-1">
+                          <input
+                            type="text"
+                            placeholder="No VIN"
+                            value={editingVin[job.id] !== undefined ? editingVin[job.id] : (job.vehicleId || '')}
+                            onChange={(e) => setEditingVin(prev => ({ ...prev, [job.id]: e.target.value }))}
+                            onBlur={() => {
+                              const newVal = editingVin[job.id];
+                              if (newVal !== undefined) {
+                                if (newVal !== (job.vehicleId || '')) {
+                                  handleVinChange(job.id, newVal);
+                                }
+                                setEditingVin(prev => {
+                                  const copy = { ...prev };
+                                  delete copy[job.id];
+                                  return copy;
+                                });
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            disabled={!canManage}
+                            className="bg-transparent hover:bg-zinc-150 focus:bg-zinc-150 dark:hover:bg-zinc-850 dark:focus:bg-zinc-850 border-none outline-none font-mono text-xs text-center font-bold px-1.5 py-0.5 rounded cursor-text w-full max-w-[140px] dark:text-white placeholder-zinc-400 dark:placeholder-zinc-650"
+                          />
+                        </div>
+                      </td>
+
+                      {/* CompanyCam Project ID (Editable Inline) */}
+                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center">
+                        <div className="flex items-center justify-center gap-1.5 px-1 w-full">
+                          <input
+                            type="text"
+                            placeholder="No CompanyCam ID"
+                            value={editingCcId[job.id] !== undefined ? editingCcId[job.id] : (job.companyCamId || job.companyCamProjectId || '')}
+                            onChange={(e) => setEditingCcId(prev => ({ ...prev, [job.id]: e.target.value }))}
+                            onBlur={() => {
+                              const newVal = editingCcId[job.id];
+                              if (newVal !== undefined) {
+                                const currentVal = job.companyCamId || job.companyCamProjectId || '';
+                                if (newVal !== currentVal) {
+                                  handleCompanyCamIdChange(job.id, newVal);
+                                }
+                                setEditingCcId(prev => {
+                                  const copy = { ...prev };
+                                  delete copy[job.id];
+                                  return copy;
+                                });
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur();
+                              }
+                            }}
+                            disabled={!canManage}
+                            className="bg-transparent hover:bg-zinc-150 focus:bg-zinc-150 dark:hover:bg-zinc-850 dark:focus:bg-zinc-850 border-none outline-none font-mono text-xs text-center font-bold px-1.5 py-0.5 rounded cursor-text w-full min-w-0 max-w-[120px] dark:text-white placeholder-zinc-400 dark:placeholder-zinc-650"
+                          />
+                          {(job.companyCamId || job.companyCamProjectId) && (
+                            <a
+                              href={`https://app.companycam.com/projects/${job.companyCamId || job.companyCamProjectId}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-indigo-500 rounded transition shrink-0"
+                              title="Open in CompanyCam"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                         </div>
                       </td>
 
@@ -1500,26 +1663,6 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             getLabel={(z) => z.name}
                             getValue={(z) => z.id}
                             placeholder="Choose Location..."
-                            disabled={!canManage}
-                          />
-                        </div>
-                      </td>
-
-                      {/* 4. Job Status (Searchable / Editable Inline) */}
-                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle">
-                        <div className={cn(
-                          "w-full font-bold",
-                          isBlocked ? "text-red-650 dark:text-red-455" :
-                            job.status === 'Active' ? "text-emerald-650 dark:text-emerald-455" :
-                              "text-zinc-650 dark:text-zinc-400"
-                        )}>
-                          <ExcelSearchableSelect
-                            options={['Open', 'Active', 'Blocked', 'Almost Ready', 'On Hold', 'Ready for QC', 'Ready for Customer', 'Completed', 'Closed']}
-                            value={job.status || 'Open'}
-                            onChange={(val) => handleStatusChange(job.id, val)}
-                            getLabel={(s) => s}
-                            getValue={(s) => s}
-                            placeholder="Choose Status..."
                             disabled={!canManage}
                           />
                         </div>
@@ -1597,7 +1740,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                       </td>
 
                       {/* 7. Parts Status */}
-                      <td className="p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center">
+                      <td className={cn(
+                        "p-1 border-r border-zinc-200 dark:border-zinc-800 align-middle text-center transition-colors",
+                        requestedCount > 0 ? "bg-red-500/[0.08] dark:bg-red-950/20" :
+                          orderedCount > 0 ? "bg-amber-500/[0.08] dark:bg-amber-950/20" : ""
+                      )}>
                         <div className="flex items-center justify-center">
                           <div
                             className={cn(
@@ -1613,7 +1760,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                       </td>
 
                       {/* 8. Active Blockers */}
-                      <td className="p-1.5 align-middle">
+                      <td className={cn(
+                        "p-1.5 align-middle transition-colors",
+                        activeBlockers.length > 0 && "bg-red-500/[0.08] dark:bg-red-950/20"
+                      )}>
                         <div className="flex flex-col gap-1 w-full min-w-0">
                           {activeBlockers.length > 0 ? (
                             <div className="flex flex-col gap-1">
@@ -1652,7 +1802,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                     
                     {expandedJobId === job.id && (
                       <tr className="bg-zinc-50/50 dark:bg-zinc-900/30 border-b border-zinc-200 dark:border-zinc-800">
-                        <td colSpan={10} className="p-4 sm:p-6">
+                        <td colSpan={12} className="p-4 sm:p-6">
                           <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-sm space-y-4">
                             
                             {/* Panel Header */}

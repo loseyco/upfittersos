@@ -37,6 +37,7 @@ export const ITEMS: NavItem[] = [
 
   // Upfitters Dept
   { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
+  { id: 'foreman_todo', label: 'Foreman Todo List', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'upfitters', permission: 'jobs.view' },
   { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'staff_worksheet.view' },
