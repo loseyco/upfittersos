@@ -81,7 +81,7 @@ export function StaffProfilePage({
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // States
-  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'timeclock' | 'messages'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'timeline' | 'timeclock' | 'messages' | 'attendance'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
 
@@ -100,7 +100,7 @@ export function StaffProfilePage({
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const tabParam = params.get('tab');
-    if (tabParam === 'messages' || tabParam === 'overview' || tabParam === 'timeline' || tabParam === 'timeclock') {
+    if (tabParam === 'messages' || tabParam === 'overview' || tabParam === 'timeline' || tabParam === 'timeclock' || tabParam === 'attendance') {
       setActiveTab(tabParam as any);
     }
     const chatUserParam = params.get('chatUser');
@@ -434,6 +434,144 @@ export function StaffProfilePage({
     return resolved;
   }, [department, staff]);
 
+  // Calculate weekly breakdown of scheduled vs clocked hours
+  const weeklyBreakdown = useMemo(() => {
+    if (!staff) return [];
+
+    const parseDateVal = (val: any) => {
+      if (!val) return 0;
+      if (val.toDate) return val.toDate().getTime();
+      if (val.toMillis) return val.toMillis();
+      if (val.seconds) return val.seconds * 1000;
+      if (val._seconds) return val._seconds * 1000;
+      return new Date(val).getTime();
+    };
+
+    const now = new Date();
+    const currentMonday = new Date(now);
+    const day = currentMonday.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day; // 1 = Mon, 0 = Sun
+    currentMonday.setDate(currentMonday.getDate() + diffToMonday);
+    currentMonday.setHours(0, 0, 0, 0);
+
+    const weeksList = [];
+
+    // Generate the last 8 weeks
+    for (let i = 0; i < 8; i++) {
+      const weekMon = new Date(currentMonday);
+      weekMon.setDate(weekMon.getDate() - (i * 7));
+
+      const weekSun = new Date(weekMon);
+      weekSun.setDate(weekSun.getDate() + 6);
+      weekSun.setHours(23, 59, 59, 999);
+
+      // Don't calculate for weeks before their hire date
+      if (staff.hireDate) {
+        const hireMs = new Date(staff.hireDate).getTime();
+        if (weekSun.getTime() < hireMs) {
+          continue;
+        }
+      }
+
+      // Calculate expected minutes
+      let expectedMins = 0;
+      if (weekMon.getTime() <= now.getTime()) {
+        const capEnd = weekSun.getTime() < now.getTime() ? weekSun : now;
+        
+        const currentDay = new Date(weekMon.getFullYear(), weekMon.getMonth(), weekMon.getDate());
+        const targetEndDay = new Date(capEnd.getFullYear(), capEnd.getMonth(), capEnd.getDate());
+
+        while (currentDay.getTime() <= targetEndDay.getTime()) {
+          const dayOfWeek = currentDay.getDay() === 0 ? 7 : currentDay.getDay();
+          const dateStr = currentDay.toISOString().split('T')[0];
+          
+          let schedule = staff?.individualSchedule;
+          
+          if (staff?.individualScheduleHistory && Array.isArray(staff.individualScheduleHistory)) {
+            const entry = staff.individualScheduleHistory.find((h: any) => {
+              return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
+            });
+            if (entry) schedule = entry.schedule;
+          }
+          
+          if (!schedule) {
+            if (department?.defaultScheduleHistory && Array.isArray(department.defaultScheduleHistory)) {
+              const entry = department.defaultScheduleHistory.find((h: any) => {
+                return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
+              });
+              if (entry) schedule = entry.schedule;
+            }
+            if (!schedule) {
+              schedule = department?.defaultSchedule;
+            }
+          }
+          
+          const finalSchedule = schedule || {
+            startTime: '08:00',
+            endTime: '17:00',
+            expectedHoursPerDay: 8,
+            days: [1, 2, 3, 4, 5]
+          };
+          
+          const daysArray = (finalSchedule.days && finalSchedule.days.length > 0) ? finalSchedule.days : [1, 2, 3, 4, 5];
+          const hoursPerDay = Number(finalSchedule.expectedHoursPerDay) || 8;
+          
+          const isScheduled = daysArray.some((d: any) => Number(d) === dayOfWeek);
+          if (isScheduled) {
+            expectedMins += hoursPerDay * 60;
+          }
+          currentDay.setDate(currentDay.getDate() + 1);
+        }
+      }
+
+      // Calculate actual clocked minutes
+      let actualMins = 0;
+      timeSessions?.forEach((session: any) => {
+        if (!session.clockIn?.timestamp) return;
+        const clockInTs = parseDateVal(session.clockIn.timestamp);
+        if (clockInTs >= weekMon.getTime() && clockInTs <= weekSun.getTime()) {
+          const clockOutTs = session.clockOut?.timestamp 
+            ? parseDateVal(session.clockOut.timestamp) 
+            : (weekSun.getTime() < now.getTime() ? weekSun.getTime() : Date.now());
+          
+          const duration = (clockOutTs - clockInTs) / 60000;
+          
+          const breakMins = session.breaks?.reduce((acc: number, b: any) => {
+            if (b.isPaid) return acc;
+            const bStart = parseDateVal(b.start);
+            const bEnd = b.end ? parseDateVal(b.end) : Date.now();
+            const clipStart = Math.max(bStart, weekMon.getTime());
+            const clipEnd = Math.min(bEnd, weekSun.getTime());
+            return acc + (clipStart < clipEnd ? (clipEnd - clipStart) / 60000 : 0);
+          }, 0) || 0;
+
+          actualMins += Math.max(0, duration - breakMins);
+        }
+      });
+
+      weeksList.push({
+        label: `${weekMon.toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${weekSun.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`,
+        expectedHours: expectedMins / 60,
+        actualHours: actualMins / 60,
+        variance: (actualMins - expectedMins) / 60,
+        isCurrentWeek: i === 0,
+      });
+    }
+
+    return weeksList;
+  }, [staff, department, timeSessions]);
+
+  // Calculate overall balance (sum of actual - expected over the displayed weeks)
+  const overallBalance = useMemo(() => {
+    let expected = 0;
+    let actual = 0;
+    weeklyBreakdown.forEach(wk => {
+      expected += wk.expectedHours;
+      actual += wk.actualHours;
+    });
+    return actual - expected;
+  }, [weeklyBreakdown]);
+
   // Incidents Action Log writing
   const handleAddIncident = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -686,9 +824,10 @@ export function StaffProfilePage({
             { id: 'overview', label: 'Overview & Settings', icon: User },
             (isSelf || isAdmin) && { id: 'timeline', label: 'Timeline & Logs', icon: Activity },
             (isSelf || isAdmin) && { id: 'timeclock', label: 'Timeclock History', icon: Clock },
+            (isSelf || isAdmin) && { id: 'attendance', label: 'Attendance Balance', icon: Calendar },
             { id: 'messages', label: isSelf ? 'Direct Messages (Inbox)' : 'Message Staff', icon: MessageSquare },
           ]
-            .filter((tab): tab is { id: 'overview' | 'timeline' | 'timeclock' | 'messages'; label: string; icon: any } => !!tab)
+            .filter((tab): tab is { id: 'overview' | 'timeline' | 'timeclock' | 'attendance' | 'messages'; label: string; icon: any } => !!tab)
             .map(tab => (
               <button
                 key={tab.id}
@@ -807,6 +946,30 @@ export function StaffProfilePage({
                       <div className="col-span-2">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Glove Size</span>
                         <span className="font-semibold text-zinc-800 dark:text-zinc-200">{staff.gloveSize || '--'}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Address & Personal Details (Restricted) */}
+                {canViewSensitiveInfo && (
+                  <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4">
+                    <div className="flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
+                      <MapPin className="w-5 h-5 text-indigo-500" />
+                      <h3 className="font-bold text-zinc-900 dark:text-white">Address & Personal Details</h3>
+                    </div>
+                    <div className="space-y-3.5 text-sm">
+                      <div>
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Street Address</span>
+                        <span className="font-semibold text-zinc-800 dark:text-zinc-200 block">
+                          {staff.addressStreet ? `${staff.addressStreet}${staff.addressCity ? `, ${staff.addressCity}` : ''}${staff.addressState ? `, ${staff.addressState}` : ''}${staff.addressZip ? ` ${staff.addressZip}` : ''}` : '--'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-0.5">Date of Birth</span>
+                        <span className="font-semibold text-zinc-800 dark:text-zinc-200 block">
+                          {staff.dob ? new Date(staff.dob + 'T00:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '--'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1277,6 +1440,98 @@ export function StaffProfilePage({
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB 4: ATTENDANCE BALANCE */}
+          {activeTab === 'attendance' && (isSelf || isAdmin) && (
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-8 shadow-sm space-y-6 animate-in fade-in duration-300">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-zinc-100 dark:border-zinc-800 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-500/10 rounded-xl text-indigo-500">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-zinc-900 dark:text-white">Weekly Attendance History</h3>
+                    <p className="text-xs text-zinc-450 dark:text-zinc-500 mt-0.5">Comparison of expected scheduled hours vs. actual clocked hours</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  {(() => {
+                    const diff = overallBalance;
+                    const diffStr = diff >= 0 ? `+${diff.toFixed(1)}h` : `${diff.toFixed(1)}h`;
+                    return (
+                      <div className={cn(
+                        "px-3 py-1.5 rounded-xl font-black text-xs tracking-wider uppercase flex items-center gap-1.5 shadow-sm border",
+                        diff >= 0 
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" 
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                      )}>
+                        <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Overall Balance:</span>
+                        <span>{diffStr}</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="flex items-center gap-3 text-xs font-bold sm:border-l sm:border-zinc-150 sm:dark:border-zinc-800 sm:pl-4">
+                    <div className="flex items-center gap-1.5 text-zinc-450">
+                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                      <span>Expected</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-zinc-450">
+                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+                      <span>Clocked</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto animate-in fade-in duration-200">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-100 dark:border-zinc-800 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                      <th className="pb-3 pl-2">Week Period</th>
+                      <th className="pb-3 text-center">Expected Hours</th>
+                      <th className="pb-3 text-center">Clocked Hours</th>
+                      <th className="pb-3 text-right pr-2">Variance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                    {weeklyBreakdown.map((wk) => {
+                      const varianceColor = wk.variance >= 0.1 
+                        ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' 
+                        : wk.variance <= -0.1 
+                          ? 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400' 
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
+                      
+                      const varianceLabel = wk.variance >= 0 ? `+${wk.variance.toFixed(1)}h` : `${wk.variance.toFixed(1)}h`;
+
+                      return (
+                        <tr key={wk.label} className={cn("hover:bg-zinc-50/50 dark:hover:bg-zinc-950/40 transition-colors", wk.isCurrentWeek && "bg-indigo-50/10 dark:bg-indigo-500/[0.02]")}>
+                          <td className="py-4 pl-2 font-semibold text-xs text-zinc-800 dark:text-zinc-200">
+                            <div className="flex items-center gap-2">
+                              {wk.label}
+                              {wk.isCurrentWeek && (
+                                <span className="text-[8px] bg-indigo-500/10 text-indigo-600 px-1.5 py-0.5 rounded font-black uppercase tracking-wider">Current</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 text-center font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                            {wk.expectedHours.toFixed(1)}h
+                          </td>
+                          <td className="py-4 text-center font-mono text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                            {wk.actualHours.toFixed(1)}h
+                          </td>
+                          <td className="py-4 text-right pr-2">
+                            <span className={cn("inline-flex px-2.5 py-1 rounded-xl text-xs font-black italic", varianceColor)}>
+                              {varianceLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 

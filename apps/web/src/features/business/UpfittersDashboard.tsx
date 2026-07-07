@@ -4,7 +4,7 @@ import {
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
   Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
-  ChevronUp, ChevronDown, Award, Printer
+  ChevronUp, ChevronDown, Award, Printer, Target
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
@@ -962,6 +962,8 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       });
 
       let weekBookHours = 0;
+      let weekBookOnlyHours = 0;
+      let weekHourlyOnlyHours = 0;
       weekCompletedTasks.forEach(task => {
         const tTitle = task.title || '';
         const isGen = tTitle.toLowerCase().includes('clock in') || tTitle.toLowerCase().includes('clockout') || tTitle.toLowerCase().includes('break') || tTitle.toLowerCase().includes('lunch') || tTitle.toLowerCase().includes('meeting');
@@ -970,8 +972,10 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           const isHourly = task.payBasis === 'hourly' || bTime === 0;
           if (isHourly) {
             const actualTime = getTaskLoggedHours(task.id, memberWeekSessions);
+            weekHourlyOnlyHours += actualTime;
             weekBookHours += actualTime;
           } else {
+            weekBookOnlyHours += bTime;
             weekBookHours += bTime;
           }
         }
@@ -1098,6 +1102,8 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
         overallRemainingBook,
         weekShiftHours,
         weekBookHours,
+        weekBookOnlyHours,
+        weekHourlyOnlyHours,
         weekSessionsList,
         completedTasksList,
         previousJobs: previousJobs.slice(0, 5)
@@ -1181,6 +1187,19 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       totalAllTaskHours += s.totalTaskHours;
     });
 
+    let totalWeeklyBookHours = 0;
+    let totalWeeklyHourlyHours = 0;
+    let totalWeeklyCombinedHours = 0;
+
+    staffColumnData.forEach(s => {
+      totalWeeklyBookHours += (s as any).weekBookOnlyHours || 0;
+      totalWeeklyHourlyHours += (s as any).weekHourlyOnlyHours || 0;
+      totalWeeklyCombinedHours += s.weekBookHours || 0;
+    });
+
+    const weeklyHoursTarget = Number(business?.upfittingWeeklyHoursTarget) || 250;
+    const weeklyHoursProgress = weeklyHoursTarget > 0 ? Math.min(100, Math.round((totalWeeklyCombinedHours / weeklyHoursTarget) * 100)) : 0;
+
     const overallEfficiency = totalCompletedActual > 0
       ? Math.round((totalCompletedBook / totalCompletedActual) * 100)
       : null;
@@ -1213,6 +1232,11 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       totalCompletedActual,
       overallEfficiency,
       overallCoverage,
+      weeklyBookHours: totalWeeklyBookHours,
+      weeklyHourlyHours: totalWeeklyHourlyHours,
+      weeklyCombinedHours: totalWeeklyCombinedHours,
+      weeklyHoursTarget,
+      weeklyHoursProgress,
       blockedJobsCount,
       partsAwaitingJobsCount,
       totalAllShiftHours,
@@ -1220,7 +1244,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
       blockedJobs,
       partsAwaitingJobs
     };
-  }, [staffColumnData, allJobs, allTasks, partsRequests]);
+  }, [staffColumnData, allJobs, allTasks, partsRequests, business]);
 
   // Filter columns based on Search query
   const filteredStaffColumns = useMemo(() => {
@@ -1374,7 +1398,7 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-6 relative z-10">
             {/* 1. Shop Efficiency Bonus Gauge */}
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-4">
               <div className="flex justify-between items-start">
@@ -1476,6 +1500,62 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
                 {foremanBonus.nextRevTier && (
                   <span>Next Mark: <strong className="text-indigo-400">{foremanBonus.nextRevTier}</strong></span>
                 )}
+              </div>
+            </div>
+
+            {/* 3. Weekly Hours Goal Tracker */}
+            <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-5 space-y-4 flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex justify-between items-start">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block flex items-center gap-1.5">
+                      <Target className="w-3.5 h-3.5 text-emerald-450" />
+                      Weekly Production Hours Goal
+                    </span>
+                    <span className="text-lg font-black font-mono text-emerald-400">
+                      {overallStats.weeklyCombinedHours.toFixed(1)} <span className="text-xs text-zinc-500 font-normal">/ {overallStats.weeklyHoursTarget} hrs</span>
+                    </span>
+                  </div>
+                  <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/20 font-mono">
+                    {overallStats.weeklyHoursProgress}%
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="space-y-1.5">
+                  <div className="h-3 bg-white/10 rounded-full overflow-hidden flex">
+                    <div 
+                      className={cn(
+                        "h-full transition-all duration-500",
+                        overallStats.weeklyHoursProgress >= 100 ? "bg-emerald-500" :
+                        overallStats.weeklyHoursProgress >= 75 ? "bg-teal-500" :
+                        overallStats.weeklyHoursProgress >= 50 ? "bg-amber-500" : "bg-rose-500"
+                      )}
+                      style={{ width: `${overallStats.weeklyHoursProgress}%` }}
+                    />
+                  </div>
+                  
+                  <div className="flex justify-between text-[8px] font-bold text-zinc-450 uppercase tracking-wider">
+                    <span>0 hrs</span>
+                    <span>Goal: {overallStats.weeklyHoursTarget} hrs</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                  <div>
+                    <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-wider block">Flat-Rate / Book</span>
+                    <span className="text-xs font-black font-mono text-white">{overallStats.weeklyBookHours.toFixed(1)} hrs</span>
+                  </div>
+                  <div>
+                    <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-wider block">Hourly Work</span>
+                    <span className="text-xs font-black font-mono text-white">{overallStats.weeklyHourlyHours.toFixed(1)} hrs</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-450 pt-1 border-t border-white/5 mt-2">
+                <span>Timeframe: <strong className="text-white">This Week</strong></span>
+                <span>Combined Target: <strong className="text-emerald-450">{overallStats.weeklyHoursTarget} hrs</strong></span>
               </div>
             </div>
           </div>

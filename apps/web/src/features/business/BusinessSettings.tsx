@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { 
   Building2, MapPin, Link2, Save, Clock, Coffee, Pizza, Map, Monitor, 
-  Palette, AlertTriangle, BellRing, Upload, Trash2, Loader2 
+  Palette, AlertTriangle, BellRing, Upload, Trash2, Loader2, Target 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -58,7 +58,9 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
     globalNotifyStaleBays: initialData?.globalNotifyStaleBays ?? true,
     globalNotifyBlockers: initialData?.globalNotifyBlockers ?? true,
     globalNotifyMissingParts: initialData?.globalNotifyMissingParts ?? true,
-    globalNotifyBayUpdates: initialData?.globalNotifyBayUpdates ?? true
+    globalNotifyBayUpdates: initialData?.globalNotifyBayUpdates ?? true,
+    // Upfitting Goals
+    upfittingWeeklyHoursTarget: initialData?.upfittingWeeklyHoursTarget ?? 250
   });
 
   useEffect(() => {
@@ -99,7 +101,8 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
         globalNotifyStaleBays: initialData.globalNotifyStaleBays ?? true,
         globalNotifyBlockers: initialData.globalNotifyBlockers ?? true,
         globalNotifyMissingParts: initialData.globalNotifyMissingParts ?? true,
-        globalNotifyBayUpdates: initialData.globalNotifyBayUpdates ?? true
+        globalNotifyBayUpdates: initialData.globalNotifyBayUpdates ?? true,
+        upfittingWeeklyHoursTarget: initialData.upfittingWeeklyHoursTarget ?? 250
       });
     }
   }, [initialData]);
@@ -576,6 +579,38 @@ export function BusinessSettings({ tenantId, initialData }: { tenantId: string; 
                     <input type="text" name="monitorColorEmpty" value={formData.monitorColorEmpty} onChange={handleChange} className="flex-1 min-w-0 text-[10px] font-mono bg-transparent border-none dark:text-white p-0" />
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Upfitting Production Goals */}
+        <section className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-sm">
+          <div className="p-6 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-500/10 rounded-lg">
+              <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Upfitting Production Goals</h2>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Configure weekly targets to track shop throughput and efficiency.</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-2">
+                  Weekly Target Hours (Combined)
+                </label>
+                <input 
+                  type="number" 
+                  name="upfittingWeeklyHoursTarget" 
+                  value={formData.upfittingWeeklyHoursTarget} 
+                  onChange={handleChange} 
+                  className="w-full px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-lg focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white"
+                  placeholder="e.g. 250"
+                  min="1"
+                />
+                <p className="text-[11px] text-zinc-500 mt-1">Target weekly hours for the Upfitting department (flat-rate book hours and hourly work combined).</p>
               </div>
             </div>
           </div>

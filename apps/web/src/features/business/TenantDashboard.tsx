@@ -57,6 +57,7 @@ import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { QuickBooksAudit } from './QuickBooksAudit';
 import { QBJobDetailsPlaceholder } from './QBJobDetailsPlaceholder';
 import { JobDetailPage } from './JobDetailPage';
+import { JobEfficiencyPage } from './JobEfficiencyPage';
 import { JobEditPage } from './JobEditPage';
 import { JobQCPage } from './JobQCPage';
 import { JobIntakeFormPage } from './JobIntakeFormPage';
@@ -585,6 +586,10 @@ export function TenantDashboard() {
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
               <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+            )}
+
+            {activeTab === 'job' && pathParts[2] === 'efficiency' && (
+              <JobEfficiencyPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
             )}
 
             {activeTab === 'job' && pathParts[2] === 'qc' && (

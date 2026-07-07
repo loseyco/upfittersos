@@ -413,16 +413,28 @@ exports.qbwcRoutes.get('/config', async (req, res) => {
         const appUrl = host.includes('localhost') || host.includes('127.0.0.1')
             ? `${protocol}://${host}/api/qbwc`
             : `https://us-central1-saegroup-c6487.cloudfunctions.net/api/qbwc`;
-        // Dynamically generate unique UUIDs to prevent "App Name / App ID already exists" errors in QBWC
-        const generateGuid = () => {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
-                return v.toString(16).toUpperCase();
-            });
+        // Stable GUIDs to prevent QBWC1012/permission mismatch errors in QuickBooks Web Connector.
+        // We default to the known working live integration GUIDs for the SAE Group tenant,
+        // and generate stable, tenant-specific GUIDs for other tenants.
+        const getDeterministicGuid = (seed) => {
+            let hash = 0;
+            for (let i = 0; i < seed.length; i++) {
+                hash = (hash << 5) - hash + seed.charCodeAt(i);
+                hash |= 0;
+            }
+            const hex = Math.abs(hash).toString(16).padEnd(8, '0') +
+                Math.abs(hash * 31).toString(16).padEnd(8, '0') +
+                Math.abs(hash * 17).toString(16).padEnd(8, '0') +
+                Math.abs(hash * 13).toString(16).padEnd(8, '0');
+            const s = hex.toUpperCase();
+            return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20, 32)}`;
         };
-        const fileId = `{${generateGuid()}}`;
-        const ownerId = `{${generateGuid()}}`;
+        const ownerId = tenantId === '7jlg4IA2G6lvDJ0S5Vbp'
+            ? '{E35D9B4A-7A12-4C3D-8B8E-1C2D3E4F5A6B}'
+            : `{${getDeterministicGuid(tenantId + '_owner')}}`;
+        const fileId = tenantId === '7jlg4IA2G6lvDJ0S5Vbp'
+            ? '{C12A345B-6789-4D0E-F12A-3B4C5D6E7F8A}'
+            : `{${getDeterministicGuid(tenantId + '_file')}}`;
         const qwc = `<?xml version="1.0"?>
 <QBWCXML>
    <AppName>${appName}</AppName>

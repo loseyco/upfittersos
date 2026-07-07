@@ -8,6 +8,7 @@ interface AuthState {
   tenantId: string | null;
   permissions: PermissionSet;
   loading: boolean;
+  mustChangePassword: boolean;
   
   // Impersonation state
   impersonatedStaff: { id: string; name: string; permissions: PermissionSet; type: 'staff' | 'role' } | null;
@@ -19,6 +20,7 @@ interface AuthState {
   setTenantId: (tenantId: string | null) => void;
   setPermissions: (permissions: PermissionSet) => void;
   setLoading: (loading: boolean) => void;
+  setMustChangePassword: (mustChange: boolean) => void;
 
   // Actions
   impersonate: (staff: { id: string; name: string; permissions: PermissionSet; type: 'staff' | 'role' }) => void;
@@ -31,6 +33,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   tenantId: null,
   permissions: {},
   loading: true,
+  mustChangePassword: false,
   
   impersonatedStaff: null,
   originalPermissions: null,
@@ -53,6 +56,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   setLoading: (loading) => set({ loading }),
+  setMustChangePassword: (mustChangePassword) => set({ mustChangePassword }),
 
   impersonate: (staff) => {
     const currentPerms = get().permissions;

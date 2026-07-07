@@ -54,6 +54,7 @@ interface StaffStats {
   tasksCompletedByType: Record<string, number>;
   vehiclesWorkedOn: Record<string, { count: number; minutes: number }>;
   customersServiced: Record<string, { count: number; minutes: number }>;
+  scheduledMinutes: number;
 }
 
 export function StaffPerformance({ tenantId }: { tenantId: string }) {
@@ -226,7 +227,8 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
         completedTasksCount: 0,
         tasksCompletedByType: {},
         vehiclesWorkedOn: {},
-        customersServiced: {}
+        customersServiced: {},
+        scheduledMinutes: 0
       });
     });
 
@@ -528,6 +530,93 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
       });
     }
 
+    // Calculate scheduled minutes for each staff member
+    staffMap.forEach((staff) => {
+      // Find raw staff document to get individual schedule and hireDate
+      const staffRaw = rawData.staff?.find(sr => sr.id === staff.id);
+      
+      const endMs = now.getTime();
+      let startMs = periodStart;
+
+      if (startMs === 0) {
+        // For 'all', find the earliest session across all time sessions in the database
+        let earliestSession = endMs;
+        rawData.time_sessions?.forEach(ts => {
+          const t = parseDate(ts.clockIn?.timestamp);
+          if (t > 0 && t < earliestSession) {
+            earliestSession = t;
+          }
+        });
+
+        // Check staff's hireDate or startDate
+        let hireDateMs = 0;
+        const hireDateVal = staffRaw?.hireDate || staffRaw?.startDate;
+        if (hireDateVal) {
+          hireDateMs = new Date(hireDateVal).getTime();
+        }
+
+        startMs = (hireDateMs > 0 && hireDateMs > earliestSession && hireDateMs < endMs)
+          ? hireDateMs
+          : earliestSession;
+      }
+
+      if (startMs < endMs) {
+        let totalMins = 0;
+        
+        const start = new Date(startMs);
+        const end = new Date(endMs);
+        const current = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        const targetEnd = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+
+        while (current.getTime() <= targetEnd.getTime()) {
+          const dayOfWeek = current.getDay() === 0 ? 7 : current.getDay();
+          const dateStr = current.toISOString().split('T')[0];
+          
+          let schedule = staffRaw?.individualSchedule;
+          
+          if (staffRaw?.individualScheduleHistory && Array.isArray(staffRaw.individualScheduleHistory)) {
+            const entry = staffRaw.individualScheduleHistory.find((h: any) => {
+              return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
+            });
+            if (entry) schedule = entry.schedule;
+          }
+          
+          if (!schedule) {
+            const dept = rawData.departments?.find(d => d.id === staffRaw?.departmentId);
+            if (dept?.defaultScheduleHistory && Array.isArray(dept.defaultScheduleHistory)) {
+              const entry = dept.defaultScheduleHistory.find((h: any) => {
+                return (!h.startDate || dateStr >= h.startDate) && (!h.endDate || dateStr <= h.endDate);
+              });
+              if (entry) schedule = entry.schedule;
+            }
+            if (!schedule) {
+              schedule = dept?.defaultSchedule;
+            }
+          }
+          
+          const finalSchedule = schedule || {
+            startTime: '08:00',
+            endTime: '17:00',
+            expectedHoursPerDay: 8,
+            days: [1, 2, 3, 4, 5]
+          };
+          
+          const daysArray = (finalSchedule.days && finalSchedule.days.length > 0) ? finalSchedule.days : [1, 2, 3, 4, 5];
+          const hoursPerDay = Number(finalSchedule.expectedHoursPerDay) || 8;
+          
+          const isScheduled = daysArray.some((d: any) => Number(d) === dayOfWeek);
+          if (isScheduled) {
+            totalMins += hoursPerDay * 60;
+          }
+          current.setDate(current.getDate() + 1);
+        }
+
+        staff.scheduledMinutes = totalMins;
+      } else {
+        staff.scheduledMinutes = 0;
+      }
+    });
+
     return Array.from(staffMap.values())
       .filter(s => s.totalPoints > 0 || timeframe === 'all')
       .sort((a, b) => b.totalPoints - a.totalPoints);
@@ -808,8 +897,22 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                           <p className="text-sm font-bold text-zinc-900 dark:text-white">{staff.parts}</p>
                         </div>
                         <div>
-                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Hours</p>
-                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{(staff.timeLogged / 60).toFixed(1)}</p>
+                          <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Hours (Act/Sch)</p>
+                          <p className="text-sm font-bold text-zinc-900 dark:text-white">{(staff.timeLogged / 60).toFixed(1)} / {(staff.scheduledMinutes / 60).toFixed(1)}</p>
+                          {(() => {
+                            const diff = (staff.timeLogged - staff.scheduledMinutes) / 60;
+                            const diffStr = diff >= 0 ? `+${diff.toFixed(1)}h` : `${diff.toFixed(1)}h`;
+                            return (
+                              <span className={cn(
+                                "text-[10px] font-black block mt-0.5",
+                                diff > 0.1 ? "text-emerald-500" :
+                                diff < -0.1 ? "text-rose-500" :
+                                "text-zinc-400"
+                              )}>
+                                {diffStr}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div>
                           <p className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Efficiency</p>
@@ -886,6 +989,38 @@ export function StaffPerformance({ tenantId }: { tenantId: string }) {
                           <div className="space-y-4">
                             <h4 className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.25em]">Shift Punctuality & Schedules</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="sm:col-span-2 bg-gradient-to-br from-indigo-50/50 to-violet-50/30 dark:from-zinc-900 dark:to-zinc-950 p-5 rounded-2xl border border-indigo-100 dark:border-zinc-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2.5 bg-indigo-500/10 rounded-xl text-indigo-600 dark:text-indigo-400">
+                                    <Calendar className="w-5 h-5" />
+                                  </div>
+                                  <div>
+                                    <p className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Attendance Balance (Scheduled vs Worked)</p>
+                                    <h5 className="text-sm font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                                      Expected: <span className="font-extrabold text-zinc-900 dark:text-white">{(selectedStaff.scheduledMinutes / 60).toFixed(1)}h</span>
+                                      <span className="mx-2 text-zinc-300 dark:text-zinc-700">|</span>
+                                      Worked: <span className="font-extrabold text-zinc-900 dark:text-white">{(selectedStaff.timeLogged / 60).toFixed(1)}h</span>
+                                    </h5>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 self-start sm:self-center">
+                                  {(() => {
+                                    const diff = (selectedStaff.timeLogged - selectedStaff.scheduledMinutes) / 60;
+                                    const diffStr = diff >= 0 ? `+${diff.toFixed(1)}h` : `${diff.toFixed(1)}h`;
+                                    return (
+                                      <div className={cn(
+                                        "px-3 py-1.5 rounded-xl font-black text-xs tracking-wider uppercase flex items-center gap-1.5 shadow-sm",
+                                        diff >= 0 
+                                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" 
+                                          : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                      )}>
+                                        <span>Variance:</span>
+                                        <span>{diffStr}</span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              </div>
                               <div className="bg-white dark:bg-zinc-900 p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800">
                                 <Calendar className="w-5 h-5 text-teal-500 mb-2" />
                                 <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Time Early</p>

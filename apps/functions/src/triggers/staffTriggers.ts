@@ -30,7 +30,8 @@ export const syncStaffPermissions = functions.firestore
     }
 
     try {
-        let userRecord;
+        let userRecord: admin.auth.UserRecord;
+        let isNewUser = false;
         
         // 1. Try to find the user in Auth
         try {
@@ -42,13 +43,37 @@ export const syncStaffPermissions = functions.firestore
                 console.log(`Auth user not found for ${email}. Pre-creating account...`);
                 userRecord = await admin.auth().createUser({
                     email: email,
-                    password: 'Upfitters2026!', // Default password so monitor accounts can log in
+                    password: 'password', // Default password
                     emailVerified: false, // They will verify on first login
                     displayName: `${firstName} ${lastName}`.trim()
                 });
                 console.log(`Successfully pre-created Auth user: ${userRecord.uid} with default password.`);
+                isNewUser = true;
             } else {
                 throw e; // throw other errors
+            }
+        }
+
+        // 3. Ensure Firestore user document exists with email populated
+        const userDocRef = admin.firestore().collection('users').doc(userRecord.uid);
+        const userDocSnap = await userDocRef.get();
+        if (!userDocSnap.exists) {
+            await userDocRef.set({
+                firstName: firstName,
+                lastName: lastName,
+                email: email.toLowerCase(),
+                mustChangePassword: isNewUser, // only force password reset if we pre-created with default 'password'
+                createdAt: new Date().toISOString()
+            }, { merge: true });
+            console.log(`Created user document for ${email} because it did not exist.`);
+        } else {
+            // Document exists, make sure email field is populated
+            const userDocData = userDocSnap.data();
+            if (!userDocData || !userDocData.email) {
+                await userDocRef.set({
+                    email: email.toLowerCase()
+                }, { merge: true });
+                console.log(`Updated existing user document for ${email} with email field.`);
             }
         }
 

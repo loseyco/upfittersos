@@ -6,13 +6,23 @@ import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firesto
 import { resolvePermissions, PERMISSIONS } from './permissions';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { setUser, setSuperAdmin, setTenantId, setPermissions, setLoading } = useAuthStore();
+  const { setUser, setSuperAdmin, setTenantId, setPermissions, setLoading, setMustChangePassword } = useAuthStore();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       
       if (user) {
+        // Fetch user profile first to check mustChangePassword
+        let mustChange = false;
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          mustChange = userDoc.exists() && userDoc.data().mustChangePassword === true;
+        } catch (e) {
+          console.error("Error fetching user profile", e);
+        }
+        setMustChangePassword(mustChange);
+
         // Enforce Rule 2: loseyp@gmail.com is hardcoded as root platform operator
         if (user.email?.toLowerCase() === 'loseyp@gmail.com') {
           setSuperAdmin(true);
@@ -69,13 +79,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSuperAdmin(false);
         setTenantId(null);
         setPermissions({});
+        setMustChangePassword(false);
       }
       
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [setUser, setSuperAdmin, setTenantId, setPermissions, setLoading]);
+  }, [setUser, setSuperAdmin, setTenantId, setPermissions, setLoading, setMustChangePassword]);
 
   return <>{children}</>;
 }

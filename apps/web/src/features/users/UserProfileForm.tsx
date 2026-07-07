@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../lib/firebase/config';
+import { db, auth } from '../../lib/firebase/config';
+import { updatePassword } from 'firebase/auth';
 import { useAuthStore } from '../../lib/auth/store';
 import { submitAuditLog } from '../../lib/logging/audit';
-import { Save, Loader2, CheckCircle2, UserCircle, MapPin, Briefcase, Settings2 } from 'lucide-react';
+import { Save, Loader2, CheckCircle2, UserCircle, MapPin, Briefcase, Settings2, KeyRound, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface UserProfile {
@@ -75,6 +76,12 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<Partial<UserProfile>>({});
 
+  // Change Password states
+  const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [updatingPassword, setUpdatingPassword] = useState(false);
+
   const { data: profile, isLoading } = useQuery({
     queryKey: ['userProfile', user?.uid, tenantId],
     queryFn: async () => {
@@ -104,6 +111,11 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
             firstName: rawStaff.firstName,
             lastName: rawStaff.lastName,
             phone: rawStaff.phone,
+            dob: rawStaff.dob,
+            addressStreet: rawStaff.addressStreet,
+            addressCity: rawStaff.addressCity,
+            addressState: rawStaff.addressState,
+            addressZip: rawStaff.addressZip,
             emergencyContactName: rawStaff.emergencyContact?.name,
             emergencyContactPhone: rawStaff.emergencyContact?.phone,
             jobTitle: rawStaff.jobTitle,
@@ -153,9 +165,14 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
             firstName: newData.firstName,
             lastName: newData.lastName,
             phone: newData.phone,
+            dob: newData.dob || null,
+            addressStreet: newData.addressStreet || null,
+            addressCity: newData.addressCity || null,
+            addressState: newData.addressState || null,
+            addressZip: newData.addressZip || null,
             emergencyContact: {
-              name: newData.emergencyContactName,
-              phone: newData.emergencyContactPhone
+              name: newData.emergencyContactName || null,
+              phone: newData.emergencyContactPhone || null
             },
             updatedAt: serverTimestamp()
           };
@@ -201,6 +218,40 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     mutation.mutate(formData);
+  };
+
+  const handleChangePasswordSubmit = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!newPassword) return;
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters.');
+      return;
+    }
+
+    setUpdatingPassword(true);
+    try {
+      if (auth.currentUser) {
+        await updatePassword(auth.currentUser, newPassword);
+        toast.success('Your password has been changed successfully!');
+        setNewPassword('');
+        setConfirmPassword('');
+        setShowPasswordSection(false);
+      } else {
+        toast.error('No authenticated user context found.');
+      }
+    } catch (err: any) {
+      if (err.code === 'auth/requires-recent-login') {
+        toast.error('Security restriction: Please log out and log back in to change your password.');
+      } else {
+        toast.error(err.message || 'Failed to update password.');
+      }
+    } finally {
+      setUpdatingPassword(false);
+    }
   };
 
   const updateField = (field: keyof UserProfile, value: any) => {
@@ -304,7 +355,65 @@ export function UserProfileForm({ onComplete }: { onComplete?: () => void }) {
         </div>
       </section>
 
-      {/* Category 4: System Setup */}
+      {/* Category 4: Security */}
+      <section className="space-y-4">
+        <button
+          type="button"
+          onClick={() => setShowPasswordSection(!showPasswordSection)}
+          className="w-full flex items-center justify-between text-xl font-bold text-zinc-900 dark:text-white border-b border-zinc-200 dark:border-zinc-800 pb-2 focus:outline-none"
+        >
+          <span className="flex items-center gap-2">
+            <KeyRound className="w-6 h-6 text-red-500" /> Security & Credentials
+          </span>
+          {showPasswordSection ? <ChevronUp className="w-6 h-6 text-zinc-500" /> : <ChevronDown className="w-6 h-6 text-zinc-500" />}
+        </button>
+
+        {showPasswordSection && (
+          <div className="p-5 bg-zinc-50 dark:bg-zinc-900/30 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-4 animate-in fade-in slide-in-from-top-4 duration-200">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full h-14 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl px-4 text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all shadow-sm"
+                  placeholder="••••••••"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2">Confirm New Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full h-14 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-xl px-4 text-lg text-zinc-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all shadow-sm"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleChangePasswordSubmit}
+                disabled={updatingPassword}
+                className="px-6 h-12 bg-zinc-900 hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-500 text-white font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
+              >
+                {updatingPassword ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Password'
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Category 5: System Setup */}
       <section className="space-y-4">
         <h3 className="text-xl flex items-center gap-2 font-bold text-zinc-900 dark:text-white border-b border-zinc-200 dark:border-zinc-800 pb-2">
           <Settings2 className="w-6 h-6 text-zinc-500" /> Device Preferences

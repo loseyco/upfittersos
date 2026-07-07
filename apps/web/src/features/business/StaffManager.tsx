@@ -4,7 +4,7 @@ import {
   X, Edit2, UserPlus, Search, Archive, Mail, Phone, 
   Building2, Loader2, Save, ShieldCheck, Check,
   ShieldAlert, Trophy, Eye, Settings2, Calendar,
-  Trash2, Smile, Frown, ExternalLink, Users, DollarSign
+  Trash2, Smile, Frown, ExternalLink, Users, DollarSign, MapPin
 } from 'lucide-react';
 import { StaffLink } from './StaffPerformance';
 import { doc, updateDoc, collection, addDoc, serverTimestamp, deleteDoc, getDocs, setDoc, query, where, onSnapshot } from 'firebase/firestore';
@@ -25,6 +25,12 @@ export interface WorkSchedule {
   startTime: string; // "08:00"
   endTime: string; // "17:00"
   expectedHoursPerDay: number;
+}
+
+export interface ScheduleHistoryEntry {
+  startDate: string;
+  endDate: string | null;
+  schedule: WorkSchedule;
 }
 
 export interface StaffMember {
@@ -60,12 +66,18 @@ export interface StaffMember {
   qb_ListID?: string;
   quickbooksId?: string;
   individualSchedule?: WorkSchedule;
+  individualScheduleHistory?: ScheduleHistoryEntry[];
   techNumber?: string;
   payPeriodBookTimeCredit?: number;
   reportsToId?: string;
   toolsResponsible?: string;
   purchasingAuthority?: string;
   backupStaffId?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
+  dob?: string;
 }
 
 export interface Department {
@@ -73,6 +85,7 @@ export interface Department {
   name: string;
   permissions: PermissionSet;
   defaultSchedule?: WorkSchedule;
+  defaultScheduleHistory?: ScheduleHistoryEntry[];
   weeklyBookTimeCredit?: number;
   defaultReportsToId?: string;
   defaultBackupStaffId?: string;
@@ -518,10 +531,50 @@ function DepartmentEditModal({ tenantId, dept, onClose, onSaved }: { tenantId: s
     if (!name.trim()) return;
     setIsSubmitting(true);
     try {
+      let defaultScheduleHistory = dept?.defaultScheduleHistory || [];
+      const scheduleChanged = JSON.stringify(defaultSchedule) !== JSON.stringify(dept?.defaultSchedule);
+      
+      if (scheduleChanged) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        if (defaultScheduleHistory.length > 0) {
+          const lastIdx = defaultScheduleHistory.length - 1;
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toISOString().split('T')[0];
+          
+          if (!defaultScheduleHistory[lastIdx].endDate) {
+            defaultScheduleHistory[lastIdx] = {
+              ...defaultScheduleHistory[lastIdx],
+              endDate: yesterdayStr
+            };
+          }
+        }
+        
+        if (defaultSchedule) {
+          defaultScheduleHistory = [
+            ...defaultScheduleHistory,
+            {
+              startDate: todayStr,
+              endDate: null,
+              schedule: defaultSchedule
+            }
+          ];
+        }
+      } else if (!dept?.id && defaultSchedule) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        defaultScheduleHistory = [{
+          startDate: todayStr,
+          endDate: null,
+          schedule: defaultSchedule
+        }];
+      }
+
       const data = {
         name: name.trim(),
         permissions,
         defaultSchedule,
+        defaultScheduleHistory,
         weeklyBookTimeCredit: Number(weeklyBookTimeCredit) || 0,
         defaultPayRate: Number(defaultPayRate) || 0,
         defaultPayType: defaultPayType || 'hourly',
@@ -1126,6 +1179,22 @@ function StaffDetailsModal({
                   )}
                 </p>
               </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Address</p>
+                <div className="space-y-1 text-sm font-semibold text-zinc-900 dark:text-white">
+                  <p>
+                    {staff.addressStreet ? `${staff.addressStreet}${staff.addressCity ? `, ${staff.addressCity}` : ''}${staff.addressState ? `, ${staff.addressState}` : ''}${staff.addressZip ? ` ${staff.addressZip}` : ''}` : '--'}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">Personal Details</p>
+                <div className="space-y-1 text-sm font-semibold text-zinc-900 dark:text-white">
+                  <p>
+                    DOB: {staff.dob ? new Date(staff.dob + 'T00:00:00').toLocaleDateString() : '--'}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="p-8 bg-zinc-50/50 dark:bg-zinc-950/30 overflow-y-auto no-scrollbar max-h-[300px]">
@@ -1336,6 +1405,11 @@ export function StaffEditModal({
   const [individualSchedule, setIndividualSchedule] = useState<WorkSchedule | null>(staff?.individualSchedule || null);
   const [isArchivedState, setIsArchivedState] = useState(!!staff?.isArchived);
   const [isDeviceAccountState, setIsDeviceAccountState] = useState(!!staff?.isDeviceAccount);
+  const [addressStreet, setAddressStreet] = useState(String(staff?.addressStreet || ''));
+  const [addressCity, setAddressCity] = useState(String(staff?.addressCity || ''));
+  const [addressState, setAddressState] = useState(String(staff?.addressState || ''));
+  const [addressZip, setAddressZip] = useState(String(staff?.addressZip || ''));
+  const [dob, setDob] = useState(String(staff?.dob || ''));
 
   const { data: allStaff } = useQuery<StaffMember[]>({
     queryKey: ['staff-list', tenantId],
@@ -1370,6 +1444,45 @@ export function StaffEditModal({
     
     setIsSubmitting(true);
     try {
+      let individualScheduleHistory = staff?.individualScheduleHistory || [];
+      const scheduleChanged = JSON.stringify(individualSchedule) !== JSON.stringify(staff?.individualSchedule);
+      
+      if (scheduleChanged) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        if (individualScheduleHistory.length > 0) {
+          const lastIdx = individualScheduleHistory.length - 1;
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          const yesterdayStr = yesterday.toISOString().split('T')[0];
+          
+          if (!individualScheduleHistory[lastIdx].endDate) {
+            individualScheduleHistory[lastIdx] = {
+              ...individualScheduleHistory[lastIdx],
+              endDate: yesterdayStr
+            };
+          }
+        }
+        
+        if (individualSchedule) {
+          individualScheduleHistory = [
+            ...individualScheduleHistory,
+            {
+              startDate: todayStr,
+              endDate: null,
+              schedule: individualSchedule
+            }
+          ];
+        }
+      } else if (!staff?.id && individualSchedule) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        individualScheduleHistory = [{
+          startDate: todayStr,
+          endDate: null,
+          schedule: individualSchedule
+        }];
+      }
+
       const data = {
         firstName: String(firstName).trim(),
         lastName: String(lastName).trim(),
@@ -1400,8 +1513,14 @@ export function StaffEditModal({
         backupStaffId: backupStaffId || null,
         individualPermissions,
         individualSchedule,
+        individualScheduleHistory,
         isArchived: isArchivedState,
         isDeviceAccount: isDeviceAccountState,
+        addressStreet: addressStreet || null,
+        addressCity: addressCity || null,
+        addressState: addressState || null,
+        addressZip: addressZip || null,
+        dob: dob || null,
         updatedAt: serverTimestamp()
       };
 
@@ -1414,6 +1533,7 @@ export function StaffEditModal({
           await setDoc(doc(db, 'users', uid), {
             firstName: data.firstName,
             lastName: data.lastName,
+            email: data.email.toLowerCase(),
             phone: data.phone,
             emergencyContactName: data.emergencyContact.name,
             emergencyContactPhone: data.emergencyContact.phone,
@@ -1429,6 +1549,11 @@ export function StaffEditModal({
             reportsToId: data.reportsToId,
             purchasingAuthority: data.purchasingAuthority,
             backupStaffId: data.backupStaffId,
+            addressStreet: data.addressStreet,
+            addressCity: data.addressCity,
+            addressState: data.addressState,
+            addressZip: data.addressZip,
+            dob: data.dob,
             updatedAt: new Date().toISOString()
           }, { merge: true });
         }
@@ -1461,6 +1586,11 @@ export function StaffEditModal({
             reportsToId: data.reportsToId,
             purchasingAuthority: data.purchasingAuthority,
             backupStaffId: data.backupStaffId,
+            addressStreet: data.addressStreet,
+            addressCity: data.addressCity,
+            addressState: data.addressState,
+            addressZip: data.addressZip,
+            dob: data.dob,
             updatedAt: new Date().toISOString()
           }, { merge: true });
         }
@@ -1758,6 +1888,39 @@ export function StaffEditModal({
                       type="date" value={fireDate} onChange={e => setFireDate(e.target.value)} 
                       className="w-full px-5 py-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all" 
                     />
+                  </div>
+                </div>
+
+                <div className="pt-4 space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapPin className="w-4 h-4 text-zinc-400" />
+                    <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Address & Personal Details</h4>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">Street Address</label>
+                        <input type="text" placeholder="123 Main St" value={addressStreet} onChange={e => setAddressStreet(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500 text-zinc-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">City</label>
+                        <input type="text" placeholder="City" value={addressCity} onChange={e => setAddressCity(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500 text-zinc-900 dark:text-white" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">State</label>
+                        <input type="text" placeholder="State" value={addressState} onChange={e => setAddressState(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500 text-zinc-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">Zip Code</label>
+                        <input type="text" placeholder="12345" value={addressZip} onChange={e => setAddressZip(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500 text-zinc-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">Date of Birth</label>
+                        <input type="date" value={dob} onChange={e => setDob(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500 text-zinc-900 dark:text-white" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 

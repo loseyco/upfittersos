@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upfitter Skill Matrix & Certification Rubric</title>
+  <style>
+    :root {
+      --primary-color: #18181b;
+      --secondary-color: #27272a;
+      --border-color: #e4e4e7;
+      --bg-light: #f4f4f5;
+      --text-muted: #71717a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: var(--primary-color);
+      line-height: 1.4;
+      font-size: 11px;
+      padding: 40px;
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: #ffffff;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--primary-color);
+      padding-bottom: 12px;
+      margin-bottom: 20px;
+    }
+
+    .logo-area h1 {
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      text-transform: uppercase;
+    }
+
+    .logo-area p {
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    .doc-meta {
+      text-align: right;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    .staff-info-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .info-card {
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+      background-color: var(--bg-light);
+    }
+
+    .grid-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 15px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .field label {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .field input[type="text"] {
+      border: none;
+      border-bottom: 1px solid #a1a1aa;
+      background: transparent;
+      padding: 2px 0;
+      font-size: 12px;
+      font-weight: 600;
+      outline: none;
+    }
+
+    .role-checkboxes {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .checkbox-label input {
+      margin-right: 8px;
+      width: 14px;
+      height: 14px;
+    }
+
+    .checkbox-label span {
+      color: var(--text-muted);
+      font-size: 9px;
+      font-weight: normal;
+      margin-left: 5px;
+    }
+
+    .matrix-title {
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+      border-left: 3px solid var(--primary-color);
+      padding-left: 8px;
+    }
+
+    .section-block {
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 8px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--border-color);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      background-color: var(--secondary-color);
+      color: #ffffff;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .col-lvl {
+      width: 12%;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .col-skills {
+      width: 63%;
+    }
+
+    .col-check {
+      width: 10%;
+      text-align: center;
+    }
+
+    .col-sign {
+      width: 15%;
+      text-align: center;
+    }
+
+    td.col-lvl {
+      background-color: var(--bg-light);
+      font-size: 10px;
+    }
+
+    ul.skill-items {
+      list-style-type: none;
+      padding-left: 0;
+    }
+
+    ul.skill-items li {
+      position: relative;
+      padding-left: 12px;
+      margin-bottom: 3px;
+    }
+
+    ul.skill-items li:last-child {
+      margin-bottom: 0;
+    }
+
+    ul.skill-items li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+
+    .custom-check {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid var(--text-muted);
+      border-radius: 3px;
+    }
+
+    .sign-line {
+      display: inline-block;
+      width: 80%;
+      border-bottom: 1px dashed var(--text-muted);
+      height: 14px;
+    }
+
+    .notes-section {
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 20px;
+    }
+
+    .notes-section h3 {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .lines {
+      border-bottom: 1px solid var(--border-color);
+      height: 20px;
+      margin-bottom: 6px;
+    }
+
+    .lines:last-child {
+      margin-bottom: 0;
+    }
+
+    .signature-block {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-top: 30px;
+    }
+
+    .sig-field {
+      border-top: 1px solid var(--primary-color);
+      padding-top: 6px;
+      text-align: center;
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .sig-field span {
+      display: block;
+      margin-top: 2px;
+      font-size: 8px;
+      font-weight: normal;
+    }
+
+    /* Print Styles */
+    @media print {
+      body {
+        padding: 0;
+        font-size: 10px;
+      }
+
+      .info-card,
+      .notes-section {
+        background-color: transparent !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      th {
+        background-color: #27272a !important;
+        color: #ffffff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      td.col-lvl {
+        background-color: #f4f4f5 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      header {
+        margin-bottom: 15px;
+      }
+
+      .section-block {
+        margin-bottom: 12px;
+      }
+
+      .signature-block {
+        margin-top: 25px;
+      }
+
+      /* Prevent page break inside section blocks */
+      .section-block {
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo-area">
+      <h1>Upfitter Skill Matrix</h1>
+      <p>Staff Development & Evaluation</p>
+    </div>
+    <div class="doc-meta">
+      <p>UpfittersOS ™</p>
+      <p>Form Rev: 2026-07</p>
+    </div>
+  </header>
+
+  <div class="staff-info-grid">
+    <div class="info-card">
+      <div class="grid-fields">
+        <div class="field">
+          <label>Employee Name</label>
+          <input type="text" placeholder="e.g. John Doe">
+        </div>
+        <div class="field">
+          <label>Evaluation Date</label>
+          <input type="text" placeholder="MM/DD/YYYY">
+        </div>
+        <div class="field">
+          <label>Evaluator Name</label>
+          <input type="text" placeholder="e.g. Shop Manager">
+        </div>
+        <div class="field">
+          <label>Shop Location / Bay</label>
+          <input type="text" placeholder="e.g. Main Shop / Bay 2">
+        </div>
+      </div>
+    </div>
+
+    <div class="info-card role-checkboxes">
+      <label class="checkbox-label">
+        <input type="checkbox"> Level 1 <span>(Apprentice)</span>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox"> Level 2 <span>(Qualified)</span>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox"> Level 3 <span>(Lead / Master)</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- SECTION 1: WIRING -->
+  <div class="section-block">
+    <h2 class="matrix-title">1. Wiring & Electrical Section</h2>
+    <table>
+      <thead>
+        <tr>
+          <th class="col-lvl">Level</th>
+          <th class="col-skills">Core Competencies & Requirements</th>
+          <th class="col-check">Pass</th>
+          <th class="col-sign">Initials & Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-lvl">Level 1<br>(Basic)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Routes wires cleanly following OEM paths and avoiding heat/pinch/movement zones.</li>
+              <li>Performs secure wire stripping, crimping, heat-shrinking, and pinning of common connector plugs.</li>
+              <li>Makes clean ground terminations and routes basic single-circuit lines (switches, standard fuses).</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 2<br>(Intermediate)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Fabricates and mounts central power distribution centers (relays, fuse blocks, bus bars).</li>
+              <li>Reads, understands, and trouble-shoots multi-circuit wire schematics.</li>
+              <li>Installs standard sirens, lightbars, controllers, and calculates/verifies appropriate wire gauges
+                (AWG) for current loads.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 3<br>(Advanced)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Integrates with factory CAN-bus network interfaces.</li>
+              <li>Designs and installs dual-battery setups, charge guards, custom high-amperage breakers, and isolated
+                circuits.</li>
+              <li>Troubleshoots advanced RF interference, phantom draws, and communication faults.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SECTION 2: HARDWARE -->
+  <div class="section-block">
+    <h2 class="matrix-title">2. Hardware Mounting & Fabrication Section</h2>
+    <table>
+      <thead>
+        <tr>
+          <th class="col-lvl">Level</th>
+          <th class="col-skills">Core Competencies & Requirements</th>
+          <th class="col-check">Pass</th>
+          <th class="col-sign">Initials & Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-lvl">Level 1<br>(Basic)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Assembles and mounts standard consoles, laptop mounts, partitions, and equipment trays.</li>
+              <li>Drills necessary holes safely and secures fasteners to correct tightness.</li>
+              <li>Operates standard power tools, cutting tools, and hand tools safely.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 2<br>(Intermediate)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Installs push bumpers, cargo storage drawers, exterior light brackets, and K9 cage enclosures.</li>
+              <li>Applies proper weatherproofing and rust-preventative coatings to all drilled sheet metal penetrations.
+              </li>
+              <li>Modifies standard pre-fab brackets to adjust equipment fitment (minor metal adjustments).</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 3<br>(Advanced)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Performs custom metal fabrication (minor cutting, sheet metal bending) and custom plastics.</li>
+              <li>Installs heavy-duty items, heavy rack systems, and makes modifications to structural elements safely.
+              </li>
+              <li>Measures and designs custom console or trunk layout prototypes for non-standard vehicle builds.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SECTION 3: PROGRAMMING -->
+  <div class="section-block">
+    <h2 class="matrix-title">3. Programming & Software Configuration Section</h2>
+    <table>
+      <thead>
+        <tr>
+          <th class="col-lvl">Level</th>
+          <th class="col-skills">Core Competencies & Requirements</th>
+          <th class="col-check">Pass</th>
+          <th class="col-sign">Initials & Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-lvl">Level 1<br>(Basic)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Connects vehicle controllers to diagnostic software and applies standard firmware updates.</li>
+              <li>Downloads, opens, and writes pre-saved fleet configuration profiles to sirens/lightbars.</li>
+              <li>Performs functional output tests to verify pattern sync matches local compliance laws.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 2<br>(Intermediate)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Modifies configuration files to change slide-switch layouts, button functions, and audio sirens.</li>
+              <li>Programs logic triggers (e.g. park/nuetral).</li>
+              <li>Sets up basic telematics, GPS modems, and configures smart shutdown delay timers.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+        <tr>
+          <td class="col-lvl">Level 3<br>(Advanced)</td>
+          <td class="col-skills">
+            <ul class="skill-items">
+              <li>Designs sophisticated logic configurations (e.g. speed-controlled warning patterns, complex priority
+                rules).</li>
+              <li>Integrates complex multi-device profiles (e.g. syncing lightbars, auxiliary lights, radar, and guns
+                lock timers).</li>
+              <li>Acts as the profile architect, maintaining master backups and debugging corrupted system
+                configurations.</li>
+            </ul>
+          </td>
+          <td class="col-check"><span class="custom-check"></span></td>
+          <td class="col-sign"><span class="sign-line"></span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- NOTES & FEEDBACK -->
+  <div class="notes-section">
+    <h3>Training Plan & Evaluator Comments</h3>
+    <div class="lines"></div>
+    <div class="lines"></div>
+    <div class="lines"></div>
+  </div>
+
+  <!-- SIGNATURES -->
+  <div class="signature-block">
+    <div class="sig-field">
+      Evaluator Signature
+      <span>I certify that this staff member has been evaluated according to these standards.</span>
+    </div>
+    <div class="sig-field">
+      Employee Signature
+      <span>I have reviewed this evaluation and discussed my developmental goals.</span>
+    </div>
+  </div>
+
+</body>
+
+</html>
