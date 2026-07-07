@@ -53,6 +53,8 @@ export function TaskDetailPage({
   
   const [staffMember, setStaffMember] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
+  const impersonatedStaffDoc = impersonatedStaff?.id ? allStaff.find(s => s.id === impersonatedStaff.id) : null;
+  const effectiveUserUid = impersonatedStaffDoc?.userId || staffMember?.userId || impersonatedStaff?.id || user?.uid || '';
   
   // Track technician staff member record
   useEffect(() => {
@@ -1989,7 +1991,7 @@ export function TaskDetailPage({
           taskTitle={task.title}
           bookTime={parseFloat(task.bookTime) || 0}
           timeLogs={timeLogs}
-          effectiveUserId={effectiveUserId || ''}
+          effectiveUserId={effectiveUserUid}
           onClose={() => setPendingCompletion(null)}
           onSuccess={handlePendingTaskSuccess}
         />

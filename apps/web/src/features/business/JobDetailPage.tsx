@@ -7,7 +7,7 @@ import {
   Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, XCircle,
   Wrench, History, ArrowLeft, Edit3, MessageSquare, 
   AlertCircle, MapPin, Car, Package, Trash2, Sparkles, ArrowRight,
-  Search, Users, X, ShieldAlert, Printer, FileText, Mail, Send,
+  Search, Users, X, ShieldAlert, Printer, FileText,
   ChevronLeft, ChevronRight, Download, ExternalLink, Camera,
   Upload, Check, Loader2
 } from 'lucide-react';
@@ -56,6 +56,8 @@ export function JobDetailPage({
   
   const [staffMember, setStaffMember] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
+  const impersonatedStaffDoc = impersonatedStaff?.id ? allStaff.find(s => s.id === impersonatedStaff.id) : null;
+  const effectiveUserUid = impersonatedStaffDoc?.userId || staffMember?.userId || impersonatedStaff?.id || user?.uid || '';
   const [businessLogo, setBusinessLogo] = useState<string>('');
   const [businessName, setBusinessName] = useState<string>('');
   
@@ -240,10 +242,6 @@ export function JobDetailPage({
     targetUid: string;
     assignedTasks: any[];
   } | null>(null);
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [emailRecipients, setEmailRecipients] = useState('');
-  const [emailSubject, setEmailSubject] = useState('');
-  const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   // Update document title when report modal is open to set default PDF filename
   useEffect(() => {
@@ -264,31 +262,7 @@ export function JobDetailPage({
   const [photosError, setPhotosError] = useState<string | null>(null);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
 
-  // Fetch Customer details for report emailing defaults
-  useEffect(() => {
-    if (showReportModal && job?.customerId && tenantId) {
-      const fetchCustomer = async () => {
-        try {
-          const snap = await getDoc(doc(db, `businesses/${tenantId}/customers`, job.customerId));
-          if (snap.exists()) {
-            const email = snap.data()?.email || '';
-            setCustomerEmail(email);
-            setEmailRecipients(email); // Default the recipient to the customer's email!
-          }
-        } catch (e) {
-          console.error("Error fetching customer email:", e);
-        }
-      };
-      fetchCustomer();
-    }
-  }, [showReportModal, job?.customerId, tenantId]);
 
-  // Set default subject once job loads
-  useEffect(() => {
-    if (job) {
-      setEmailSubject(`Job Status Report: ${job.title} ${job.jobNumber ? `#${job.jobNumber}` : ''}`);
-    }
-  }, [job]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -1602,296 +1576,7 @@ export function JobDetailPage({
     };
   })();
 
-  const generateEmailHtml = () => {
-    // Generate tasks lists
-    const completedTasksList = tasks.filter(t => t.status === 'QC' || t.status === 'QC Complete');
-    const incompleteTasksList = tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete');
-    const missingPartsList = parts.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried');
 
-    const doneHtml = completedTasksList.length === 0 
-      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">No tasks completed yet.</td></tr>'
-      : completedTasksList.map(t => {
-          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
-          const loggedMs = getTaskLoggedMs(t.id);
-          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
-          const isOverBook = !t.isAccidental && !isGeneralTask(t) && bookHours > 0 && clockedHours > bookHours;
-          const diff = clockedHours - bookHours;
-
-          return `
-            <tr style="border-bottom: 1px solid #e4e4e7;">
-              <td style="padding: 12px 10px;">
-                <div style="font-weight: bold; color: #18181b;">${t.title}</div>
-                ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
-                <div style="font-size: 11px; color: #10b981; font-weight: 600; margin-top: 4px;">Completed by: ${staffNames}</div>
-                ${clockedHours === 0 ? `
-                  <div style="font-size: 11px; color: #71717a; font-weight: 600; margin-top: 4px;">
-                    <span style="color: #71717a; background: #f4f4f5; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; border: 1px solid #e4e4e7;">
-                      No time logged but complete
-                    </span>
-                  </div>
-                ` : !isGeneralTask(t) && bookHours > 0 ? `
-                  <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
-                    Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
-                    ${isOverBook ? `
-                      <span style="color: #ef4444; background: #fee2e2; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
-                        +${diff.toFixed(1)}h Over
-                      </span>
-                    ` : `
-                      <span style="color: #10b981; background: #dcfce7; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
-                        Under Budget
-                      </span>
-                    `}
-                  </div>
-                ` : ''}
-              </td>
-              <td style="padding: 12px 10px; font-family: monospace; font-weight: bold; text-align: right; color: #10b981;">
-                ${clockedHours.toFixed(1)}h
-              </td>
-            </tr>
-          `;
-        }).join('');
-
-    const needDoneHtml = incompleteTasksList.length === 0
-      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">All tasks are complete!</td></tr>'
-      : incompleteTasksList.map(t => {
-          const staffNames = t.assignedStaff?.map((s: any) => s.name || s.displayName).join(', ') || 'Unassigned';
-          const loggedMs = getTaskLoggedMs(t.id);
-          const clockedHours = t.actualTime !== undefined && t.actualTime > 0 ? t.actualTime : (loggedMs / 3600000);
-          const bookHours = t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0);
-          const isOverBook = !t.isAccidental && !isGeneralTask(t) && bookHours > 0 && clockedHours > bookHours;
-          const diff = clockedHours - bookHours;
-
-          return `
-            <tr style="border-bottom: 1px solid #e4e4e7;">
-              <td style="padding: 12px 10px;">
-                <div style="font-weight: bold; color: #18181b;">${t.title}</div>
-                ${t.description ? `<div style="font-size: 12px; color: #71717a; margin-top: 2px;">${t.description}</div>` : ''}
-                <div style="font-size: 11px; color: #6366f1; font-weight: 600; margin-top: 4px;">Assigned: ${staffNames}</div>
-                ${!isGeneralTask(t) && bookHours > 0 ? `
-                  <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-top: 4px; font-family: monospace;">
-                    Budget: ${bookHours}h &bull; Actual: ${clockedHours.toFixed(1)}h
-                    ${isOverBook ? `
-                      <span style="color: #ef4444; background: #fee2e2; padding: 1px 4px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 6px;">
-                        +${diff.toFixed(1)}h Over
-                      </span>
-                    ` : ''}
-                  </div>
-                ` : ''}
-              </td>
-              <td style="padding: 12px 10px; font-family: monospace; text-align: right; color: #4f46e5; font-weight: bold;">
-                ${bookHours > 0 ? `${clockedHours.toFixed(1)}h / ${bookHours.toFixed(1)}h` : `${clockedHours.toFixed(1)}h`}
-              </td>
-            </tr>
-          `;
-        }).join('');
-
-    const partsHtml = missingPartsList.length === 0
-      ? '<tr><td style="padding: 10px; color: #71717a; font-style: italic;">No pending parts.</td></tr>'
-      : missingPartsList.map(p => `
-        <tr style="border-bottom: 1px solid #e4e4e7;">
-          <td style="padding: 12px 10px;">
-            <div style="font-weight: bold; color: #18181b;">${p.partName}</div>
-            <div style="font-size: 11px; color: #71717a; margin-top: 2px;">
-              Qty: ${p.quantity || 1} &bull; ${p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
-            </div>
-          </td>
-          <td style="padding: 12px 10px; text-align: right;">
-            <span style="background: #fef3c7; color: #d97706; font-size: 10px; font-weight: 800; padding: 3px 8px; border-radius: 6px; text-transform: uppercase;">
-              ${p.status || 'requested'}
-            </span>
-          </td>
-        </tr>
-      `).join('');
-
-    const staffWorkloadHtml = staffStats.length === 0
-      ? '<p style="color: #71717a; font-style: italic; font-size: 13px;">No staff allocated.</p>'
-      : `
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-          <thead>
-            <tr style="border-bottom: 2px solid #e4e4e7; text-align: left; color: #71717a; font-weight: 800; font-size: 11px; text-transform: uppercase;">
-              <th style="padding: 8px 10px;">Staff Member</th>
-              <th style="padding: 8px 10px; text-align: center;">Tasks (Done / Total)</th>
-              <th style="padding: 8px 10px; text-align: right;">Hours (Done / Total)</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${staffStats.map(s => `
-              <tr style="border-bottom: 1px solid #e4e4e7;">
-                <td style="padding: 10px; font-weight: bold; color: #18181b;">${s.name}</td>
-                <td style="padding: 10px; text-align: center; color: #4b5563;">${s.completedTasks} / ${s.totalTasks}</td>
-                <td style="padding: 10px; text-align: right; font-family: monospace; font-weight: bold; color: #18181b;">
-                  ${s.completedHours.toFixed(1)} / ${s.totalHours.toFixed(1)}h
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-
-    const efficiencyHtml = jobEfficiencyStats.totalActual > 0 ? `
-      <div style="margin-bottom: 24px;">
-        <h2 style="font-size: 14px; font-weight: 900; color: #1e1b4b; border-bottom: 2px solid #1e1b4b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-          📈 JOB EFFICIENCY REPORT
-        </h2>
-        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-            <tr>
-              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px; width: 45%;">Total Book Allotment</td>
-              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0f172a; font-size: 14px;">${jobEfficiencyStats.totalBook.toFixed(1)}h</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Total Clocked Hours</td>
-              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: #0f172a; font-size: 14px;">${jobEfficiencyStats.totalActual.toFixed(1)}h</td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Variance</td>
-              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; color: ${jobEfficiencyStats.variance > 0.1 ? '#ef4444' : '#10b981'}; font-size: 14px;">
-                ${jobEfficiencyStats.variance > 0 ? `+${jobEfficiencyStats.variance.toFixed(1)}h` : `${jobEfficiencyStats.variance.toFixed(1)}h`}
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 10px;">Overall Efficiency</td>
-              <td style="padding: 6px 0; font-family: monospace; font-weight: bold; font-size: 15px;">
-                <span style="background: ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? '#dcfce7' : '#fee2e2'}; color: ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? '#15803d' : '#b91c1c'}; padding: 2px 8px; border-radius: 6px;">
-                  ${jobEfficiencyStats.efficiency ? `${jobEfficiencyStats.efficiency.toFixed(0)}%` : 'N/A'}
-                </span>
-              </td>
-            </tr>
-          </table>
-          <div style="font-size: 12px; color: #475569; margin-top: 12px; padding-top: 10px; border-top: 1px solid #e2e8f0;">
-            ${jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? `
-              🎉 The team completed this job <strong>${(jobEfficiencyStats.efficiency - 100).toFixed(0)}% more efficiently</strong> than the allotted book time budget.
-            ` : jobEfficiencyStats.efficiency ? `
-              ⚠️ The job ran <strong>${(100 - jobEfficiencyStats.efficiency).toFixed(0)}% over</strong> the budgeted book time allotment.
-            ` : ''}
-          </div>
-        </div>
-      </div>
-    ` : '';
-
-    const jobUrl = `${window.location.origin}/business/${tenantId}/jobs/${jobId}`;
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(jobUrl)}`;
-
-    return `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f4f5; padding: 30px 15px; color: #18181b;">
-        <div style="max-width: 650px; margin: 0 auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); border: 1px solid #e4e4e7;">
-          
-          <div style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; padding: 30px 24px;">
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="vertical-align: middle;">
-                  <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: -0.5px;">JOB STATUS REPORT</h1>
-                  <p style="margin: 6px 0 0 0; font-size: 14px; color: #c7d2fe; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-                    ${job.customerName || 'Walk-in Customer'} &bull; Job ${job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
-                  </p>
-                </td>
-                <td style="text-align: right; width: 80px; padding-left: 15px; vertical-align: middle;">
-                  <div style="background: white; padding: 4px; border-radius: 8px; display: inline-block; line-height: 0;">
-                    <img src="${qrImageUrl}" width="64" height="64" alt="QR Code" style="border: 0; display: block;" />
-                  </div>
-                </td>
-              </tr>
-            </table>
-          </div>
-
-          <div style="padding: 24px;">
-            <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px; padding: 16px; margin-bottom: 24px;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px; width: 35%;">Job Title</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #1e1b4b; font-size: 14px;">${job.title}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Status</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${job.status}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Vehicle</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">
-                    ${vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : (job.vehicleId ? 'Linked' : 'N/A')}
-                    ${job.vehicleId ? ` <span style="font-family: monospace; font-size: 11px; color: #71717a;">(${vehicle?.vin || job.vehicleId})</span>` : ''}
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Scheduled Bay</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${scheduledBay}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Scheduled Start</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${formatJobDate(job.scheduledStartDate)}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Deadline / Expected End</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #18181b;">${formatJobDate(job.scheduledEndDate)}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Dynamic ETA</td>
-                  <td style="padding: 6px 0; font-weight: bold; color: #6366f1;">${dynamicETA ? formatJobDate(dynamicETA) : (tasks.some(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.payBasis === 'hourly') ? 'N/A (Hourly)' : 'Completed / N/A')}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 10px 0 6px 0; color: #7c3aed; font-weight: bold; text-transform: uppercase; font-size: 10px;">Total Job Progress</td>
-                  <td style="padding: 10px 0 6px 0;">
-                    <div style="font-weight: 800; font-size: 15px; color: #4f46e5; margin-bottom: 4px;">
-                      ${completedBookHours.toFixed(1)}h / ${totalBookHours.toFixed(1)}h (${jobProgress}%)
-                    </div>
-                    <div style="background: #e4e4e7; border-radius: 99px; height: 10px; width: 100%; overflow: hidden;">
-                      <div style="background: #6366f1; height: 100%; border-radius: 99px; width: ${jobProgress}%;"></div>
-                    </div>
-                  </td>
-                </tr>
-              </table>
-            </div>
-
-            <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #1f2937; border-bottom: 2px solid #1f2937; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                👤 STAFF ALLOCATION OVERVIEW
-              </h2>
-              ${staffWorkloadHtml}
-            </div>
-
-            <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #f59e0b; border-bottom: 2px solid #f59e0b; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                ⚠ MISSING / PENDING PARTS
-              </h2>
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                ${partsHtml}
-              </table>
-            </div>
-
-            <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #4f46e5; border-bottom: 2px solid #4f46e5; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                ⚙ WHAT NEEDS TO BE DONE
-              </h2>
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                ${needDoneHtml}
-              </table>
-            </div>
-
-            <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 14px; font-weight: 900; color: #10b981; border-bottom: 2px solid #10b981; padding-bottom: 4px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
-                ✔ WHAT'S DONE
-              </h2>
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                ${doneHtml}
-              </table>
-            </div>
-
-            ${efficiencyHtml}
-
-
-
-          </div>
-
-          <div style="background: #f4f4f5; border-top: 1px solid #e4e4e7; padding: 20px; text-align: center; font-size: 11px; color: #71717a;">
-            <p style="margin: 0 0 4px 0; font-weight: bold; color: #4b5563;">UpfittersOS &bull; SAE Group Operational Engine</p>
-            <p style="margin: 0;">This report is a real-time snapshot generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}.</p>
-          </div>
-
-        </div>
-      </div>
-    `;
-  };
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-24">
@@ -1973,6 +1658,13 @@ export function JobDetailPage({
               >
                 <Printer className="w-4 h-4 text-indigo-400" />
                 Print QR
+              </button>
+              <button 
+                onClick={() => navigate(`/business/${tenantId}/job/${jobId}/efficiency`)}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-650 hover:from-emerald-600 hover:to-teal-750 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 border border-emerald-500/30 transition-all cursor-pointer"
+              >
+                <Timer className="w-4 h-4 text-emerald-100" />
+                Job Efficiency
               </button>
               <button 
                 onClick={() => setShowReportModal(true)}
@@ -3674,7 +3366,7 @@ export function JobDetailPage({
           taskTitle={pendingCompletionTask.title}
           bookTime={pendingCompletionTask.bookTime}
           timeLogs={timeLogs}
-          effectiveUserId={effectiveUserId || ''}
+          effectiveUserId={effectiveUserUid}
           onClose={() => setPendingCompletionTask(null)}
           onSuccess={handlePendingTaskSuccess}
         />
@@ -3782,7 +3474,7 @@ export function JobDetailPage({
             }
           ` }} />
 
-          <div className="w-full max-w-5xl h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 job-report-modal-container">
+          <div className="w-full max-w-4xl h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 job-report-modal-container">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 no-print">
               <div className="flex items-center gap-3">
@@ -3791,7 +3483,7 @@ export function JobDetailPage({
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Job Status Report</h3>
-                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Preview, Print, or Email</p>
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Preview or Print</p>
                 </div>
               </div>
               <button 
@@ -3804,8 +3496,8 @@ export function JobDetailPage({
 
             {/* Modal Body */}
             <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-              {/* Left Side: Report Preview */}
-              <div className="flex-1 overflow-y-auto p-6 bg-zinc-100 dark:bg-zinc-950/40 border-r border-zinc-200 dark:border-zinc-800">
+              {/* Report Preview */}
+              <div className="flex-1 overflow-y-auto p-6 bg-zinc-100 dark:bg-zinc-950/40">
                 <div className="mb-3 flex justify-between items-center no-print">
                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Document Preview</span>
                   <button 
@@ -3955,10 +3647,18 @@ export function JobDetailPage({
                   {/* Efficiency Report Summary */}
                   {jobEfficiencyStats.totalActual > 0 && (
                     <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 mb-6 text-xs print-no-break">
-                      <h3 className="text-xs font-black text-indigo-950 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-                        <Timer className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
-                        Job Efficiency Metrics
-                      </h3>
+                      <div className="flex items-center justify-between mb-3 border-b border-zinc-200 pb-2">
+                        <h3 className="text-xs font-black text-indigo-950 uppercase tracking-widest flex items-center gap-1.5">
+                          <Timer className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                          Job Efficiency Metrics
+                        </h3>
+                        <button
+                          onClick={() => navigate(`/business/${tenantId}/job/${jobId}/efficiency`)}
+                          className="text-[11px] font-black text-indigo-650 hover:underline flex items-center gap-0.5 cursor-pointer transition-all"
+                        >
+                          View Details &rarr;
+                        </button>
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                         <div>
                           <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Book Allotment</span>
@@ -4275,115 +3975,7 @@ export function JobDetailPage({
                 </div>
               </div>
 
-              {/* Right Side: Email Dispatch Panel */}
-              <div className="w-full md:w-96 p-6 flex flex-col bg-zinc-50 dark:bg-zinc-900 border-t md:border-t-0 border-zinc-200 dark:border-zinc-800 no-print">
-                <div className="flex-1 space-y-5">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 bg-indigo-500/10 text-indigo-500 rounded-lg">
-                      <Mail className="w-4 h-4" />
-                    </div>
-                    <h4 className="text-sm font-bold text-zinc-900 dark:text-white">Email Status Report</h4>
-                  </div>
 
-                  <div>
-                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Recipients (Comma-separated)</label>
-                    <input 
-                      type="text"
-                      placeholder="e.g. customer@domain.com, foreman@saegrp.com"
-                      value={emailRecipients}
-                      onChange={(e) => setEmailRecipients(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all placeholder:text-zinc-400 text-zinc-900 dark:text-white"
-                    />
-                    {customerEmail && (
-                      <button 
-                        onClick={() => setEmailRecipients(customerEmail)}
-                        className="mt-1 text-[10px] font-black text-indigo-500 hover:text-indigo-650 uppercase tracking-widest transition-colors block text-left"
-                      >
-                        Reset to Linked Customer: {customerEmail}
-                      </button>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Subject Line</label>
-                    <input 
-                      type="text"
-                      placeholder="Email Subject"
-                      value={emailSubject}
-                      onChange={(e) => setEmailSubject(e.target.value)}
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition-all text-zinc-900 dark:text-white"
-                    />
-                  </div>
-
-                  <div className="p-4 bg-zinc-100 dark:bg-zinc-950/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-xs text-zinc-500 space-y-2">
-                    <p className="font-bold text-zinc-650 dark:text-zinc-350 uppercase tracking-wider text-[10px]">🔒 Domain Security Settings</p>
-                    <p>The email will be dispatched using Google Workspace impersonation matching your user context. This ensures a clean delivery directly from your personal inbox.</p>
-                  </div>
-                </div>
-
-                {/* Send Button */}
-                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 mt-6 bg-zinc-50 dark:bg-zinc-900">
-                  <button 
-                    onClick={async () => {
-                      if (!emailRecipients.trim()) {
-                        toast.error("Please specify at least one recipient email address.");
-                        return;
-                      }
-                      
-                      setIsSendingEmail(true);
-                      try {
-                        const token = await auth.currentUser?.getIdToken();
-                        const emails = emailRecipients.split(',').map(e => e.trim()).filter(Boolean);
-                        
-                        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                        const apiBase = isLocal 
-                          ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
-                          : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
-                        
-                        const res = await fetch(`${apiBase}/jobs/${jobId}/report-email`, {
-                          method: 'POST',
-                          headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${token}`
-                          },
-                          body: JSON.stringify({
-                            recipients: emails,
-                            subject: emailSubject,
-                            html: generateEmailHtml()
-                          })
-                        });
-                        
-                        if (!res.ok) {
-                          const errData = await res.json().catch(() => ({}));
-                          throw new Error(errData.error || `Server returned ${res.status}`);
-                        }
-                        
-                        toast.success("Job status report sent successfully!");
-                        setShowReportModal(false);
-                      } catch (e: any) {
-                        console.error(e);
-                        toast.error(`Failed to send report: ${e.message}`);
-                      } finally {
-                        setIsSendingEmail(false);
-                      }
-                    }}
-                    disabled={isSendingEmail}
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-750 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-500/20 disabled:opacity-50"
-                  >
-                    {isSendingEmail ? (
-                      <>
-                        <Clock className="w-5 h-5 animate-spin" />
-                        Sending Report...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-4 h-4" />
-                        Send Email Report
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </div>,
