@@ -188,7 +188,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     priority: 'all',
     location: 'all',
     status: 'all',
-    parts: 'all'
+    parts: 'all',
+    customer: 'all',
+    vehicle: 'all',
+    crew: 'all',
+    blockers: 'all'
   });
 
   useWakeLock(isFullscreen);
@@ -533,6 +537,36 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
           partsLabel = missingParts > 0 ? 'missing' : 'ready';
         }
         if (colFilters.parts !== partsLabel) return false;
+      }
+
+      // Customer filter
+      if (colFilters.customer !== 'all') {
+        if (job.customerName !== colFilters.customer) return false;
+      }
+
+      // Vehicle filter
+      if (colFilters.vehicle !== 'all') {
+        const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+        const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : '';
+        if (vehicleLabel !== colFilters.vehicle) return false;
+      }
+
+      // Crew filter
+      if (colFilters.crew !== 'all') {
+        const activeCrewSessions = sessions.filter(s => {
+          if (s.status === 'completed') return false;
+          return s.jobs?.some((j: any) => !j.end && j.id === job.id);
+        });
+        const hasSelectedCrew = activeCrewSessions.some(s => s.userId === colFilters.crew);
+        if (!hasSelectedCrew) return false;
+      }
+
+      // Blockers filter
+      if (colFilters.blockers !== 'all') {
+        const activeBlockers = (job.blockers || []).filter((b: any) => b.status === 'active');
+        const isBlocked = activeBlockers.length > 0 || job.status === 'Blocked';
+        if (colFilters.blockers === 'blocked' && !isBlocked) return false;
+        if (colFilters.blockers === 'unblocked' && isBlocked) return false;
       }
 
       return true;
@@ -1170,6 +1204,31 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     return Array.from(bays).sort();
   }, [jobsList, zonesList]);
 
+  const uniqueCustomers = useMemo(() => {
+    const custs = new Set<string>();
+    jobsList.forEach(job => {
+      if (job.customerName) custs.add(job.customerName);
+    });
+    return Array.from(custs).sort();
+  }, [jobsList]);
+
+  const uniqueVehicles = useMemo(() => {
+    const vehs = new Set<string>();
+    jobsList.forEach(job => {
+      const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+      const label = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : '';
+      if (label) vehs.add(label);
+    });
+    return Array.from(vehs).sort();
+  }, [jobsList, vehiclesList]);
+
+  const uniqueCrewOptions = useMemo(() => {
+    return staffList.map(s => ({
+      value: s.userId || s.id,
+      label: `${s.firstName} ${s.lastName}`.trim()
+    })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [staffList]);
+
   const renderHeaderFilter = (colKey: string, options: Array<{ value: string; label: string }>) => {
     const isActive = colFilters[colKey] !== 'all';
     return (
@@ -1357,10 +1416,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Est Completion {renderResizeHandle('dynamicETA')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.jobInfo }}>
-                Job # & Details {renderResizeHandle('jobInfo')}
+                Job # & Details {renderHeaderFilter('customer', [{ value: 'all', label: 'All Customers' }, ...uniqueCustomers.map(c => ({ value: c, label: c }))])} {renderResizeHandle('jobInfo')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.vin }}>
-                VIN {renderResizeHandle('vin')}
+                VIN {renderHeaderFilter('vehicle', [{ value: 'all', label: 'All Vehicles' }, ...uniqueVehicles.map(v => ({ value: v, label: v }))])} {renderResizeHandle('vin')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.companyCam }}>
                 CompanyCam {renderResizeHandle('companyCam')}
@@ -1369,7 +1428,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Location / Bay {renderHeaderFilter('location', [{ value: 'all', label: 'All Locations' }, ...uniqueBays.map(b => ({ value: b, label: b }))])} {renderResizeHandle('location')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle" style={{ width: colWidths.crew }}>
-                Active Staff {renderResizeHandle('crew')}
+                Active Staff {renderHeaderFilter('crew', [{ value: 'all', label: 'All Crew' }, ...uniqueCrewOptions])} {renderResizeHandle('crew')}
               </th>
               <th className="p-2.5 border-r border-zinc-200 dark:border-zinc-800 relative align-middle text-center" style={{ width: colWidths.tasks }}>
                 Tasks Completed {renderResizeHandle('tasks')}
@@ -1378,7 +1437,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 Parts Status {renderHeaderFilter('parts', [{ value: 'all', label: 'All Parts' }, { value: 'missing', label: 'Missing Parts' }, { value: 'ready', label: 'Ready' }, { value: 'no_parts', label: 'No Parts' }])} {renderResizeHandle('parts')}
               </th>
               <th className="p-2.5 relative align-middle" style={{ width: colWidths.blockers }}>
-                Active Blockers {renderResizeHandle('blockers')}
+                Active Blockers {renderHeaderFilter('blockers', [{ value: 'all', label: 'All' }, { value: 'blocked', label: 'Blocked Only' }, { value: 'unblocked', label: 'Unblocked Only' }])} {renderResizeHandle('blockers')}
               </th>
             </tr>
           </thead>
