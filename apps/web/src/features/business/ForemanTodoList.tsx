@@ -1053,7 +1053,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                       return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
                     })()}</p>
                     {printingJob.vehicleId && (
-                      <p className="text-[9px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                      <p className="text-[11px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                     )}
                   </div>
                 </div>
@@ -1068,7 +1068,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                       type="general"
                     />
                   </div>
-                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open workflow</p>
+                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open job details</p>
                 </div>
 
                 {/* CompanyCam details box */}
@@ -1136,7 +1136,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
                 })()}</p>
                 {printingJob.vehicleId && (
-                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                  <p className="text-sm text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                 )}
               </div>
             </div>            {/* Middle Section: Big QR Code */}
@@ -1150,7 +1150,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   type="general"
                 />
               </div>
-              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open job details instantly</p>
             </div>
 
             {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}

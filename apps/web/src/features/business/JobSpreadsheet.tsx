@@ -1089,7 +1089,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                             <button 
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleTriggerPrint(row);
+                                setPrintingJob(row);
                               }}
                               className={cn(
                                 "flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] border leading-none font-black uppercase tracking-wider shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95",
@@ -1283,7 +1283,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
                     })()}</p>
                     {printingJob.vehicleId && (
-                      <p className="text-[9px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                      <p className="text-[11px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                     )}
                   </div>
                 </div>
@@ -1298,7 +1298,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       type="general"
                     />
                   </div>
-                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open workflow</p>
+                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open job details</p>
                 </div>
 
                 {/* Bottom Section: CompanyCam Photos (Small Scan Card) */}
@@ -1361,7 +1361,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                   return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
                 })()}</p>
                 {printingJob.vehicleId && (
-                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                  <p className="text-sm text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                 )}
               </div>
             </div>
@@ -1377,7 +1377,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                   type="general"
                 />
               </div>
-              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open job details instantly</p>
             </div>
 
             {/* Bottom Section: CompanyCam Photos (Small Scan Card) */}

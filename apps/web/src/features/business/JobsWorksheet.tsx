@@ -2560,7 +2560,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                 <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {job.customerName || 'No Customer Assigned'}</p>
                                 <p className="text-sm sm:text-base font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {vehicleLabel}</p>
                                 {vin && (
-                                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {vin}</p>
+                                  <p className="text-sm text-zinc-550 font-mono mt-0.5 font-bold">VIN: {vin}</p>
                                 )}
                               </div>
                             </div>
@@ -2576,7 +2576,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                   type="general"
                                 />
                               </div>
-                              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+                              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open job details instantly</p>
                             </div>
 
                             {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
