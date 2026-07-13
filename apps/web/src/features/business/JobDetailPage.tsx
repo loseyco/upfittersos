@@ -1689,8 +1689,8 @@ export function JobDetailPage({
                 onClick={() => setShowReportModal(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-750 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 border border-indigo-500/30 transition-all"
               >
-                <FileText className="w-4 h-4 text-indigo-200" />
-                Job Report
+                <Printer className="w-4 h-4 text-indigo-200" />
+                Print Details
               </button>
               <button 
                 onClick={() => navigate(`/business/${tenantId}/job/${jobId}/edit`)}
@@ -3501,7 +3501,7 @@ export function JobDetailPage({
                   <FileText className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Job Status Report</h3>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Job Details Sheet</h3>
                   <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Preview or Print</p>
                 </div>
               </div>
@@ -3524,7 +3524,7 @@ export function JobDetailPage({
                     className="flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-bold text-zinc-700 dark:text-zinc-300 transition-all shadow-sm"
                   >
                     <Printer className="w-3.5 h-3.5 text-indigo-500" />
-                    Print Document
+                    Print Details Sheet
                   </button>
                 </div>
 
@@ -3536,7 +3536,7 @@ export function JobDetailPage({
                   {/* Print Header */}
                   <div className="border-b-2 border-indigo-900 pb-4 mb-6 flex justify-between items-start">
                     <div>
-                      <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">JOB STATUS REPORT</h1>
+                      <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">JOB DETAILS SHEET</h1>
                       <p className="text-sm font-bold text-zinc-500 mt-1 uppercase tracking-wider">
                         {job.customerName || 'Walk-in Customer'} &bull; Job {job.jobNumber ? `#${job.jobNumber}` : 'NATIVE'}
                       </p>
