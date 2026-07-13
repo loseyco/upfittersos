@@ -422,7 +422,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
         });
       }
       
-      const needsTraveler = isOnSite && !job.travelerPrintedAt;
+      const needsTraveler = !job.travelerPrintedAt;
       if (needsTraveler) {
         alerts.push({ 
           type: 'traveler', 
@@ -960,15 +960,13 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   )}
 
                   {/* Print Job Traveler */}
-                  {alerts.some(a => a.type === 'traveler') && (
-                    <button
-                      onClick={() => setPrintingJob(job)}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-650 text-indigo-650 hover:text-white rounded-xl border border-indigo-500/25 text-xs font-bold transition active:scale-95 cursor-pointer"
-                    >
-                      <Printer className="w-4 h-4 shrink-0" />
-                      Print Job Traveler
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setPrintingJob(job)}
+                    className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-650 text-indigo-650 hover:text-white rounded-xl border border-indigo-500/25 text-xs font-bold transition active:scale-95 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4 shrink-0" />
+                    {job.travelerPrintedAt ? 'Reprint Job Traveler' : 'Print Job Traveler'}
+                  </button>
 
                   {/* View Details quick navigation */}
                   <button 
