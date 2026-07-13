@@ -238,7 +238,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
           </div>
           {reel.length && (
             <span className="text-[10px] bg-zinc-900 border border-zinc-800 px-1 py-0.5 rounded text-zinc-400 font-sans shrink-0 font-semibold ml-2">
-              {reel.length}
+              {/^\d+$/.test(reel.length) ? `${reel.length} ft` : reel.length}
             </span>
           )}
         </div>
@@ -475,10 +475,13 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
         finalGauge = `${finalGauge} AWG`;
       }
 
+      let finalLength = popoverLength.trim();
+      finalLength = finalLength.replace(/(ft|Ft|ft\.|feet)$/i, '').trim();
+
       const updatedReel: WireReel = {
         gauge: finalGauge,
         color: popoverColor.trim(),
-        length: popoverLength.trim(),
+        length: finalLength,
         status: popoverStatus
       };
 
@@ -962,10 +965,10 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-1">Estimated Length Left</label>
+                <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-1">Estimated Length Left (ft)</label>
                 <input 
                   type="text"
-                  placeholder="e.g. 150ft, 50ft, 10%"
+                  placeholder="e.g. 150, 50, 10%"
                   value={popoverLength}
                   onChange={e => setPopoverLength(e.target.value)}
                   className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-700 font-semibold focus:border-indigo-500 outline-none"
