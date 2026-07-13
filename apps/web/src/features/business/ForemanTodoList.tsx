@@ -1135,6 +1135,13 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{printingJob.title}</p>
                 )}
                 <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
+                <p className="text-sm sm:text-base font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {(() => {
+                  const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+                  return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                })()}</p>
+                {printingJob.vehicleId && (
+                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                )}
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status / Priority</p>
