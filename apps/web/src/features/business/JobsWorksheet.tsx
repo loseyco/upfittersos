@@ -2563,11 +2563,6 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                   <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {vin}</p>
                                 )}
                               </div>
-                              <div className="text-right">
-                                <p className="text-[10px] font-black text-zinc-405 uppercase tracking-widest">Status / Priority</p>
-                                <p className="text-xs sm:text-sm font-extrabold text-zinc-900 uppercase mt-1">{job.status || 'Open'}</p>
-                                <p className="text-[10px] font-bold text-zinc-505 uppercase mt-0.5">{job.priority || '3 - Medium'}</p>
-                              </div>
                             </div>
 
                             {/* Middle Section: Big QR Code */}

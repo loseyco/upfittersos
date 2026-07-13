@@ -1056,10 +1056,6 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                       <p className="text-[9px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                     )}
                   </div>
-                  <div className="text-right">
-                    <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest">Status</p>
-                    <p className="text-xs font-extrabold text-zinc-900 uppercase mt-0.5">{printingJob.status || 'Open'}</p>
-                  </div>
                 </div>
 
                 <div className="flex flex-col items-center justify-center my-4 w-full">
@@ -1142,11 +1138,6 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                 {printingJob.vehicleId && (
                   <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
                 )}
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status / Priority</p>
-                <p className="text-xs sm:text-sm font-extrabold text-zinc-900 uppercase mt-1">{printingJob.status || 'Open'}</p>
-                <p className="text-[10px] font-bold text-zinc-550 uppercase mt-0.5">{printingJob.priority || '3 - Medium'}</p>
               </div>
             </div>            {/* Middle Section: Big QR Code */}
             <div className="flex flex-col items-center justify-center my-auto py-8">
