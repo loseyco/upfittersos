@@ -2493,9 +2493,12 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             {/* Top border decor */}
                             <div className="border-b-4 border-indigo-900 pb-6 flex justify-between items-start">
                               <div>
-                                <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
+                                <span className="text-[10px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
                                 <h1 className="text-3xl sm:text-4xl font-black text-indigo-950 mt-3 tracking-tight">JOB #{job.jobNumber || 'N/A'}</h1>
-                                <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{job.title || 'Untitled Job'}</p>
+                                {job.title && job.title !== job.jobNumber && (
+                                  <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{job.title}</p>
+                                )}
+                                <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {job.customerName || 'No Customer Assigned'}</p>
                               </div>
                               <div className="text-right">
                                 <p className="text-[10px] font-black text-zinc-405 uppercase tracking-widest">Status / Priority</p>
@@ -2519,27 +2522,26 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             </div>
 
                             {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
-                            <div className="border-t-2 border-zinc-200 pt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 bg-zinc-55 p-6 rounded-xl text-left">
-                              <div className="flex justify-between items-start">
-                                <div className="space-y-1">
-                                  <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Customer Details</h4>
-                                  <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{job.customerName || 'No Customer Assigned'}</p>
-                                </div>
-                                {companyCamVal && (
-                                  <div className="flex flex-col items-center shrink-0 ml-4">
-                                    <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm">
-                                      <LogoQRCode 
-                                        value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
-                                        size={90}
-                                        type="general"
-                                      />
-                                    </div>
-                                    <span className="text-[7px] font-black text-zinc-400 uppercase tracking-widest mt-1">CompanyCam QR</span>
+                            <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-55 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                              {companyCamVal ? (
+                                <div className="flex items-center gap-4">
+                                  <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm shrink-0">
+                                    <LogoQRCode 
+                                      value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                                      size={80}
+                                      type="general"
+                                    />
                                   </div>
-                                )}
-                              </div>
+                                  <div>
+                                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">CompanyCam Photos</h4>
+                                    <p className="text-xs sm:text-sm font-extrabold text-zinc-800 mt-1">Scan QR to view photos</p>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-zinc-450 italic text-xs">No photos linked</div>
+                              )}
                               <div>
-                                <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Vehicle Details</h4>
+                                <h4 className="text-[9px] font-black text-zinc-405 uppercase tracking-widest">Vehicle Details</h4>
                                 <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
                                 {vin && (
                                   <p className="text-xs text-zinc-500 font-mono mt-1">VIN: <span className="font-bold text-zinc-700">{vin}</span></p>

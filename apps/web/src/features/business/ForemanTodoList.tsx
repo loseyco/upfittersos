@@ -1045,7 +1045,10 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   <div>
                     <span className="text-[8px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2 py-0.5 rounded">Job Card</span>
                     <h1 className="text-xl font-black text-indigo-950 mt-1 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
-                    <p className="text-xs font-bold text-zinc-700 mt-0.5">{printingJob.title || 'Untitled Job'}</p>
+                    {printingJob.title && printingJob.title !== printingJob.jobNumber && (
+                      <p className="text-xs font-bold text-zinc-700 mt-0.5">{printingJob.title}</p>
+                    )}
+                    <p className="text-xs font-extrabold text-indigo-900 mt-1.5 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest">Status</p>
@@ -1072,30 +1075,30 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
                   const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
                   return (
-                    <div className={`border-t border-zinc-200 pt-3 grid gap-3 bg-zinc-50 p-3 rounded-lg text-left text-[10px] items-center ${companyCamVal ? 'grid-cols-[1fr_auto_1fr]' : 'grid-cols-2'}`}>
-                      <div>
-                        <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">Customer Details</h4>
-                        <p className="font-extrabold text-zinc-900 mt-0.5">{printingJob.customerName || 'No Customer'}</p>
-                      </div>
-                      
-                      {companyCamVal && (
-                        <div className="flex flex-col items-center shrink-0 px-2 border-l border-r border-zinc-200 scale-90">
-                          <div className="p-1 bg-white border border-zinc-200 rounded-md shadow-sm">
+                    <div className={`border-t border-zinc-200 pt-3 grid gap-3 bg-zinc-55 p-3 rounded-lg text-left text-[10px] items-center ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      {companyCamVal ? (
+                        <div className="flex items-center gap-3">
+                          <div className="p-1 bg-white border border-zinc-200 rounded-md shadow-sm shrink-0 scale-90">
                             <LogoQRCode 
                               value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
                               size={55}
                               type="general"
                             />
                           </div>
-                          <span className="text-[6px] font-black text-zinc-450 uppercase tracking-widest mt-0.5">CompanyCam</span>
+                          <div>
+                            <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">CompanyCam Photos</h4>
+                            <p className="text-[10px] font-bold text-zinc-850 mt-0.5">Scan QR to view photos</p>
+                          </div>
                         </div>
+                      ) : (
+                        <div className="text-zinc-450 italic text-[9px]">No photos linked</div>
                       )}
 
                       <div>
                         <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">Vehicle Details</h4>
                         <p className="font-extrabold text-zinc-900 mt-0.5 truncate">{vehicleLabel}</p>
                         {printingJob.vehicleId && (
-                          <p className="text-zinc-500 font-mono mt-0.5 truncate">VIN: <span className="font-bold text-zinc-800">{printingJob.vehicleId}</span></p>
+                          <p className="text-zinc-555 font-mono mt-0.5 truncate">VIN: <span className="font-bold text-zinc-800">{printingJob.vehicleId}</span></p>
                         )}
                       </div>
                     </div>
@@ -1139,7 +1142,10 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
               <div>
                 <span className="text-[10px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
                 <h1 className="text-3xl sm:text-4xl font-black text-indigo-950 mt-3 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
-                <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{printingJob.title || 'Untitled Job'}</p>
+                {printingJob.title && printingJob.title !== printingJob.jobNumber && (
+                  <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{printingJob.title}</p>
+                )}
+                <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status / Priority</p>
@@ -1166,25 +1172,24 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
               const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
               const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
               return (
-                <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-50 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-[1fr_auto_1fr]' : 'grid-cols-2'}`}>
-                  <div>
-                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Customer Details</h4>
-                    <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{printingJob.customerName || 'No Customer Assigned'}</p>
-                  </div>
-
-                  {companyCamVal && (
-                    <div className="flex flex-col items-center shrink-0 px-4 border-l border-r border-zinc-200">
-                      <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm">
+                <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-50 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                  {companyCamVal ? (
+                    <div className="flex items-center gap-4">
+                      <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm shrink-0">
                         <LogoQRCode 
                           value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
                           size={90}
                           type="general"
                         />
                       </div>
-                      <span className="text-[7px] font-black text-zinc-400 uppercase tracking-widest mt-1">CompanyCam QR</span>
+                      <div>
+                        <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">CompanyCam Photos</h4>
+                        <p className="text-xs sm:text-sm font-extrabold text-zinc-800 mt-1">Scan QR to view photos</p>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="text-zinc-400 italic text-xs">No photos linked</div>
                   )}
-
                   <div>
                     <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Vehicle Details</h4>
                     <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
