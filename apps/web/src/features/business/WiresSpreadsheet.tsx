@@ -470,8 +470,13 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
       if (!rod) return;
 
       const currentReels = [...(rod.reels || [])];
+      let finalGauge = popoverGauge.trim();
+      if (/^\d+$/.test(finalGauge)) {
+        finalGauge = `${finalGauge} AWG`;
+      }
+
       const updatedReel: WireReel = {
-        gauge: popoverGauge.trim(),
+        gauge: finalGauge,
         color: popoverColor.trim(),
         length: popoverLength.trim(),
         status: popoverStatus
@@ -933,6 +938,8 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                 <div className="flex flex-wrap gap-1 mt-1.5 px-0.5">
                   {['22 AWG', '18 AWG', '16 AWG', '14 AWG', '12 AWG', '10 AWG', '4 AWG', '1/0', '2/0', '4/0'].map(g => (
                     <button
+                      type="button"
+                      tabIndex={-1}
                       key={g}
                       onClick={() => setPopoverGauge(g)}
                       className="px-1.5 py-0.5 bg-zinc-950 border border-zinc-850 hover:bg-zinc-800 hover:text-white rounded text-[9px] text-zinc-400 font-semibold transition-colors"
@@ -969,6 +976,8 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-1">Stock Status</label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
+                    type="button"
+                    tabIndex={-1}
                     onClick={() => setPopoverStatus('in_stock')}
                     className={cn(
                       "px-3 py-2 border rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1",
@@ -981,6 +990,8 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                     In Stock
                   </button>
                   <button
+                    type="button"
+                    tabIndex={-1}
                     onClick={() => setPopoverStatus('low')}
                     className={cn(
                       "px-3 py-2 border rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1",
@@ -993,6 +1004,8 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                     Low
                   </button>
                   <button
+                    type="button"
+                    tabIndex={-1}
                     onClick={() => setPopoverStatus('empty')}
                     className={cn(
                       "px-3 py-2 border rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1",
@@ -1089,7 +1102,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               Wire Wall QR Code Flyer
             </h3>
             <p className="text-xs text-zinc-550 mb-6 leading-relaxed">
-              Print this sheet and tape it next to your wire rack or hardware bins. Anyone can scan it to report low wire reels OR submit parts & hardware requests from their phone.
+              Print this flyer and tape it next to your hardware bins or wire rack. Anyone can scan it to instantly request parts, wire, or hardware from their mobile phone.
             </p>
 
             <div id="qr-printable-area" className="bg-white p-8 rounded-2xl flex flex-col items-center justify-center text-zinc-950 border border-zinc-200 shadow-sm mx-auto w-[280px]">
@@ -1107,10 +1120,10 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               />
 
               <p className="text-xs font-black text-zinc-900 tracking-tight text-center">
-                SCAN TO REPORT / REQUEST
+                SCAN TO REQUEST
               </p>
               <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">
-                WIRES • HARDWARE • BINS
+                PARTS & HARDWARE
               </p>
             </div>
 
