@@ -85,6 +85,8 @@ import { StaffSpreadsheet } from './StaffSpreadsheet';
 import { VehicleSpreadsheet } from './VehicleSpreadsheet';
 import { JobSpreadsheet } from './JobSpreadsheet';
 import { TasksSpreadsheet } from './TasksSpreadsheet';
+import { WiresSpreadsheet } from './WiresSpreadsheet';
+import { WireScanPage } from './WireScanPage';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 export function TenantDashboard() {
@@ -103,6 +105,8 @@ export function TenantDashboard() {
     vehicles_sheet: 'Vehicles Sheet (v3)',
     jobs_sheet: 'Jobs Sheet (v3)',
     tasks_sheet: 'Tasks Sheet (v3)',
+    wires_sheet: 'Wires Sheet (v3)',
+    wire_scan: 'Wire Wall Scanner',
     time_details: 'Time Clock',
     device_settings: 'Device Settings',
     quickdesk: 'QuickDesk (Classic)',
@@ -298,8 +302,12 @@ export function TenantDashboard() {
     'zones'
   ];
 
+  if (activeTab === 'wire_scan') {
+    return <WireScanPage />;
+  }
+
   return (
-    <div className="flex h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
+    <div className="flex h-screen bg-zinc-50 dark:bg-zinc-955 text-zinc-900 dark:text-zinc-100 transition-colors overflow-hidden">
       <PullToRefresh onRefresh={() => window.location.reload()} />
       {activeTab !== 'bay_monitor' && activeTab !== 'timeclock_monitor' && activeTab !== 'parking_monitor' && activeTab !== 'conference_monitor' && (
         <BusinessSidebar 
@@ -877,6 +885,12 @@ export function TenantDashboard() {
             {activeTab === 'tasks_sheet' && (
               <PermissionGate permission="development.view">
                 <TasksSpreadsheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'wires_sheet' && (
+              <PermissionGate permission="development.view">
+                <WiresSpreadsheet tenantId={tenantId!} />
               </PermissionGate>
             )}
           </div>

@@ -119,6 +119,7 @@ export const ITEMS: NavItem[] = [
   { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'jobs_sheet', label: 'Jobs Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'tasks_sheet', label: 'Tasks Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
+  { id: 'wires_sheet', label: 'Wires Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
 
   // Help Hub
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },
