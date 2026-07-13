@@ -84,6 +84,7 @@ import { StaffLocationsPage } from './StaffLocationsPage';
 import { StaffSpreadsheet } from './StaffSpreadsheet';
 import { VehicleSpreadsheet } from './VehicleSpreadsheet';
 import { JobSpreadsheet } from './JobSpreadsheet';
+import { TasksSpreadsheet } from './TasksSpreadsheet';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
 export function TenantDashboard() {
@@ -101,6 +102,7 @@ export function TenantDashboard() {
     staff_sheet: 'Staff Sheet (v3)',
     vehicles_sheet: 'Vehicles Sheet (v3)',
     jobs_sheet: 'Jobs Sheet (v3)',
+    tasks_sheet: 'Tasks Sheet (v3)',
     time_details: 'Time Clock',
     device_settings: 'Device Settings',
     quickdesk: 'QuickDesk (Classic)',
@@ -869,6 +871,12 @@ export function TenantDashboard() {
             {activeTab === 'jobs_sheet' && (
               <PermissionGate permission="development.view">
                 <JobSpreadsheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'tasks_sheet' && (
+              <PermissionGate permission="development.view">
+                <TasksSpreadsheet tenantId={tenantId!} />
               </PermissionGate>
             )}
           </div>

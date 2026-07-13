@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom';
 import { 
   Trash2, Keyboard, Search, Loader2,
   Cloud, AlertCircle, ChevronDown, Check,
-  Printer, ExternalLink, Maximize2, Minimize2
+  Printer, ExternalLink, Maximize2, Minimize2, Plus
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, getDocs, getDoc
+  onSnapshot, serverTimestamp, getDocs, getDoc, query
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
@@ -36,6 +36,7 @@ export interface Job {
   isArchived?: boolean;
   isPlaceholder?: boolean;
   travelerPrintedAt?: any;
+  bayId?: string;
 }
 
 export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
@@ -43,14 +44,48 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [searchQuery, setSearchQuery] = useState('');
-  const [showArchived, setShowArchived] = useState(true);
-  const [showShortcuts, setShowShortcuts] = useState(false);
+  const showArchived = false;
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [printingJob, setPrintingJob] = useState<Job | null>(null);
   const [businessLogo, setBusinessLogo] = useState<string>('');
   const [businessName, setBusinessName] = useState<string>('');
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
+  const [zones, setZones] = useState<any[]>([]);
+  const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
 
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsub = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    });
+    return unsub;
+  }, [tenantId]);
+
+  const visibleJobIds = useMemo(() => {
+    return jobs.map(j => j.id);
+  }, [jobs]);
+
+  useEffect(() => {
+    if (!tenantId || visibleJobIds.length === 0) {
+      setTasksMap({});
+      return;
+    }
+    const unsubs = visibleJobIds.map(jobId => {
+      const q = query(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`));
+      return onSnapshot(q, (snap) => {
+        const jobTasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        setTasksMap(prev => ({
+          ...prev,
+          [jobId]: jobTasks
+        }));
+      }, (err) => {
+        console.warn(`Could not subscribe to tasks for job ${jobId}:`, err);
+      });
+    });
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
+  }, [tenantId, visibleJobIds]);
   useEffect(() => {
     if (!tenantId) return;
     const docRef = doc(db, 'businesses', tenantId);
@@ -210,14 +245,16 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     { key: 'priority', label: 'Priority', letter: 'F', type: 'priority-select' },
     { key: 'customerName', label: 'Customer', letter: 'G', type: 'customer-select' },
     { key: 'vehicleId', label: 'Vehicle VIN', letter: 'H', type: 'vehicle-select' },
-    { key: 'scheduledStartDate', label: 'Start Date', letter: 'I', type: 'datetime-local' },
-    { key: 'scheduledEndDate', label: 'End Date', letter: 'J', type: 'datetime-local' },
-    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'K', type: 'datetime-local' },
-    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'L', type: 'datetime-local' },
-    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'M', type: 'datetime-local' },
-    { key: 'completedAt', label: 'Completed At', letter: 'N', type: 'datetime-local' },
-    { key: 'companyCamId', label: 'Company Cam ID', letter: 'O', type: 'text' },
-    { key: 'notes', label: 'Notes', letter: 'P', type: 'text' }
+    { key: 'location', label: 'Bay / Parking', letter: 'I', type: 'custom' },
+    { key: 'progress', label: 'Task Progress', letter: 'J', type: 'custom' },
+    { key: 'scheduledStartDate', label: 'Start Date', letter: 'K', type: 'datetime-local' },
+    { key: 'scheduledEndDate', label: 'End Date', letter: 'L', type: 'datetime-local' },
+    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'M', type: 'datetime-local' },
+    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'N', type: 'datetime-local' },
+    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'O', type: 'datetime-local' },
+    { key: 'completedAt', label: 'Completed At', letter: 'P', type: 'datetime-local' },
+    { key: 'companyCamId', label: 'Company Cam ID', letter: 'Q', type: 'text' },
+    { key: 'notes', label: 'Notes', letter: 'R', type: 'text' }
   ], []);
 
   // Filter jobs
@@ -316,6 +353,10 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   };
 
   const getCellValue = (row: Job, colKey: string): string => {
+    if (colKey === 'location') {
+      const activeZone = zones.find(z => z.currentJobId === row.id);
+      return activeZone ? activeZone.id : 'none';
+    }
     if (colKey === 'isArchived') {
       return row.isArchived ? 'true' : 'false';
     }
@@ -682,6 +723,60 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     }, 500);
   };
 
+  const saveLocationValue = async (jobId: string, vehicleVin: string, newZoneId: string) => {
+    setSyncStatus('saving');
+    try {
+      // 1. Clear old linked zone for this job
+      const oldZone = zones.find(z => z.currentJobId === jobId);
+      if (oldZone) {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, oldZone.id), {
+          currentJobId: '',
+          currentVehicleVin: '',
+          assignedAt: null
+        });
+      }
+      // 2. Assign new linked zone
+      if (newZoneId && newZoneId !== 'none') {
+        const targetZone = zones.find(z => z.id === newZoneId);
+        if (targetZone) {
+          await updateDoc(doc(db, `businesses/${tenantId}/zones`, targetZone.id), {
+            currentJobId: jobId,
+            currentVehicleVin: vehicleVin || '',
+            assignedAt: new Date().toISOString()
+          });
+        }
+      }
+      setSyncStatus('saved');
+      toast.success('Location updated');
+    } catch (err) {
+      console.error("Failed to update location:", err);
+      setSyncStatus('error');
+      toast.error("Failed to update location");
+    }
+  };
+
+  const handleAddJob = async () => {
+    setSyncStatus('saving');
+    try {
+      const jobNum = 'JOB-' + Math.floor(100000 + Math.random() * 900000);
+      const data = {
+        jobNumber: jobNum,
+        title: 'New Job',
+        isArchived: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs`), data);
+      setSyncStatus('saved');
+      toast.success('New job created');
+      setSelectedCell({ rowId: docRef.id, colKey: 'title' });
+      startEditing(docRef.id, 'title');
+    } catch (e) {
+      setSyncStatus('error');
+      toast.error('Failed to create job');
+    }
+  };
+
   const handleDeleteRow = async (member: Job) => {
     if (member.isPlaceholder) return;
     
@@ -801,27 +896,15 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             )}
           </div>
 
-          <button
-            onClick={() => setShowShortcuts(!showShortcuts)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-              showShortcuts 
-                ? 'bg-zinc-800 text-white border-zinc-700'
-                : 'bg-zinc-900 text-zinc-400 hover:text-white border-zinc-800'
-            }`}
-          >
-            <Keyboard className="w-3.5 h-3.5" />
-            {showShortcuts ? 'Hide Controls' : 'Show Controls'}
-          </button>
+
 
           <button
-            onClick={() => setShowArchived(!showArchived)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-              showArchived 
-                ? 'bg-zinc-800 text-white border-zinc-700'
-                : 'bg-zinc-900 text-zinc-400 hover:text-white border-zinc-800'
-            }`}
+            onClick={handleAddJob}
+            className="flex items-center gap-1.5 px-3 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-650 hover:to-purple-750 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/10 cursor-pointer"
+            title="Create a new job record"
           >
-            {showArchived ? 'Hide Inactive' : 'Show Inactive'}
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add New Job</span>
           </button>
 
           <button
@@ -857,30 +940,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      {showShortcuts && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-zinc-950/40 border border-zinc-800/80 rounded-xl text-xs text-zinc-400 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div>
-            <p className="font-bold text-white mb-1">Navigation</p>
-            <p>⌨️ <span className="text-zinc-200">Arrows</span>: Move selection</p>
-            <p>⌨️ <span className="text-zinc-200">Tab</span> / <span className="text-zinc-200">Shift+Tab</span>: Move horizontal</p>
-          </div>
-          <div>
-            <p className="font-bold text-white mb-1">Editing</p>
-            <p>⌨️ <span className="text-zinc-200">Double Click</span> / <span className="text-zinc-200">Enter</span>: Edit cell</p>
-            <p>⌨️ <span className="text-zinc-200">Type letters/numbers</span>: Start typing</p>
-          </div>
-          <div>
-            <p className="font-bold text-white mb-1">Confirming Changes</p>
-            <p>⌨️ <span className="text-zinc-200">Enter</span>: Commit & Move Down</p>
-            <p>⌨️ <span className="text-zinc-200">Escape</span>: Cancel / Revert</p>
-          </div>
-          <div>
-            <p className="font-bold text-white mb-1">Sheet Utilities</p>
-            <p>⌨️ <span className="text-zinc-200">Backspace / Del</span>: Clear cell value</p>
-            <p>⚡ <span className="text-zinc-200">Bottom row</span>: Start typing to add native job</p>
-          </div>
-        </div>
-      )}
+
 
       {/* Formula Bar */}
       <div className="flex items-center gap-2 bg-zinc-950/80 border border-zinc-850 px-3 py-2 rounded-xl text-xs">
@@ -951,6 +1011,8 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             <col className="w-[140px]" /> {/* Priority */}
             <col className="w-[180px]" /> {/* Customer */}
             <col className="w-[180px]" /> {/* Vehicle VIN */}
+            <col className="w-[150px]" /> {/* Bay / Parking */}
+            <col className="w-[140px]" /> {/* Task Progress */}
             <col className="w-[180px]" /> {/* Start Date */}
             <col className="w-[180px]" /> {/* End Date */}
             <col className="w-[180px]" /> {/* Arrival Time */}
@@ -1052,7 +1114,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
 
                   {COLUMNS.map(col => {
                     const isSelected = selectedCell?.rowId === row.id && selectedCell?.colKey === col.key;
-                    const isEditing = editingCell?.rowId === row.id && editingCell?.colKey === col.key && col.type !== 'checkbox';
+                    const isEditing = editingCell?.rowId === row.id && editingCell?.colKey === col.key && col.type !== 'checkbox' && col.key !== 'progress';
                     const cellVal = getCellValue(row, col.key);
 
                     let displayContent: React.ReactNode = cellVal;
@@ -1133,6 +1195,43 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       );
                     }
 
+                    if (col.key === 'location') {
+                      if (isPlaceholder) {
+                        displayContent = <span className="text-zinc-700 italic">--</span>;
+                      } else {
+                        const activeZone = zones.find(z => z.currentJobId === row.id);
+                        displayContent = activeZone ? activeZone.name : (row.bayId || <span className="text-zinc-550 italic">None</span>);
+                      }
+                    }
+
+                    if (col.key === 'progress') {
+                      if (isPlaceholder) {
+                        displayContent = <span className="text-zinc-700 italic">--</span>;
+                      } else {
+                        const jobTasks = tasksMap[row.id] || [];
+                        const total = jobTasks.length;
+                        const completed = jobTasks.filter(t => t.status === 'completed').length;
+                        if (total === 0) {
+                          displayContent = <span className="text-zinc-550 italic">No Tasks</span>;
+                        } else {
+                          const pct = Math.round((completed / total) * 100);
+                          const allDone = completed === total;
+                          displayContent = (
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "px-2 py-0.5 rounded-full text-[10px] font-bold border font-sans",
+                                allDone 
+                                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                  : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                              )}>
+                                {completed}/{total} ({pct}%)
+                              </span>
+                            </div>
+                          );
+                        }
+                      }
+                    }
+
                     if (col.type === 'datetime-local') {
                       displayContent = displayFirestoreTimestamp((row as any)[col.key]);
                     }
@@ -1153,7 +1252,33 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       >
                         {isEditing ? (
                           <div className="absolute inset-0 z-20 flex items-center bg-zinc-900 ring-2 ring-indigo-500 ring-inset">
-                            {col.type === 'customer-select' ? (
+                            {col.key === 'location' ? (
+                              <select
+                                ref={cellInputRef as any}
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={() => {
+                                  saveLocationValue(row.id, row.vehicleId || '', editValue);
+                                  setEditingCell(null);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    saveLocationValue(row.id, row.vehicleId || '', editValue);
+                                    setEditingCell(null);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCell(null);
+                                  }
+                                }}
+                                className="w-full h-full bg-transparent px-2 text-xs text-white font-mono outline-none border-none"
+                              >
+                                <option value="none" className="bg-zinc-900 text-zinc-400">None</option>
+                                {zones.filter(z => !z.isArchived).map(z => (
+                                  <option key={z.id} value={z.id} className="bg-zinc-900 text-white">
+                                    {z.name}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : col.type === 'customer-select' ? (
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
