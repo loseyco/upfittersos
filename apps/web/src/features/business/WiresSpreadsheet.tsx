@@ -54,7 +54,8 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
   const formulaInputRef = useRef<HTMLInputElement | null>(null);
   const tableRef = useRef<HTMLTableElement | null>(null);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLFormElement | null>(null);
+  const popoverGaugeInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync with Firestore
   useEffect(() => {
@@ -86,6 +87,18 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [activePopover]);
+
+  // Focus popover gauge input on open/change
+  useEffect(() => {
+    if (activePopover) {
+      setTimeout(() => {
+        if (popoverGaugeInputRef.current) {
+          popoverGaugeInputRef.current.focus();
+          popoverGaugeInputRef.current.select?.();
+        }
+      }, 80);
+    }
+  }, [activePopover?.rowId, activePopover?.reelIndex]);
 
   // Calculated Scan URL (One large QR code for the wall)
   const scanUrl = useMemo(() => {
@@ -449,7 +462,6 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
   const handleSavePopoverReel = async () => {
     if (!activePopover) return;
     const { rowId, reelIndex } = activePopover;
-    setActivePopover(null);
     setSyncStatus('saving');
 
     try {
@@ -477,10 +489,20 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
       });
       setSyncStatus('saved');
       toast.success("Reel saved");
+
+      // Auto-advance to the next reel position in the same row
+      const nextIndex = reelIndex + 1;
+      const nextReel = currentReels[nextIndex];
+      setPopoverGauge(nextReel?.gauge || '');
+      setPopoverColor(nextReel?.color || '');
+      setPopoverLength(nextReel?.length || '');
+      setPopoverStatus(nextReel?.status || 'in_stock');
+      setActivePopover({ rowId, reelIndex: nextIndex });
     } catch (e) {
       console.error(e);
       setSyncStatus('error');
       toast.error("Failed to save reel");
+      setActivePopover(null);
     }
   };
 
@@ -884,8 +906,12 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
       {/* Popover Editor Modal */}
       {activePopover && (
         <div className="fixed inset-0 flex items-center justify-center bg-black/60 z-50 animate-in fade-in duration-150 p-4">
-          <div 
-            ref={popoverRef}
+          <form 
+            ref={popoverRef as any}
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSavePopoverReel();
+            }}
             className="w-full max-w-sm bg-zinc-900 border border-zinc-850 rounded-2xl shadow-2xl p-5 text-white font-sans"
           >
             <h3 className="text-sm font-black tracking-wider uppercase text-indigo-400 mb-4 flex items-center gap-1.5">
@@ -897,6 +923,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest px-1">Gauge / Size</label>
                 <input 
+                  ref={popoverGaugeInputRef}
                   type="text"
                   placeholder="e.g. 10 AWG, 4 AWG, 2/0"
                   value={popoverGauge}
@@ -983,6 +1010,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
 
             <div className="flex items-center justify-between mt-6 gap-3 pt-4 border-t border-zinc-800">
               <button
+                type="button"
                 onClick={handleDeletePopoverReel}
                 className="px-3 py-2 text-xs font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 rounded-xl cursor-pointer transition-all"
               >
@@ -990,20 +1018,21 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               </button>
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setActivePopover(null)}
                   className="px-3 py-2 text-xs font-bold text-zinc-400 bg-zinc-950 border border-zinc-800 hover:bg-zinc-850 rounded-xl cursor-pointer transition-all"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleSavePopoverReel}
+                  type="submit"
                   className="px-4 py-2 text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-650 rounded-xl shadow-md cursor-pointer transition-all"
                 >
                   Save Changes
                 </button>
               </div>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
@@ -1060,7 +1089,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               Wire Wall QR Code Flyer
             </h3>
             <p className="text-xs text-zinc-550 mb-6 leading-relaxed">
-              Print this sheet and tape it next to your wire rack. Anyone can scan it to instantly report low or empty reels from their mobile phone.
+              Print this sheet and tape it next to your wire rack or hardware bins. Anyone can scan it to report low wire reels OR submit parts & hardware requests from their phone.
             </p>
 
             <div id="qr-printable-area" className="bg-white p-8 rounded-2xl flex flex-col items-center justify-center text-zinc-950 border border-zinc-200 shadow-sm mx-auto w-[280px]">
@@ -1068,7 +1097,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                 UPFITTERS OS
               </h1>
               <p className="text-[10px] font-black text-indigo-600 tracking-widest uppercase mb-4">
-                WIRE RACK INVENTORY
+                SHOP FLOOR ASSIST
               </p>
 
               <img 
@@ -1078,10 +1107,10 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
               />
 
               <p className="text-xs font-black text-zinc-900 tracking-tight text-center">
-                SCAN TO REPORT
+                SCAN TO REPORT / REQUEST
               </p>
-              <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">
-                LOW OR RUN OUT REELS
+              <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest mt-0.5">
+                WIRES • HARDWARE • BINS
               </p>
             </div>
 
