@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   Trash2, Keyboard, Search, Loader2,
   Cloud, AlertCircle, ChevronDown, Check,
-  Printer, ExternalLink
+  Printer, ExternalLink, Maximize2, Minimize2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { 
@@ -45,6 +45,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showArchived, setShowArchived] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const [printingJob, setPrintingJob] = useState<Job | null>(null);
   const [businessLogo, setBusinessLogo] = useState<string>('');
   const [businessName, setBusinessName] = useState<string>('');
@@ -755,7 +756,14 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   }, [selectedCell, rows, COLUMNS]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] space-y-4">
+    <div 
+      className={cn(
+        "flex flex-col space-y-4 transition-all duration-200",
+        isFullScreen 
+          ? "fixed inset-0 z-50 bg-zinc-950 p-6 h-screen w-screen" 
+          : "h-[calc(100vh-12rem)]"
+      )}
+    >
       {/* Upper Sheet Bar */}
       <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-950/60 backdrop-blur-md p-4 rounded-2xl border border-zinc-800 shadow-xl">
         <div className="flex items-center gap-3">
@@ -814,6 +822,24 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             }`}
           >
             {showArchived ? 'Hide Inactive' : 'Show Inactive'}
+          </button>
+
+          <button
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-zinc-900 hover:text-white text-zinc-405 border border-zinc-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            title={isFullScreen ? "Exit Full Screen" : "Enter Full Screen"}
+          >
+            {isFullScreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>Exit Full Screen</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Full Screen</span>
+              </>
+            )}
           </button>
 
           <div className="relative w-48 sm:w-64">
