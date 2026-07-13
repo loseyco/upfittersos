@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Trash2, Keyboard, Search, Loader2,
-  Cloud, AlertCircle
+  Cloud, AlertCircle, ChevronDown, Check
 } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
   onSnapshot, serverTimestamp, getDocs
@@ -40,6 +41,14 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showArchived, setShowArchived] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
+  const [colFilters, setColFilters] = useState<Record<string, string>>({
+    isArchived: 'all',
+    status: 'all',
+    priority: 'all',
+    customerName: 'all',
+    vehicleId: 'all'
+  });
 
   // Cell Selection / Editing State
   const [selectedCell, setSelectedCell] = useState<{ rowId: string; colKey: string } | null>(null);
@@ -137,6 +146,38 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     return () => unsubscribe();
   }, [tenantId]);
 
+  const uniqueStatuses = useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach(j => {
+      if (j.status) set.add(j.status);
+    });
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  const uniquePriorities = useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach(j => {
+      if (j.priority) set.add(j.priority);
+    });
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  const uniqueCustomers = useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach(j => {
+      if (j.customerName) set.add(j.customerName);
+    });
+    return Array.from(set).sort();
+  }, [jobs]);
+
+  const uniqueVehicles = useMemo(() => {
+    const set = new Set<string>();
+    jobs.forEach(j => {
+      if (j.vehicleId) set.add(j.vehicleId);
+    });
+    return Array.from(set).sort();
+  }, [jobs]);
+
   // Define Columns
   const COLUMNS = useMemo(() => [
     { key: 'isArchived', label: 'Active', letter: 'A', type: 'checkbox' },
@@ -161,21 +202,35 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     return jobs.filter(member => {
       if (member.isArchived && !showArchived) return false;
 
-      if (!searchQuery.trim()) return true;
-      const queryStr = searchQuery.toLowerCase();
-      const fields = [
-        member.jobNumber,
-        member.title,
-        member.status,
-        member.priority,
-        member.customerName,
-        member.vehicleId,
-        member.notes
-      ].map(f => String(f || '').toLowerCase());
+      // Search Query filter
+      if (searchQuery.trim()) {
+        const queryStr = searchQuery.toLowerCase();
+        const fields = [
+          member.jobNumber,
+          member.title,
+          member.status,
+          member.priority,
+          member.customerName,
+          member.vehicleId,
+          member.notes
+        ].map(f => String(f || '').toLowerCase());
+        if (!fields.some(f => f.includes(queryStr))) return false;
+      }
 
-      return fields.some(f => f.includes(queryStr));
+      // Column Filters
+      if (colFilters.status !== 'all' && member.status !== colFilters.status) return false;
+      if (colFilters.priority !== 'all' && member.priority !== colFilters.priority) return false;
+      if (colFilters.customerName !== 'all' && member.customerName !== colFilters.customerName) return false;
+      if (colFilters.vehicleId !== 'all' && member.vehicleId !== colFilters.vehicleId) return false;
+      if (colFilters.isArchived !== 'all') {
+        const isActive = !member.isArchived;
+        if (colFilters.isArchived === 'active' && !isActive) return false;
+        if (colFilters.isArchived === 'inactive' && isActive) return false;
+      }
+
+      return true;
     });
-  }, [jobs, searchQuery, showArchived]);
+  }, [jobs, searchQuery, showArchived, colFilters]);
 
   // Append a placeholder row at the bottom
   const rows = useMemo(() => {
@@ -605,6 +660,53 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const renderHeaderFilter = (colKey: string, options: Array<{ value: string; label: string }>) => {
+    const isActive = colFilters[colKey] !== 'all';
+    return (
+      <div className="inline-block ml-1 relative group no-print">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveHeaderFilterDropdown(activeHeaderFilterDropdown === colKey ? null : colKey);
+          }}
+          className={cn(
+            "p-0.5 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer inline-flex items-center align-middle",
+            isActive ? "text-indigo-400 font-bold" : "text-zinc-500 hover:text-zinc-400"
+          )}
+          title={`Filter by ${colKey}`}
+        >
+          <ChevronDown className="w-3 h-3" />
+        </button>
+        {activeHeaderFilterDropdown === colKey && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setActiveHeaderFilterDropdown(null)} 
+            />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-zinc-900 border border-zinc-850 rounded-xl shadow-2xl p-1.5 z-50 min-w-[140px] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in duration-150 text-left font-sans normal-case text-xs font-semibold text-zinc-300">
+              {options.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    setColFilters(prev => ({ ...prev, [colKey]: opt.value }));
+                    setActiveHeaderFilterDropdown(null);
+                  }}
+                  className={cn(
+                    "w-full px-2 py-1.5 text-left rounded-lg transition-colors flex items-center justify-between hover:bg-zinc-800",
+                    colFilters[colKey] === opt.value ? "bg-indigo-500/10 text-indigo-400 font-bold" : ""
+                  )}
+                >
+                  <span className="truncate max-w-[160px]">{opt.label}</span>
+                  {colFilters[colKey] === opt.value && <Check className="w-3 h-3 text-indigo-400 shrink-0 ml-1.5" />}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   const cellCoordinateString = useMemo(() => {
     if (!selectedCell) return '';
     const col = COLUMNS.find(c => c.key === selectedCell.colKey);
@@ -806,11 +908,45 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             </tr>
             <tr>
               <th className="bg-zinc-950/90 border-r border-zinc-800 h-10"></th>
-              {COLUMNS.map(col => (
-                <th key={col.key} className="border-r border-zinc-850 text-left px-3 text-[11px] font-black uppercase tracking-wider text-zinc-400 bg-zinc-900/60">
-                  {col.label}
-                </th>
-              ))}
+              {COLUMNS.map(col => {
+                let filterElement: React.ReactNode = null;
+                if (col.key === 'isArchived') {
+                  filterElement = renderHeaderFilter('isArchived', [
+                    { value: 'all', label: 'All' },
+                    { value: 'active', label: 'Active Only' },
+                    { value: 'inactive', label: 'Archived Only' }
+                  ]);
+                } else if (col.key === 'status') {
+                  filterElement = renderHeaderFilter('status', [
+                    { value: 'all', label: 'All Statuses' },
+                    ...uniqueStatuses.map(s => ({ value: s, label: s }))
+                  ]);
+                } else if (col.key === 'priority') {
+                  filterElement = renderHeaderFilter('priority', [
+                    { value: 'all', label: 'All Priorities' },
+                    ...uniquePriorities.map(p => ({ value: p, label: p }))
+                  ]);
+                } else if (col.key === 'customerName') {
+                  filterElement = renderHeaderFilter('customerName', [
+                    { value: 'all', label: 'All Customers' },
+                    ...uniqueCustomers.map(c => ({ value: c, label: c }))
+                  ]);
+                } else if (col.key === 'vehicleId') {
+                  filterElement = renderHeaderFilter('vehicleId', [
+                    { value: 'all', label: 'All Vehicles' },
+                    ...uniqueVehicles.map(v => ({ value: v, label: v }))
+                  ]);
+                }
+
+                return (
+                  <th key={col.key} className="border-r border-zinc-850 text-left px-3 text-[11px] font-black uppercase tracking-wider text-zinc-400 bg-zinc-900/60 align-middle relative">
+                    <div className="flex items-center justify-between gap-1">
+                      <span>{col.label}</span>
+                      {filterElement}
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
