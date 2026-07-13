@@ -200,15 +200,49 @@ export function QuickAddVehicleModal({
   }, [vin]);
 
   useEffect(() => {
-    getDocs(collection(db, `businesses/${tenantId}/customers`)).then(snap => {
-      const data: any[] = [];
-      snap.forEach(doc => data.push({ id: doc.id, ...doc.data() }));
-      data.sort((a, b) => {
+    if (!tenantId) return;
+    Promise.all([
+      getDocs(collection(db, `businesses/${tenantId}/customers`)),
+      getDocs(collection(db, `businesses/${tenantId}/qb_customers`))
+    ]).then(([nativeSnap, qbSnap]) => {
+      const nativeList = nativeSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const qbList = qbSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const mergedMap = new Map<string, any>();
+
+      qbList.forEach(c => {
+        const name = c.name || c.displayName || c.CompanyName || c.FullName || c.company || c.id;
+        if (name) {
+          mergedMap.set(name.toLowerCase().trim(), {
+            id: c.ListID || c.id,
+            name: name,
+            displayName: c.displayName || name,
+            CompanyName: c.CompanyName || name,
+            FullName: c.FullName || name,
+            email: c.email || c.Email || '',
+            mobilePhone: c.mobilePhone || c.Phone || '',
+            company: c.company || c.CompanyName || '',
+            isFromQB: true
+          });
+        }
+      });
+
+      nativeList.forEach(c => {
+        const name = c.name || c.displayName || c.CompanyName || c.FullName || c.company || c.id;
+        if (name) {
+          const key = name.toLowerCase().trim();
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, c);
+          }
+        }
+      });
+
+      const list = Array.from(mergedMap.values());
+      list.sort((a, b) => {
         const nameA = a.name || a.displayName || a.CompanyName || a.FullName || '';
         const nameB = b.name || b.displayName || b.CompanyName || b.FullName || '';
         return nameA.localeCompare(nameB);
       });
-      setCustomers(data);
+      setCustomers(list);
     }).catch(err => console.warn("Could not fetch customers", err));
   }, [tenantId]);
 

@@ -76,14 +76,10 @@ export const ITEMS: NavItem[] = [
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
-  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'staff_worksheet.view' },
-  { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'bay_worksheet.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
+  { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'office', permission: 'staff.view' },
   // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
-  { id: 'qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'office', permission: 'vehicles.view' },
-  { id: 'audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'office', permission: 'reports.view' },
-  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'office', permission: 'office.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   // { id: 'vehicle_intake', label: 'Vehicle Intake', icon: Car, hub: 'office', permission: 'vehicle_intake.use' },
 
@@ -96,6 +92,7 @@ export const ITEMS: NavItem[] = [
   { id: 'zones', label: 'Zones Config', icon: Layers, hub: 'facility', permission: 'facility.view' },
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
+  { id: 'conference_monitor', label: 'Conference Room (TV)', icon: Monitor, hub: 'facility', permission: 'facility.view' },
   { id: 'timeclock_monitor', label: 'Timeclock Station (TV)', icon: QrCode, hub: 'facility', permission: 'timeclock.view' },
   { id: 'facility_maps', label: 'Facility Maps', icon: Map, hub: 'facility', permission: 'facility.view' },
   { id: 'canvases', label: 'Canvases Gallery', icon: Layout, hub: 'facility', permission: 'whiteboards.view' },
@@ -106,7 +103,6 @@ export const ITEMS: NavItem[] = [
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'facility', permissions: ['facility.view', 'jobs.view', 'communication.view'] },
 
   // Admin & Sync
-  { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'settings', permission: 'staff.view' },
   { id: 'departments', label: 'Departments Config', icon: Building2, hub: 'settings', permission: 'staff.view' },
   { id: 'settings', label: 'System Settings', icon: Settings, hub: 'settings', permission: 'settings.view' },
   { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'settings', permission: 'sync.view' },
@@ -119,6 +115,9 @@ export const ITEMS: NavItem[] = [
 
   { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', permission: 'development.view' },
   { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', permission: 'development.view' },
+  { id: 'staff_sheet', label: 'Staff Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
+  { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
+  { id: 'jobs_sheet', label: 'Jobs Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
 
   // Help Hub
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },

@@ -4,7 +4,7 @@ import {
   Play, Clock, Users, ClipboardList, RefreshCw, Wrench,
   MapPin, ListChecks, ChevronRight, AlertCircle, AlertTriangle,
   Maximize, Minimize, Search, Sparkles, HelpCircle, X, History,
-  ChevronUp, ChevronDown, Award, Printer, Target
+  ChevronUp, ChevronDown, Award, Printer, Target, Tv
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, collectionGroup, orderBy, doc, updateDoc
@@ -183,6 +183,69 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
   const [staff, setStaff] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [business, setBusiness] = useState<any>(null);
+
+  // Conference Room TV Remote Control States
+  const [tvTimeLeft, setTvTimeLeft] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (business?.conferenceTvMode !== 'dashboard' || !business?.conferenceTvModeExpiresAt) {
+      setTvTimeLeft(null);
+      return;
+    }
+    const updateCountdown = () => {
+      const expiresAt = business.conferenceTvModeExpiresAt instanceof Date 
+        ? business.conferenceTvModeExpiresAt.getTime() 
+        : business.conferenceTvModeExpiresAt?.toDate 
+          ? business.conferenceTvModeExpiresAt.toDate().getTime() 
+          : Number(business.conferenceTvModeExpiresAt) || 0;
+      
+      const diff = expiresAt - Date.now();
+      if (diff <= 0) {
+        setTvTimeLeft(null);
+        // Auto reset Firestore if currently set to dashboard
+        if (business?.conferenceTvMode === 'dashboard') {
+          updateDoc(doc(db, 'businesses', tenantId), {
+            conferenceTvMode: 'screensaver',
+            conferenceTvModeExpiresAt: null
+          }).catch(err => console.error("Error auto-resetting TV mode:", err));
+        }
+        return;
+      }
+      const hrs = Math.floor(diff / 3600000);
+      const mins = Math.floor((diff % 3600000) / 60000);
+      const secs = Math.floor((diff % 60000) / 1000);
+      setTvTimeLeft(`${hrs > 0 ? `${hrs}h ` : ''}${mins}m ${secs}s`);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [business?.conferenceTvMode, business?.conferenceTvModeExpiresAt, tenantId]);
+
+  const toggleConferenceTvMode = async () => {
+    if (!tenantId) return;
+    try {
+      const isCurrentlyDashboard = business?.conferenceTvMode === 'dashboard';
+      const newMode = isCurrentlyDashboard ? 'screensaver' : 'dashboard';
+      const expiresAt = isCurrentlyDashboard 
+        ? null 
+        : new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours expiration
+
+      await updateDoc(doc(db, 'businesses', tenantId), {
+        conferenceTvMode: newMode,
+        conferenceTvModeExpiresAt: expiresAt
+      });
+      
+      if (newMode === 'dashboard') {
+        toast.success("Conference TV switched to shop dashboard! Reverts to screensaver in 2 hours.");
+      } else {
+        toast.success("Conference TV switched back to screensaver.");
+      }
+    } catch (err: any) {
+      console.error("Error updating TV mode:", err);
+      toast.error("Failed to update Conference TV mode");
+    }
+  };
 
   // Wake lock
   useWakeLock(isFullscreen);
@@ -1375,6 +1438,19 @@ export function UpfittersDashboard({ tenantId }: UpfittersDashboardProps) {
           >
             <Award className="w-3.5 h-3.5" />
             Foreman Tracker
+          </button>
+
+          <button
+            onClick={toggleConferenceTvMode}
+            className={cn(
+              "px-2.5 py-1.5 border text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer",
+              business?.conferenceTvMode === 'dashboard'
+                ? "bg-indigo-50 border-indigo-250 text-indigo-605 dark:bg-indigo-500/10 dark:border-indigo-500/20 dark:text-indigo-400 font-black animate-pulse"
+                : "bg-white border-zinc-200 text-zinc-700 hover:bg-zinc-50 dark:bg-zinc-900 dark:border-zinc-800 dark:text-zinc-300"
+            )}
+          >
+            <Tv className="w-3.5 h-3.5" />
+            <span>Conference TV: {business?.conferenceTvMode === 'dashboard' ? `Meeting (${tvTimeLeft || 'Active'})` : 'Screensaver'}</span>
           </button>
         </div>
       </div>

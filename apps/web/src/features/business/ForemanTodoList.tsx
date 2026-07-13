@@ -2,17 +2,19 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ClipboardList, AlertTriangle, Package, Car, Camera, CheckCircle2, 
-  Search, Clock, MapPin, Calendar, X, Save, AlertCircle, ArrowRight,
-  ExternalLink, ChevronDown, CheckSquare, Plus, RefreshCw
+  Search, Clock, MapPin, Calendar, Save, ArrowRight,
+  ExternalLink, CheckSquare, RefreshCw, Printer
 } from 'lucide-react';
 import { 
   collection, query, where, onSnapshot, doc, updateDoc, 
-  serverTimestamp, limit, orderBy 
+  serverTimestamp, limit, getDoc 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
 import { toast, Toaster } from 'sonner';
+import { LogoQRCode } from '../../components/LogoQRCode';
+import { createPortal } from 'react-dom';
 
 interface ForemanTodoListProps {
   tenantId: string;
@@ -20,22 +22,24 @@ interface ForemanTodoListProps {
 
 export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
   const navigate = useNavigate();
-  const { user, permissions, isSuperAdmin } = useAuthStore();
-  const canManage = isSuperAdmin || (permissions && (permissions['jobs.manage'] || permissions['foreman.manage'] || permissions['foreman.view']));
+  const { permissions, isSuperAdmin } = useAuthStore();
+  const canManage = isSuperAdmin || (permissions && (permissions['jobs.manage'] || permissions['foreman.view']));
 
   // Firebase states
   const [jobsList, setJobsList] = useState<any[]>([]);
   const [vehiclesList, setVehiclesList] = useState<any[]>([]);
   const [zonesList, setZonesList] = useState<any[]>([]);
   const [partsRequests, setPartsRequests] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(true);
 
   // UI/Interactive states
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'blockers' | 'vin' | 'cc' | 'qc' | 'parts' | 'duedate' | 'location'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'blockers' | 'vin' | 'cc' | 'qc' | 'parts' | 'duedate' | 'location' | 'traveler'>('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+  const [printingJob, setPrintingJob] = useState<any | null>(null);
+  const [businessName, setBusinessName] = useState('UpFittersOS');
+  const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
 
   // Local editing states for quick actions
   const [tempVin, setTempVin] = useState<Record<string, string>>({});
@@ -66,29 +70,11 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       setPartsRequests(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
-    const qSessions = query(
-      collection(db, `businesses/${tenantId}/time_sessions`), 
-      orderBy('clockIn.timestamp', 'desc'), 
-      limit(150)
-    );
-    const unsubSessions = onSnapshot(qSessions, (snap) => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const allSessions = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      const activeOrTodaySessions = allSessions.filter(s => {
-        if (!s.clockIn?.timestamp) return false;
-        const date = s.clockIn.timestamp.toDate ? s.clockIn.timestamp.toDate() : new Date(s.clockIn.timestamp);
-        return date >= today || s.status !== 'completed';
-      });
-      setSessions(activeOrTodaySessions);
-    });
-
     return () => {
       unsubJobs();
       unsubZones();
       unsubVehicles();
       unsubParts();
-      unsubSessions();
     };
   }, [tenantId]);
 
@@ -112,6 +98,44 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       unsubs.forEach(unsub => unsub());
     };
   }, [tenantId, jobIds]);
+
+  // Fetch business details for report header
+  useEffect(() => {
+    if (!tenantId) return;
+    const fetchBusiness = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'businesses', tenantId));
+        if (snap.exists()) {
+          const data = snap.data();
+          setBusinessName(data.name || 'UpFittersOS');
+          setBusinessLogo(data.logoUrl || data.logo || undefined);
+        }
+      } catch (e) {
+        console.warn("Failed to fetch business details", e);
+      }
+    };
+    fetchBusiness();
+  }, [tenantId]);
+
+  // Handle printing traveler page manually from modal button
+  const handlePrintJobCard = async () => {
+    if (!printingJob) return;
+    
+    // Tiny delay to ensure DOM is ready for print
+    setTimeout(async () => {
+      window.print();
+      try {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, printingJob.id), {
+          travelerPrintedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+        toast.success("Job Card marked as printed!");
+      } catch (e: any) {
+        console.warn("Failed to mark Job Card as printed", e);
+      }
+      setPrintingJob(null);
+    }, 100);
+  };
 
   // Quick Action handlers
   const saveVin = async (jobId: string) => {
@@ -274,7 +298,12 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       const isOnSite = !!(vehicle && vehicle.arrivedAt && !vehicle.departedAt);
       const isScheduledInFuture = !!(job.scheduledStartDate && new Date(job.scheduledStartDate).getTime() > Date.now());
 
-      if (!isOnSite && !isScheduledInFuture) {
+      const createdAtDate = job.createdAt
+        ? (job.createdAt.toDate ? job.createdAt.toDate() : new Date(job.createdAt))
+        : null;
+      const isCreatedAfterMayFirst = createdAtDate && createdAtDate.getTime() >= new Date('2026-05-01T00:00:00').getTime();
+
+      if (!isOnSite && !isScheduledInFuture && !isCreatedAfterMayFirst) {
         return {
           job,
           vehicleLabel: '',
@@ -284,6 +313,8 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
           hasAlerts: false
         };
       }
+
+
 
       const vehicleLabel = vehicle
         ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim()
@@ -389,6 +420,16 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
           description: 'Job is active but not allocated to a physical bay/parking zone.' 
         });
       }
+      
+      const needsTraveler = isOnSite && !job.travelerPrintedAt;
+      if (needsTraveler) {
+        alerts.push({ 
+          type: 'traveler', 
+          severity: 'medium', 
+          label: 'Job Card Missing', 
+          description: 'Job Card has not been printed yet.' 
+        });
+      }
 
       return {
         job,
@@ -409,6 +450,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
     let cc = 0;
     let parts = 0;
     let location = 0;
+    let traveler = 0;
 
     todoItems.forEach(item => {
       item.alerts.forEach(a => {
@@ -418,10 +460,11 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
         if (a.type === 'cc') cc++;
         if (a.type === 'parts') parts++;
         if (a.type === 'location') location++;
+        if (a.type === 'traveler') traveler++;
       });
     });
 
-    return { blockers, qc, vin, cc, parts, location, totalActionable: todoItems.length };
+    return { blockers, qc, vin, cc, parts, location, traveler, totalActionable: todoItems.length };
   }, [todoItems]);
 
   // Search & filter implementation
@@ -503,7 +546,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       </div>
 
       {/* Metric Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         <button 
           onClick={() => setActiveFilter('blockers')}
           className={cn(
@@ -599,6 +642,22 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
           <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">No Location</p>
           <p className="text-2xl font-black text-cyan-650 dark:text-cyan-400 mt-1">{metrics.location}</p>
         </button>
+
+        <button 
+          onClick={() => setActiveFilter('traveler')}
+          className={cn(
+            "p-4 rounded-2xl border text-left transition relative overflow-hidden group shadow-sm",
+            activeFilter === 'traveler'
+              ? "bg-indigo-500/10 border-indigo-500/40 dark:bg-indigo-950/20"
+              : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/30"
+          )}
+        >
+          <div className="absolute right-3 top-3 text-indigo-500 opacity-20 group-hover:scale-110 transition-transform">
+            <Printer className="w-12 h-12" />
+          </div>
+          <p className="text-[10px] font-black uppercase text-zinc-400 tracking-wider">No Traveler</p>
+          <p className="text-2xl font-black text-indigo-650 dark:text-indigo-400 mt-1">{metrics.traveler}</p>
+        </button>
       </div>
 
       {/* Filter Tabs Header */}
@@ -692,6 +751,19 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
             <MapPin className="w-3.5 h-3.5" /> No Bay ({metrics.location})
           </button>
         )}
+        {metrics.traveler > 0 && (
+          <button
+            onClick={() => setActiveFilter('traveler')}
+            className={cn(
+              "px-4 py-1.5 rounded-full text-xs font-bold transition flex items-center gap-1.5",
+              activeFilter === 'traveler'
+                ? "bg-indigo-500 text-white"
+                : "bg-indigo-500/10 text-indigo-650 hover:bg-indigo-500/20"
+            )}
+          >
+            <Printer className="w-3.5 h-3.5" /> Traveler Missing ({metrics.traveler})
+          </button>
+        )}
       </div>
 
       {/* Main Action Items List */}
@@ -770,6 +842,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                         {alert.type === 'parts' && <Package className="w-4 h-4 shrink-0 mt-0.5 text-orange-500" />}
                         {alert.type === 'duedate' && <Calendar className="w-4 h-4 shrink-0 mt-0.5 text-zinc-400" />}
                         {alert.type === 'location' && <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-cyan-500" />}
+                        {alert.type === 'traveler' && <Printer className="w-4 h-4 shrink-0 mt-0.5 text-indigo-500" />}
                         <div className="min-w-0">
                           <p className="font-bold uppercase text-[9px] tracking-wider mb-0.5">{alert.label}</p>
                           <p className="leading-relaxed opacity-90">{alert.description}</p>
@@ -885,6 +958,17 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                     </button>
                   )}
 
+                  {/* Print Job Traveler */}
+                  {alerts.some(a => a.type === 'traveler') && (
+                    <button
+                      onClick={() => setPrintingJob(job)}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-500/10 hover:bg-indigo-650 text-indigo-650 hover:text-white rounded-xl border border-indigo-500/25 text-xs font-bold transition active:scale-95 cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4 shrink-0" />
+                      Print Job Traveler
+                    </button>
+                  )}
+
                   {/* View Details quick navigation */}
                   <button 
                     onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
@@ -899,6 +983,228 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
           })
         )}
       </div>
+
+      {/* Injectable Media Print Stylesheet */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: letter portrait;
+            margin: 0.4in;
+          }
+          body > *:not(.traveler-print-wrapper) {
+            display: none !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .traveler-print-wrapper {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+        }
+      ` }} />
+
+      {/* Screen-Visible Print Preparation Modal */}
+      {printingJob && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 no-print">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 max-w-2xl w-full flex flex-col gap-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-2 border-b border-zinc-800">
+              <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                <Printer className="w-4 h-4 text-indigo-500" />
+                Preparing Job Card
+              </h3>
+              <button 
+                onClick={() => setPrintingJob(null)}
+                className="text-xs font-bold text-zinc-500 hover:text-zinc-300"
+              >
+                ✕ Cancel
+              </button>
+            </div>
+            
+            <p className="text-xs text-zinc-400">
+              Sending Job Card to printer. If the print dialog does not open automatically, click the print button below.
+            </p>             {/* Preview container (visible on screen) */}
+            <div className="border border-zinc-800 rounded-2xl p-6 bg-zinc-950 max-h-[55vh] overflow-y-auto flex flex-col items-center custom-scrollbar w-full">
+              <div 
+                id="single-job-card-preview"
+                className="bg-white text-zinc-900 p-8 font-sans w-full max-w-[480px] min-h-[620px] flex flex-col justify-between rounded-xl shadow-md my-2"
+              >
+                {/* Job Card Content */}
+                <div className="border-b-2 border-indigo-900 pb-3 flex justify-between items-start text-left">
+                  <div>
+                    <span className="text-[8px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2 py-0.5 rounded">Job Card</span>
+                    <h1 className="text-xl font-black text-indigo-950 mt-1 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
+                    <p className="text-xs font-bold text-zinc-700 mt-0.5">{printingJob.title || 'Untitled Job'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest">Status</p>
+                    <p className="text-xs font-extrabold text-zinc-900 uppercase mt-0.5">{printingJob.status || 'Open'}</p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center justify-center my-4 w-full">
+                  <div className="p-2 bg-white border border-zinc-200 rounded-xl shadow-sm scale-90">
+                    <LogoQRCode 
+                      value={`${window.location.origin}/business/${tenantId}/job/${printingJob.id}`}
+                      size={150}
+                      logoUrl={businessLogo}
+                      businessName={businessName}
+                      type="general"
+                    />
+                  </div>
+                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open workflow</p>
+                </div>
+
+                {/* Customer, CompanyCam, and Vehicle details box - 3 column grid to prevent squeezing */}
+                {(() => {
+                  const companyCamVal = printingJob.companyCamId || printingJob.companyCamProjectId || '';
+                  const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+                  const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                  return (
+                    <div className={`border-t border-zinc-200 pt-3 grid gap-3 bg-zinc-50 p-3 rounded-lg text-left text-[10px] items-center ${companyCamVal ? 'grid-cols-[1fr_auto_1fr]' : 'grid-cols-2'}`}>
+                      <div>
+                        <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">Customer Details</h4>
+                        <p className="font-extrabold text-zinc-900 mt-0.5">{printingJob.customerName || 'No Customer'}</p>
+                      </div>
+                      
+                      {companyCamVal && (
+                        <div className="flex flex-col items-center shrink-0 px-2 border-l border-r border-zinc-200 scale-90">
+                          <div className="p-1 bg-white border border-zinc-200 rounded-md shadow-sm">
+                            <LogoQRCode 
+                              value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                              size={55}
+                              type="general"
+                            />
+                          </div>
+                          <span className="text-[6px] font-black text-zinc-450 uppercase tracking-widest mt-0.5">CompanyCam</span>
+                        </div>
+                      )}
+
+                      <div>
+                        <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">Vehicle Details</h4>
+                        <p className="font-extrabold text-zinc-900 mt-0.5 truncate">{vehicleLabel}</p>
+                        {printingJob.vehicleId && (
+                          <p className="text-zinc-500 font-mono mt-0.5 truncate">VIN: <span className="font-bold text-zinc-800">{printingJob.vehicleId}</span></p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="border-t border-zinc-150 pt-2 flex justify-between items-center text-[8px] text-zinc-400 font-black uppercase tracking-wider mt-2">
+                  <span>{businessName}</span>
+                  <span>Printed: {new Date().toLocaleDateString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setPrintingJob(null)}
+                className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePrintJobCard}
+                className="px-4 py-2 bg-indigo-650 hover:bg-indigo-755 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border border-indigo-600/20"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Print Card
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portal to document.body for clean, root-level @media print visibility */}
+      {printingJob && createPortal(
+        <div className="traveler-print-wrapper" style={{ display: 'none' }}>
+          <div 
+            className="bg-white text-zinc-900 p-12 font-sans mx-auto max-w-[800px] h-[10.2in] flex flex-col justify-between"
+          >
+            {/* Top border decor */}
+            <div className="border-b-4 border-indigo-900 pb-6 flex justify-between items-start">
+              <div>
+                <span className="text-[10px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
+                <h1 className="text-3xl sm:text-4xl font-black text-indigo-950 mt-3 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
+                <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{printingJob.title || 'Untitled Job'}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Status / Priority</p>
+                <p className="text-xs sm:text-sm font-extrabold text-zinc-900 uppercase mt-1">{printingJob.status || 'Open'}</p>
+                <p className="text-[10px] font-bold text-zinc-550 uppercase mt-0.5">{printingJob.priority || '3 - Medium'}</p>
+              </div>
+            </div>            {/* Middle Section: Big QR Code */}
+            <div className="flex flex-col items-center justify-center my-auto py-8">
+              <div className="p-4 bg-white border border-zinc-200 rounded-2xl shadow-sm">
+                <LogoQRCode 
+                  value={`${window.location.origin}/business/${tenantId}/job/${printingJob.id}`}
+                  size={220}
+                  logoUrl={businessLogo}
+                  businessName={businessName}
+                  type="general"
+                />
+              </div>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+            </div>
+
+            {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
+            {(() => {
+              const companyCamVal = printingJob.companyCamId || printingJob.companyCamProjectId || '';
+              const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+              const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+              return (
+                <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-50 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-[1fr_auto_1fr]' : 'grid-cols-2'}`}>
+                  <div>
+                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Customer Details</h4>
+                    <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{printingJob.customerName || 'No Customer Assigned'}</p>
+                  </div>
+
+                  {companyCamVal && (
+                    <div className="flex flex-col items-center shrink-0 px-4 border-l border-r border-zinc-200">
+                      <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm">
+                        <LogoQRCode 
+                          value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                          size={90}
+                          type="general"
+                        />
+                      </div>
+                      <span className="text-[7px] font-black text-zinc-400 uppercase tracking-widest mt-1">CompanyCam QR</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Vehicle Details</h4>
+                    <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
+                    {printingJob.vehicleId && (
+                      <p className="text-xs text-zinc-555 font-mono mt-1">VIN: <span className="font-bold text-zinc-700">{printingJob.vehicleId}</span></p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Footer */}
+            <div className="border-t border-zinc-150 pt-4 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-wider mt-4">
+              <span>{businessName} &bull; UpfitterOS</span>
+              <span>Printed: {new Date().toLocaleDateString()}</span>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

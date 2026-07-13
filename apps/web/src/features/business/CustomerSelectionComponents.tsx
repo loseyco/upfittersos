@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, Plus, X } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, query, orderBy, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -29,11 +29,59 @@ export function CustomerSelector({
 
   useEffect(() => {
     if (!tenantId) return;
-    const q = query(collection(db, `businesses/${tenantId}/customers`), orderBy('name', 'asc'));
-    const unsub = onSnapshot(q, (snap) => {
-      setCustomers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+    let nativeList: any[] = [];
+    let qbList: any[] = [];
+
+    const updateMergedState = () => {
+      const mergedMap = new Map<string, any>();
+
+      qbList.forEach(c => {
+        const name = c.name || c.displayName || c.CompanyName || c.FullName || c.company || c.id;
+        if (name) {
+          mergedMap.set(name.toLowerCase().trim(), {
+            id: c.ListID || c.id,
+            name: name,
+            displayName: c.displayName || name,
+            CompanyName: c.CompanyName || name,
+            FullName: c.FullName || name,
+            email: c.email || c.Email || '',
+            mobilePhone: c.mobilePhone || c.Phone || '',
+            company: c.company || c.CompanyName || '',
+            isFromQB: true
+          });
+        }
+      });
+
+      nativeList.forEach(c => {
+        const name = c.name || c.displayName || c.CompanyName || c.FullName || c.company || c.id;
+        if (name) {
+          const key = name.toLowerCase().trim();
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, c);
+          }
+        }
+      });
+
+      const list = Array.from(mergedMap.values());
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setCustomers(list);
+    };
+
+    const unsubNative = onSnapshot(collection(db, `businesses/${tenantId}/customers`), (snap) => {
+      nativeList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      updateMergedState();
     });
-    return () => unsub();
+
+    const unsubQb = onSnapshot(collection(db, `businesses/${tenantId}/qb_customers`), (snap) => {
+      qbList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      updateMergedState();
+    });
+
+    return () => {
+      unsubNative();
+      unsubQb();
+    };
   }, [tenantId]);
 
   const selectedCustomer = customers.find(c => c.id === customerId);
@@ -48,8 +96,9 @@ export function CustomerSelector({
 
   const filtered = customers.filter(c => {
     const searchStr = inputValue.toLowerCase().trim();
+    const resolvedName = (c.name || c.displayName || c.CompanyName || c.FullName || '').toLowerCase();
     if (!searchStr) return true;
-    return (c.name || '').toLowerCase().includes(searchStr) || 
+    return resolvedName.includes(searchStr) || 
            (c.email || '').toLowerCase().includes(searchStr) ||
            (c.mobilePhone || '').toLowerCase().includes(searchStr) ||
            (c.company || '').toLowerCase().includes(searchStr);
@@ -61,11 +110,11 @@ export function CustomerSelector({
         <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"><Users className="w-4 h-4" /></div>
         <input
           type="text"
-          placeholder={selectedCustomer ? (selectedCustomer.name || selectedCustomer.company) : placeholder}
+          placeholder={selectedCustomer ? (selectedCustomer.name || selectedCustomer.displayName || selectedCustomer.CompanyName || selectedCustomer.FullName || selectedCustomer.company || '') : placeholder}
           value={inputValue}
           onChange={(e) => { setInputValue(e.target.value); setIsOpen(true); }}
           onFocus={() => setIsOpen(true)}
-          className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+          className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
         />
         {selectedCustomer && !isOpen && (
            <button 
@@ -79,20 +128,23 @@ export function CustomerSelector({
         {isOpen && (
           <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar">
-              {filtered.slice(0, 10).map(c => (
-                <button 
-                  key={c.id} 
-                  type="button" 
-                  onClick={() => { onAssign(c.id, c.name); setIsOpen(false); setInputValue(''); }} 
-                  className="w-full px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-left flex flex-col rounded-lg transition-colors"
-                >
-                  <span className="font-bold text-zinc-900 dark:text-white text-xs">{c.name || c.company}</span>
-                  <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase tracking-tight font-medium">
-                    {c.company && <span className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">{c.company}</span>}
-                    {c.email && <span>{c.email}</span>}
-                  </div>
-                </button>
-              ))}
+              {filtered.slice(0, 100).map(c => {
+                const resolvedName = c.name || c.displayName || c.CompanyName || c.FullName || c.company || '';
+                return (
+                  <button 
+                    key={c.id} 
+                    type="button" 
+                    onClick={() => { onAssign(c.id, resolvedName); setIsOpen(false); setInputValue(''); }} 
+                    className="w-full px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-500/10 text-left flex flex-col rounded-lg transition-colors"
+                  >
+                    <span className="font-bold text-zinc-900 dark:text-white text-xs">{resolvedName}</span>
+                    <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase tracking-tight font-medium">
+                      {c.company && <span className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">{c.company}</span>}
+                      {c.email && <span>{c.email}</span>}
+                    </div>
+                  </button>
+                );
+              })}
               
               <button 
                 type="button"

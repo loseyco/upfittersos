@@ -78,6 +78,20 @@ export interface StaffMember {
   addressState?: string;
   addressZip?: string;
   dob?: string;
+  keycard?: string;
+  companyCam?: string;
+  cobraKey?: string;
+  radioNumber?: string;
+  wexCard?: string;
+  saePex?: string;
+  warpGuysPex?: string;
+  fastPex?: string;
+  amerExp?: string;
+  citiSilver?: string;
+  citiBlack?: string;
+  blueAmEx?: string;
+  citiAaMc?: string;
+  amazonAmex?: string;
 }
 
 export interface Department {
@@ -1410,6 +1424,20 @@ export function StaffEditModal({
   const [addressState, setAddressState] = useState(String(staff?.addressState || ''));
   const [addressZip, setAddressZip] = useState(String(staff?.addressZip || ''));
   const [dob, setDob] = useState(String(staff?.dob || ''));
+  const [keycard, setKeycard] = useState(String(staff?.keycard || ''));
+  const [companyCam, setCompanyCam] = useState(String(staff?.companyCam || ''));
+  const [cobraKey, setCobraKey] = useState(String(staff?.cobraKey || ''));
+  const [radioNumber, setRadioNumber] = useState(String(staff?.radioNumber || ''));
+  const [wexCard, setWexCard] = useState(String(staff?.wexCard || ''));
+  const [saePex, setSaePex] = useState(String(staff?.saePex || ''));
+  const [warpGuysPex, setWarpGuysPex] = useState(String(staff?.warpGuysPex || ''));
+  const [fastPex, setFastPex] = useState(String(staff?.fastPex || ''));
+  const [amerExp, setAmerExp] = useState(String(staff?.amerExp || ''));
+  const [citiSilver, setCitiSilver] = useState(String(staff?.citiSilver || ''));
+  const [citiBlack, setCitiBlack] = useState(String(staff?.citiBlack || ''));
+  const [blueAmEx, setBlueAmEx] = useState(String(staff?.blueAmEx || ''));
+  const [citiAaMc, setCitiAaMc] = useState(String(staff?.citiAaMc || ''));
+  const [amazonAmex, setAmazonAmex] = useState(String(staff?.amazonAmex || ''));
 
   const { data: allStaff } = useQuery<StaffMember[]>({
     queryKey: ['staff-list', tenantId],
@@ -1521,6 +1549,20 @@ export function StaffEditModal({
         addressState: addressState || null,
         addressZip: addressZip || null,
         dob: dob || null,
+        keycard: keycard || null,
+        companyCam: companyCam || null,
+        cobraKey: cobraKey || null,
+        radioNumber: radioNumber || null,
+        wexCard: wexCard || null,
+        saePex: saePex || null,
+        warpGuysPex: warpGuysPex || null,
+        fastPex: fastPex || null,
+        amerExp: amerExp || null,
+        citiSilver: citiSilver || null,
+        citiBlack: citiBlack || null,
+        blueAmEx: blueAmEx || null,
+        citiAaMc: citiAaMc || null,
+        amazonAmex: amazonAmex || null,
         updatedAt: serverTimestamp()
       };
 
@@ -1969,6 +2011,42 @@ export function StaffEditModal({
                       <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">Relationship</label>
                       <input type="text" value={emergencyRelation} onChange={e => setEmergencyRelation(e.target.value)} className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm" />
                     </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShieldCheck className="w-4 h-4 text-zinc-400" />
+                    <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Keys, Cards & Accounts</h4>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {[
+                      { label: 'Keycard', value: keycard, setter: setKeycard },
+                      { label: 'Company Cam', value: companyCam, setter: setCompanyCam },
+                      { label: 'Cobra Key', value: cobraKey, setter: setCobraKey },
+                      { label: 'Radio #', value: radioNumber, setter: setRadioNumber },
+                      { label: 'Wex Card', value: wexCard, setter: setWexCard },
+                      { label: 'SAE Pex', value: saePex, setter: setSaePex },
+                      { label: 'Warp Guys Pex', value: warpGuysPex, setter: setWarpGuysPex },
+                      { label: 'Fast Pex', value: fastPex, setter: setFastPex },
+                      { label: 'Amer Exp', value: amerExp, setter: setAmerExp },
+                      { label: 'Citi Silver', value: citiSilver, setter: setCitiSilver },
+                      { label: 'Citi Black', value: citiBlack, setter: setCitiBlack },
+                      { label: 'Blue AmEx', value: blueAmEx, setter: setBlueAmEx },
+                      { label: 'Citi AA MC', value: citiAaMc, setter: setCitiAaMc },
+                      { label: 'Amazon Amex', value: amazonAmex, setter: setAmazonAmex }
+                    ].map(item => (
+                      <div key={item.label}>
+                        <label className="block text-[10px] font-bold text-zinc-400 uppercase mb-1">{item.label}</label>
+                        <input 
+                          type="text" 
+                          placeholder="Enter details..."
+                          value={item.value} 
+                          onChange={e => item.setter(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

@@ -5,6 +5,12 @@ import { FeedbackModal } from './FeedbackModal';
 export function FeedbackWidget() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Hide the floating help/feedback widget on TV monitor displays
+  const isTvRoute = ['/tv', '/parking-tv', '/timeclock-tv', '/conference-tv', '/tv-setup'].some(path => 
+    window.location.pathname.startsWith(path)
+  );
+  if (isTvRoute) return null;
+
   return (
     <>
       <button

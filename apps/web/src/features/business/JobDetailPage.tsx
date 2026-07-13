@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, setDoc, getDoc, orderBy } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase/config';
 import { 
   Briefcase, Clock, Timer, CheckCircle2, AlertTriangle, XCircle,
@@ -228,6 +228,7 @@ export function JobDetailPage({
 
   // Job Status Report states
   const [showReportModal, setShowReportModal] = useState(false);
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [pendingCompletionTask, setPendingCompletionTask] = useState<{
     taskId: string;
     currentStatus: string;
@@ -285,6 +286,24 @@ export function JobDetailPage({
     });
     return () => unsub();
   }, [jobId, tenantId]);
+
+  // Fetch Job Chat Messages for Report
+  useEffect(() => {
+    if (!tenantId || !jobId || !showReportModal) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/jobs/${jobId}/chat_messages`),
+      orderBy('createdAt', 'asc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setChatMessages(snap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })));
+    }, (err) => {
+      console.error("Job chat listener error for report:", err);
+    });
+    return () => unsub();
+  }, [tenantId, jobId, showReportModal]);
 
   const [hasIntakeForm, setHasIntakeForm] = useState(false);
   useEffect(() => {
@@ -3937,6 +3956,36 @@ export function JobDetailPage({
                             </p>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Job Chat / General Notes Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-650 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Job Chat (General Notes)
+                    </h2>
+                    {chatMessages.filter((m: any) => !m.isSystem).length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No chat messages recorded.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-150">
+                        {chatMessages.filter((m: any) => !m.isSystem).map((msg: any) => {
+                          const dateObj = msg.createdAt 
+                            ? (typeof msg.createdAt.toDate === 'function' ? msg.createdAt.toDate() : new Date(msg.createdAt))
+                            : null;
+                          const formattedTime = dateObj 
+                            ? dateObj.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                            : '';
+                          return (
+                            <div key={msg.id} className="py-2.5">
+                              <p className="text-xs text-zinc-800 leading-relaxed font-medium whitespace-pre-wrap">{msg.message}</p>
+                              <p className="text-[9px] font-bold text-zinc-450 uppercase tracking-wider mt-1.5">
+                                Posted by {msg.senderName} &bull; {formattedTime}
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

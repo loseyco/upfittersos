@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { collection, query, orderBy, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, collectionGroup, where } from 'firebase/firestore';
+import { useState, useEffect, useMemo } from 'react';
+import { collection, query, orderBy, doc, getDocs, getDoc, setDoc, deleteDoc, serverTimestamp, onSnapshot, collectionGroup, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  ClipboardList, Plus, Trash2, Printer, Sparkles, Save, Calendar, RefreshCw
+  ClipboardList, Plus, Trash2, Printer, Sparkles, Save, Calendar, RefreshCw,
+  Search, CheckCircle2, AlertTriangle, AlertCircle, Info, Square, Package, Sliders,
+  CheckSquare, X, ChevronRight, MessageSquare, AlertOctagon, HelpCircle, Layers, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -88,73 +90,44 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [newMeetingDate, setNewMeetingDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  // Fetch active jobs and vehicles for auto-complete search
-  const [searchJobs, setSearchJobs] = useState<{ id: string; label: string }[]>([]);
+  // Interactive Meeting Board State
+  const [viewMode, setViewMode] = useState<'board' | 'print'>('board');
+  const [selectedBoardJobId, setSelectedBoardJobId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [blockerFilter, setBlockerFilter] = useState<'all' | 'blocked' | 'ready' | 'parts'>('all');
+  const [isSavingJobAlignment, setIsSavingJobAlignment] = useState(false);
 
+  // Firestore real-time collections
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
+  const [parts, setParts] = useState<any[]>([]);
+  const [staff, setStaff] = useState<any[]>([]);
+
+  // Setup Real-time Firestore Listeners
   useEffect(() => {
     if (!tenantId) return;
 
-    let rawJobs: any[] = [];
-    let vehicles: any[] = [];
-    let zones: any[] = [];
-    let allTasks: any[] = [];
-
-    const updateOptions = () => {
-      const worksheetJobs = rawJobs.filter(job => {
-        const jobTasks = allTasks.filter(t => t.jobId === job.id);
-        
-        // Exact filter matching JobsWorksheet.tsx
-        if (['Completed', 'Closed'].includes(job.status)) return false;
-
-        const resolvedLocationId = zones.find(z => z.currentJobId === job.id)?.id || job.bayId;
-        const hasBay = !!resolvedLocationId && resolvedLocationId !== 'none';
-        
-        const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
-        const totalTasks = nonGeneralTasks.length;
-        const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
-        const hasTasksNeedingDone = totalTasks > completedTasks;
-        const hasQCNeedingDone = nonGeneralTasks.some(t => t.status === 'QC' || t.status === 'in_review');
-        const isReadyForCustomer = job.status === 'Ready for Customer';
-        const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
-
-        return hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
-      });
-
-      const options = worksheetJobs.map(job => {
-        const vehicle = vehicles.find(v => v.vin === job.vehicleId || v.id === job.vehicleId);
-        const vehLabel = vehicle 
-          ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() 
-          : job.vehicleId || '';
-
-        const label = `#${job.jobNumber || ''} - ${job.title} ${vehLabel ? `(${vehLabel})` : ''}`.trim();
-        return { id: job.id, label };
-      });
-      setSearchJobs(options);
-    };
-
     const unsubJobs = onSnapshot(collection(db, `businesses/${tenantId}/jobs`), (snap) => {
-      rawJobs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-      updateOptions();
+      setJobs(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
     const unsubVehicles = onSnapshot(collection(db, `businesses/${tenantId}/vehicles`), (snap) => {
-      vehicles = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-      updateOptions();
+      setVehicles(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
-      zones = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-      updateOptions();
+      setZones(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
-    // Listen to tasks across all jobs in this business
     const qTasks = query(
       collectionGroup(db, 'tasks'),
       where('tenantId', '==', tenantId)
     );
     const unsubTasks = onSnapshot(qTasks, (snap) => {
       const filteredDocs = snap.docs.filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`));
-      allTasks = filteredDocs.map(doc => {
+      setTasks(filteredDocs.map(doc => {
         const pathParts = doc.ref.path.split('/');
         const jobId = pathParts[3];
         return {
@@ -162,8 +135,15 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           jobId,
           ...(doc.data() as any)
         };
-      });
-      updateOptions();
+      }));
+    });
+
+    const unsubParts = onSnapshot(collection(db, `businesses/${tenantId}/parts_requests`), (snap) => {
+      setParts(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+    });
+
+    const unsubStaff = onSnapshot(collection(db, `businesses/${tenantId}/staff`), (snap) => {
+      setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
     return () => {
@@ -171,8 +151,42 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
       unsubVehicles();
       unsubZones();
       unsubTasks();
+      unsubParts();
+      unsubStaff();
     };
   }, [tenantId]);
+
+  // Compute search options for the print bullet points list
+  const searchJobs = useMemo(() => {
+    const worksheetJobs = jobs.filter(job => {
+      const jobTasks = tasks.filter(t => t.jobId === job.id);
+      
+      if (['Completed', 'Closed'].includes(job.status)) return false;
+
+      const resolvedLocationId = zones.find(z => z.currentJobId === job.id)?.id || job.bayId;
+      const hasBay = !!resolvedLocationId && resolvedLocationId !== 'none';
+      
+      const nonGeneralTasks = jobTasks.filter(t => t.title !== 'General');
+      const totalTasks = nonGeneralTasks.length;
+      const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
+      const hasTasksNeedingDone = totalTasks > completedTasks;
+      const hasQCNeedingDone = nonGeneralTasks.some(t => t.status === 'QC' || t.status === 'in_review');
+      const isReadyForCustomer = job.status === 'Ready for Customer';
+      const isReadyForQC = job.status === 'Ready for QC' || job.status === 'QC' || job.status === 'QC Complete';
+
+      return hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC;
+    });
+
+    return worksheetJobs.map(job => {
+      const vehicle = vehicles.find(v => v.vin === job.vehicleId || v.id === job.vehicleId);
+      const vehLabel = vehicle 
+        ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() 
+        : job.vehicleId || '';
+
+      const label = `#${job.jobNumber || ''} - ${job.title} ${vehLabel ? `(${vehLabel})` : ''}`.trim();
+      return { id: job.id, label };
+    });
+  }, [jobs, tasks, vehicles, zones]);
 
   // Load meeting dates list
   useEffect(() => {
@@ -727,6 +741,28 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
     window.print();
   };
 
+  // Save Job specific meeting notes and alignment flags
+  const handleSaveJobAlignment = async (jobId: string, alignmentData: {
+    weeklyMeetingNotes?: string;
+    isMissingParts?: boolean;
+    isScopeUnclear?: boolean;
+    isReadyForShop?: boolean;
+    status?: string;
+  }) => {
+    if (!tenantId || !jobId) return;
+    setIsSavingJobAlignment(true);
+    try {
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
+      await updateDoc(jobRef, alignmentData);
+      toast.success("Job alignment updated successfully!");
+    } catch (err: any) {
+      console.error("Error saving job alignment:", err);
+      toast.error(`Failed to save job alignment: ${err.message}`);
+    } finally {
+      setIsSavingJobAlignment(false);
+    }
+  };
+
   // Format date display
   const formatDate = (dateStr: string) => {
     try {
@@ -815,60 +851,97 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
         
         {/* Editor Floating Actions Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm mb-6 no-print">
-          <div>
-            <h2 className="text-lg font-black text-zinc-900 dark:text-white flex items-center gap-2">
-              Meeting Notes Editor
-            </h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Editing notes for: <strong className="text-indigo-500">{selectedMeetingId || '--'}</strong>
-            </p>
+          <div className="flex items-center gap-4">
+            <div>
+              <h2 className="text-lg font-black text-zinc-900 dark:text-white flex items-center gap-2">
+                Weekly Meeting
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                Current Meeting: <strong className="text-indigo-500">{selectedMeetingId || '--'}</strong>
+              </p>
+            </div>
+            
+            {/* View Mode Toggle */}
+            <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl shrink-0 border border-zinc-200/50 dark:border-zinc-700/50">
+              <button
+                onClick={() => setViewMode('board')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200",
+                  viewMode === 'board' 
+                    ? "bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                    : "text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-350"
+                )}
+              >
+                Interactive Board
+              </button>
+              <button
+                onClick={() => setViewMode('print')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200",
+                  viewMode === 'print' 
+                    ? "bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                    : "text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-350"
+                )}
+              >
+                Print Document
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleAutoPopulate}
-              disabled={isAutoPopulating || !meetingData}
-              className="flex items-center gap-1.5 px-4.5 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-750 dark:text-zinc-300 rounded-xl text-xs font-black transition shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
-              title="Pull active jobs and vehicles into meeting sheets"
-            >
-              {isAutoPopulating ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              )}
-              Auto-Populate
-            </button>
+            {viewMode === 'print' ? (
+              <>
+                <button
+                  onClick={handleAutoPopulate}
+                  disabled={isAutoPopulating || !meetingData}
+                  className="flex items-center gap-1.5 px-4.5 py-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-750 dark:text-zinc-300 rounded-xl text-xs font-black transition shadow-sm active:scale-95 disabled:opacity-50 shrink-0"
+                  title="Pull active jobs and vehicles into meeting sheets"
+                >
+                  {isAutoPopulating ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                  )}
+                  Auto-Populate
+                </button>
 
-            <button
-              onClick={handlePrint}
-              disabled={!meetingData}
-              className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-black transition shadow-sm active:scale-95 shrink-0"
-              title="Print layout matching PDF template"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              Print Notes
-            </button>
+                <button
+                  onClick={handlePrint}
+                  disabled={!meetingData}
+                  className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-black transition shadow-sm active:scale-95 shrink-0"
+                  title="Print layout matching PDF template"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print Notes
+                </button>
 
-            <button
-              onClick={handleSaveNotes}
-              disabled={isSaving || !meetingData}
-              className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-md active:scale-95 disabled:opacity-50 shrink-0"
-            >
-              {isSaving ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Save className="w-3.5 h-3.5" />
-              )}
-              Save Notes
-            </button>
+                <button
+                  onClick={handleSaveNotes}
+                  disabled={isSaving || !meetingData}
+                  className="flex items-center gap-1.5 px-4.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-md active:scale-95 disabled:opacity-50 shrink-0"
+                >
+                  {isSaving ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  Save Notes
+                </button>
+              </>
+            ) : (
+              <div className="text-xs text-zinc-400 font-medium italic">
+                Saves are written directly to job files
+              </div>
+            )}
           </div>
         </div>
 
         {/* ----------------------------------------------------
-            THE WEEKLY MEETING PRINT WRAPPER
+            THE WEEKLY MEETING CONTENT
         ---------------------------------------------------- */}
         {meetingData ? (
-          <div className="print-container w-full max-w-4xl mx-auto space-y-12">
+          viewMode === 'print' ? (
+            <div className="print-container w-full max-w-4xl mx-auto space-y-12">
             
             {/* ================= PAGE 1 ================= */}
             <div className="print-page bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-sm rounded-3xl p-6 sm:p-12 text-zinc-900 dark:text-zinc-100 flex flex-col justify-between">
@@ -1175,12 +1248,31 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
 
           </div>
         ) : (
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-12 text-center rounded-2xl">
-            <ClipboardList className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-4" />
-            <h3 className="font-bold text-zinc-900 dark:text-white text-base">Select or Create Meeting</h3>
-            <p className="text-zinc-500 text-xs mt-2">Select a date from the weekly list or click "+" to start fresh.</p>
-          </div>
-        )}
+          <InteractiveBoardView
+            tenantId={tenantId}
+            jobs={jobs}
+            tasks={tasks}
+            vehicles={vehicles}
+            zones={zones}
+            parts={parts}
+            staff={staff}
+            onSaveJobAlignment={handleSaveJobAlignment}
+            isSavingJobAlignment={isSavingJobAlignment}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            blockerFilter={blockerFilter}
+            setBlockerFilter={setBlockerFilter}
+            selectedBoardJobId={selectedBoardJobId}
+            setSelectedBoardJobId={setSelectedBoardJobId}
+          />
+        )
+      ) : (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-12 text-center rounded-2xl">
+          <ClipboardList className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-4" />
+          <h3 className="font-bold text-zinc-900 dark:text-white text-base">Select or Create Meeting</h3>
+          <p className="text-zinc-500 text-xs mt-2">Select a date from the weekly list or click "+" to start fresh.</p>
+        </div>
+      )}
 
       </div>
 
@@ -1441,3 +1533,648 @@ function BulletListEditor({ items = [], onChange, onAdd, onRemove, symbol = '■
     </div>
   );
 }
+
+// ----------------------------------------------------
+// INTERACTIVE MEETING BOARD VIEW
+// ----------------------------------------------------
+interface InteractiveBoardViewProps {
+  tenantId: string;
+  jobs: any[];
+  tasks: any[];
+  vehicles: any[];
+  zones: any[];
+  parts: any[];
+  staff: any[];
+  onSaveJobAlignment: (jobId: string, data: any) => Promise<void>;
+  isSavingJobAlignment: boolean;
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
+  blockerFilter: 'all' | 'blocked' | 'ready' | 'parts';
+  setBlockerFilter: (f: 'all' | 'blocked' | 'ready' | 'parts') => void;
+  selectedBoardJobId: string | null;
+  setSelectedBoardJobId: (id: string | null) => void;
+}
+
+function InteractiveBoardView({
+  tenantId,
+  jobs,
+  tasks,
+  vehicles,
+  zones,
+  parts,
+  staff,
+  onSaveJobAlignment,
+  isSavingJobAlignment,
+  searchQuery,
+  setSearchQuery,
+  blockerFilter,
+  setBlockerFilter,
+  selectedBoardJobId,
+  setSelectedBoardJobId
+}: InteractiveBoardViewProps) {
+  const activeJobsList = useMemo(() => {
+    return jobs.filter((j: any) => !['Completed', 'Closed'].includes(j.status));
+  }, [jobs]);
+
+  const stats = useMemo(() => {
+    const total = activeJobsList.length;
+    const blocked = activeJobsList.filter((j: any) => j.status === 'Blocked' || j.isMissingParts || j.isScopeUnclear).length;
+    const missingParts = activeJobsList.filter((j: any) => j.isMissingParts).length;
+    const unclearScope = activeJobsList.filter((j: any) => j.isScopeUnclear).length;
+    const ready = activeJobsList.filter((j: any) => j.isReadyForShop).length;
+    return { total, blocked, missingParts, unclearScope, ready };
+  }, [activeJobsList]);
+
+  const filteredBoardJobs = useMemo(() => {
+    return activeJobsList.filter((job: any) => {
+      const search = searchQuery.toLowerCase().trim();
+      const jobNum = String(job.jobNumber || '').toLowerCase();
+      const title = String(job.title || '').toLowerCase();
+      const desc = String(job.description || '').toLowerCase();
+      
+      const vehicle = vehicles.find((v: any) => v.vin === job.vehicleId || v.id === job.vehicleId);
+      const vehicleStr = vehicle 
+        ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''} ${vehicle.vin || ''}`.toLowerCase()
+        : '';
+
+      const matchesSearch = !search || 
+        jobNum.includes(search) || 
+        title.includes(search) || 
+        desc.includes(search) ||
+        vehicleStr.includes(search);
+
+      if (!matchesSearch) return false;
+
+      if (blockerFilter === 'blocked') {
+        return job.status === 'Blocked' || job.isMissingParts || job.isScopeUnclear;
+      }
+      if (blockerFilter === 'ready') {
+        return !!job.isReadyForShop;
+      }
+      if (blockerFilter === 'parts') {
+        return !!job.isMissingParts;
+      }
+      return true;
+    });
+  }, [activeJobsList, searchQuery, blockerFilter, vehicles]);
+
+  const selectedJob = useMemo(() => {
+    return jobs.find((j: any) => j.id === selectedBoardJobId) || null;
+  }, [jobs, selectedBoardJobId]);
+
+  return (
+    <div className="flex flex-col gap-6 w-full h-full select-text">
+      {/* Stats Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Active Jobs</p>
+            <p className="text-2xl font-black text-zinc-800 dark:text-white mt-1">{stats.total}</p>
+          </div>
+          <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+            <Layers className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Blocked Jobs</p>
+            <p className="text-2xl font-black text-rose-500 mt-1">{stats.blocked}</p>
+          </div>
+          <div className="p-2 bg-rose-500/10 text-rose-500 rounded-xl">
+            <AlertOctagon className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Missing Parts</p>
+            <p className="text-2xl font-black text-amber-500 mt-1">{stats.missingParts}</p>
+          </div>
+          <div className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">
+            <Package className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Scope Unclear</p>
+            <p className="text-2xl font-black text-yellow-500 mt-1">{stats.unclearScope}</p>
+          </div>
+          <div className="p-2 bg-yellow-500/10 text-yellow-500 rounded-xl">
+            <HelpCircle className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between col-span-2 md:col-span-1">
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Ready for Shop</p>
+            <p className="text-2xl font-black text-emerald-500 mt-1">{stats.ready}</p>
+          </div>
+          <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Board Split */}
+      <div className="flex flex-col lg:flex-row gap-6 h-[calc(100vh-280px)] min-h-[500px]">
+        {/* Left Column: Explorer */}
+        <div className="w-full lg:w-96 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-4 flex flex-col gap-4 shrink-0 h-full overflow-hidden">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Search job #, title, vehicle..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold outline-none focus:border-indigo-500 dark:text-white"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-3 text-zinc-400 hover:text-zinc-650">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Filter subtabs */}
+          <div className="flex flex-wrap gap-1 p-0.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60">
+            {(['all', 'blocked', 'parts', 'ready'] as const).map(tab => {
+              const count = tab === 'all' ? stats.total 
+                          : tab === 'blocked' ? stats.blocked
+                          : tab === 'parts' ? stats.missingParts
+                          : stats.ready;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setBlockerFilter(tab)}
+                  className={cn(
+                    "flex-1 py-1.5 px-2 rounded-lg text-[10px] font-black uppercase tracking-wider transition text-center",
+                    blockerFilter === tab
+                      ? tab === 'blocked' ? "bg-rose-500 text-white shadow-sm font-extrabold"
+                        : tab === 'parts' ? "bg-amber-500 text-white shadow-sm font-extrabold"
+                        : tab === 'ready' ? "bg-emerald-500 text-white shadow-sm font-extrabold"
+                        : "bg-zinc-900 dark:bg-zinc-800 text-white shadow-sm font-extrabold"
+                      : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 font-bold"
+                  )}
+                >
+                  {tab} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Jobs List */}
+          <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+            {filteredBoardJobs.length === 0 ? (
+              <div className="p-8 text-center text-xs text-zinc-400 italic">No matching jobs found.</div>
+            ) : (
+              filteredBoardJobs.map((job: any) => {
+                const isSelected = selectedBoardJobId === job.id;
+                const vehicle = vehicles.find((v: any) => v.vin === job.vehicleId || v.id === job.vehicleId);
+                const vehicleLabel = vehicle 
+                  ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() 
+                  : job.vehicleId || '';
+
+                // Calculate tasks progress
+                const jobTasks = tasks.filter(t => t.jobId === job.id && t.title !== 'General');
+                const totalTasks = jobTasks.length;
+                const completedTasks = jobTasks.filter(t => ['QC', 'QC Complete', 'completed'].includes(t.status)).length;
+                const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => setSelectedBoardJobId(job.id)}
+                    className={cn(
+                      "p-3.5 rounded-2xl border transition duration-200 cursor-pointer flex flex-col gap-2 relative",
+                      isSelected 
+                        ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-500 text-indigo-900 dark:text-indigo-300"
+                        : "bg-white dark:bg-zinc-900 border-zinc-150 dark:border-zinc-850 hover:bg-zinc-50 dark:hover:bg-zinc-850/50 text-zinc-800 dark:text-zinc-200"
+                    )}
+                  >
+                    {/* Top Row: Job # & Status */}
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs font-black tracking-wider text-zinc-450 dark:text-zinc-550">#{job.jobNumber || 'WO'}</span>
+                      <span className={cn(
+                        "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider",
+                        job.status === 'Blocked' ? "bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                          : job.status === 'Ready for Customer' ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                          : job.status === 'QC' || job.status === 'Ready for QC' ? "bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-655 dark:text-zinc-400"
+                      )}>
+                        {job.status || 'Open'}
+                      </span>
+                    </div>
+
+                    {/* Title */}
+                    <p className="text-xs font-extrabold truncate leading-tight mt-0.5">{job.title}</p>
+
+                    {/* Vehicle */}
+                    {vehicleLabel && (
+                      <p className="text-[10px] font-bold text-zinc-450 dark:text-zinc-550 flex items-center gap-1.5 leading-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700" />
+                        {vehicleLabel}
+                      </p>
+                    )}
+
+                    {/* Progress Bar */}
+                    {totalTasks > 0 && (
+                      <div className="space-y-1 mt-1">
+                        <div className="flex items-center justify-between text-[9px] font-black text-zinc-400 dark:text-zinc-555">
+                          <span>Progress</span>
+                          <span>{completedTasks}/{totalTasks} Tasks ({progressPct}%)</span>
+                        </div>
+                        <div className="w-full bg-zinc-100 dark:bg-zinc-950 rounded-full h-1.5 overflow-hidden border border-zinc-200/10">
+                          <div 
+                            className="bg-indigo-650 dark:bg-indigo-500 h-full rounded-full transition-all duration-350"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Blocker Tags */}
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {job.isMissingParts && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-md uppercase tracking-widest flex items-center gap-1">
+                          <Package className="w-2.5 h-2.5 animate-pulse" /> Missing Parts
+                        </span>
+                      )}
+                      {job.isScopeUnclear && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-rose-500/10 text-rose-500 border border-rose-500/20 rounded-md uppercase tracking-widest flex items-center gap-1">
+                          <AlertTriangle className="w-2.5 h-2.5 animate-pulse" /> Scope Unclear
+                        </span>
+                      )}
+                      {job.isReadyForShop && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-md uppercase tracking-widest flex items-center gap-1">
+                          <Check className="w-2.5 h-2.5" /> Ready for Shop
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Right Column: Workspace */}
+        <div className="flex-1 min-w-0 h-full">
+          {selectedJob ? (
+            <JobAlignmentWorkspace
+              key={selectedJob.id}
+              job={selectedJob}
+              tasks={tasks}
+              vehicles={vehicles}
+              zones={zones}
+              parts={parts}
+              staff={staff}
+              tenantId={tenantId}
+              onSave={onSaveJobAlignment}
+              isSaving={isSavingJobAlignment}
+            />
+          ) : (
+            <div className="h-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-12 flex flex-col items-center justify-center text-center shadow-sm">
+              <ClipboardList className="w-16 h-16 text-indigo-500/20 dark:text-indigo-500/10 mb-4 animate-pulse" />
+              <h3 className="font-extrabold text-zinc-800 dark:text-white text-base">Alignment Workspace</h3>
+              <p className="text-zinc-500 text-xs mt-2 max-w-sm">
+                Select an upfitting job from the left-hand panel to review its description scope, check missing parts, inspect task progress, and log meeting notes.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------
+// JOB ALIGNMENT WORKSPACE
+// ----------------------------------------------------
+interface JobAlignmentWorkspaceProps {
+  job: any;
+  tasks: any[];
+  vehicles: any[];
+  zones: any[];
+  parts: any[];
+  staff: any[];
+  tenantId: string;
+  onSave: (jobId: string, data: any) => Promise<void>;
+  isSaving: boolean;
+}
+
+function JobAlignmentWorkspace({ job, tasks, vehicles, zones, parts, staff, tenantId, onSave, isSaving }: JobAlignmentWorkspaceProps) {
+  const [weeklyNotes, setWeeklyNotes] = useState('');
+  const [isMissingParts, setIsMissingParts] = useState(false);
+  const [isScopeUnclear, setIsScopeUnclear] = useState(false);
+  const [isReadyForShop, setIsReadyForShop] = useState(false);
+  const [status, setStatus] = useState('');
+
+  // Sync state when selected job changes
+  useEffect(() => {
+    if (!job) return;
+    setWeeklyNotes(job.weeklyMeetingNotes || '');
+    setIsMissingParts(!!job.isMissingParts);
+    setIsScopeUnclear(!!job.isScopeUnclear);
+    setIsReadyForShop(!!job.isReadyForShop);
+    setStatus(job.status || 'Open');
+  }, [job]);
+
+  const hasUnsavedChanges = 
+    weeklyNotes !== (job.weeklyMeetingNotes || '') ||
+    isMissingParts !== (!!job.isMissingParts) ||
+    isScopeUnclear !== (!!job.isScopeUnclear) ||
+    isReadyForShop !== (!!job.isReadyForShop) ||
+    status !== (job.status || 'Open');
+
+  // Filter tasks & parts
+  const jobTasks = useMemo(() => {
+    return tasks.filter(t => t.jobId === job.id && t.title !== 'General');
+  }, [tasks, job.id]);
+
+  const jobParts = useMemo(() => {
+    return parts.filter(p => p.jobId === job.id && !p.isArchived);
+  }, [parts, job.id]);
+
+  const vehicle = useMemo(() => {
+    return vehicles.find(v => v.vin === job.vehicleId || v.id === job.vehicleId);
+  }, [vehicles, job.vehicleId]);
+
+  const zoneInfo = useMemo(() => {
+    const zone = zones.find(z => 
+      z.currentJobId === job.id || 
+      (job.vehicleId && z.currentVehicleVin === job.vehicleId) ||
+      (job.bayId && (job.bayId === z.id || job.bayId === z.name))
+    );
+    if (!zone) return '';
+    const isBay = zone.type === 'bay';
+    return `${isBay ? 'Bay' : 'Parking Spot'}: ${zone.name}`;
+  }, [zones, job.id, job.vehicleId, job.bayId]);
+
+  const handleSave = () => {
+    onSave(job.id, {
+      weeklyMeetingNotes: weeklyNotes,
+      isMissingParts,
+      isScopeUnclear,
+      isReadyForShop,
+      status
+    });
+  };
+
+  return (
+    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 flex flex-col gap-6 h-full overflow-y-auto no-scrollbar select-text shadow-sm">
+      {/* Workspace Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-150 dark:border-zinc-800 pb-5">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-black px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-md">
+              #{job.jobNumber || 'WO'}
+            </span>
+            <a 
+              href={`/business/${tenantId}/jobs/${job.id}`} 
+              target="_blank" 
+              rel="noreferrer" 
+              className="text-xs font-bold text-indigo-500 hover:text-indigo-600 flex items-center gap-1 hover:underline transition"
+              title="Open job in a new tab"
+            >
+              Open Job Detail <ChevronRight className="w-3.5 h-3.5" />
+            </a>
+          </div>
+          <h2 className="text-lg font-black text-zinc-900 dark:text-white mt-1.5">{job.title}</h2>
+          {(vehicle || zoneInfo) && (
+            <p className="text-xs font-bold text-zinc-455 dark:text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
+              {vehicle && <span>Vehicle: {vehicle.year || ''} {vehicle.make || ''} {vehicle.model || ''} {vehicle.vin ? `(VIN: ${vehicle.vin})` : ''}</span>}
+              {zoneInfo && (
+                <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-md font-extrabold text-[10px] tracking-wider uppercase">
+                  {zoneInfo}
+                </span>
+              )}
+            </p>
+          )}
+        </div>
+
+        {/* Status drop down */}
+        <div className="flex flex-col gap-1 shrink-0">
+          <label className="text-[9px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest">Workflow Status</label>
+          <select
+            value={status}
+            onChange={e => setStatus(e.target.value)}
+            className="px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-bold outline-none focus:border-indigo-500 dark:text-white cursor-pointer transition"
+          >
+            <option value="Open">Open</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="Active">Active</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Blocked">Blocked</option>
+            <option value="Ready for QC">Ready for QC</option>
+            <option value="QC">QC</option>
+            <option value="QC Complete">QC Complete</option>
+            <option value="Ready for Customer">Ready for Customer</option>
+            <option value="Completed">Completed</option>
+            <option value="Closed">Closed</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Scope / Description */}
+      <div>
+        <h3 className="text-xs font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5 text-indigo-500" /> Work Order Scope / Description
+        </h3>
+        <div className="bg-zinc-50 dark:bg-zinc-955 border border-zinc-200/50 dark:border-zinc-800/40 p-4 rounded-2xl max-h-32 overflow-y-auto no-scrollbar text-xs font-semibold text-zinc-700 dark:text-zinc-350 leading-relaxed whitespace-pre-wrap">
+          {job.description || "No description / scope provided on the work order."}
+        </div>
+      </div>
+
+      {/* Two columns: Tasks and Parts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Tasks List */}
+        <div className="flex flex-col">
+          <h3 className="text-xs font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" /> Scope Breakdown (Tasks)
+          </h3>
+          <div className="bg-zinc-50 dark:bg-zinc-955 border border-zinc-200/50 dark:border-zinc-800/40 rounded-2xl p-4 flex-1 max-h-48 overflow-y-auto no-scrollbar space-y-2">
+            {jobTasks.length === 0 ? (
+              <div className="text-center text-zinc-400 italic text-[11px] py-4">No tasks added to this job yet.</div>
+            ) : (
+              jobTasks.map((t: any) => {
+                const tech = staff.find(s => s.id === t.assignedTo || s.userId === t.assignedTo);
+                const techName = tech ? `${tech.firstName} ${tech.lastName}` : 'Unassigned';
+
+                return (
+                  <div key={t.id} className="bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-850 p-2.5 rounded-xl flex items-center justify-between gap-3 text-xs shadow-sm">
+                    <div className="min-w-0">
+                      <p className="font-extrabold truncate text-zinc-850 dark:text-zinc-100">{t.title}</p>
+                      <p className="text-[10px] font-bold text-zinc-400 mt-0.5">{techName}</p>
+                    </div>
+                    <span className={cn(
+                      "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider shrink-0",
+                      t.status === 'completed' || t.status === 'QC Complete' ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                        : t.status === 'Blocked' ? "bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                        : t.status === 'In Progress' ? "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400"
+                        : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                    )}>
+                      {t.status}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Parts Requests */}
+        <div className="flex flex-col">
+          <h3 className="text-xs font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <Package className="w-3.5 h-3.5 text-indigo-500" /> Parts Requests
+          </h3>
+          <div className="bg-zinc-50 dark:bg-zinc-955 border border-zinc-200/50 dark:border-zinc-800/40 rounded-2xl p-4 flex-1 max-h-48 overflow-y-auto no-scrollbar space-y-2">
+            {jobParts.length === 0 ? (
+              <div className="text-center text-zinc-400 italic text-[11px] py-4">No parts requested for this job.</div>
+            ) : (
+              jobParts.map((p: any) => (
+                <div key={p.id} className="bg-white dark:bg-zinc-900 border border-zinc-150 dark:border-zinc-850 p-2.5 rounded-xl flex items-center justify-between gap-3 text-xs shadow-sm">
+                  <div className="min-w-0">
+                    <p className="font-extrabold text-zinc-850 dark:text-zinc-100 leading-tight">
+                      {p.quantity || 1}x {p.partName}
+                    </p>
+                    {p.notes && <p className="text-[10px] font-medium text-zinc-450 truncate mt-0.5">{p.notes}</p>}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {p.urgency === 'urgent' && (
+                      <span className="text-[9px] font-black text-rose-500 bg-rose-500/10 px-1 py-0.5 rounded border border-rose-500/20 uppercase tracking-widest animate-pulse">
+                        Urgent
+                      </span>
+                    )}
+                    <span className={cn(
+                      "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider",
+                      p.status === 'received' || p.status === 'fulfilled' ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                        : p.status === 'ordered' ? "bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                        : "bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                    )}>
+                      {p.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Alignment Section */}
+      <div className="border-t border-zinc-150 dark:border-zinc-800 pt-5 space-y-4">
+        <h3 className="text-xs font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+          <Sliders className="w-3.5 h-3.5 text-indigo-500" /> Weekly Meeting Alignment Check
+        </h3>
+
+        {/* Checkbox block */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Missing Parts Checkbox */}
+          <div 
+            onClick={() => setIsMissingParts(!isMissingParts)}
+            className={cn(
+              "p-3 rounded-2xl border transition duration-200 cursor-pointer flex items-center gap-3 select-none",
+              isMissingParts 
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-450 font-extrabold shadow-sm" 
+                : "bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            )}
+          >
+            {isMissingParts ? (
+              <CheckSquare className="w-4 h-4 text-amber-500 shrink-0" />
+            ) : (
+              <Square className="w-4 h-4 text-zinc-450 shrink-0" />
+            )}
+            <div className="text-left">
+              <p className="text-xs leading-none">Missing Parts</p>
+              <p className="text-[9px] text-zinc-400 mt-0.5">Can't finish work due to parts</p>
+            </div>
+          </div>
+
+          {/* Scope Unclear */}
+          <div 
+            onClick={() => setIsScopeUnclear(!isScopeUnclear)}
+            className={cn(
+              "p-3 rounded-2xl border transition duration-200 cursor-pointer flex items-center gap-3 select-none",
+              isScopeUnclear 
+                ? "bg-rose-500/15 border-rose-500/40 text-rose-600 dark:text-rose-455 font-extrabold shadow-sm" 
+                : "bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            )}
+          >
+            {isScopeUnclear ? (
+              <CheckSquare className="w-4 h-4 text-rose-500 shrink-0" />
+            ) : (
+              <Square className="w-4 h-4 text-zinc-455 shrink-0" />
+            )}
+            <div className="text-left">
+              <p className="text-xs leading-none">Scope Unclear</p>
+              <p className="text-[9px] text-zinc-400 mt-0.5">Work order lacks clear scope</p>
+            </div>
+          </div>
+
+          {/* Ready for Shop */}
+          <div 
+            onClick={() => setIsReadyForShop(!isReadyForShop)}
+            className={cn(
+              "p-3 rounded-2xl border transition duration-200 cursor-pointer flex items-center gap-3 select-none",
+              isReadyForShop 
+                ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-450 font-extrabold shadow-sm" 
+                : "bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+            )}
+          >
+            {isReadyForShop ? (
+              <CheckSquare className="w-4 h-4 text-emerald-500 shrink-0" />
+            ) : (
+              <Square className="w-4 h-4 text-zinc-450 shrink-0" />
+            )}
+            <div className="text-left">
+              <p className="text-xs leading-none">Ready for Shop</p>
+              <p className="text-[9px] text-zinc-400 mt-0.5">Approved to assign to crew</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Alignment Notes Textarea */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+            <MessageSquare className="w-3.5 h-3.5 text-indigo-500" /> Meeting Notes & Action Items (This Job)
+          </label>
+          <textarea
+            value={weeklyNotes}
+            onChange={e => setWeeklyNotes(e.target.value)}
+            placeholder="Type foreman & sales alignment notes here (e.g. Parts ETA, missing client info, scheduling blockers)..."
+            className="w-full min-h-[90px] p-3.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl outline-none focus:border-indigo-500 font-semibold text-xs dark:text-white leading-relaxed resize-y placeholder:italic"
+          />
+        </div>
+
+        {/* Action Row */}
+        <div className="flex items-center justify-between gap-4 pt-2">
+          {hasUnsavedChanges ? (
+            <span className="text-[11px] font-extrabold text-amber-500 animate-pulse flex items-center gap-1">
+              <AlertCircle className="w-3.5 h-3.5" /> Unsaved changes in meeting review
+            </span>
+          ) : (
+            <span className="text-[11px] font-bold text-emerald-500 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Job alignment synchronized
+            </span>
+          )}
+
+          <button
+            onClick={handleSave}
+            disabled={isSaving || !hasUnsavedChanges}
+            className="flex items-center gap-1.5 px-6 py-2.5 bg-indigo-650 hover:bg-indigo-700 disabled:bg-zinc-100 dark:disabled:bg-zinc-800 text-white disabled:text-zinc-450 rounded-xl text-xs font-black transition shadow-md active:scale-95 disabled:scale-100 disabled:shadow-none shrink-0"
+          >
+            {isSaving ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            Save Job Alignment
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

@@ -240,7 +240,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
 
   // Report Modal state
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [reportModalTab, setReportModalTab] = useState<'filtered' | 'digest'>('filtered');
+  const [reportModalTab, setReportModalTab] = useState<'filtered' | 'digest' | 'travelers'>('filtered');
   const [businessName, setBusinessName] = useState('UpFittersOS');
   const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
 
@@ -467,7 +467,15 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       const hasStatus = !!(job.status && job.status !== 'Open');
       const needsSetup = isActiveWorkflow && (!hasVin || !hasTasks || !hasStatus);
 
-      const isActionable = hasBay || hasTasksNeedingDone || hasQCNeedingDone || isReadyForCustomer || isReadyForQC || (selectedStatusFilter === 'needs_attention' && needsSetup);
+       const isActionable = 
+        selectedStatusFilter === 'all' || 
+        selectedStatusFilter === 'Active' || 
+        hasBay || 
+        hasTasksNeedingDone || 
+        hasQCNeedingDone || 
+        isReadyForCustomer || 
+        isReadyForQC || 
+        needsSetup;
       if (!isActionable) return false;
 
       // 3. Status Toolbar Dropdown Filter
@@ -1048,6 +1056,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     setIsReportModalOpen(true);
   };
 
+  const handleOpenTravelers = () => {
+    setReportModalTab('travelers');
+    setIsReportModalOpen(true);
+  };
+
   const handleCopyReportToClipboard = () => {
     const text = reportModalTab === 'filtered' ? generateFilteredJobsTextReport() : generateProgressReport();
     navigator.clipboard.writeText(text);
@@ -1243,6 +1256,22 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
               <Mail className="w-3.5 h-3.5 text-white" />
               Shop Progress Report
             </button>
+            <button 
+              onClick={handleOpenTravelers}
+              className="flex px-4 py-2 bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-350 hover:text-white text-xs font-bold rounded-xl shadow-sm transition-all items-center justify-center gap-2 cursor-pointer"
+              title="Print all visible jobs as 8.5x11 Job Cards"
+            >
+              <Printer className="w-3.5 h-3.5 text-indigo-500" />
+              Print Job Cards
+            </button>
+            <Link
+              to={`/business/${tenantId}/job/create`}
+              className="flex px-4 py-2 bg-emerald-650 hover:bg-emerald-750 text-white text-xs font-bold rounded-xl shadow-sm transition-all items-center justify-center gap-2 border border-emerald-600/20"
+              title="Create new native job"
+            >
+              <Plus className="w-3.5 h-3.5 text-white" />
+              Create Job
+            </Link>
             <button 
               onClick={toggleFullscreen}
               className="flex px-4 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-white text-xs font-bold rounded-xl shadow-sm transition-all items-center justify-center gap-2"
@@ -2069,6 +2098,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
               }
+              .page-break {
+                page-break-after: always !important;
+                break-after: page !important;
+              }
             }
           ` }} />
 
@@ -2097,6 +2130,17 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                   )}
                 >
                   Filtered Jobs Report
+                </button>
+                <button
+                  onClick={() => setReportModalTab('travelers')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-bold transition-all",
+                    reportModalTab === 'travelers' 
+                      ? "bg-white dark:bg-zinc-900 text-indigo-650 dark:text-indigo-400 shadow-sm" 
+                      : "text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  )}
+                >
+                  Job Cards (8.5x11)
                 </button>
                 <button
                   onClick={() => setReportModalTab('digest')}
@@ -2415,6 +2459,102 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                           })
                         )}
                       </div>
+                    </div>
+                  </div>
+                ) : reportModalTab === 'travelers' ? (
+                  /* --- JOB TRAVELER SHEETS --- */
+                  <div className="space-y-4 w-full">
+                    <div className="flex justify-between items-center no-print">
+                      <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Job Cards Preview ({filteredJobs.length} pages)</span>
+                      <button 
+                        onClick={() => window.print()}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-indigo-650 hover:bg-indigo-705 text-white rounded-lg text-xs font-bold transition-all shadow-sm cursor-pointer border border-indigo-600/20 animate-pulse hover:animate-none"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        Print All Sheets
+                      </button>
+                    </div>
+
+                    <div id="worksheet-report-print-area" className="space-y-8 bg-zinc-150 dark:bg-zinc-950 p-2 md:p-6 rounded-2xl border border-zinc-250 dark:border-zinc-800">
+                      {filteredJobs.map((job, idx) => {
+                        const vehicle = job.vehicleId ? vehiclesList.find(v => v.vin === job.vehicleId) : null;
+                        const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                        const vin = vehicle ? vehicle.vin : job.vehicleId || '';
+                        const companyCamVal = job.companyCamId || job.companyCamProjectId || '';
+
+                        return (
+                          <div 
+                            key={job.id} 
+                            className={`bg-white text-zinc-900 p-8 sm:p-12 font-sans mx-auto max-w-[800px] aspect-[8.5/11] border border-zinc-200 shadow-sm flex flex-col justify-between rounded-2xl relative ${
+                              idx < filteredJobs.length - 1 ? 'page-break' : ''
+                            }`}
+                            style={{ pageBreakAfter: 'always', breakAfter: 'page' }}
+                          >
+                            {/* Top border decor */}
+                            <div className="border-b-4 border-indigo-900 pb-6 flex justify-between items-start">
+                              <div>
+                                <span className="text-[10px] font-black tracking-widest text-indigo-600 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
+                                <h1 className="text-3xl sm:text-4xl font-black text-indigo-950 mt-3 tracking-tight">JOB #{job.jobNumber || 'N/A'}</h1>
+                                <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{job.title || 'Untitled Job'}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-[10px] font-black text-zinc-405 uppercase tracking-widest">Status / Priority</p>
+                                <p className="text-xs sm:text-sm font-extrabold text-zinc-900 uppercase mt-1">{job.status || 'Open'}</p>
+                                <p className="text-[10px] font-bold text-zinc-505 uppercase mt-0.5">{job.priority || '3 - Medium'}</p>
+                              </div>
+                            </div>
+
+                            {/* Middle Section: Big QR Code */}
+                            <div className="flex flex-col items-center justify-center my-auto py-8">
+                              <div className="p-4 bg-white border border-zinc-200 rounded-2xl shadow-sm">
+                                <LogoQRCode 
+                                  value={`${window.location.origin}/business/${tenantId}/job/${job.id}`}
+                                  size={220}
+                                  logoUrl={businessLogo}
+                                  businessName={businessName}
+                                  type="general"
+                                />
+                              </div>
+                              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+                            </div>
+
+                            {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
+                            <div className="border-t-2 border-zinc-200 pt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 bg-zinc-55 p-6 rounded-xl text-left">
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-1">
+                                  <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Customer Details</h4>
+                                  <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{job.customerName || 'No Customer Assigned'}</p>
+                                </div>
+                                {companyCamVal && (
+                                  <div className="flex flex-col items-center shrink-0 ml-4">
+                                    <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm">
+                                      <LogoQRCode 
+                                        value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                                        size={90}
+                                        type="general"
+                                      />
+                                    </div>
+                                    <span className="text-[7px] font-black text-zinc-400 uppercase tracking-widest mt-1">CompanyCam QR</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Vehicle Details</h4>
+                                <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
+                                {vin && (
+                                  <p className="text-xs text-zinc-500 font-mono mt-1">VIN: <span className="font-bold text-zinc-700">{vin}</span></p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="border-t border-zinc-150 pt-4 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-wider mt-4">
+                              <span>{businessName} &bull; UpfitterOS</span>
+                              <span>Printed: {new Date().toLocaleDateString()}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

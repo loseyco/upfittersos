@@ -218,6 +218,7 @@ service cloud.firestore {
     match /businesses/{tenantId} {
       allow read: if isTenant(tenantId) || isSuperAdmin();
       allow write: if isBusinessOwner(tenantId) || isSuperAdmin() || request.auth.token.get('email', '').lower() == 'p.losey@saegrp.com';
+      allow update: if isTenant(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conferenceTvMode', 'conferenceTvModeExpiresAt']);
       
       // V2 AUDIT LOGS (Tenant Scoped)
       match /audit_logs/{logId} {
