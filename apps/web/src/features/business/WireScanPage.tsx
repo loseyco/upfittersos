@@ -153,6 +153,8 @@ export function WireScanPage() {
               <option value="bag">Bags</option>
               <option value="roll">Rolls</option>
               <option value="pack">Packs</option>
+              <option value="feet">Feet</option>
+              <option value="inches">Inches</option>
             </select>
           </div>
         </div>
