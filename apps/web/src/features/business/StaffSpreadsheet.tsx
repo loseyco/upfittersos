@@ -203,6 +203,17 @@ export function StaffSpreadsheet({ tenantId }: { tenantId: string }) {
     });
   }, [staff, searchQuery, showArchived, departments]);
 
+  const activeFiltersSummary = useMemo(() => {
+    const list: string[] = [];
+    if (searchQuery.trim()) {
+      list.push(`search "${searchQuery}"`);
+    }
+    if (!showArchived) {
+      list.push("active only");
+    }
+    return list.join(', ');
+  }, [searchQuery, showArchived]);
+
   // Append a placeholder row at the bottom for quick entry
   const rows = useMemo(() => {
     const list = [...filteredStaff];
@@ -820,6 +831,16 @@ export function StaffSpreadsheet({ tenantId }: { tenantId: string }) {
           placeholder={selectedCell ? "Enter value..." : "Select a cell to edit..."}
           className="flex-1 bg-transparent border-none text-white outline-none text-xs placeholder-zinc-600 disabled:opacity-50"
         />
+        <div className="flex items-center gap-2 text-[11px] shrink-0 font-sans pl-3 border-l border-zinc-800 text-zinc-400 select-none">
+          <span>
+            Showing <strong>{filteredStaff.length}</strong> of <strong>{staff.length}</strong> rows
+          </span>
+          {activeFiltersSummary && (
+            <span className="text-indigo-400 font-medium truncate max-w-[280px]" title={`Filtered by: ${activeFiltersSummary}`}>
+              &bull; Filtered by {activeFiltersSummary}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Spreadsheet Grid Container */}

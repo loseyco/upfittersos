@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
@@ -103,6 +103,39 @@ export function JobIntakeFormPage({
   const [uploadedPhotos, setUploadedPhotos] = useState<string[]>([]);
   const [newPhotos, setNewPhotos] = useState<{ file: File; preview: string }[]>([]);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [jobNumberExists, setJobNumberExists] = useState(false);
+  const [checkingJobNumber, setCheckingJobNumber] = useState(false);
+
+  const handleJobNumberBlur = async () => {
+    const trimmed = jobNumber.trim();
+    if (!trimmed) {
+      setJobNumberExists(false);
+      return;
+    }
+    setCheckingJobNumber(true);
+    try {
+      const jobsRef = collection(db, `businesses/${tenantId}/jobs`);
+      const q = query(jobsRef, where('jobNumber', '==', trimmed));
+      const snap = await getDocs(q);
+      
+      let exists = false;
+      snap.forEach((doc) => {
+        if (doc.id !== jobId) {
+          exists = true;
+        }
+      });
+      
+      setJobNumberExists(exists);
+      if (exists) {
+        toast.warning(`Job number "${trimmed}" already exists!`);
+      }
+    } catch (e) {
+      console.error("Error checking job number:", e);
+    } finally {
+      setCheckingJobNumber(false);
+    }
+  };
 
   // General Checks
   const [generalChecks, setGeneralChecks] = useState({
@@ -781,8 +814,24 @@ export function JobIntakeFormPage({
                   type="text" 
                   value={jobNumber} 
                   onChange={e => setJobNumber(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-zinc-55 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-xl text-sm font-bold text-zinc-900 dark:text-white"
+                  onBlur={handleJobNumberBlur}
+                  className={cn(
+                    "w-full px-4 py-2.5 bg-zinc-55 dark:bg-zinc-955 border rounded-xl text-sm font-bold text-zinc-900 dark:text-white transition-colors duration-150 outline-none",
+                    jobNumberExists 
+                      ? "border-rose-500 focus:border-rose-550 focus:ring-1 focus:ring-rose-500/20" 
+                      : "border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20"
+                  )}
                 />
+                {checkingJobNumber && (
+                  <p className="text-indigo-400 text-[10px] font-medium mt-1 animate-pulse px-1">
+                    Checking availability...
+                  </p>
+                )}
+                {jobNumberExists && (
+                  <p className="text-rose-500 text-[10px] font-bold mt-1 px-1 flex items-center gap-1 animate-in fade-in slide-in-from-top-1">
+                    <span>⚠️ This job number already exists.</span>
+                  </p>
+                )}
               </div>
             </div>
 

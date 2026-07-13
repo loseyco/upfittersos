@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Trash2, Search, Loader2,
-  Cloud, AlertCircle, ChevronDown, Check,
+  Cloud, AlertCircle, ChevronDown,
   Maximize2, Minimize2, Plus, ClipboardList
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -45,10 +45,10 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedJobIdForNewTask, setSelectedJobIdForNewTask] = useState('');
   
-  const [colFilters, setColFilters] = useState<Record<string, string>>({
-    jobId: 'all',
-    status: 'all',
-    assignedCrew: 'all'
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({
+    jobId: [],
+    status: [],
+    assignedCrew: []
   });
 
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
@@ -213,16 +213,54 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
       }
 
       // Dropdown filters
-      if (colFilters.jobId !== 'all') {
-        const selectedJob = jobs.find(j => j.id === colFilters.jobId);
-        if (selectedJob && row.jobTitle !== selectedJob.title) return false;
+      if (colFilters.jobId && colFilters.jobId.length > 0) {
+        const matches = colFilters.jobId.some(val => {
+          if (val === 'empty') return !row.jobTitle || !row.jobTitle.trim();
+          const selectedJob = jobs.find(j => j.id === val);
+          return selectedJob && row.jobTitle === selectedJob.title;
+        });
+        if (!matches) return false;
       }
-      if (colFilters.status !== 'all' && row.status !== colFilters.status) return false;
-      if (colFilters.assignedCrew !== 'all' && !row.assignedCrew.includes(colFilters.assignedCrew)) return false;
+      if (colFilters.status && colFilters.status.length > 0) {
+        const matches = colFilters.status.some(val => {
+          if (val === 'empty') return !row.status || !row.status.trim();
+          return row.status === val;
+        });
+        if (!matches) return false;
+      }
+      if (colFilters.assignedCrew && colFilters.assignedCrew.length > 0) {
+        const matches = colFilters.assignedCrew.some(val => {
+          if (val === 'empty') return !row.assignedCrew || row.assignedCrew.length === 0;
+          return row.assignedCrew.includes(val);
+        });
+        if (!matches) return false;
+      }
 
       return true;
     });
   }, [rows, searchQuery, colFilters, jobs]);
+
+  const activeFiltersSummary = useMemo(() => {
+    const list: string[] = [];
+    if (searchQuery.trim()) {
+      list.push(`search "${searchQuery}"`);
+    }
+    if (colFilters.jobId && colFilters.jobId.length > 0) {
+      const names = colFilters.jobId.map(val => {
+        if (val === 'empty') return 'Choose Empty';
+        const selectedJob = jobs.find(j => j.id === val);
+        return selectedJob ? selectedJob.title : val;
+      });
+      list.push(`job (${names.join(', ')})`);
+    }
+    if (colFilters.status && colFilters.status.length > 0) {
+      list.push(`status (${colFilters.status.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
+    }
+    if (colFilters.assignedCrew && colFilters.assignedCrew.length > 0) {
+      list.push(`crew (${colFilters.assignedCrew.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
+    }
+    return list.join('; ');
+  }, [searchQuery, colFilters, jobs]);
 
   // Helpers
   const getCellValue = (row: any, colKey: string): string => {
@@ -461,7 +499,28 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
 
   const renderHeaderFilter = (colKey: string, options: Array<{ value: string; label: string }>) => {
     const filterKey = colKey === 'jobTitle' ? 'jobId' : colKey;
-    const isActive = colFilters[filterKey] !== 'all';
+    const selectedVals = colFilters[filterKey] || [];
+    const isActive = selectedVals.length > 0;
+
+    const handleToggle = (val: string) => {
+      if (val === 'all') {
+        setColFilters(prev => ({ ...prev, [filterKey]: [] }));
+        return;
+      }
+      setColFilters(prev => {
+        const current = prev[filterKey] || [];
+        const next = current.includes(val)
+          ? current.filter(v => v !== val)
+          : [...current, val];
+        return { ...prev, [filterKey]: next };
+      });
+    };
+
+    const isChecked = (val: string) => {
+      if (val === 'all') return selectedVals.length === 0;
+      return selectedVals.includes(val);
+    };
+
     return (
       <div className="inline-block ml-1 relative group no-print">
         <button
@@ -483,21 +542,35 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
               className="fixed inset-0 z-40" 
               onClick={() => setActiveHeaderFilterDropdown(null)} 
             />
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-zinc-900 border border-zinc-850 rounded-xl shadow-2xl p-1.5 z-50 min-w-[140px] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in duration-150 text-left font-sans normal-case text-xs font-semibold text-zinc-300">
-              {options.map(opt => (
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-zinc-900 border border-zinc-850 rounded-xl shadow-2xl p-1.5 z-50 min-w-[160px] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in duration-150 text-left font-sans normal-case text-xs font-semibold text-zinc-300">
+              <button
+                onClick={() => handleToggle('all')}
+                className="w-full px-2 py-1.5 text-left rounded-lg hover:bg-zinc-850 transition-colors flex items-center gap-2"
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked('all')}
+                  readOnly
+                  className="rounded border-zinc-700 bg-zinc-950 text-indigo-505 w-3.5 h-3.5"
+                />
+                <span>(Select All)</span>
+              </button>
+
+              <div className="h-[1px] bg-zinc-800 my-1" />
+
+              {options.filter(o => o.value !== 'all').map(opt => (
                 <button
                   key={opt.value}
-                  onClick={() => {
-                    setColFilters(prev => ({ ...prev, [filterKey]: opt.value }));
-                    setActiveHeaderFilterDropdown(null);
-                  }}
-                  className={cn(
-                    "w-full px-2 py-1.5 text-left rounded-lg transition-colors flex items-center justify-between hover:bg-zinc-800",
-                    colFilters[filterKey] === opt.value ? "bg-indigo-500/10 text-indigo-400 font-bold" : ""
-                  )}
+                  onClick={() => handleToggle(opt.value)}
+                  className="w-full px-2 py-1.5 text-left rounded-lg hover:bg-zinc-850 transition-colors flex items-center gap-2"
                 >
+                  <input
+                    type="checkbox"
+                    checked={isChecked(opt.value)}
+                    readOnly
+                    className="rounded border-zinc-700 bg-zinc-950 text-indigo-505 w-3.5 h-3.5"
+                  />
                   <span className="truncate max-w-[160px]">{opt.label}</span>
-                  {colFilters[filterKey] === opt.value && <Check className="w-3 h-3 text-indigo-400 shrink-0 ml-1.5" />}
                 </button>
               ))}
             </div>
@@ -624,6 +697,16 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
           placeholder="Select a cell to view or edit value"
           className="flex-1 bg-transparent border-none text-zinc-200 outline-none placeholder-zinc-600 font-mono"
         />
+        <div className="flex items-center gap-2 text-[11px] shrink-0 font-sans pl-3 border-l border-zinc-800 text-zinc-400 select-none">
+          <span>
+            Showing <strong>{filteredRows.length}</strong> of <strong>{rows.length}</strong> rows
+          </span>
+          {activeFiltersSummary && (
+            <span className="text-indigo-400 font-medium truncate max-w-[280px]" title={`Filtered by: ${activeFiltersSummary}`}>
+              &bull; Filtered by {activeFiltersSummary}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Grid Container */}
@@ -680,16 +763,19 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
                 if (col.key === 'jobTitle') {
                   filterElement = renderHeaderFilter('jobTitle', [
                     { value: 'all', label: 'All Jobs' },
+                    { value: 'empty', label: '(Choose Empty)' },
                     ...jobs.map(j => ({ value: j.id, label: j.title || j.id }))
                   ]);
                 } else if (col.key === 'status') {
                   filterElement = renderHeaderFilter('status', [
                     { value: 'all', label: 'All Statuses' },
+                    { value: 'empty', label: '(Choose Empty)' },
                     ...uniqueStatuses.map(s => ({ value: s, label: s }))
                   ]);
                 } else if (col.key === 'assignedCrew') {
                   filterElement = renderHeaderFilter('assignedCrew', [
                     { value: 'all', label: 'All Crew' },
+                    { value: 'empty', label: '(Choose Empty)' },
                     ...uniqueCrew.map(c => ({ value: c, label: c }))
                   ]);
                 }
