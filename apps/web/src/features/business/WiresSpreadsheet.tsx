@@ -331,6 +331,20 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
     }, 10);
   };
 
+  const triggerCellEdit = (row: WireRod, colKey: string) => {
+    if (colKey.startsWith('reel_')) {
+      const idx = parseInt(colKey.split('_')[1]);
+      const reel = row.reels?.[idx];
+      setPopoverGauge(reel?.gauge || '');
+      setPopoverColor(reel?.color || '');
+      setPopoverLength(reel?.length || '');
+      setPopoverStatus(reel?.status || 'in_stock');
+      setActivePopover({ rowId: row.id, reelIndex: idx });
+    } else {
+      startEditing(row.id, colKey);
+    }
+  };
+
   const startEditing = (rowId: string, colKey: string) => {
     setSelectedCell({ rowId, colKey });
     setEditingCell({ rowId, colKey });
@@ -820,21 +834,15 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                         key={col.key}
                         data-cell-id={`${row.id}-${col.key}`}
                         onClick={() => {
+                          const isAlreadySelected = selectedCell?.rowId === row.id && selectedCell?.colKey === col.key;
                           setSelectedCell({ rowId: row.id, colKey: col.key });
                           setEditValue(getCellValue(row, col.key));
+                          if (isAlreadySelected) {
+                            triggerCellEdit(row, col.key);
+                          }
                         }}
                         onDoubleClick={() => {
-                          if (col.key.startsWith('reel_')) {
-                            const idx = parseInt(col.key.split('_')[1]);
-                            const reel = row.reels?.[idx];
-                            setPopoverGauge(reel?.gauge || '');
-                            setPopoverColor(reel?.color || '');
-                            setPopoverLength(reel?.length || '');
-                            setPopoverStatus(reel?.status || 'in_stock');
-                            setActivePopover({ rowId: row.id, reelIndex: idx });
-                          } else {
-                            startEditing(row.id, col.key);
-                          }
+                          triggerCellEdit(row, col.key);
                         }}
                         className={cn(
                           "border-r border-zinc-850 px-3 relative truncate font-semibold h-9 align-middle select-none transition-colors",
@@ -896,7 +904,7 @@ export function WiresSpreadsheet({ tenantId }: { tenantId: string }) {
                   className="w-full px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-700 font-semibold focus:border-indigo-500 outline-none"
                 />
                 <div className="flex flex-wrap gap-1 mt-1.5 px-0.5">
-                  {['18 AWG', '16 AWG', '14 AWG', '12 AWG', '10 AWG', '4 AWG', '2/0'].map(g => (
+                  {['22 AWG', '18 AWG', '16 AWG', '14 AWG', '12 AWG', '10 AWG', '4 AWG', '1/0', '2/0', '4/0'].map(g => (
                     <button
                       key={g}
                       onClick={() => setPopoverGauge(g)}
