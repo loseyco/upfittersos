@@ -2499,6 +2499,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                   <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{job.title}</p>
                                 )}
                                 <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {job.customerName || 'No Customer Assigned'}</p>
+                                <p className="text-sm sm:text-base font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {vehicleLabel}</p>
+                                {vin && (
+                                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {vin}</p>
+                                )}
                               </div>
                               <div className="text-right">
                                 <p className="text-[10px] font-black text-zinc-405 uppercase tracking-widest">Status / Priority</p>
@@ -2522,8 +2526,9 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             </div>
 
                             {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
-                            <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-55 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                              {companyCamVal ? (
+                            {/* Bottom Section: CompanyCam Info */}
+                            {companyCamVal && (
+                              <div className="border-t-2 border-zinc-200 pt-6 bg-zinc-55 p-6 rounded-xl text-left">
                                 <div className="flex items-center gap-4">
                                   <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm shrink-0">
                                     <LogoQRCode 
@@ -2537,17 +2542,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                                     <p className="text-xs sm:text-sm font-extrabold text-zinc-800 mt-1">Scan QR to view photos</p>
                                   </div>
                                 </div>
-                              ) : (
-                                <div className="text-zinc-450 italic text-xs">No photos linked</div>
-                              )}
-                              <div>
-                                <h4 className="text-[9px] font-black text-zinc-405 uppercase tracking-widest">Vehicle Details</h4>
-                                <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
-                                {vin && (
-                                  <p className="text-xs text-zinc-500 font-mono mt-1">VIN: <span className="font-bold text-zinc-700">{vin}</span></p>
-                                )}
                               </div>
-                            </div>
+                            )}
 
                             {/* Footer */}
                             <div className="border-t border-zinc-150 pt-4 flex justify-between items-center text-[9px] text-zinc-400 font-black uppercase tracking-wider mt-4">

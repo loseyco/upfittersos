@@ -38,6 +38,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
   const [activeFilter, setActiveFilter] = useState<'all' | 'blockers' | 'vin' | 'cc' | 'qc' | 'parts' | 'duedate' | 'location' | 'traveler'>('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [printingJob, setPrintingJob] = useState<any | null>(null);
+  const companyCamVal = printingJob ? (printingJob.companyCamId || printingJob.companyCamProjectId || '') : '';
   const [businessName, setBusinessName] = useState('UpFittersOS');
   const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
 
@@ -1049,6 +1050,13 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                       <p className="text-xs font-bold text-zinc-700 mt-0.5">{printingJob.title}</p>
                     )}
                     <p className="text-xs font-extrabold text-indigo-900 mt-1.5 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
+                    <p className="text-xs font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {(() => {
+                      const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+                      return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                    })()}</p>
+                    {printingJob.vehicleId && (
+                      <p className="text-[9px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest">Status</p>
@@ -1069,41 +1077,24 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
                   <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open workflow</p>
                 </div>
 
-                {/* Customer, CompanyCam, and Vehicle details box - 3 column grid to prevent squeezing */}
-                {(() => {
-                  const companyCamVal = printingJob.companyCamId || printingJob.companyCamProjectId || '';
-                  const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
-                  const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
-                  return (
-                    <div className={`border-t border-zinc-200 pt-3 grid gap-3 bg-zinc-55 p-3 rounded-lg text-left text-[10px] items-center ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                      {companyCamVal ? (
-                        <div className="flex items-center gap-3">
-                          <div className="p-1 bg-white border border-zinc-200 rounded-md shadow-sm shrink-0 scale-90">
-                            <LogoQRCode 
-                              value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
-                              size={55}
-                              type="general"
-                            />
-                          </div>
-                          <div>
-                            <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">CompanyCam Photos</h4>
-                            <p className="text-[10px] font-bold text-zinc-850 mt-0.5">Scan QR to view photos</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-zinc-450 italic text-[9px]">No photos linked</div>
-                      )}
-
+                {/* CompanyCam details box */}
+                {companyCamVal && (
+                  <div className="border-t border-zinc-200 pt-3 bg-zinc-55 p-3 rounded-lg text-left text-[10px]">
+                    <div className="flex items-center gap-3">
+                      <div className="p-1 bg-white border border-zinc-200 rounded-md shadow-sm shrink-0 scale-90">
+                        <LogoQRCode 
+                          value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                          size={55}
+                          type="general"
+                        />
+                      </div>
                       <div>
-                        <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">Vehicle Details</h4>
-                        <p className="font-extrabold text-zinc-900 mt-0.5 truncate">{vehicleLabel}</p>
-                        {printingJob.vehicleId && (
-                          <p className="text-zinc-555 font-mono mt-0.5 truncate">VIN: <span className="font-bold text-zinc-800">{printingJob.vehicleId}</span></p>
-                        )}
+                        <h4 className="font-black text-zinc-400 uppercase tracking-widest text-[8px]">CompanyCam Photos</h4>
+                        <p className="text-[10px] font-bold text-zinc-850 mt-0.5">Scan QR to view photos</p>
                       </div>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
 
                 <div className="border-t border-zinc-150 pt-2 flex justify-between items-center text-[8px] text-zinc-400 font-black uppercase tracking-wider mt-2">
                   <span>{businessName}</span>
@@ -1169,36 +1160,23 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
             {/* Bottom Section: Customer, CompanyCam, and Vehicle Info */}
             {(() => {
               const companyCamVal = printingJob.companyCamId || printingJob.companyCamProjectId || '';
-              const vehicle = printingJob.vehicleId ? vehiclesList.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
-              const vehicleLabel = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
-              return (
-                <div className={`border-t-2 border-zinc-200 pt-6 grid gap-6 bg-zinc-50 p-6 rounded-xl text-left ${companyCamVal ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                  {companyCamVal ? (
-                    <div className="flex items-center gap-4">
-                      <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm shrink-0">
-                        <LogoQRCode 
-                          value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
-                          size={90}
-                          type="general"
-                        />
-                      </div>
-                      <div>
-                        <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">CompanyCam Photos</h4>
-                        <p className="text-xs sm:text-sm font-extrabold text-zinc-800 mt-1">Scan QR to view photos</p>
-                      </div>
+              return companyCamVal ? (
+                <div className="border-t-2 border-zinc-200 pt-6 bg-zinc-50 p-6 rounded-xl text-left">
+                  <div className="flex items-center gap-4">
+                    <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm shrink-0">
+                      <LogoQRCode 
+                        value={companyCamVal.startsWith('http') ? companyCamVal : `https://app.companycam.com/projects/${companyCamVal}`}
+                        size={90}
+                        type="general"
+                      />
                     </div>
-                  ) : (
-                    <div className="text-zinc-400 italic text-xs">No photos linked</div>
-                  )}
-                  <div>
-                    <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">Vehicle Details</h4>
-                    <p className="text-sm sm:text-base font-extrabold text-zinc-900 mt-1">{vehicleLabel}</p>
-                    {printingJob.vehicleId && (
-                      <p className="text-xs text-zinc-555 font-mono mt-1">VIN: <span className="font-bold text-zinc-700">{printingJob.vehicleId}</span></p>
-                    )}
+                    <div>
+                      <h4 className="text-[9px] font-black text-zinc-400 uppercase tracking-widest">CompanyCam Photos</h4>
+                      <p className="text-xs sm:text-sm font-extrabold text-zinc-800 mt-1">Scan QR to view photos</p>
+                    </div>
                   </div>
                 </div>
-              );
+              ) : null;
             })()}
 
             {/* Footer */}
