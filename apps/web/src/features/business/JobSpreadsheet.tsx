@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Trash2, Keyboard, Search, Loader2,
-  Cloud, AlertCircle, ChevronDown, Check
+  Cloud, AlertCircle, ChevronDown, Check,
+  Printer, ExternalLink
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, getDocs
+  onSnapshot, serverTimestamp, getDocs, getDoc
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
+import { LogoQRCode } from '../../components/LogoQRCode';
 import { useAuthStore } from '../../lib/auth/store';
 
 export interface Job {
@@ -32,6 +35,7 @@ export interface Job {
   notes?: string;
   isArchived?: boolean;
   isPlaceholder?: boolean;
+  travelerPrintedAt?: any;
 }
 
 export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
@@ -41,13 +45,30 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showArchived, setShowArchived] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [printingJob, setPrintingJob] = useState<Job | null>(null);
+  const [businessLogo, setBusinessLogo] = useState<string>('');
+  const [businessName, setBusinessName] = useState<string>('');
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    const docRef = doc(db, 'businesses', tenantId);
+    getDoc(docRef).then((snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const logo = data?.rawData?.logoUrl || data?.logoUrl || '';
+        setBusinessLogo(logo);
+        setBusinessName(data?.name || '');
+      }
+    });
+  }, [tenantId]);
   const [colFilters, setColFilters] = useState<Record<string, string>>({
     isArchived: 'all',
     status: 'all',
     priority: 'all',
     customerName: 'all',
-    vehicleId: 'all'
+    vehicleId: 'all',
+    cardPrinted: 'all'
   });
 
   // Cell Selection / Editing State
@@ -183,18 +204,19 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     { key: 'isArchived', label: 'Active', letter: 'A', type: 'checkbox' },
     { key: 'jobNumber', label: 'Job #', letter: 'B', type: 'text' },
     { key: 'title', label: 'Job Title', letter: 'C', type: 'text' },
-    { key: 'status', label: 'Status', letter: 'D', type: 'status-select' },
-    { key: 'priority', label: 'Priority', letter: 'E', type: 'priority-select' },
-    { key: 'customerName', label: 'Customer', letter: 'F', type: 'customer-select' },
-    { key: 'vehicleId', label: 'Vehicle VIN', letter: 'G', type: 'vehicle-select' },
-    { key: 'scheduledStartDate', label: 'Start Date', letter: 'H', type: 'datetime-local' },
-    { key: 'scheduledEndDate', label: 'End Date', letter: 'I', type: 'datetime-local' },
-    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'J', type: 'datetime-local' },
-    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'K', type: 'datetime-local' },
-    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'L', type: 'datetime-local' },
-    { key: 'completedAt', label: 'Completed At', letter: 'M', type: 'datetime-local' },
-    { key: 'companyCamId', label: 'Company Cam ID', letter: 'N', type: 'text' },
-    { key: 'notes', label: 'Notes', letter: 'O', type: 'text' }
+    { key: 'details', label: 'Details & Card', letter: 'D', type: 'custom' },
+    { key: 'status', label: 'Status', letter: 'E', type: 'status-select' },
+    { key: 'priority', label: 'Priority', letter: 'F', type: 'priority-select' },
+    { key: 'customerName', label: 'Customer', letter: 'G', type: 'customer-select' },
+    { key: 'vehicleId', label: 'Vehicle VIN', letter: 'H', type: 'vehicle-select' },
+    { key: 'scheduledStartDate', label: 'Start Date', letter: 'I', type: 'datetime-local' },
+    { key: 'scheduledEndDate', label: 'End Date', letter: 'J', type: 'datetime-local' },
+    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'K', type: 'datetime-local' },
+    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'L', type: 'datetime-local' },
+    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'M', type: 'datetime-local' },
+    { key: 'completedAt', label: 'Completed At', letter: 'N', type: 'datetime-local' },
+    { key: 'companyCamId', label: 'Company Cam ID', letter: 'O', type: 'text' },
+    { key: 'notes', label: 'Notes', letter: 'P', type: 'text' }
   ], []);
 
   // Filter jobs
@@ -226,6 +248,11 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         const isActive = !member.isArchived;
         if (colFilters.isArchived === 'active' && !isActive) return false;
         if (colFilters.isArchived === 'inactive' && isActive) return false;
+      }
+      if (colFilters.cardPrinted !== 'all') {
+        const hasJobCard = !!member.travelerPrintedAt;
+        if (colFilters.cardPrinted === 'printed' && !hasJobCard) return false;
+        if (colFilters.cardPrinted === 'not_printed' && hasJobCard) return false;
       }
 
       return true;
@@ -642,6 +669,18 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     }
   }, [selectedCell]);
 
+  const handleTriggerPrint = async (job: Job) => {
+    setPrintingJob(job);
+    setTimeout(() => {
+      window.print();
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, job.id);
+      updateDoc(jobRef, {
+        travelerPrintedAt: new Date().toISOString(),
+        updatedAt: serverTimestamp()
+      }).catch(err => console.warn("Failed to update travelerPrintedAt:", err));
+    }, 500);
+  };
+
   const handleDeleteRow = async (member: Job) => {
     if (member.isPlaceholder) return;
     
@@ -743,7 +782,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             {syncStatus === 'saved' && (
               <>
                 <Cloud className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-emerald-500 font-bold">Cloud Connected</span>
+                <span className="text-emerald-500 font-bold">Cloud Synced</span>
               </>
             )}
             {syncStatus === 'error' && (
@@ -881,6 +920,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             <col className="w-[70px]" />  {/* Active */}
             <col className="w-[100px]" /> {/* Job # */}
             <col className="w-[220px]" /> {/* Job Title */}
+            <col className="w-[160px]" /> {/* Details & Card */}
             <col className="w-[140px]" /> {/* Status */}
             <col className="w-[140px]" /> {/* Priority */}
             <col className="w-[180px]" /> {/* Customer */}
@@ -935,6 +975,12 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                   filterElement = renderHeaderFilter('vehicleId', [
                     { value: 'all', label: 'All Vehicles' },
                     ...uniqueVehicles.map(v => ({ value: v, label: v }))
+                  ]);
+                } else if (col.key === 'details') {
+                  filterElement = renderHeaderFilter('cardPrinted', [
+                    { value: 'all', label: 'All Card Statuses' },
+                    { value: 'printed', label: 'Printed Only' },
+                    { value: 'not_printed', label: 'Not Printed Only' }
                   ]);
                 }
 
@@ -1004,6 +1050,60 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                             className="w-4 h-4 rounded border-zinc-700 bg-zinc-900 text-indigo-650 focus:ring-0 outline-none cursor-pointer"
                           />
                         </div>
+                      );
+                    }
+
+                    if (col.key === 'details') {
+                      if (isPlaceholder) {
+                        return (
+                          <td 
+                            key={col.key} 
+                            data-row-id={row.id}
+                            data-col-key={col.key}
+                            className="border-r border-zinc-850 px-3 py-1.5 h-9 relative outline-none text-center text-zinc-700 italic select-none"
+                          >
+                            --
+                          </td>
+                        );
+                      }
+                      const hasJobCard = !!row.travelerPrintedAt;
+                      return (
+                        <td
+                          key={col.key}
+                          data-row-id={row.id}
+                          data-col-key={col.key}
+                          className="border-r border-zinc-850 px-3 py-1 text-center align-middle font-sans font-bold"
+                        >
+                          <div className="flex items-center justify-center gap-2.5 w-full h-full select-none">
+                            {/* Link to Job Details */}
+                            <a
+                              href={`/business/${tenantId}/job/${row.id}`}
+                              className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 text-[10px]"
+                              title="Go to Job Details"
+                            >
+                              <span>Open</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+
+                            {/* Job Card status button */}
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleTriggerPrint(row);
+                              }}
+                              className={cn(
+                                "flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] border leading-none font-black uppercase tracking-wider shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95",
+                                hasJobCard 
+                                  ? "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/25"
+                                  : "bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/25"
+                              )}
+                              title={hasJobCard ? `Job Card printed at: ${row.travelerPrintedAt.toDate ? row.travelerPrintedAt.toDate().toLocaleString() : new Date(row.travelerPrintedAt).toLocaleString()}. Click to reprint.` : "Job Card not printed yet. Click to print card."}
+                            >
+                              <Printer className="w-2.5 h-2.5" />
+                              <span>{hasJobCard ? "Printed" : "No Card"}</span>
+                            </button>
+                          </div>
+                        </td>
                       );
                     }
 
@@ -1110,6 +1210,200 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
           </tbody>
         </table>
       </div>
+
+      {/* Injectable Media Print Stylesheet */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: letter portrait;
+            margin: 0.4in;
+          }
+          body > *:not(.traveler-print-wrapper) {
+            display: none !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .traveler-print-wrapper {
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+          }
+        }
+      ` }} />
+
+      {/* Preparing Job Card Preview Modal */}
+      {printingJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-200 text-left">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2 font-sans">
+                <Printer className="w-4 h-4 text-indigo-500" />
+                Preparing Job Card
+              </h3>
+              <button 
+                onClick={() => setPrintingJob(null)}
+                className="text-xs font-bold text-zinc-500 hover:text-zinc-405 font-sans cursor-pointer"
+              >
+                ✕ Cancel
+              </button>
+            </div>
+            
+            <p className="text-xs text-zinc-400 font-sans">
+              Sending Job Card to printer. If the print dialog does not open automatically, click the print button below.
+            </p>
+
+            {/* Preview container (visible on screen) */}
+            <div className="border border-zinc-805 rounded-2xl p-6 bg-zinc-950 max-h-[55vh] overflow-y-auto flex flex-col items-center custom-scrollbar w-full">
+              <div 
+                id="single-job-card-preview"
+                className="bg-white text-zinc-900 p-8 font-sans w-full max-w-[480px] min-h-[620px] flex flex-col justify-between rounded-xl shadow-md my-2"
+              >
+                {/* Job Card Content */}
+                <div className="border-b-2 border-indigo-900 pb-3 flex justify-between items-start text-left">
+                  <div>
+                    <span className="text-[8px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2 py-0.5 rounded">Job Card</span>
+                    <h1 className="text-xl font-black text-indigo-950 mt-1 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
+                    {printingJob.title && printingJob.title !== printingJob.jobNumber && (
+                      <p className="text-xs font-bold text-zinc-700 mt-0.5">{printingJob.title}</p>
+                    )}
+                    <p className="text-xs font-extrabold text-indigo-900 mt-1.5 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
+                    <p className="text-xs font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {(() => {
+                      const vehicle = printingJob.vehicleId ? vehicles.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+                      return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                    })()}</p>
+                    {printingJob.vehicleId && (
+                      <p className="text-[9px] font-mono text-zinc-550 mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center justify-center my-4 w-full">
+                  <div className="p-2 bg-white border border-zinc-200 rounded-xl shadow-sm scale-90">
+                    <LogoQRCode 
+                      value={`${window.location.origin}/business/${tenantId}/job/${printingJob.id}`}
+                      size={150}
+                      logoUrl={businessLogo}
+                      businessName={businessName}
+                      type="general"
+                    />
+                  </div>
+                  <p className="text-[8px] font-black text-zinc-405 uppercase tracking-widest mt-2">Scan QR to open workflow</p>
+                </div>
+
+                {/* Bottom Section: CompanyCam Photos (Small Scan Card) */}
+                {(printingJob.companyCamId || (printingJob as any).companyCamProjectId) && (
+                  <div className="border-t border-zinc-200 pt-3 flex items-center gap-3">
+                    <div className="p-1.5 bg-white border border-zinc-200 rounded-lg shadow-sm">
+                      <LogoQRCode 
+                        value={`https://app.companycam.com/projects/${printingJob.companyCamId || (printingJob as any).companyCamProjectId}`}
+                        size={55}
+                        logoUrl="/companycam-icon.png"
+                        businessName="CompanyCam"
+                        type="general"
+                      />
+                    </div>
+                    <div className="text-left">
+                      <span className="text-[8px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-1.5 py-0.5 rounded">CompanyCam Photos</span>
+                      <p className="text-[9px] font-bold text-zinc-800 mt-1">Scan QR to view photos</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-2 font-sans">
+              <button 
+                onClick={() => setPrintingJob(null)}
+                className="px-4 py-2 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => handleTriggerPrint(printingJob)}
+                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-750 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Print Card
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Portal to document.body for clean, root-level @media print visibility */}
+      {printingJob && createPortal(
+        <div className="traveler-print-wrapper" style={{ display: 'none' }}>
+          <div 
+            className="bg-white text-zinc-900 p-12 font-sans mx-auto max-w-[800px] h-[10.2in] flex flex-col justify-between"
+          >
+            {/* Top border decor */}
+            <div className="border-b-4 border-indigo-900 pb-6 flex justify-between items-start">
+              <div>
+                <span className="text-[10px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">Job Card</span>
+                <h1 className="text-3xl sm:text-4xl font-black text-indigo-950 mt-3 tracking-tight">JOB #{printingJob.jobNumber || 'N/A'}</h1>
+                {printingJob.title && printingJob.title !== printingJob.jobNumber && (
+                  <p className="text-base sm:text-lg font-bold text-zinc-700 mt-1">{printingJob.title}</p>
+                )}
+                <p className="text-sm sm:text-base font-extrabold text-indigo-900 mt-2 uppercase tracking-wide">Customer: {printingJob.customerName || 'No Customer Assigned'}</p>
+                <p className="text-sm sm:text-base font-extrabold text-zinc-800 mt-1 uppercase tracking-wide">Vehicle: {(() => {
+                  const vehicle = printingJob.vehicleId ? vehicles.find(v => v.vin === printingJob.vehicleId || v.id === printingJob.vehicleId) : null;
+                  return vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}` : 'No Vehicle Assigned';
+                })()}</p>
+                {printingJob.vehicleId && (
+                  <p className="text-xs text-zinc-550 font-mono mt-0.5 font-bold">VIN: {printingJob.vehicleId}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Middle Section: Big QR Code */}
+            <div className="flex flex-col items-center justify-center my-auto py-8">
+              <div className="p-4 bg-white border border-zinc-200 rounded-2xl shadow-sm">
+                <LogoQRCode 
+                  value={`${window.location.origin}/business/${tenantId}/job/${printingJob.id}`}
+                  size={220}
+                  logoUrl={businessLogo}
+                  businessName={businessName}
+                  type="general"
+                />
+              </div>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-4">Scan QR to open workflow instantly</p>
+            </div>
+
+            {/* Bottom Section: CompanyCam Photos (Small Scan Card) */}
+            {(printingJob.companyCamId || (printingJob as any).companyCamProjectId) ? (
+              <div className="border border-zinc-200 rounded-2xl p-6 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="p-2 bg-white border border-zinc-200 rounded-xl shadow-sm">
+                    <LogoQRCode 
+                      value={`https://app.companycam.com/projects/${printingJob.companyCamId || (printingJob as any).companyCamProjectId}`}
+                      size={80}
+                      logoUrl="/companycam-icon.png"
+                      businessName="CompanyCam"
+                      type="general"
+                    />
+                  </div>
+                  <div className="text-left">
+                    <span className="text-[10px] font-black tracking-widest text-indigo-650 uppercase bg-indigo-50 px-2.5 py-1 rounded-md">CompanyCam Photos</span>
+                    <p className="text-xs font-bold text-zinc-800 mt-2">Scan QR code to view project photos instantly on CompanyCam.</p>
+                  </div>
+                </div>
+              </div>
+            ) : <div />}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

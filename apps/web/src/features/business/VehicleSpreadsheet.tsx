@@ -587,7 +587,7 @@ export function VehicleSpreadsheet({ tenantId }: { tenantId: string }) {
             {syncStatus === 'saved' && (
               <>
                 <Cloud className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-emerald-500 font-bold">Cloud Connected</span>
+                <span className="text-emerald-500 font-bold">Cloud Synced</span>
               </>
             )}
             {syncStatus === 'error' && (
