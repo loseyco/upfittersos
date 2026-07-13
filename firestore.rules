@@ -394,6 +394,9 @@ service cloud.firestore {
       match /package_intake/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /wire_rods/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /qr_stickers/{docId} {
         allow read: if true;
         allow write: if isTenant(tenantId) || isSuperAdmin();
