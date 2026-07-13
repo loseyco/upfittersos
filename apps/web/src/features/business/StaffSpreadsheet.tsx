@@ -214,6 +214,11 @@ export function StaffSpreadsheet({ tenantId }: { tenantId: string }) {
     return list.join(', ');
   }, [searchQuery, showArchived]);
 
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setShowArchived(true);
+  };
+
   // Append a placeholder row at the bottom for quick entry
   const rows = useMemo(() => {
     const list = [...filteredStaff];
@@ -836,9 +841,13 @@ export function StaffSpreadsheet({ tenantId }: { tenantId: string }) {
             Showing <strong>{filteredStaff.length}</strong> of <strong>{staff.length}</strong> rows
           </span>
           {activeFiltersSummary && (
-            <span className="text-indigo-400 font-medium truncate max-w-[280px]" title={`Filtered by: ${activeFiltersSummary}`}>
+            <button 
+              onClick={handleClearFilters}
+              className="text-indigo-400 font-medium truncate max-w-[280px] hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-1 select-none border-none bg-transparent p-0" 
+              title="Click to clear all filters and search"
+            >
               &bull; Filtered by {activeFiltersSummary}
-            </span>
+            </button>
           )}
         </div>
       </div>

@@ -262,6 +262,15 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     return list.join('; ');
   }, [searchQuery, colFilters, jobs]);
 
+  const handleClearFilters = () => {
+    setSearchQuery('');
+    setColFilters({
+      jobId: [],
+      status: [],
+      assignedCrew: []
+    });
+  };
+
   // Helpers
   const getCellValue = (row: any, colKey: string): string => {
     if (colKey === 'assignedCrew') {
@@ -702,9 +711,13 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
             Showing <strong>{filteredRows.length}</strong> of <strong>{rows.length}</strong> rows
           </span>
           {activeFiltersSummary && (
-            <span className="text-indigo-400 font-medium truncate max-w-[280px]" title={`Filtered by: ${activeFiltersSummary}`}>
+            <button 
+              onClick={handleClearFilters}
+              className="text-indigo-400 font-medium truncate max-w-[280px] hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-1 select-none border-none bg-transparent p-0" 
+              title="Click to clear all filters and search"
+            >
               &bull; Filtered by {activeFiltersSummary}
-            </span>
+            </button>
           )}
         </div>
       </div>
