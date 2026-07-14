@@ -8,7 +8,7 @@ import {
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, getDocs, getDoc, query
+  onSnapshot, serverTimestamp, getDocs, getDoc, query, where
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
@@ -44,6 +44,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [searchQuery, setSearchQuery] = useState('');
+  const [loadAllHistory, setLoadAllHistory] = useState(false);
   const showArchived = false;
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [printingJob, setPrintingJob] = useState<Job | null>(null);
@@ -179,7 +180,20 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   // Listen to jobs collection real-time
   useEffect(() => {
     if (!tenantId) return;
-    const q = collection(db, `businesses/${tenantId}/jobs`);
+    setLoading(true);
+
+    let q;
+    if (loadAllHistory) {
+      q = query(collection(db, `businesses/${tenantId}/jobs`));
+    } else {
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      q = query(
+        collection(db, `businesses/${tenantId}/jobs`),
+        where('createdAt', '>=', oneYearAgo)
+      );
+    }
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -201,7 +215,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     });
 
     return () => unsubscribe();
-  }, [tenantId]);
+  }, [tenantId, loadAllHistory]);
 
   const uniqueStatuses = useMemo(() => {
     const set = new Set<string>();
@@ -1012,17 +1026,38 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             )}
           </button>
 
-          <div className="relative w-48 sm:w-64">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
-              <Search className="w-3.5 h-3.5" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <div className="relative w-48 sm:w-64">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+                  <Search className="w-3.5 h-3.5" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search sheet..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                />
+              </div>
+              <button
+                onClick={() => setLoadAllHistory(!loadAllHistory)}
+                className={cn(
+                  "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0",
+                  loadAllHistory 
+                    ? "bg-indigo-500/10 border-indigo-500 text-indigo-400" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
+                )}
+                title={loadAllHistory ? "Showing all historical jobs" : "Showing jobs from the last 365 days only"}
+              >
+                {loadAllHistory ? "All History" : "Last 365 Days"}
+              </button>
             </div>
-            <input
-              type="text"
-              placeholder="Search sheet..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
-            />
+            {searchQuery.trim() && !loadAllHistory && (
+              <div className="text-[10px] text-zinc-500 animate-pulse mt-1 px-1">
+                Searching recent jobs only. Click "Last 365 Days" to search all history.
+              </div>
+            )}
           </div>
         </div>
       </div>
