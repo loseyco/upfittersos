@@ -8,7 +8,7 @@ import {
 import { 
   Clock, Play, Square, Coffee, Pizza, 
   ChevronLeft, ChevronRight,
-  Wrench, RefreshCw, AlertCircle, Check
+  Wrench, RefreshCw, AlertCircle, Check, X
 } from 'lucide-react';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useJobClock } from '../timeclock/useJobClock';
@@ -103,6 +103,91 @@ const getCompletedDateMs = (t: any) => {
   return new Date(val).getTime();
 };
 
+// Calculate unallocated time intervals for a session
+const calculateSessionGaps = (ses: any, currentTime: number) => {
+  const getMs = (val: any) => {
+    if (!val) return Date.now();
+    if (val.seconds !== undefined) return val.seconds * 1000;
+    if (val.toDate !== undefined) return val.toDate().getTime();
+    return new Date(val).getTime();
+  };
+
+  const clockInVal = ses.clockIn?.timestamp;
+  if (!clockInVal) return [];
+
+  const sStartMs = getMs(clockInVal);
+  const sEndMs = ses.clockOut?.timestamp ? getMs(ses.clockOut.timestamp) : currentTime;
+
+  const occupied: { start: number; end: number }[] = [];
+  
+  // 1. Add breaks
+  (ses.breaks || []).forEach((b: any) => {
+    const bs = getMs(b.start);
+    const be = b.end ? getMs(b.end) : (ses.status === 'on_break' ? currentTime : bs);
+    occupied.push({ start: bs, end: be });
+  });
+
+  // 2. Add jobs clocked labor
+  (ses.jobs || []).forEach((j: any) => {
+    const js = getMs(j.start);
+    let je = j.end ? getMs(j.end) : null;
+    if (!je) {
+      if (ses.clockOut?.timestamp) {
+        je = getMs(ses.clockOut.timestamp);
+      } else if (ses.status === 'active' && !j.end) {
+        je = currentTime;
+      }
+    }
+    if (je) {
+      occupied.push({ start: js, end: je });
+    }
+  });
+
+  // Sort occupied intervals by start time
+  occupied.sort((a, b) => a.start - b.start);
+
+  // Merge overlapping occupied intervals
+  const mergedOccupied: { start: number; end: number }[] = [];
+  occupied.forEach(interval => {
+    if (mergedOccupied.length === 0) {
+      mergedOccupied.push(interval);
+    } else {
+      const last = mergedOccupied[mergedOccupied.length - 1];
+      if (interval.start <= last.end) {
+        last.end = Math.max(last.end, interval.end);
+      } else {
+        mergedOccupied.push(interval);
+      }
+    }
+  });
+
+  // Subtract merged occupied intervals from [sStartMs, sEndMs] to find gaps
+  const gaps: { start: number; end: number }[] = [];
+  let lastEnd = sStartMs;
+
+  mergedOccupied.forEach(occ => {
+    if (occ.start > lastEnd) {
+      gaps.push({ start: lastEnd, end: occ.start });
+    }
+    lastEnd = Math.max(lastEnd, occ.end);
+  });
+
+  if (lastEnd < sEndMs) {
+    gaps.push({ start: lastEnd, end: sEndMs });
+  }
+
+  // Filter out gaps smaller than 1 minute
+  return gaps.filter(gap => (gap.end - gap.start) >= 60000);
+};
+
+// Combine a time string (HH:MM) with a base timestamp's date
+const parseLocalTimeInput = (timeStr: string, baseDateMs: number) => {
+  const d = new Date(baseDateMs);
+  const [hrs, mins] = timeStr.split(':').map(Number);
+  d.setHours(hrs, mins, 0, 0);
+  return d;
+};
+
 interface TimelineEvent {
   id: string;
   type: 'shift_start' | 'shift_end' | 'break' | 'labor' | 'task_completed' | 'gap';
@@ -121,10 +206,13 @@ interface TimelineEvent {
   remoteReason?: string;
   bayName?: string;
   sessionId?: string;
+  jobIndex?: number;
+  segmentNote?: string;
+  taskNotes?: string;
 }
 
 export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
-  const { user, impersonatedStaff, permissions = {} } = useAuthStore();
+  const { user, impersonatedStaff, permissions = {}, isSuperAdmin } = useAuthStore();
   const { activeSessionId, setStatus: setClockStatus, reset: resetClock } = useTimeclockStore();
 
   // Parse URL search parameters for sharing/auditing
@@ -174,9 +262,206 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     }
   };
 
+  // Gap allocation & Labor editing states
+  const [allocatingGap, setAllocatingGap] = useState<{ sessionId: string, start: number, end: number } | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string>('');
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('');
+  
+  const [editingLabor, setEditingLabor] = useState<{
+    sessionId: string;
+    jobIndex: number;
+    jobId: string;
+    taskId?: string;
+    taskName?: string;
+    start: number;
+    end?: number;
+    note?: string;
+  } | null>(null);
+
+  const myAssignedJobs = useMemo(() => {
+    const jobIds = Array.from(new Set(myAssignedTasks.map(t => t.jobId)));
+    return jobIds.map(id => allJobs.find(j => j.id === id)).filter(Boolean);
+  }, [myAssignedTasks, allJobs]);
+
+  const jobTasks = useMemo(() => {
+    if (!selectedJobId) return [];
+    return myAssignedTasks.filter(t => t.jobId === selectedJobId);
+  }, [selectedJobId, myAssignedTasks]);
+
   const targetStaffId = urlStaffId || (impersonatedStaff?.type === 'staff' ? impersonatedStaff.id : null);
   const effectiveUserId = targetStaffId || user?.uid;
   const effectiveUserUid = staffMember?.userId || (!targetStaffId ? user?.uid : '');
+
+  const isOwnSession = effectiveUserUid === user?.uid;
+  const canApprove = (isSuperAdmin || !!permissions['timeclock.approve']) && !isOwnSession;
+
+  const saveJobsEdit = async (session: any, updatedJobs: any[], editReason: string) => {
+    const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+
+    const updates: any = {
+      jobs: updatedJobs,
+      jobIds: Array.from(new Set(updatedJobs.map((j: any) => j.id))),
+      manuallyEdited: true,
+      updatedAt: serverTimestamp()
+    };
+
+    if (canApprove) {
+      updates.verificationStatus = 'verified';
+      updates.approvedBy = user!.displayName || user!.email || 'Admin';
+    } else {
+      updates.verificationStatus = 'pending';
+      updates.approvedBy = '';
+    }
+
+    await updateDoc(sessionRef, updates);
+
+    if (!canApprove) {
+      const q = query(
+        collection(db, `businesses/${tenantId}/time_edit_requests`),
+        where('sessionId', '==', session.id),
+        where('status', '==', 'pending')
+      );
+      const snap = await getDocs(q);
+
+      const requestData = {
+        sessionId: session.id,
+        userId: session.userId || effectiveUserUid,
+        userName: session.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+        note: editReason || 'Gap allocated or labor segment edited',
+        status: 'pending',
+        originalClockIn: session.clockIn.timestamp,
+        originalClockOut: session.clockOut?.timestamp || null,
+        proposedClockIn: session.clockIn.timestamp,
+        proposedClockOut: session.clockOut?.timestamp || null,
+        originalBreaks: session.breaks || [],
+        proposedBreaks: session.breaks || [],
+        originalJobs: session.jobs || [],
+        proposedJobs: updatedJobs,
+        updatedAt: serverTimestamp()
+      };
+
+      if (snap.empty) {
+        await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+          ...requestData,
+          createdAt: serverTimestamp()
+        });
+      } else {
+        const docRef = doc(db, `businesses/${tenantId}/time_edit_requests`, snap.docs[0].id);
+        await updateDoc(docRef, requestData);
+      }
+    }
+  };
+
+  const handleAllocateGap = async () => {
+    if (!allocatingGap || !selectedJobId || !selectedTaskId) return;
+
+    try {
+      const session = sessions.find(s => s.id === allocatingGap.sessionId);
+      if (!session) return;
+
+      const fullJob = allJobs.find(job => job.id === selectedJobId);
+      const selectedTask = myAssignedTasks.find(t => t.id === selectedTaskId);
+      if (!fullJob || !selectedTask) return;
+
+      const jobs = [...(session.jobs || [])];
+      
+      const newSegment = {
+        id: selectedJobId,
+        name: fullJob.title || 'JOB',
+        taskId: selectedTaskId,
+        taskName: selectedTask.title || 'Labor',
+        bookTime: selectedTask.bookTime || 0,
+        payBasis: selectedTask.payBasis || 'book_time',
+        start: new Date(allocatingGap.start),
+        end: new Date(allocatingGap.end)
+      };
+
+      jobs.push(newSegment);
+
+      const reason = `Allocated gap ${formatClockTime(allocatingGap.start)}-${formatClockTime(allocatingGap.end)} to task: ${selectedTask.title}`;
+
+      await saveJobsEdit(session, jobs, reason);
+
+      toast.success(canApprove ? "Gap allocated successfully" : "Gap allocation request submitted for approval");
+      setAllocatingGap(null);
+      setSelectedJobId('');
+      setSelectedTaskId('');
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to allocate gap.");
+    }
+  };
+
+  const handleSaveLaborEdit = async (timeInStr: string, timeOutStr: string, noteStr: string) => {
+    if (!editingLabor) return;
+
+    try {
+      const session = sessions.find(s => s.id === editingLabor.sessionId);
+      if (!session) return;
+
+      const sessionStartMs = getMs(session.clockIn?.timestamp);
+      const sessionEndMs = session.clockOut?.timestamp ? getMs(session.clockOut.timestamp) : currentTime;
+
+      const newStart = parseLocalTimeInput(timeInStr, editingLabor.start);
+      const newEnd = parseLocalTimeInput(timeOutStr, editingLabor.end || Date.now());
+
+      if (newStart.getTime() < sessionStartMs || newEnd.getTime() > sessionEndMs) {
+        toast.error("Edited segment must fall within the shift boundaries.");
+        return;
+      }
+
+      if (newStart.getTime() >= newEnd.getTime()) {
+        toast.error("Time Out must be after Time In.");
+        return;
+      }
+
+      const jobs = [...(session.jobs || [])];
+      if (editingLabor.jobIndex >= 0 && editingLabor.jobIndex < jobs.length) {
+        jobs[editingLabor.jobIndex] = {
+          ...jobs[editingLabor.jobIndex],
+          start: newStart,
+          end: newEnd,
+          note: noteStr.trim() || null
+        };
+      }
+      
+      const reason = `Edited labor segment: changed times to ${timeInStr}-${timeOutStr} with note: ${noteStr}`;
+
+      await saveJobsEdit(session, jobs, reason);
+
+      toast.success(canApprove ? "Labor segment updated" : "Segment update request submitted for approval");
+      setEditingLabor(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save segment changes.");
+    }
+  };
+
+  const handleDeleteLaborSegment = async () => {
+    if (!editingLabor) return;
+
+    try {
+      const session = sessions.find(s => s.id === editingLabor.sessionId);
+      if (!session) return;
+
+      const jobs = [...(session.jobs || [])];
+      let removedSegmentName = '';
+      if (editingLabor.jobIndex >= 0 && editingLabor.jobIndex < jobs.length) {
+        removedSegmentName = jobs[editingLabor.jobIndex].taskName || jobs[editingLabor.jobIndex].name || 'Labor segment';
+        jobs.splice(editingLabor.jobIndex, 1);
+      }
+
+      const reason = `Deleted labor segment: ${removedSegmentName}`;
+
+      await saveJobsEdit(session, jobs, reason);
+
+      toast.success(canApprove ? "Labor segment deleted" : "Segment deletion request submitted for approval");
+      setEditingLabor(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete labor segment.");
+    }
+  };
 
   const { clockOutOfJob, isProcessing: isJobClocking } = useJobClock(
     tenantId,
@@ -483,6 +768,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     let periodShiftMs = 0;
     let periodHourlyMs = 0;
     let periodBookMs = 0;
+    let periodUnallocatedMs = 0;
 
     filteredSessions.forEach(session => {
       const totalMs = calculateSessionMs(session);
@@ -493,6 +779,12 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       if (!isManual) {
         periodShiftMs += netShiftMs;
       }
+
+      // Sum unallocated gaps
+      const gaps = calculateSessionGaps(session, currentTime);
+      gaps.forEach(gap => {
+        periodUnallocatedMs += (gap.end - gap.start);
+      });
 
       // Sum hourly clocked time
       (session.jobs || []).forEach((j: any) => {
@@ -532,7 +824,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     return {
       totalShiftHours: periodShiftMs / 3600000,
       totalHourlyHours: periodHourlyMs / 3600000,
-      totalBookHours: periodBookMs / 3600000
+      totalBookHours: periodBookMs / 3600000,
+      totalUnallocatedHours: periodUnallocatedMs / 3600000
     };
   }, [filteredSessions, myAssignedTasks, currentTime]);
 
@@ -540,7 +833,6 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   const buildSessionTimeline = (ses: any) => {
     const list: TimelineEvent[] = [];
     const sStartMs = getMs(ses.clockIn?.timestamp);
-    const sEndMs = ses.clockOut?.timestamp ? getMs(ses.clockOut.timestamp) : currentTime;
 
     const getDistanceLabel = (locLat: any, locLng: any) => {
       if (locLat === undefined || locLng === undefined || locLat === null || locLng === null) return '';
@@ -556,68 +848,6 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       return ` (${miles.toFixed(1)} mi from shop)`;
     };
 
-    const getSessionGaps = () => {
-      const occupied: { start: number; end: number }[] = [];
-      
-      // 1. Add breaks
-      (ses.breaks || []).forEach((b: any) => {
-        const bs = getMs(b.start);
-        const be = b.end ? getMs(b.end) : (ses.status === 'on_break' ? currentTime : bs);
-        occupied.push({ start: bs, end: be });
-      });
-
-      // 2. Add jobs clocked labor
-      (ses.jobs || []).forEach((j: any) => {
-        const js = getMs(j.start);
-        let je = j.end ? getMs(j.end) : null;
-        if (!je) {
-          if (ses.clockOut?.timestamp) {
-            je = getMs(ses.clockOut.timestamp);
-          } else if (ses.status === 'active' && !j.end) {
-            je = currentTime;
-          }
-        }
-        if (je) {
-          occupied.push({ start: js, end: je });
-        }
-      });
-
-      // Sort occupied intervals by start time
-      occupied.sort((a, b) => a.start - b.start);
-
-      // Merge overlapping occupied intervals
-      const mergedOccupied: { start: number; end: number }[] = [];
-      occupied.forEach(interval => {
-        if (mergedOccupied.length === 0) {
-          mergedOccupied.push(interval);
-        } else {
-          const last = mergedOccupied[mergedOccupied.length - 1];
-          if (interval.start <= last.end) {
-            last.end = Math.max(last.end, interval.end);
-          } else {
-            mergedOccupied.push(interval);
-          }
-        }
-      });
-
-      // Subtract merged occupied intervals from [sStartMs, sEndMs] to find gaps
-      const gaps: { start: number; end: number }[] = [];
-      let lastEnd = sStartMs;
-
-      mergedOccupied.forEach(occ => {
-        if (occ.start > lastEnd) {
-          gaps.push({ start: lastEnd, end: occ.start });
-        }
-        lastEnd = Math.max(lastEnd, occ.end);
-      });
-
-      if (lastEnd < sEndMs) {
-        gaps.push({ start: lastEnd, end: sEndMs });
-      }
-
-      // Filter out gaps smaller than 1 minute
-      return gaps.filter(gap => (gap.end - gap.start) >= 60000);
-    };
 
     // 1. Shift clock in
     const inCap = ses.clockIn?.captureMethod || 'device';
@@ -705,12 +935,15 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         payBasis: j.payBasis || 'book_time',
         bookTime: j.bookTime || 0,
         isSessionActive: ses.status === 'active',
-        bayName: bayName || undefined
+        bayName: bayName || undefined,
+        jobIndex: jIdx,
+        segmentNote: j.note || '',
+        sessionId: ses.id
       });
     });
 
     // 5. Unallocated time gaps
-    const gaps = getSessionGaps();
+    const gaps = calculateSessionGaps(ses, currentTime);
     gaps.forEach((gap, gIdx) => {
       list.push({
         id: `gap-${ses.id}-${gIdx}`,
@@ -1234,7 +1467,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         )}
 
         {/* Period Stats summary row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-3 border-t border-zinc-150 dark:border-zinc-805/50">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3 border-t border-zinc-150 dark:border-zinc-805/50">
           <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center">
             <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">TIME CLOCK</span>
             <span className="text-xs font-mono font-black text-zinc-900 dark:text-white mt-1">
@@ -1257,6 +1490,12 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
             <span className="text-[8px] font-black text-violet-500 uppercase tracking-widest leading-none">HOURLY LABOR</span>
             <span className="text-xs font-mono font-black text-violet-650 dark:text-violet-400 mt-1">
               {metricsData.totalHourlyHours.toFixed(2)}h
+            </span>
+          </div>
+          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-amber-500/[0.02] border-amber-500/10">
+            <span className="text-[8px] font-black text-amber-600 dark:text-amber-450 uppercase tracking-widest leading-none">UNALLOCATED</span>
+            <span className="text-xs font-mono font-black text-amber-650 dark:text-amber-400 mt-1">
+              {metricsData.totalUnallocatedHours.toFixed(2)}h
             </span>
           </div>
         </div>
@@ -1283,6 +1522,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
             let dayShiftMs = 0;
             let dayHourlyMs = 0;
             let dayBookMs = 0;
+            let dayUnallocatedMs = 0;
             let combinedTimeline: TimelineEvent[] = [];
 
             group.sessions.forEach(session => {
@@ -1301,6 +1541,12 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                         : currentTime);
                   dayHourlyMs += Math.max(0, end - start);
                 }
+              });
+
+              // Sum daily unallocated gaps
+              const gaps = calculateSessionGaps(session, currentTime);
+              gaps.forEach(gap => {
+                dayUnallocatedMs += (gap.end - gap.start);
               });
 
               // Add to combined timeline
@@ -1342,7 +1588,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                  taskName: t.title,
                  payBasis: t.payBasis || 'book_time',
                  bookTime: taskBookHours,
-                 bayName: bayName || undefined
+                 bayName: bayName || undefined,
+                 taskNotes: t.description || t.notes || undefined
                });
              });
 
@@ -1377,6 +1624,10 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                     <span className="text-zinc-300 dark:text-zinc-750">|</span>
                     <span>
                       BOOK WORKED: <span className="font-mono text-zinc-805 dark:text-zinc-300">{(dayBookMs / 3600000).toFixed(2)}h</span>
+                    </span>
+                    <span className="text-zinc-300 dark:text-zinc-750">|</span>
+                    <span className="text-amber-600 dark:text-amber-450">
+                      UNALLOCATED: <span className="font-mono text-amber-650 dark:text-amber-400">{(dayUnallocatedMs / 3600000).toFixed(2)}h</span>
                     </span>
                   </div>
                 </div>
@@ -1473,7 +1724,27 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                     }
 
                     return (
-                      <div key={evt.id} className="p-4 flex items-center justify-between gap-4 hover:bg-zinc-50/[0.3] dark:hover:bg-zinc-955/[0.1] transition-colors">
+                      <div 
+                        key={evt.id} 
+                        onClick={() => {
+                          if (evt.type === 'labor') {
+                            setEditingLabor({
+                              sessionId: evt.sessionId!,
+                              jobIndex: evt.jobIndex!,
+                              jobId: evt.jobId!,
+                              taskId: evt.taskId,
+                              taskName: evt.taskName,
+                              start: evt.timeStart,
+                              end: evt.timeEnd,
+                              note: evt.segmentNote
+                            });
+                          }
+                        }}
+                        className={cn(
+                          "p-4 flex items-center justify-between gap-4 hover:bg-zinc-50/[0.3] dark:hover:bg-zinc-955/[0.1] transition-colors",
+                          evt.type === 'labor' && "cursor-pointer"
+                        )}
+                      >
                         <div className="flex items-center gap-3.5 min-w-0">
                           
                           {/* Visual Left Dot Icon (Gridpass timeline list integration) */}
@@ -1483,7 +1754,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                           )}>
                             {iconNode}
                           </div>
-
+ 
                           <div className="flex flex-col gap-1 min-w-0">
                             {/* Red highlighted time tag */}
                             <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 font-mono block leading-none">
@@ -1491,7 +1762,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                               {evt.timeEnd && ` - ${formatClockTime(evt.timeEnd)}`}
                               {!evt.timeEnd && (evt.type === 'labor' || evt.type === 'break') && " - ACTIVE NOW"}
                             </span>
-
+ 
                             {/* Bold Capitalized Title */}
                             {evt.jobId ? (
                               <a
@@ -1499,6 +1770,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs font-black text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted transition-colors leading-tight uppercase truncate block"
+                                onClick={(e) => e.stopPropagation()}
                               >
                                 {evt.label}
                               </a>
@@ -1507,13 +1779,13 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                                 {evt.label}
                               </h4>
                             )}
-
+ 
                             {evt.bayName && (
                               <span className="text-[9px] text-indigo-500 dark:text-indigo-400 font-bold uppercase tracking-wider block mt-0.5 leading-none">
                                 BAY: {evt.bayName}
                               </span>
                             )}
-
+ 
                             {/* SubLabel & Pay basis tag */}
                             <div className="flex flex-col gap-0.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -1545,6 +1817,17 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                                 <span className="text-[9px] text-amber-500 dark:text-amber-400/80 font-bold uppercase tracking-wider block mt-0.5 leading-none">
                                   {evt.remoteReason}
                                 </span>
+                              )}
+                              
+                              {evt.type === 'task_completed' && evt.taskNotes && (
+                                <p className="text-[10px] text-zinc-500 dark:text-zinc-450 italic mt-1 leading-normal whitespace-pre-wrap max-w-xl">
+                                  Notes: {evt.taskNotes}
+                                </p>
+                              )}
+                              {evt.type === 'labor' && evt.segmentNote && (
+                                <p className="text-[10px] text-zinc-500 dark:text-zinc-450 italic mt-1 leading-normal whitespace-pre-wrap max-w-xl">
+                                  Note: {evt.segmentNote}
+                                </p>
                               )}
                             </div>
                             
@@ -1587,23 +1870,36 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                                     </button>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                  <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                                     <span className="text-[10px] text-zinc-550 dark:text-zinc-405 italic font-semibold">
                                       {sessions.find(s => s.id === evt.sessionId)?.gapNotes?.[`gap_${evt.timeStart}`] 
                                         ? `Note: "${sessions.find(s => s.id === evt.sessionId).gapNotes[`gap_${evt.timeStart}`]}"`
                                         : "No note added."}
                                     </span>
-                                    <button
-                                      onClick={() => setEditingGapKey(`${evt.sessionId}_${evt.timeStart}`)}
-                                      className="text-[9px] font-bold text-indigo-550 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted uppercase tracking-wider cursor-pointer ml-1"
-                                    >
-                                      {sessions.find(s => s.id === evt.sessionId)?.gapNotes?.[`gap_${evt.timeStart}`] ? 'Edit' : 'Add Note'}
-                                    </button>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        onClick={() => setEditingGapKey(`${evt.sessionId}_${evt.timeStart}`)}
+                                        className="text-[9px] font-bold text-indigo-550 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted uppercase tracking-wider cursor-pointer"
+                                      >
+                                        {sessions.find(s => s.id === evt.sessionId)?.gapNotes?.[`gap_${evt.timeStart}`] ? 'Edit Note' : 'Add Note'}
+                                      </button>
+                                      <span className="text-zinc-300 dark:text-zinc-700">|</span>
+                                      <button
+                                        onClick={() => setAllocatingGap({
+                                          sessionId: evt.sessionId!,
+                                          start: evt.timeStart,
+                                          end: evt.timeEnd!
+                                        })}
+                                        className="text-[9px] font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-350 underline decoration-dotted uppercase tracking-wider cursor-pointer"
+                                      >
+                                        Assign to Task
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                               </div>
                             )}
-
+ 
                           </div>
                         </div>
 
@@ -1634,6 +1930,241 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
+      {/* Gap Allocation Modal */}
+      {allocatingGap && (() => {
+        const formattedGapTime = `${formatClockTime(allocatingGap.start)} - ${formatClockTime(allocatingGap.end)}`;
+        const durationMs = allocatingGap.end - allocatingGap.start;
+        const durationMin = Math.round(durationMs / 60000);
+
+        return (
+          <div 
+            className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-zinc-955/60 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setAllocatingGap(null)}
+          >
+            <div 
+              className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200 flex flex-col"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-500/10 rounded-xl">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Allocate Unallocated Time</h3>
+                    <p className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-widest mt-0.5">
+                      {formattedGapTime} ({durationMin} mins)
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setAllocatingGap(null)} 
+                  className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-450 dark:text-zinc-500 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Select Job</label>
+                  <select
+                    value={selectedJobId}
+                    onChange={(e) => {
+                      setSelectedJobId(e.target.value);
+                      setSelectedTaskId('');
+                    }}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">-- Choose an Assigned Job --</option>
+                    {myAssignedJobs.map(job => (
+                      <option key={job.id} value={job.id}>
+                        JOB #{job.jobNumber || 'N/A'} - {job.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-550 uppercase tracking-wider">Select Task</label>
+                  <select
+                    value={selectedTaskId}
+                    onChange={(e) => setSelectedTaskId(e.target.value)}
+                    disabled={!selectedJobId}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    <option value="">-- Choose a Task --</option>
+                    {jobTasks.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.title} ({t.payBasis === 'hourly' ? 'Hourly' : `${t.bookTime || 0}h Book`})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-end gap-2.5">
+                <button
+                  onClick={() => setAllocatingGap(null)}
+                  className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAllocateGap}
+                  disabled={!selectedJobId || !selectedTaskId}
+                  className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm disabled:opacity-50"
+                >
+                  Allocate Time
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Edit Labor Segment Modal */}
+      {editingLabor && (() => {
+        return (
+          <LaborSegmentEditModalInline
+            editingLabor={editingLabor}
+            onClose={() => setEditingLabor(null)}
+            onSave={handleSaveLaborEdit}
+            onDelete={handleDeleteLaborSegment}
+          />
+        );
+      })()}
+
+    </div>
+  );
+}
+
+interface LaborSegmentEditModalInlineProps {
+  editingLabor: {
+    sessionId: string;
+    jobIndex: number;
+    jobId: string;
+    taskId?: string;
+    taskName?: string;
+    start: number;
+    end?: number;
+    note?: string;
+  };
+  onClose: () => void;
+  onSave: (timeIn: string, timeOut: string, note: string) => void;
+  onDelete: () => void;
+}
+
+function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }: LaborSegmentEditModalInlineProps) {
+  const toLocalTimeString24h = (ms: number) => {
+    const d = new Date(ms);
+    const hrs = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    return `${hrs}:${mins}`;
+  };
+
+  const [timeIn, setTimeIn] = useState(toLocalTimeString24h(editingLabor.start));
+  const [timeOut, setTimeOut] = useState(toLocalTimeString24h(editingLabor.end || Date.now()));
+  const [note, setNote] = useState(editingLabor.note || '');
+
+  return (
+    <div 
+      className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-zinc-955/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200 flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-indigo-500/10 rounded-xl">
+              <Wrench className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Edit Labor Segment</h3>
+              <p className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-widest mt-0.5">
+                {editingLabor.taskName || 'GENERAL LABOR'}
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-450 dark:text-zinc-500 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Time In</label>
+              <input
+                type="time"
+                value={timeIn}
+                onChange={(e) => setTimeIn(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Time Out</label>
+              <input
+                type="time"
+                value={timeOut}
+                onChange={(e) => setTimeOut(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-550 uppercase tracking-wider">Custom Note</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Spent additional time diagnosing speaker wiring harness issue"
+              rows={3}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-between gap-2.5">
+          <button
+            onClick={() => {
+              if (confirm("Are you sure you want to delete this segment completely?")) {
+                onDelete();
+              }
+            }}
+            className="px-4 py-2 hover:bg-rose-50 dark:hover:bg-rose-955/20 text-rose-500 rounded-xl text-xs font-black uppercase tracking-wider border border-rose-200 dark:border-rose-900 transition-colors"
+          >
+            Delete
+          </button>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onSave(timeIn, timeOut, note)}
+              className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
