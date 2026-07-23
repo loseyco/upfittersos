@@ -1420,8 +1420,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
           )}
         </div>
 
-        {/* Current Active Task allocation segment (if clocked in) */}
-        {clockStatus === 'clocked_in' && activeSegments.length > 0 && (
+        {/* Current Active Task allocation segment */}
+        {activeSegments.length > 0 && (
           <div className="border-t border-zinc-150 dark:border-zinc-800/80 pt-4 mt-2">
             <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-2">Current Active Labor</span>
             {activeSegments.map((seg: any, idx: number) => {
