@@ -280,8 +280,24 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
   const myAssignedJobs = useMemo(() => {
     const jobIds = Array.from(new Set(myAssignedTasks.map(t => t.jobId)));
-    return jobIds.map(id => allJobs.find(j => j.id === id)).filter(Boolean);
-  }, [myAssignedTasks, allJobs]);
+    return jobIds
+      .map(id => allJobs.find(j => j.id === id))
+      .filter((j): j is any => {
+        if (!j) return false;
+
+        // Check if the job is physically in a bay or parking spot
+        const isInBayOrSpot = !!j.bayId || zones.some(z => z.currentJobId === j.id);
+
+        // Allowed statuses: Open, Active, Almost Ready, Blocked, On Hold, Ready for QC, Ready for Customer, Completed
+        const allowedStatuses = [
+          'Open', 'Active', 'Almost Ready', 'Blocked', 'On Hold',
+          'Ready for QC', 'Ready for Customer', 'Completed'
+        ];
+        const hasMatchingStatus = allowedStatuses.includes(j.status);
+
+        return hasMatchingStatus || isInBayOrSpot;
+      });
+  }, [myAssignedTasks, allJobs, zones]);
 
   const jobTasks = useMemo(() => {
     if (!selectedJobId) return [];
