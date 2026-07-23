@@ -6,8 +6,9 @@ import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
-export function useJobClock(tenantId: string) {
-  const { activeSessionId } = useTimeclockStore();
+export function useJobClock(tenantId: string, customActiveSessionId?: string | null, customStaffId?: string | null) {
+  const storeSessionId = useTimeclockStore(state => state.activeSessionId);
+  const activeSessionId = customActiveSessionId !== undefined ? customActiveSessionId : storeSessionId;
   const [isProcessing, setIsProcessing] = useState(false);
 
   const clockIntoJob = async (jobId: string, jobName: string, taskId?: string, taskName?: string) => {
@@ -81,7 +82,8 @@ export function useJobClock(tenantId: string) {
 
       // Update staff last location
       const { user } = useAuthStore.getState();
-      await updateStaffLastLocation(tenantId, user?.uid, user?.email, loc, `Started Task: ${taskName || jobName}`);
+      const staffId = customStaffId || user?.uid;
+      await updateStaffLastLocation(tenantId, staffId, user?.email, loc, `Started Task: ${taskName || jobName}`);
 
       toast.success(`Clocked into ${taskName || jobName}`);
     } catch (e) {
@@ -135,9 +137,10 @@ export function useJobClock(tenantId: string) {
         });
 
         const { user } = useAuthStore.getState();
+        const staffId = customStaffId || user?.uid;
         await updateStaffLastLocation(
           tenantId, 
-          user?.uid, 
+          staffId, 
           user?.email, 
           loc, 
           closedCount === 1 ? `Stopped Task: ${closedName}` : `Stopped ${closedCount} active tasks`

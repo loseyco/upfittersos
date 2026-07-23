@@ -11,6 +11,7 @@ import { BayMonitorAuthWrapper } from './features/business/BayMonitorAuthWrapper
 import { ParkingMonitorAuthWrapper } from './features/business/ParkingMonitorAuthWrapper';
 import { TimeclockMonitorAuthWrapper } from './features/business/TimeclockMonitorAuthWrapper';
 import { ConferenceRoomMonitorAuthWrapper } from './features/business/ConferenceRoomMonitorAuthWrapper';
+import { UnifiedMonitorAuthWrapper } from './features/business/UnifiedMonitorAuthWrapper';
 import { TvSetupScreen } from './features/business/TvSetupScreen';
 import { TvPairingApprove } from './features/business/TvPairingApprove';
 import { QRRedirector } from './features/business/QRRedirector';
@@ -48,6 +49,7 @@ function App() {
             <Route path="/parking-tv" element={<ParkingMonitorAuthWrapper />} />
             <Route path="/timeclock-tv" element={<TimeclockMonitorAuthWrapper />} />
             <Route path="/conference-tv" element={<ConferenceRoomMonitorAuthWrapper />} />
+            <Route path="/monitor-tv" element={<UnifiedMonitorAuthWrapper />} />
             <Route path="/tv-setup" element={<TvSetupScreen />} />
             <Route path="/pair" element={<TvPairingApprove />} />
             <Route path="/qr" element={<QRRedirector />} />

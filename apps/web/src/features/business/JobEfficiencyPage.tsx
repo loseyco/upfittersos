@@ -219,10 +219,17 @@ export function JobEfficiencyPage({
   const hourlyHours = totalHourlyMs / 3600000;
   const productiveHours = totalBookTimeMs / 3600000;
 
-  // Book hours sold on the job (non-general, non-hourly tasks)
+  // Book hours sold on the job (non-general tasks: flat-rate bookTime + hourly actual clocked time)
   const totalBookHours = tasks
-    .filter(t => !isGeneralTask(t) && t.payBasis !== 'hourly')
-    .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+    .filter(t => !isGeneralTask(t))
+    .reduce((sum, t) => {
+      if (t.payBasis === 'hourly') {
+        const taskSegments = segments.filter(seg => seg.taskId === t.id);
+        const taskActualMs = taskSegments.reduce((s, seg) => s + seg.durationMs, 0);
+        return sum + (taskActualMs / 3600000);
+      }
+      return sum + (parseFloat(t.bookTime) || 0);
+    }, 0);
 
   const overallEfficiency = totalActualHours > 0 ? (totalBookHours / totalActualHours) * 100 : null;
   const varianceHours = totalActualHours - totalBookHours;

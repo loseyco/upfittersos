@@ -4,7 +4,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
-  Search, Building2, ExternalLink, ChevronDown, Clock, MapPin, X
+  Search, Building2, ExternalLink, ChevronDown, Clock, MapPin, X, CheckCircle2, Maximize2, Minimize2
 } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -51,8 +51,30 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
   const canManage = isSuperAdmin || permissions['timeclock.manage'] || permissions['staff.manage'];
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [zoneTypeFilter, setZoneTypeFilter] = useState<'bays_only' | 'all' | 'occupied_bays'>('bays_only');
   const [now, setNow] = useState(Date.now());
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => {
+        console.error(err);
+        toast.error('Unable to enter fullscreen mode');
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => setIsFullscreen(false));
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFSChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => document.removeEventListener('fullscreenchange', handleFSChange);
+  }, []);
 
   // Live Subscription Data
   const [staffList, setStaffList] = useState<StaffMember[]>([]);
@@ -249,6 +271,11 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
         j.id === z.currentJobId || 
         (j.bayId && (j.bayId === z.id || j.bayId === z.name))
       );
+
+      if (zoneTypeFilter === 'occupied_bays' && !activeJobDoc && !z.currentVehicleVin) {
+        return false;
+      }
+
       const jobTitle = activeJobDoc ? (activeJobDoc.jobNumber ? `#${activeJobDoc.jobNumber} - ${activeJobDoc.title}` : activeJobDoc.title).toLowerCase() : '';
       
       const isBayEmpty = !activeJobDoc;
@@ -265,10 +292,14 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     }).sort((a, b) => 
       (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [zonesList, jobsList, vehiclesList, searchTerm]);
+  }, [zonesList, jobsList, vehiclesList, searchTerm, zoneTypeFilter]);
 
   // Filtered and naturally sorted Parking Spots list
   const filteredParking = useMemo(() => {
+    if (zoneTypeFilter === 'bays_only' || zoneTypeFilter === 'occupied_bays') {
+      return [];
+    }
+
     return zonesList.filter(z => {
       if (z.isArchived || (z.type !== 'parking' && z.type !== 'lot')) return false;
       
@@ -295,7 +326,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
     }).sort((a, b) => 
       (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [zonesList, jobsList, vehiclesList, searchTerm]);
+  }, [zonesList, jobsList, vehiclesList, searchTerm, zoneTypeFilter]);
 
   // Zero-Save Live Database Updates for Bay Job Assignments
   const handleBayJobChange = async (zoneId: string, newJobId: string) => {
@@ -372,11 +403,19 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
       // 3. Set bayId on the new job document
       if (newJobId && newJobId !== 'none') {
         const newJobRef = doc(db, `businesses/${tenantId}/jobs`, newJobId);
-        await updateDoc(newJobRef, {
+        const jobUpdates: any = {
           bayId: zoneId,
           lastWorkedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
-        });
+        };
+
+        if (newJobDoc && ['completed', 'complete', 'closed'].includes(newJobDoc.status?.toLowerCase() || '')) {
+          jobUpdates.status = 'Open';
+          jobUpdates.completedAt = null;
+          jobUpdates.readyForCustomerAt = null;
+        }
+
+        await updateDoc(newJobRef, jobUpdates);
         toast.success(`Assigned job to ${zoneDoc?.type === 'parking' ? 'parking spot' : 'bay'}.`);
       } else {
         toast.success(`Cleared job from ${zoneDoc?.type === 'parking' ? 'parking spot' : 'bay'}.`);
@@ -493,7 +532,10 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
   };
 
   return (
-    <div className="h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 font-sans text-xs select-none">
+    <div className={cn(
+      "h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 font-sans text-xs select-none",
+      isFullscreen && "fixed inset-0 z-[99999] p-6 overflow-y-auto w-screen h-screen m-0 bg-zinc-950"
+    )}>
       
       {/* ----------------------------------------------------
           TOP WORKBOARD HEADER
@@ -509,6 +551,17 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Display"}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-extrabold transition-all border border-zinc-200 dark:border-zinc-700/80 active:scale-95 shrink-0"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-500" /> : <Maximize2 className="w-3.5 h-3.5 text-indigo-500" />}
+              <span className="hidden sm:inline">
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </span>
+            </button>
+
             <div className="flex items-center gap-1 text-[10px] font-black uppercase text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/25">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Live Connected
@@ -517,7 +570,7 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
         </div>
 
         {/* Filters and Inputs Toolbar */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full border-t border-zinc-100 dark:border-zinc-800 pt-3">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full border-t border-zinc-100 dark:border-zinc-800 pt-3">
           
           {/* Search bar */}
           <div className="relative w-full sm:w-64">
@@ -529,6 +582,48 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white"
             />
+          </div>
+
+          {/* Zone View Filter Options */}
+          <div className="flex flex-wrap items-center gap-1 bg-zinc-100 dark:bg-zinc-800/80 p-1 rounded-xl border border-zinc-200 dark:border-zinc-700/80">
+            <button
+              onClick={() => setZoneTypeFilter('bays_only')}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5",
+                zoneTypeFilter === 'bays_only' 
+                  ? "bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm" 
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              )}
+            >
+              <Building2 className="w-3.5 h-3.5" />
+              <span>Service Bays Only</span>
+            </button>
+
+            <button
+              onClick={() => setZoneTypeFilter('occupied_bays')}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5",
+                zoneTypeFilter === 'occupied_bays' 
+                  ? "bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 shadow-sm" 
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              )}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Active Occupied Bays</span>
+            </button>
+
+            <button
+              onClick={() => setZoneTypeFilter('all')}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5",
+                zoneTypeFilter === 'all' 
+                  ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-sm" 
+                  : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              )}
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span>Show Bays + Parking</span>
+            </button>
           </div>
         </div>
       </div>
@@ -841,14 +936,16 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
             )}
 
             {/* ==================== PARKING SPOTS SECTION ==================== */}
-            <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-t border-b border-zinc-200 dark:border-zinc-800 select-none">
-              <td colSpan={7} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
-                  <span>Parking Spots ({filteredParking.length})</span>
-                </div>
-              </td>
-            </tr>
+            {zoneTypeFilter === 'all' && (
+              <>
+                <tr className="bg-zinc-100 dark:bg-zinc-900/80 text-zinc-600 dark:text-zinc-400 font-bold border-t border-b border-zinc-200 dark:border-zinc-800 select-none">
+                  <td colSpan={7} className="p-3 font-extrabold text-xs tracking-wider uppercase bg-zinc-100 dark:bg-zinc-900/60 pl-4">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-indigo-500 shrink-0" />
+                      <span>Parking Spots ({filteredParking.length})</span>
+                    </div>
+                  </td>
+                </tr>
 
             {filteredParking.length === 0 ? (
               <tr>
@@ -1105,7 +1202,9 @@ export function BayWorksheet({ tenantId }: { tenantId: string }) {
                 );
               })
             )}
-          </tbody>
+          </>
+        )}
+      </tbody>
         </table>
       </div>
     </div>

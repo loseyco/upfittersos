@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase/config';
 import { 
   X, Printer, Download, Search, AlertTriangle, 
   CheckCircle, Calendar, ArrowRight, Info,
-  Building2, ChevronDown, Pencil, ExternalLink
+  Building2, ChevronDown, Pencil, ExternalLink, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TimeSessionEditorModal } from './TimeSessionEditorModal';
@@ -598,6 +598,40 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
 
         // Distribute book time to assigned staff members
         const assignments = task.assignedStaff || [];
+        
+        // Calculate clocked time for each assigned staff member on this task in this period
+        const staffClockedMap: Record<string, number> = {};
+        let totalTaskClockedMs = 0;
+
+        assignments.forEach((assign: any) => {
+          const staffId = assign.id;
+          if (!staffId) return;
+
+          const rawStaff = staffList.find((s: any) => s.id === staffId || s.userId === staffId);
+          const key = rawStaff ? (rawStaff.userId || rawStaff.id) : staffId;
+          const emp = employeeMap.get(key);
+
+          let taskClockedMs = 0;
+          if (emp && emp.sessions) {
+            emp.sessions.forEach((sess: any) => {
+              if (sess.jobs) {
+                sess.jobs.forEach((job: any) => {
+                  if (job.taskId === task.id) {
+                    const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
+                    const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
+                    const duration = Math.max(0, end - start);
+                    if (duration > 5000) {
+                      taskClockedMs += duration;
+                    }
+                  }
+                });
+              }
+            });
+          }
+          staffClockedMap[staffId] = taskClockedMs;
+          totalTaskClockedMs += taskClockedMs;
+        });
+
         assignments.forEach((assign: any) => {
           const staffId = assign.id;
           if (!staffId) return;
@@ -612,7 +646,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
             const taskWeekPayType = getPayTypeForWeek(emp, isTaskWeek1);
 
             // Calculate actual clocked hours and collect shift segments for this task by this employee in this period
-            let taskClockedMs = 0;
+            const taskClockedMs = staffClockedMap[staffId] || 0;
             const taskSegments: Array<{ start: any, end: any, notes?: string }> = [];
             if (emp.sessions) {
               emp.sessions.forEach((sess: any) => {
@@ -623,7 +657,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                       const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
                       const duration = Math.max(0, end - start);
                       if (duration > 5000) {
-                        taskClockedMs += duration;
                         taskSegments.push({ start: job.start, end: job.end, notes: job.notes });
                       }
                     }
@@ -632,7 +665,17 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
               });
             }
 
-            const share = (parseFloat(assign.percentage) || 100) / 100;
+            // Determine share: dynamic proportional split based on clocked actual time, fallback to even split
+            let share = 0;
+            const hasManualPercentage = typeof assign.percentage === 'number' && assign.percentage < 100 && assign.percentage > 0;
+            if (hasManualPercentage) {
+              share = assign.percentage / 100;
+            } else if (totalTaskClockedMs > 0) {
+              share = taskClockedMs / totalTaskClockedMs;
+            } else {
+              share = 1 / assignments.length;
+            }
+
             const originalBookMs = bookMs * share;
             const earnedMs = isHourlyTask ? taskClockedMs : (task.isRework ? 0 : originalBookMs);
 
@@ -994,6 +1037,10 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
   const styleBlock = (
     <style dangerouslySetInnerHTML={{__html: `
       @media print {
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
         /* Hide sidebar, dashboards, navbars, filters */
         ${!isInline ? `
         #root > div > div:first-child,
@@ -1645,8 +1692,11 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                     {emp.completedTasks && emp.completedTasks.length > 0 && (
                                       <div className="border border-zinc-150 dark:border-zinc-800 rounded-xl overflow-hidden mt-6">
                                         <div className="bg-zinc-50 dark:bg-zinc-900/50 px-4 py-2 border-b border-zinc-150 dark:border-zinc-800 flex justify-between items-center">
-                                          <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (In this period)</span>
-                                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-450 bg-emerald-500/10 px-2 py-0.5 rounded">
+                                          <div className="flex flex-col">
+                                            <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (Pay Credits Earned)</span>
+                                            <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5">Tasks completed/approved during this period that count toward payroll</span>
+                                          </div>
+                                          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-455 bg-emerald-500/10 px-2 py-0.5 rounded">
                                             Total Book Completed: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
                                           </span>
                                         </div>
@@ -1660,6 +1710,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                                 <th className="px-3 py-2 text-right w-[8%]">Book Time</th>
                                                 <th className="px-3 py-2 text-right w-[8%]">Clocked Actual</th>
                                                 <th className="px-3 py-2 text-right w-[6%]">Share</th>
+                                                <th className="px-3 py-2 text-right w-[8%] font-bold text-amber-500">Eff %</th>
                                                 <th className="px-3 py-2 text-right w-[8%] font-bold text-emerald-600 dark:text-emerald-450">Earned</th>
                                                 <th className="px-3 py-2 w-[18%]">Notes / Comments</th>
                                                 <th className="px-3 py-2 text-center w-[4%] font-bold">Tech</th>
@@ -1711,11 +1762,16 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                                     <td className="px-3 py-2 text-right font-mono">
                                                       {(t.share * 100).toFixed(0)}%
                                                     </td>
+                                                    <td className="px-3 py-2 text-right font-mono font-bold text-amber-500">
+                                                      {t.clockedHours > 0 ? (
+                                                        t.payBasis === 'hourly' ? '100%' : `${Math.round((t.bookHours / t.clockedHours) * 100)}%`
+                                                      ) : '—'}
+                                                    </td>
                                                     <td className="px-3 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-455">
                                                       {t.isRework ? (
                                                         <span className="bg-rose-500/10 text-rose-600 dark:text-rose-455 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">Rework</span>
                                                       ) : t.payBasis === 'hourly' ? (
-                                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Paid Hourly</span>
+                                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Hourly</span>
                                                       ) : (
                                                         `${t.bookHours.toFixed(2)}h`
                                                       )}
@@ -1879,17 +1935,21 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                       }, 0)
                     : 0;
 
-                  const completedBookMs = emp.payType === 'flat_rate'
-                    ? (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time').reduce((acc: number, t: any) => acc + (t.bookHours * 3600000), 0)
+                  const completedBookMs = (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time').reduce((acc: number, t: any) => acc + (t.bookHours * 3600000), 0);
+
+                  // Shift efficiency formula: (completed book time + clocked hourly task hours) / total clocked timecard shift hours
+                  const totalShiftClockedHours = emp.totals.totalNativeMs / 3600000;
+                  const completedBookHours = completedBookMs / 3600000;
+                  const completedHourlyHours = (emp.completedTasks || []).filter((t: any) => t.payBasis === 'hourly').reduce((sum: number, t: any) => sum + t.clockedHours, 0);
+                  const earnedHours = completedBookHours + completedHourlyHours;
+                  const overallEffPercent = totalShiftClockedHours > 0 
+                    ? Math.round((earnedHours / totalShiftClockedHours) * 100) 
                     : 0;
 
-                  // New efficiency formula: completed book time of flat rate tasks / actual clocked hours on those tasks
-                  const completedFlatRateTasks = (emp.completedTasks || []).filter((t: any) => t.payBasis === 'book_time');
-                  const totalFlatRateBookHours = completedFlatRateTasks.reduce((sum: number, t: any) => sum + t.bookHours, 0);
-                  const totalFlatRateClockedHours = completedFlatRateTasks.reduce((sum: number, t: any) => sum + t.clockedHours, 0);
-                  const overallEffPercent = totalFlatRateClockedHours > 0 
-                    ? Math.round((totalFlatRateBookHours / totalFlatRateClockedHours) * 100) 
-                    : (emp.payType === 'flat_rate' ? 0 : 100);
+                  // Off-task time calculation: total clocked shift time - total time clocked into tasks
+                  const totalTaskClockedMs = Object.values(taskTotalClockedMsMap).reduce((sum, val) => sum + val, 0);
+                  const idleMs = Math.max(0, emp.totals.totalNativeMs - totalTaskClockedMs);
+                  const idleHours = idleMs / 3600000;
 
                   const deptName = dept?.name || 'Unassigned';
                   const showDeptDivider = (emp.departmentId || 'unassigned') !== lastDeptId;
@@ -1935,22 +1995,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             {(emp.totals.totalNativeMs / 3600000).toFixed(2)}h
                           </span>
                         </div>
-                        {emp.payType === 'flat_rate' && (
-                          <>
-                            <div className="inline-block text-left sm:text-right mr-4 align-top">
-                              <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">Overall Eff</span>
-                              <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono" title={`${totalFlatRateBookHours.toFixed(2)}h completed book / ${totalFlatRateClockedHours.toFixed(2)}h clocked on completed tasks`}>
-                                {totalFlatRateClockedHours > 0 ? `${overallEffPercent}%` : '—'}
-                              </span>
-                            </div>
-                            <div className="inline-block text-left sm:text-right mr-4 align-top">
-                              <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Period Book Hours</span>
-                              <span className="text-sm font-black text-emerald-600 dark:text-emerald-455 font-mono">
-                                {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
-                              </span>
-                            </div>
-                          </>
-                        )}
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
+                          <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest block">Off Task Time</span>
+                          <span className="text-sm font-black text-rose-600 dark:text-rose-450 font-mono">
+                            {idleHours.toFixed(2)}h
+                          </span>
+                        </div>
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
+                          <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest block">Shift Eff</span>
+                          <span className="text-sm font-black text-amber-600 dark:text-amber-450 font-mono" title={`${earnedHours.toFixed(2)}h earned / ${totalShiftClockedHours.toFixed(2)}h clocked shift`}>
+                            {totalShiftClockedHours > 0 ? `${overallEffPercent}%` : '—'}
+                          </span>
+                        </div>
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
+                          <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">Period Book Hours</span>
+                          <span className="text-sm font-black text-emerald-600 dark:text-emerald-455 font-mono">
+                            {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
+                          </span>
+                        </div>
                         <div className="inline-block text-left sm:text-right mr-4 align-top">
                           <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block">Period Pay Hours</span>
                           <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
@@ -1974,6 +2036,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                             )}
                           </div>
                         </div>
+                    {/* Detailed Log Table Header */}
+                    <div className="mb-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 px-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Daily Clocked Work Logs (Tasks Worked On)</span>
+                      <div className="flex flex-wrap items-center gap-3 text-[9px] uppercase font-black tracking-wider text-zinc-400">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded bg-emerald-500/80 dark:bg-emerald-600/85 border border-emerald-600/20"></span>
+                          <span>On Task</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded bg-amber-450 dark:bg-amber-500/80 border border-amber-600/20"></span>
+                          <span>Break</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded bg-zinc-200 dark:bg-zinc-750"></span>
+                          <span>Off Task</span>
+                        </div>
+                      </div>
+                    </div>
                     {/* Detailed Log Table */}
                     <div className="overflow-x-auto print:overflow-visible print:block print:static print:w-full print:h-auto">
                       <table className="w-full text-xs text-left">
@@ -2078,6 +2158,45 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           </div>
                                         </div>
                                       </div>
+
+                                      {/* Daily Chronological Timeline Bar */}
+                                      <div className="mt-2.5 relative w-full h-4 bg-zinc-200 dark:bg-zinc-750 rounded-md overflow-hidden flex items-center border border-zinc-350/20 dark:border-zinc-700/30 print:border-zinc-300">
+                                        {/* Breaks Overlay */}
+                                        {session.breaks?.map((b: any, bIdx: number) => {
+                                          const bStartOffset = calculateDuration(session.clockIn.timestamp, b.start);
+                                          const bEndTs = b.end || sessionEnd;
+                                          const bDur = calculateDuration(b.start, bEndTs);
+                                          const leftPct = totalMs > 0 ? Math.min(100, (bStartOffset / totalMs) * 100) : 0;
+                                          const widthPct = totalMs > 0 ? Math.min(100 - leftPct, (bDur / totalMs) * 100) : 0;
+                                          
+                                          return (
+                                            <div 
+                                              key={`break-${bIdx}`}
+                                              className="absolute top-0 h-full bg-amber-450 dark:bg-amber-500/80"
+                                              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                                              title={`Break: ${formatDurationDecimal(bDur)}h`}
+                                            />
+                                          );
+                                        })}
+                                        
+                                        {/* Job Segments Overlay */}
+                                        {session.jobs?.map((job: any, jIdx: number) => {
+                                          const jStartOffset = job.start ? calculateDuration(session.clockIn.timestamp, job.start) : 0;
+                                          const jEndTs = job.end || sessionEnd;
+                                          const jDur = calculateDuration(job.start, jEndTs);
+                                          const leftPct = totalMs > 0 ? Math.min(100, (jStartOffset / totalMs) * 100) : 0;
+                                          const widthPct = totalMs > 0 ? Math.min(100 - leftPct, (jDur / totalMs) * 100) : 0;
+                                          
+                                          return (
+                                            <div 
+                                              key={`job-seg-${jIdx}`}
+                                              className="absolute top-0 h-full bg-emerald-500/80 dark:bg-emerald-600/85 border-r border-l border-emerald-600/20"
+                                              style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                                              title={`Task: ${job.taskName || 'Production'}\nDuration: ${formatDurationDecimal(jDur)}h`}
+                                            />
+                                          );
+                                        })}
+                                      </div>
                                     </td>
                                   </tr>
                                   {/* Task Rows */}
@@ -2086,7 +2205,22 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                     const segmentDuration = calculateDuration(j.start, segmentEnd);
                                     const actualHours = segmentDuration / 3600000;
                                     
+                                    let segmentStartStr = '—';
+                                    let segmentEndStr = '—';
+                                    if (j.start) {
+                                      const segmentStartDate = j.start?.toDate ? j.start.toDate() : new Date(j.start);
+                                      segmentStartStr = segmentStartDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    }
+                                    if (j.end) {
+                                      const segmentEndDate = j.end?.toDate ? j.end.toDate() : new Date(j.end);
+                                      segmentEndStr = segmentEndDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                    } else if (j.start) {
+                                      segmentEndStr = 'Active';
+                                    }
+                                    
                                     const taskRef = tasksList?.find((t: any) => t.id === j.taskId);
+                                    const taskStatus = (taskRef?.status || '').toLowerCase();
+                                    const isCompleted = ['completed', 'qc', 'qc complete'].includes(taskStatus);
                                     let resolvedPayBasis = 'hourly';
                                     let resolvedBookHours = 0;
 
@@ -2111,56 +2245,6 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                       ? 100 
                                       : (totalActualHoursForTask >= 0.10 && segmentBookTime > 0 ? Math.round((segmentBookTime / totalActualHoursForTask) * 100) : null);
 
-                                    // Check task status and compute badge
-                                    let statusBadge = null;
-                                    if (isHourlySegment) {
-                                      statusBadge = (
-                                        <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
-                                          ✓ Paid Hourly
-                                        </span>
-                                      );
-                                    } else if (taskRef) {
-                                      const status = (taskRef.status || '').toLowerCase();
-                                      const isCompleted = ['completed', 'qc', 'qc complete'].includes(status);
-                                      const compTimeStr = taskRef.completedAt || taskRef.qcCompletedAt;
-                                      const compTime = compTimeStr ? new Date(compTimeStr).getTime() : 0;
-                                      const isWithinPeriod = compTime >= startDate.getTime() && compTime <= endDate.getTime();
-                                      const isRework = !!taskRef.isRework;
-
-                                      if (isRework) {
-                                        statusBadge = (
-                                          <span className="bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
-                                            ⚠️ Rework (Unpaid)
-                                          </span>
-                                        );
-                                      } else if (isCompleted && isWithinPeriod) {
-                                        statusBadge = (
-                                          <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 border border-emerald-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
-                                            ✓ Paid (Completed)
-                                          </span>
-                                        );
-                                      } else if (isCompleted && !isWithinPeriod) {
-                                        const compDateStr = new Date(compTime).toLocaleDateString([], { month: 'short', day: 'numeric' });
-                                        statusBadge = (
-                                          <span className="bg-zinc-100 dark:bg-zinc-800 text-zinc-550 border border-zinc-200 dark:border-zinc-700 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none" title={`Completed on ${compDateStr} (Paid in another period)`}>
-                                            Paid on {compDateStr}
-                                          </span>
-                                        );
-                                      } else {
-                                        statusBadge = (
-                                          <span className="bg-amber-500/10 text-amber-605 dark:text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
-                                            ⏳ In Progress (Unpaid)
-                                          </span>
-                                        );
-                                      }
-                                    } else {
-                                      statusBadge = (
-                                        <span className="bg-amber-500/10 text-amber-605 dark:text-amber-400 border border-amber-500/25 px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none">
-                                          ⏳ In Progress (Unpaid)
-                                        </span>
-                                      );
-                                    }
-
                                     return (
                                       <tr key={`${session.id}-seg-${segmentIdx}`} className="hover:bg-zinc-50/30 dark:hover:bg-zinc-800/10">
                                         <td className="px-2 py-2.5 text-zinc-800 dark:text-zinc-300 print:text-[9px] font-medium whitespace-normal break-words">
@@ -2184,7 +2268,19 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                             }`}>
                                               {isHourlySegment ? 'Hourly' : 'Book Time'}
                                             </span>
-                                            {statusBadge}
+                                            {taskRef && (
+                                              <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-black tracking-wider leading-none ${
+                                                isCompleted
+                                                  ? 'bg-emerald-500/10 text-emerald-605 dark:text-emerald-455 border border-emerald-500/20'
+                                                  : 'bg-amber-500/10 text-amber-605 dark:text-amber-400 border border-amber-500/20'
+                                              }`}>
+                                                {isCompleted ? 'Completed' : 'In Progress'}
+                                              </span>
+                                            )}
+                                            <span className="text-[9px] text-zinc-400 dark:text-zinc-500 font-mono font-bold ml-1.5 flex items-center gap-1">
+                                              <Clock className="w-3 h-3 opacity-60" />
+                                              {segmentStartStr} – {segmentEndStr}
+                                            </span>
                                           </div>
                                         </td>
                                         <td 
@@ -2477,7 +2573,10 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                     {emp.completedTasks && emp.completedTasks.length > 0 && (
                       <div className="mt-8 space-y-3 text-left">
                         <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1.5">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (In this period)</span>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Completed Tasks (Pay Credits Earned)</span>
+                            <span className="text-[9px] text-zinc-400 dark:text-zinc-550 font-medium mt-0.5">Tasks completed/approved during this period that count toward payroll</span>
+                          </div>
                           <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-450 bg-emerald-500/10 px-2 py-0.5 rounded">
                             Total Book Completed: {(emp.totals.totalBookMs / 3600000).toFixed(2)}h
                           </span>
@@ -2492,6 +2591,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                 <th className="px-2 py-2 text-right w-[8%]">Book Time</th>
                                 <th className="px-2 py-2 text-right w-[8%]">Clocked Actual</th>
                                 <th className="px-2 py-2 text-right w-[6%]">Share</th>
+                                <th className="px-2 py-2 text-right w-[8%] font-bold text-amber-500">Eff %</th>
                                 <th className="px-2 py-2 text-right w-[8%] font-bold text-emerald-600 dark:text-emerald-450">Earned</th>
                                 <th className="px-2 py-2 w-[18%]">Notes / Comments</th>
                                 <th className="px-2 py-2 text-center w-[4%] font-bold print:border-l print:border-zinc-300">Tech</th>
@@ -2541,11 +2641,16 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                     <td className="px-2 py-2 text-right font-mono">
                                       {(t.share * 100).toFixed(0)}%
                                     </td>
+                                    <td className="px-2 py-2 text-right font-mono font-bold text-amber-500">
+                                      {t.clockedHours > 0 ? (
+                                        t.payBasis === 'hourly' ? '100%' : `${Math.round((t.bookHours / t.clockedHours) * 100)}%`
+                                      ) : '—'}
+                                    </td>
                                     <td className="px-2 py-2 text-right font-mono font-bold text-emerald-600 dark:text-emerald-450">
                                       {t.isRework ? (
                                         <span className="bg-rose-500/10 text-rose-600 dark:text-rose-455 px-1.5 py-0.5 rounded text-[9px] uppercase font-black">Rework</span>
                                       ) : t.payBasis === 'hourly' ? (
-                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Paid Hourly</span>
+                                        <span className="text-indigo-600 dark:text-indigo-400 text-[10px]" title="Paid hourly under shift clock-ins">Hourly</span>
                                       ) : (
                                         `${t.bookHours.toFixed(2)}h`
                                       )}

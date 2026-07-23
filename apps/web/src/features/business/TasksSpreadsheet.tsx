@@ -7,17 +7,24 @@ import {
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, query
+  onSnapshot, serverTimestamp, query, limit, where
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 
 export interface Task {
   id: string;
-  name: string;
+  name?: string;
+  title?: string;
+  description?: string;
   bookHours?: number;
+  bookTime?: number;
+  payBasis?: string;
+  sortOrder?: number | string;
   status?: string;
   assignedCrew?: string[];
+  assignedStaff?: Array<{ id: string; name: string }>;
+  assignedStaffIds?: string[];
   notes?: string;
   completedAt?: any;
   completedBy?: string;
@@ -32,11 +39,15 @@ export interface Job {
   customerName?: string;
   vehicleId?: string;
   isArchived?: boolean;
+  createdAt?: any;
+  bayId?: string;
 }
 
 export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [zones, setZones] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<Record<string, Task[]>>({});
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
@@ -64,14 +75,27 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Load active jobs
+  // Load active/actionable jobs (ignore Completed/Closed to match the Jobs Worksheet)
   useEffect(() => {
     if (!tenantId) return;
-    const q = query(collection(db, `businesses/${tenantId}/jobs`));
+    const q = query(
+      collection(db, `businesses/${tenantId}/jobs`),
+      where('status', 'not-in', ['Completed', 'Closed'])
+    );
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Job))
-                       .filter(j => !j.isArchived);
+                       .filter(j => {
+                         if (j.isArchived) return false;
+                         if (j.createdAt) {
+                           const created = j.createdAt.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+                           const oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+                           if (!isNaN(created.getTime()) && created.getTime() < oneYearAgo) return false;
+                         }
+                         return true;
+                       });
       setJobs(list);
+    }, (err) => {
+      console.warn("Could not load active jobs:", err);
     });
     return unsub;
   }, [tenantId]);
@@ -85,6 +109,58 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     });
     return unsub;
   }, [tenantId]);
+
+  // Load time sessions
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      limit(200)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.warn("Could not load time sessions", err);
+    });
+    return unsub;
+  }, [tenantId]);
+
+  // Load zones
+  useEffect(() => {
+    if (!tenantId) return;
+    const q = query(collection(db, `businesses/${tenantId}/zones`));
+    const unsub = onSnapshot(q, (snap) => {
+      setZones(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => {
+      console.warn("Could not load zones:", err);
+    });
+    return unsub;
+  }, [tenantId]);
+
+  const getTaskLoggedHours = (jobId: string, taskId: string) => {
+    let totalMs = 0;
+    sessions.forEach(session => {
+      const segments = session.jobs || [];
+      segments.forEach((seg: any) => {
+        if (seg.id === jobId && seg.taskId === taskId) {
+          const start = seg.start?.seconds ? seg.start.seconds * 1000 : new Date(seg.start).getTime();
+          let end = seg.end?.seconds ? seg.end.seconds * 1000 : (seg.end ? new Date(seg.end).getTime() : null);
+          
+          if (!end) {
+            // Segment is active
+            if (session.status === 'active' || session.status === 'on_break') {
+              end = Date.now();
+            }
+          }
+          
+          if (start && end && end > start) {
+            totalMs += (end - start);
+          }
+        }
+      });
+    });
+    return totalMs / (1000 * 60 * 60);
+  };
 
   // Subscribe to tasks of active jobs
   const activeJobIds = useMemo(() => {
@@ -133,7 +209,9 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
       taskId: string;
       jobNumber: string;
       jobTitle: string;
+      location: string;
       name: string;
+      loggedHours: number;
       bookHours: string;
       status: string;
       assignedCrew: string[];
@@ -142,20 +220,50 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
       completedBy: string;
     }> = [];
 
-    jobs.forEach(job => {
-      const jobTasks = tasksMap[job.id] || [];
+    // Sort jobs by Job Number (numerical if possible, else string comparison)
+    const sortedJobs = [...jobs].sort((a, b) => {
+      const aNum = parseInt(a.jobNumber || '0', 10);
+      const bNum = parseInt(b.jobNumber || '0', 10);
+      if (!isNaN(aNum) && !isNaN(bNum) && aNum !== bNum) {
+        return aNum - bNum;
+      }
+      return (a.jobNumber || '').localeCompare(b.jobNumber || '');
+    });
+
+    sortedJobs.forEach(job => {
+      // Sort tasks within each job by sortOrder first, and task title second
+      const jobTasks = [...(tasksMap[job.id] || [])].sort((a, b) => {
+        const aOrder = typeof a.sortOrder === 'number' ? a.sortOrder : parseInt(a.sortOrder || '999999', 10);
+        const bOrder = typeof b.sortOrder === 'number' ? b.sortOrder : parseInt(b.sortOrder || '999999', 10);
+        const aOrderNum = isNaN(aOrder) ? 999999 : aOrder;
+        const bOrderNum = isNaN(bOrder) ? 999999 : bOrder;
+        if (aOrderNum !== bOrderNum) return aOrderNum - bOrderNum;
+        
+        const aTitle = a.title || a.name || '';
+        const bTitle = b.title || b.name || '';
+        return aTitle.localeCompare(bTitle);
+      });
+
+      const activeZone = zones.find(z => z.currentJobId === job.id) || zones.find(z => z.id === job.bayId);
+      const locationName = activeZone ? activeZone.name : '';
+
       jobTasks.forEach(task => {
+        const loggedHours = getTaskLoggedHours(job.id, task.id);
         list.push({
           id: `${job.id}_${task.id}`,
           jobId: job.id,
           taskId: task.id,
           jobNumber: job.jobNumber || '',
           jobTitle: job.title || '',
-          name: task.name || '',
-          bookHours: String(task.bookHours ?? ''),
+          location: locationName,
+          name: task.title || task.name || '',
+          loggedHours: loggedHours,
+          bookHours: task.payBasis === 'hourly' ? 'Hourly' : String(task.bookHours ?? task.bookTime ?? ''),
           status: task.status || 'pending',
-          assignedCrew: task.assignedCrew || [],
-          notes: task.notes || '',
+          assignedCrew: task.assignedCrew && task.assignedCrew.length > 0
+            ? task.assignedCrew
+            : (task.assignedStaff || []).map((s: any) => s.name || s.displayName || s.id),
+          notes: task.description || task.notes || '',
           completedAt: task.completedAt || null,
           completedBy: task.completedBy || ''
         });
@@ -163,7 +271,7 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     });
 
     return list;
-  }, [jobs, tasksMap]);
+  }, [jobs, tasksMap, sessions, zones]);
 
   // Filter values
 
@@ -187,13 +295,14 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
   const COLUMNS = useMemo(() => [
     { key: 'jobNumber', label: 'Job #', letter: 'A', type: 'text' },
     { key: 'jobTitle', label: 'Job Title', letter: 'B', type: 'text' },
-    { key: 'name', label: 'Task Name', letter: 'C', type: 'text' },
-    { key: 'status', label: 'Status', letter: 'D', type: 'status-select' },
-    { key: 'bookHours', label: 'Book Hours', letter: 'E', type: 'number' },
-    { key: 'assignedCrew', label: 'Assigned Crew', letter: 'F', type: 'crew-select' },
-    { key: 'notes', label: 'Task Notes', letter: 'G', type: 'text' },
-    { key: 'completedAt', label: 'Completed At', letter: 'H', type: 'datetime' },
-    { key: 'completedBy', label: 'Completed By', letter: 'I', type: 'text' }
+    { key: 'location', label: 'Bay / Parking', letter: 'C', type: 'text' },
+    { key: 'name', label: 'Task Name', letter: 'D', type: 'text' },
+    { key: 'status', label: 'Status', letter: 'E', type: 'status-select' },
+    { key: 'bookHours', label: 'Book Hours', letter: 'F', type: 'number' },
+    { key: 'assignedCrew', label: 'Assigned Staff', letter: 'G', type: 'crew-select' },
+    { key: 'notes', label: 'Task Notes', letter: 'H', type: 'text' },
+    { key: 'completedAt', label: 'Completed At', letter: 'I', type: 'datetime' },
+    { key: 'completedBy', label: 'Completed By', letter: 'J', type: 'text' }
   ], []);
 
   // Filter rows
@@ -257,7 +366,7 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
       list.push(`status (${colFilters.status.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
     }
     if (colFilters.assignedCrew && colFilters.assignedCrew.length > 0) {
-      list.push(`crew (${colFilters.assignedCrew.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
+      list.push(`staff (${colFilters.assignedCrew.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
     }
     return list.join('; ');
   }, [searchQuery, colFilters, jobs]);
@@ -276,6 +385,9 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     if (colKey === 'assignedCrew') {
       return (row.assignedCrew || []).join(', ');
     }
+    if (colKey === 'bookHours') {
+      return `${row.loggedHours.toFixed(1)} / ${row.bookHours}`;
+    }
     if (colKey === 'completedAt') {
       if (!row.completedAt) return '';
       const d = row.completedAt.toDate ? row.completedAt.toDate() : new Date(row.completedAt);
@@ -289,11 +401,13 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     if (!row) return;
 
     // Job fields are read-only
-    if (['jobNumber', 'jobTitle', 'completedAt'].includes(colKey)) return;
+    if (['jobNumber', 'jobTitle', 'location', 'completedAt'].includes(colKey)) return;
 
     setEditingCell({ rowId, colKey });
     if (initialChar !== undefined) {
       setEditValue(initialChar);
+    } else if (colKey === 'bookHours') {
+      setEditValue(row.bookHours);
     } else {
       setEditValue(getCellValue(row, colKey));
     }
@@ -317,16 +431,57 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     setSyncStatus('saving');
     try {
       let parsedVal: any = newValue;
-      if (colKey === 'bookHours') {
-        parsedVal = newValue === '' ? 0 : parseFloat(newValue) || 0;
-      } else if (colKey === 'assignedCrew') {
-        parsedVal = newValue.split(',').map(s => s.trim()).filter(Boolean);
-      }
-
       const updates: any = {
-        [colKey]: parsedVal,
         updatedAt: serverTimestamp()
       };
+
+      if (colKey === 'bookHours') {
+        const trimmed = newValue.trim().toLowerCase();
+        if (trimmed === 'hourly' || trimmed === 'hour' || trimmed === 'h') {
+          updates.payBasis = 'hourly';
+          updates.bookHours = 0;
+          updates.bookTime = 0;
+          parsedVal = 'Hourly';
+        } else {
+          const num = newValue === '' ? 0 : parseFloat(newValue) || 0;
+          updates.payBasis = 'book_time';
+          updates.bookHours = num;
+          updates.bookTime = num;
+          parsedVal = String(num);
+        }
+      } else if (colKey === 'assignedCrew') {
+        const selectedNames = newValue.split(',').map(s => s.trim()).filter(Boolean);
+        parsedVal = selectedNames;
+        updates[colKey] = parsedVal;
+      } else if (colKey === 'name') {
+        updates.name = parsedVal;
+        updates.title = parsedVal;
+      } else if (colKey === 'notes') {
+        updates.notes = parsedVal;
+        updates.description = parsedVal;
+      } else {
+        updates[colKey] = parsedVal;
+      }
+
+      if (colKey === 'assignedCrew') {
+        const selectedNames = newValue.split(',').map(s => s.trim()).filter(Boolean);
+        const assignedStaff: Array<{ id: string, name: string }> = [];
+        const assignedStaffIds: string[] = [];
+        
+        selectedNames.forEach(name => {
+          const match = staff.find(s => `${s.firstName || ''} ${s.lastName || ''}`.trim() === name);
+          if (match) {
+            assignedStaffIds.push(match.id);
+            assignedStaff.push({
+              id: match.id,
+              name: `${match.firstName || ''} ${match.lastName || ''}`.trim()
+            });
+          }
+        });
+
+        updates.assignedStaff = assignedStaff;
+        updates.assignedStaffIds = assignedStaffIds;
+      }
 
       if (colKey === 'status') {
         if (newValue === 'completed') {
@@ -364,10 +519,14 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
     try {
       const data = {
         name: 'New Task',
+        title: 'New Task',
         status: 'pending',
         bookHours: 0,
         assignedCrew: [],
+        assignedStaff: [],
+        assignedStaffIds: [],
         notes: '',
+        description: '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -750,7 +909,7 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
             <col className="w-[220px]" /> {/* Task Name */}
             <col className="w-[140px]" /> {/* Status */}
             <col className="w-[100px]" /> {/* Book Hours */}
-            <col className="w-[240px]" /> {/* Assigned Crew */}
+            <col className="w-[240px]" /> {/* Assigned Staff */}
             <col className="w-[300px]" /> {/* Task Notes */}
             <col className="w-[180px]" /> {/* Completed At */}
             <col className="w-[160px]" /> {/* Completed By */}
@@ -787,7 +946,7 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
                   ]);
                 } else if (col.key === 'assignedCrew') {
                   filterElement = renderHeaderFilter('assignedCrew', [
-                    { value: 'all', label: 'All Crew' },
+                    { value: 'all', label: 'All Staff' },
                     { value: 'empty', label: '(Choose Empty)' },
                     ...uniqueCrew.map(c => ({ value: c, label: c }))
                   ]);
@@ -918,7 +1077,7 @@ export function TasksSpreadsheet({ tenantId }: { tenantId: string }) {
                             ) : (
                               <input
                                 ref={cellInputRef as any}
-                                type={col.type}
+                                type={col.key === 'bookHours' ? 'text' : col.type}
                                 value={editValue}
                                 onChange={(e) => setEditValue(e.target.value)}
                                 onBlur={() => saveCellValue(row.id, col.key, editValue)}

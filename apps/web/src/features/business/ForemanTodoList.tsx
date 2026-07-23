@@ -55,7 +55,17 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       where('status', 'not-in', ['Completed', 'Closed'])
     );
     const unsubJobs = onSnapshot(qJobs, (snap) => {
-      setJobsList(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as any))
+                       .filter(j => {
+                         if (j.isArchived) return false;
+                         if (j.createdAt) {
+                           const created = j.createdAt.toDate ? j.createdAt.toDate() : new Date(j.createdAt);
+                           const oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+                           if (!isNaN(created.getTime()) && created.getTime() < oneYearAgo) return false;
+                         }
+                         return true;
+                       });
+      setJobsList(list);
       setLoading(false);
     }, (err) => console.error("Jobs subscription error:", err));
 

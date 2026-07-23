@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp, collectionGroup, doc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
@@ -51,120 +51,40 @@ interface TimeSession {
   staffNote?: string;
 }
 
-interface JobWithTasks {
-  jobId: string;
-  jobName: string;
-  taskIds: string[];
-}
-
-interface JobPhotoGroup {
-  jobName: string;
-  images: string[];
-}
-
 function SessionBreakdownSection({ 
-  tenantId, 
+  tenantId: _tenantId, 
   session,
-  now
+  now,
+  tasksList = []
 }: { 
   tenantId: string; 
   session: TimeSession;
   now: number;
+  tasksList?: any[];
 }) {
-  const [jobPhotos, setJobPhotos] = useState<JobPhotoGroup[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!tenantId || !session.jobs || session.jobs.length === 0) {
-      setJobPhotos([]);
-      return;
-    }
-    let active = true;
-    setLoading(true);
-
-    const fetchAllPhotos = async () => {
-      try {
-        const uniqueJobsMap: Record<string, JobWithTasks> = {};
-        session.jobs!.forEach(j => {
-          if (!j.id) return;
-          if (!uniqueJobsMap[j.id]) {
-            uniqueJobsMap[j.id] = {
-              jobId: j.id,
-              jobName: j.name || 'Job',
-              taskIds: []
-            };
-          }
-          if (j.taskId && !uniqueJobsMap[j.id].taskIds.includes(j.taskId)) {
-            uniqueJobsMap[j.id].taskIds.push(j.taskId);
-          }
-        });
-
-        const uniqueJobs = Object.values(uniqueJobsMap);
-        const results: JobPhotoGroup[] = [];
-
-        const promises = uniqueJobs.map(async (job) => {
-          if (job.taskIds.length === 0) return;
-          const allUrls: string[] = [];
-          const taskPromises = job.taskIds.map(async (taskId) => {
-            const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${job.jobId}/tasks`, taskId));
-            if (taskSnap.exists()) {
-              const data = taskSnap.data();
-              const notes = data.task_notes || [];
-              notes.forEach((n: any) => {
-                if (n.images && Array.isArray(n.images)) {
-                  allUrls.push(...n.images);
-                }
-              });
-            }
-          });
-          await Promise.all(taskPromises);
-          if (allUrls.length > 0) {
-            results.push({
-              jobName: job.jobName,
-              images: allUrls
-            });
-          }
-        });
-
-        await Promise.all(promises);
-
-        if (active) {
-          setJobPhotos(results);
-        }
-      } catch (err) {
-        console.warn('Error fetching session breakdown photos:', err);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    fetchAllPhotos();
-    return () => { active = false; };
-  }, [tenantId, session.jobs]);
-
-  const hasPhotos = jobPhotos.length > 0;
   const hasBreaks = session.breaks && session.breaks.length > 0;
 
-  if (loading) {
-    return (
-      <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 w-full text-left space-y-3">
-        <span className="block text-[11px] font-extrabold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider animate-pulse">
-          Session Activity & Breakdown
-        </span>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-pulse">
-          <div className="space-y-2">
-            <div className="h-3 bg-zinc-200 dark:bg-zinc-805 rounded w-24" />
-            <div className="flex gap-1.5">
-              <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
-              <div className="w-12 h-12 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Get unique tasks worked on during this session
+  const uniqueTasks = useMemo(() => {
+    const map = new Map<string, any>();
+    (session.jobs || []).forEach((j: any) => {
+      if (!j.taskId) return;
+      const key = `${j.id}-${j.taskId}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          jobId: j.id,
+          jobName: j.name || 'Job',
+          taskId: j.taskId,
+          taskName: j.taskName || 'Task',
+          bookTime: j.bookTime || 0,
+          payBasis: j.payBasis || 'book_time'
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [session.jobs]);
 
-  if (!hasPhotos && !hasBreaks) return null;
+  if (uniqueTasks.length === 0 && !hasBreaks) return null;
 
   const calculateDuration = (start: any, end: any) => {
     if (!start) return 0;
@@ -185,40 +105,76 @@ function SessionBreakdownSection({
     return dVal.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  const checkIsCompletedThisShift = (taskItem: any) => {
+    const completedTask = (tasksList || []).find((t: any) => t.id === taskItem.taskId);
+    if (!completedTask) return false;
+
+    const compDateVal = completedTask.completedAt || completedTask.qcCompletedAt || completedTask.updatedAt;
+    if (!compDateVal) return false;
+
+    const compTime = compDateVal.seconds 
+      ? compDateVal.seconds * 1000 
+      : new Date(compDateVal).getTime();
+
+    const sessionStart = session.clockIn.timestamp?.toDate 
+      ? session.clockIn.timestamp.toDate().getTime() 
+      : new Date(session.clockIn.timestamp).getTime();
+
+    const sessionEnd = session.clockOut?.timestamp
+      ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate().getTime() : new Date(session.clockOut.timestamp).getTime())
+      : now;
+
+    // Give a small buffer of 5 minutes before and after the shift in case they clocked out slightly before marking complete
+    const startBuffer = sessionStart - 5 * 60 * 1000;
+    const endBuffer = sessionEnd + 5 * 60 * 1000;
+
+    return compTime >= startBuffer && compTime <= endBuffer;
+  };
+
   return (
     <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800/80 w-full text-left space-y-3">
       <span className="block text-[11px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
         Session Activity & Breakdown
       </span>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {/* Shifts Column */}
-        {hasPhotos && (
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Tasks Worked On */}
+        {uniqueTasks.length > 0 && (
           <div className="space-y-2">
             <span className="block text-[10px] font-extrabold text-zinc-500 dark:text-zinc-450 uppercase tracking-wider">
-              Shift Photos
+              Tasks Worked On
             </span>
             <div className="space-y-1.5">
-              {jobPhotos.map((jp, idx) => (
-                <div key={idx} className="text-xs bg-zinc-50/50 dark:bg-zinc-950/40 p-2.5 rounded-xl border border-zinc-150/40 dark:border-zinc-850/50 space-y-1.5">
-                  <div className="font-bold text-zinc-850 dark:text-zinc-250 truncate">
-                    {jp.jobName}
+              {uniqueTasks.map((t, idx) => {
+                const isCompleted = checkIsCompletedThisShift(t);
+                return (
+                  <div 
+                    key={idx} 
+                    className="flex items-center justify-between text-xs bg-zinc-50/50 dark:bg-zinc-955/40 p-2.5 rounded-xl border border-zinc-150/40 dark:border-zinc-850/50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-zinc-850 dark:text-zinc-200 truncate">
+                        {t.taskName}
+                      </div>
+                      <div className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate mt-0.5">
+                        {t.jobName} • {t.payBasis === 'hourly' ? 'Hourly' : `${t.bookTime.toFixed(1)}h Flat-rate`}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 ml-3">
+                      {isCompleted ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider animate-pulse">
+                          Completed
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-zinc-100 dark:bg-zinc-905 text-zinc-400 dark:text-zinc-500 border border-zinc-200 dark:border-zinc-800 px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider">
+                          In Progress
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {jp.images.map((url, imgIdx) => (
-                      <a 
-                        key={imgIdx} 
-                        href={url} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        onClick={e => e.stopPropagation()}
-                        className="relative w-12 h-12 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800/80 bg-zinc-100 dark:bg-zinc-950 hover:scale-[1.05] transition-all shadow-sm flex-shrink-0"
-                      >
-                        <img src={url} className="w-full h-full object-cover" />
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -583,7 +539,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
     if (!sessionDate) return;
 
-    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    const isManual = (session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry') && !session.manuallyEdited;
     if (isManual) return;
 
     const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
@@ -603,7 +559,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const sessionHourlyPayMs = sessions?.reduce((acc, session) => {
     const sessionDate = session.clockIn.timestamp?.toDate ? session.clockIn.timestamp.toDate() : new Date(session.clockIn.timestamp);
     if (!sessionDate || sessionDate.getTime() < weekStart.getTime()) return acc;
-    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    const isManual = (session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry') && !session.manuallyEdited;
     if (isManual) return acc;
     const sPayType = session.payType || resolvedPayType;
     return acc + calculateSessionPayMs(session, sPayType);
@@ -629,7 +585,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
 
   const filteredSessions = sessions?.filter(session => {
     // 1. Filter out manual entry sessions from the main history feed to avoid duplicates/clutter
-    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    const isManual = (session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry') && !session.manuallyEdited;
     if (isManual) return false;
 
     // 2. If this session is completed, and there is an active session for the same day, filter it out
@@ -915,6 +871,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                 tenantId={tenantId}
                 session={session}
                 now={now}
+                tasksList={tasksList}
               />
             </div>
           );

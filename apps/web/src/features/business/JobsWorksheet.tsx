@@ -654,10 +654,20 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       }
 
       // 2. Set new bayId on the job
-      await updateDoc(jobRef, {
+      const jobUpdates: any = {
         bayId: newBayId === 'none' ? null : newBayId,
         updatedAt: serverTimestamp()
-      });
+      };
+
+      if (newBayId && newBayId !== 'none') {
+        if (jobDoc && ['completed', 'complete', 'closed'].includes(jobDoc.status?.toLowerCase() || '')) {
+          jobUpdates.status = 'Open';
+          jobUpdates.completedAt = null;
+          jobUpdates.readyForCustomerAt = null;
+        }
+      }
+
+      await updateDoc(jobRef, jobUpdates);
 
       // 3. Assign new linked zone
       if (newBayId && newBayId !== 'none') {

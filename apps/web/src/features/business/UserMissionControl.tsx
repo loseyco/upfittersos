@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../lib/firebase/config';
@@ -704,7 +704,7 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       sessionBookMs = Object.values(taskBookTime).reduce((acc, t) => acc + t, 0);
     }
 
-    const isManual = session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry';
+    const isManual = (session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry') && !session.manuallyEdited;
 
     if (sessionDate.getTime() >= todayStart.getTime()) {
       if (!isManual) {
@@ -756,6 +756,144 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
   const efficiency = weekMs > 0 
     ? (doneBookHours / (weekMs / 3600000)) * 100 
     : null;
+
+  const metricsData = useMemo(() => {
+    const days = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      days.push({
+        date: d,
+        label: dayNames[d.getDay()],
+        key: d.toLocaleDateString(),
+        dateLabel: d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+      });
+    }
+
+    const daily = days.map(d => ({
+      ...d,
+      shiftHours: 0,
+      taskClockedHours: 0,
+      bookPayoutHours: 0,
+      hourlyPayoutHours: 0
+    }));
+
+    let totalShiftHours = 0;
+    let totalTaskClockedHours = 0;
+    let totalBookPayoutHours = 0;
+    let totalHourlyPayoutHours = 0;
+
+    const taskMap = new Map<string, any>();
+    myAssignedTasks.forEach(t => {
+      taskMap.set(t.id, t);
+    });
+
+    sessions?.forEach(session => {
+      const sessionDate = session.clockIn.timestamp?.toDate 
+        ? session.clockIn.timestamp.toDate() 
+        : new Date(session.clockIn.timestamp);
+      if (!sessionDate) return;
+
+      const sessionDayKey = sessionDate.toLocaleDateString();
+      const dayObj = daily.find(d => d.key === sessionDayKey);
+
+      const totalMs = calculateDuration(session.clockIn.timestamp, session.clockOut?.timestamp);
+      const breakMs = (session.breaks || []).reduce((acc: number, b: any) => acc + calculateDuration(b.start, b.end), 0);
+      const workMs = totalMs - breakMs;
+
+       const isManual = (session.clockIn?.location === 'Manual Entry' || session.clockOut?.location === 'Manual Entry') && !session.manuallyEdited;
+      if (!isManual) {
+        const hours = workMs / 3600000;
+        if (dayObj) {
+          totalShiftHours += hours;
+          dayObj.shiftHours += hours;
+        }
+      }
+
+      (session.jobs || []).forEach((j: any) => {
+        const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+        const end = j.end 
+          ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) 
+          : (session.clockOut?.timestamp 
+              ? (session.clockOut.timestamp.toDate ? session.clockOut.timestamp.toDate().getTime() : new Date(session.clockOut.timestamp).getTime())
+              : currentTime);
+        const segmentMs = Math.max(0, end - start);
+        const segmentHours = segmentMs / 3600000;
+
+        if (dayObj) {
+          totalTaskClockedHours += segmentHours;
+          dayObj.taskClockedHours += segmentHours;
+        }
+
+        const associatedTask = taskMap.get(j.taskId);
+        if (associatedTask) {
+          const isCompleted = associatedTask.status === 'QC Complete' || associatedTask.status === 'QC' || associatedTask.status === 'completed';
+          if (isCompleted && associatedTask.payBasis === 'hourly') {
+            const compDateVal = associatedTask.completedAt || associatedTask.qcCompletedAt || associatedTask.updatedAt;
+            if (compDateVal) {
+              const compDate = compDateVal.seconds 
+                ? new Date(compDateVal.seconds * 1000) 
+                : new Date(compDateVal);
+              const compDayKey = compDate.toLocaleDateString();
+              const compDayObj = daily.find(d => d.key === compDayKey);
+
+              totalHourlyPayoutHours += segmentHours;
+              if (compDayObj) {
+                compDayObj.hourlyPayoutHours += segmentHours;
+              }
+            }
+          }
+        }
+      });
+    });
+
+    myAssignedTasks.forEach(t => {
+      const bookTime = Number(t.bookTime || 0);
+      const isCompleted = t.status === 'QC Complete' || t.status === 'QC' || t.status === 'completed';
+      const isFlatRate = t.payBasis !== 'hourly';
+
+      if (isCompleted && isFlatRate) {
+        const compDateVal = t.completedAt || t.qcCompletedAt || t.updatedAt;
+        if (compDateVal) {
+          const compDate = compDateVal.seconds 
+            ? new Date(compDateVal.seconds * 1000) 
+            : new Date(compDateVal);
+          
+          if (compDate.getTime() >= weekStart.getTime()) {
+            const assignments = t.assignedStaff || [];
+            const myAssignment = assignments.find((a: any) => 
+              a.id === effectiveUserId || 
+              (staffMember && (a.id === staffMember.id || (staffMember.userId && a.id === staffMember.userId)))
+            );
+
+            let shareHours = bookTime;
+            if (myAssignment) {
+              const share = (parseFloat(myAssignment.percentage) || 100) / 100;
+              shareHours = bookTime * share;
+            }
+
+            totalBookPayoutHours += shareHours;
+
+            const compDayKey = compDate.toLocaleDateString();
+            const compDayObj = daily.find(d => d.key === compDayKey);
+            if (compDayObj) {
+              compDayObj.bookPayoutHours += shareHours;
+            }
+          }
+        }
+      }
+    });
+
+    return {
+      daily,
+      totalShiftHours,
+      totalTaskClockedHours,
+      totalBookPayoutHours,
+      totalHourlyPayoutHours,
+      totalPaidHours: totalBookPayoutHours + totalHourlyPayoutHours
+    };
+  }, [weekStart, sessions, myAssignedTasks, effectiveUserId, staffMember, currentTime]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -934,27 +1072,69 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         return;
       }
 
-      const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
-        userId: effectiveUserId,
-        userName: actualName,
-        staffName: actualName,
-        clockIn: {
-          timestamp: new Date(),
-          lat: loc.lat,
-          lng: loc.lng,
-          accuracy: loc.accuracy,
-          onSite
-        },
-        isRemote,
-        status: 'active',
-        breaks: [],
-        createdAt: new Date()
+      // Check if there is already a time session from today for this user
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      
+      const todaySession = sessions.find(session => {
+        if (!session.clockIn?.timestamp) return false;
+        const ts = session.clockIn.timestamp.seconds 
+          ? session.clockIn.timestamp.seconds * 1000 
+          : new Date(session.clockIn.timestamp).getTime();
+        return ts >= startOfToday.getTime();
       });
 
-      await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Clocked In");
+      if (todaySession) {
+        const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, todaySession.id);
+        const prevClockOut = todaySession.clockOut?.timestamp;
+        
+        const gapBreak = prevClockOut ? {
+          start: prevClockOut,
+          end: new Date(),
+          isPaid: false,
+          type: 'normal',
+          name: 'Clock Out Gap'
+        } : null;
 
-      setClockStatus('clocked_in', Date.now(), docRef.id);
-      toast.success("Clocked in successfully");
+        const updatedBreaks = [...(todaySession.breaks || [])];
+        if (gapBreak) {
+          updatedBreaks.push(gapBreak);
+        }
+
+        await updateDoc(sessionRef, {
+          status: 'active',
+          clockOut: null,
+          breaks: updatedBreaks,
+          updatedAt: serverTimestamp()
+        });
+
+        await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Clocked In");
+
+        setClockStatus('clocked_in', Date.now(), todaySession.id);
+        toast.success("Clocked back in for today's shift");
+      } else {
+        const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
+          userId: effectiveUserId,
+          userName: actualName,
+          staffName: actualName,
+          clockIn: {
+            timestamp: new Date(),
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracy: loc.accuracy,
+            onSite
+          },
+          isRemote,
+          status: 'active',
+          breaks: [],
+          createdAt: new Date()
+        });
+
+        await updateStaffLastLocation(tenantId, effectiveUserId, user?.email, loc, "Clocked In");
+
+        setClockStatus('clocked_in', Date.now(), docRef.id);
+        toast.success("Clocked in successfully");
+      }
     } catch (e) {
       console.error(e);
       toast.error("Failed to clock in");
@@ -1969,18 +2149,25 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       {/* Modern Header containing Gating / Views / Save indicator / Settings Cog */}
       {(!propViewMode || propViewMode === 'jobs') && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-indigo-500/10 rounded-2xl">
-            <Command className="w-6 h-6 text-indigo-500" />
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-500/10 rounded-2xl">
+              <Command className="w-6 h-6 text-indigo-500" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">My Dashboard</h1>
+              <p className="text-xs font-semibold text-zinc-500">
+                Welcome back, <span className="text-zinc-700 dark:text-zinc-305 font-bold">{staffMember?.name || user?.displayName || user?.email || 'Technician'}</span>
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-zinc-900 dark:text-white tracking-tight">My Dashboard</h1>
-            <p className="text-xs font-semibold text-zinc-500">
-              Welcome back, <span className="text-zinc-700 dark:text-zinc-305 font-bold">{staffMember?.name || user?.displayName || user?.email || 'Technician'}</span>
-            </p>
-          </div>
+          <button
+            onClick={() => navigate(`/business/${tenantId}/overview_v3`)}
+            className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0 self-start sm:self-auto border border-transparent"
+          >
+            <span>Try V3 Dashboard (Beta)</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
-      </div>
       )}
 
       {/* Unread Direct Messages Notification on Dashboard */}
@@ -2445,28 +2632,119 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Card 1: Actual Clocked */}
-                  <div className="bg-zinc-55 dark:bg-zinc-955 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Hours Worked (Net)</span>
-                    <span className="font-mono text-xl font-black text-zinc-850 dark:text-white mt-1 block">
-                      {(weekMs / 3600000).toFixed(2)}h
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {/* Card 1: Shift Hours Clocked In */}
+                  <div className="bg-zinc-55 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Hours Clocked In</span>
+                    <span className="font-mono text-lg font-black text-zinc-850 dark:text-white mt-1 block">
+                      {metricsData.totalShiftHours.toFixed(2)}h
                     </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Clocked in time minus breaks</span>
+                    <span className="text-[8px] text-zinc-400 dark:text-zinc-500 mt-0.5 block leading-none">Net shift hours (minus breaks)</span>
                   </div>
 
-                  {/* Card 2: Completed Book Time */}
-                  <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
-                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Time Completed</span>
-                    <span className="font-mono text-xl font-black text-indigo-650 dark:text-indigo-400 mt-1 block">
-                      {doneBookHours.toFixed(2)}h
+                  {/* Card 2: Time Clocked into Task */}
+                  <div className="bg-zinc-55 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Time on Tasks</span>
+                    <span className="font-mono text-lg font-black text-zinc-700 dark:text-zinc-300 mt-1 block">
+                      {metricsData.totalTaskClockedHours.toFixed(2)}h
                     </span>
-                    <span className="text-[9px] text-zinc-400 mt-1 block">Tasks completed this week</span>
+                    <span className="text-[8px] text-zinc-400 dark:text-zinc-500 mt-0.5 block leading-none">Clocked active task hours</span>
+                  </div>
+
+                  {/* Card 3: Flat-rate Book Time Payout */}
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3.5 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Book Completed</span>
+                    <span className="font-mono text-lg font-black text-indigo-650 dark:text-indigo-400 mt-1 block">
+                      {metricsData.totalBookPayoutHours.toFixed(2)}h
+                    </span>
+                    <span className="text-[8px] text-zinc-400 dark:text-zinc-500 mt-0.5 block leading-none">Completed flat-rate book hours</span>
+                  </div>
+
+                  {/* Card 4: Completed Hourly Payout */}
+                  <div className="bg-zinc-50 dark:bg-zinc-950 p-3.5 rounded-2xl border border-zinc-150 dark:border-zinc-900/60 hover:border-zinc-200 dark:hover:border-zinc-800 transition-all">
+                    <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider block">Hourly Completed</span>
+                    <span className="font-mono text-lg font-black text-emerald-650 dark:text-emerald-450 mt-1 block">
+                      {metricsData.totalHourlyPayoutHours.toFixed(2)}h
+                    </span>
+                    <span className="text-[8px] text-zinc-400 dark:text-zinc-500 mt-0.5 block leading-none">Completed hourly task hours</span>
+                  </div>
+                </div>
+
+                {/* Daily Breakdown */}
+                <div className="border-t border-zinc-100 dark:border-zinc-800/80 pt-4 mt-2">
+                  <h4 className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-3">Daily Breakdown</h4>
+                  <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+                    {metricsData.daily.map((day: any) => {
+                      const isToday = day.key === new Date().toLocaleDateString();
+                      const hasActivity = day.shiftHours > 0 || day.taskClockedHours > 0 || day.bookPayoutHours > 0 || day.hourlyPayoutHours > 0;
+
+                      return (
+                        <div
+                          key={day.key}
+                          className={cn(
+                            "flex flex-col items-center justify-between p-2 rounded-xl border text-center transition-all select-none min-w-0",
+                            isToday 
+                              ? "bg-indigo-500/[0.03] border-indigo-500/40 shadow-[0_0_10px_rgba(99,102,241,0.05)]" 
+                              : "bg-zinc-50/50 dark:bg-zinc-955/40 border-zinc-100 dark:border-zinc-900/60",
+                            !hasActivity && "opacity-40"
+                          )}
+                        >
+                          <div className="flex flex-col items-center shrink-0">
+                            <span className={cn(
+                              "text-[8px] font-black uppercase tracking-wider leading-none",
+                              isToday ? "text-indigo-500" : "text-zinc-400 dark:text-zinc-500"
+                            )}>
+                              {day.label}
+                            </span>
+                            <span className="text-[9px] text-zinc-550 dark:text-zinc-400 font-bold mt-0.5 leading-none">
+                              {day.date.getDate()}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col gap-1.5 mt-2.5 w-full text-[9px]">
+                            {/* Shift Hours */}
+                            <div className="flex flex-col items-center leading-none">
+                              <span className="text-[7px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-wider">Clocked</span>
+                              <span className="font-mono font-bold text-zinc-700 dark:text-zinc-300 mt-0.5">
+                                {day.shiftHours > 0 ? `${day.shiftHours.toFixed(1)}h` : '-'}
+                              </span>
+                            </div>
+
+                            {/* Task Clocked Hours */}
+                            <div className="flex flex-col items-center leading-none border-t border-zinc-100 dark:border-zinc-850 pt-1.5">
+                              <span className="text-[7px] text-zinc-400 dark:text-zinc-500 font-bold uppercase tracking-wider">On Task</span>
+                              <span className="font-mono font-bold text-zinc-600 dark:text-zinc-400 mt-0.5">
+                                {day.taskClockedHours > 0 ? `${day.taskClockedHours.toFixed(1)}h` : '-'}
+                              </span>
+                            </div>
+
+                             {/* Book Payout */}
+                            <div className="flex flex-col items-center leading-none border-t border-zinc-100 dark:border-zinc-850 pt-1.5">
+                              <span className="text-[7px] text-indigo-400 dark:text-indigo-500 font-bold uppercase tracking-wider">Book Completed</span>
+                              <span className="font-mono font-black text-indigo-605 dark:text-indigo-400 mt-0.5">
+                                {day.bookPayoutHours > 0 ? `${day.bookPayoutHours.toFixed(1)}h` : '-'}
+                              </span>
+                            </div>
+
+                            {/* Hourly Payout */}
+                            <div className="flex flex-col items-center leading-none border-t border-zinc-100 dark:border-zinc-850 pt-1.5">
+                              <span className="text-[7px] text-emerald-500 dark:text-emerald-450 font-bold uppercase tracking-wider">Hourly Completed</span>
+                              <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
+                                {day.hourlyPayoutHours > 0 ? `${day.hourlyPayoutHours.toFixed(1)}h` : '-'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between text-xs text-zinc-500 border-t border-zinc-100 dark:border-zinc-800/80 pt-3 gap-2">
                   <div className="flex items-center gap-4">
+                    <span>
+                      <strong className="text-zinc-700 dark:text-zinc-300">Total Paid Hours:</strong> {metricsData.totalPaidHours.toFixed(2)}h
+                    </span>
                     {activeCreditMs > 0 && (
                       <span>
                         <strong className="text-zinc-700 dark:text-zinc-300">Period Credit:</strong> {(activeCreditMs / 3600000).toFixed(2)}h

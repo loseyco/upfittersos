@@ -13,6 +13,7 @@ interface SalesActivitiesProps {
 
 const TYPE_CONFIG = {
   call: { label: 'Call', icon: Phone, class: 'bg-sky-500/10 text-sky-500 border-sky-500/20' },
+  sms: { label: 'SMS / Text', icon: MessageSquare, class: 'bg-purple-500/10 text-purple-500 border-purple-500/20' },
   meeting: { label: 'Meeting', icon: Users, iconColor: 'text-indigo-500', class: 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20' },
   email: { label: 'Email', icon: Mail, class: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' },
   demo: { label: 'Demo', icon: ClipboardList, class: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },

@@ -7,72 +7,63 @@ admin.initializeApp({
 
 const db = admin.firestore();
 const tenantId = '7jlg4IA2G6lvDJ0S5Vbp';
-const userId = 't6u4VkkNYQhwJ2hP0sLUEh3bloR2';
 
 async function run() {
-  console.log(`Searching for all tasks assigned to user ${userId} under tenant ${tenantId}...`);
+  console.log(`Analyzing completed tasks on Tuesday (2026-07-14) under tenant ${tenantId}...`);
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const startOfTuesday = new Date('2026-07-14T00:00:00Z');
+  const endOfTuesday = new Date('2026-07-14T23:59:59Z');
 
-  const weekStart = new Date(todayStart);
-  const day = weekStart.getDay(); // 0 is Sunday, 1 is Monday, etc.
-  const daysToSubtract = day === 0 ? 6 : day - 1;
-  weekStart.setDate(weekStart.getDate() - daysToSubtract);
-
-  console.log(`weekStart (Monday of this week): ${weekStart.toISOString()} (${weekStart.getTime()})`);
-
-  // Query all tasks assigned to the user
+  // Query all tasks for the tenant
   const tasksSnap = await db.collectionGroup('tasks')
     .where('tenantId', '==', tenantId)
-    .where('assignedStaffIds', 'array-contains', userId)
     .get();
 
-  console.log(`Found ${tasksSnap.size} assigned tasks.`);
+  console.log(`Total tasks found in database: ${tasksSnap.size}`);
 
-  let doneBookHours = 0;
-  let scheduledBookHours = 0;
+  const tuesdayTasks = [];
 
   tasksSnap.forEach(doc => {
-    const t = doc.data();
-    const jobId = doc.ref.path.split('/')[3];
-    const bookTime = Number(t.bookTime || 0);
-    const isCompleted = t.status === 'QC Complete' || t.status === 'QC' || t.status === 'completed';
-
-    console.log(`\n--- Task Doc: ${doc.id} (Job: ${jobId}) ---`);
-    console.log(`Title: ${t.title}`);
-    console.log(`Status: ${t.status}`);
-    console.log(`BookTime: ${t.bookTime}`);
-    console.log(`completedAt:`, t.completedAt ? (t.completedAt.toDate ? t.completedAt.toDate().toISOString() : t.completedAt) : null);
-    console.log(`qcCompletedAt:`, t.qcCompletedAt ? (t.qcCompletedAt.toDate ? t.qcCompletedAt.toDate().toISOString() : t.qcCompletedAt) : null);
-    console.log(`updatedAt:`, t.updatedAt ? (t.updatedAt.toDate ? t.updatedAt.toDate().toISOString() : t.updatedAt) : null);
-    console.log(`createdAt:`, t.createdAt ? (t.createdAt.toDate ? t.createdAt.toDate().toISOString() : t.createdAt) : null);
-
-    if (isCompleted) {
-      const compDateVal = t.status === 'QC Complete' 
-        ? (t.qcCompletedAt || t.completedAt || t.updatedAt) 
-        : (t.completedAt || t.updatedAt);
+    const data = doc.data();
+    const status = (data.status || '').toLowerCase();
+    
+    // Check if task is completed
+    if (['completed', 'qc', 'qc complete'].includes(status)) {
+      // Check when it was completed
+      // Falling back to createdAt (which is what the chart currently uses)
+      const compDateVal = data.qcCompletedAt || data.completedAt || data.createdAt;
+      if (!compDateVal) return;
+      const compDate = compDateVal.toDate ? compDateVal.toDate() : new Date(compDateVal);
       
-      const compTime = compDateVal 
-        ? (compDateVal.toDate ? compDateVal.toDate().getTime() : new Date(compDateVal).getTime()) 
-        : 0;
-
-      console.log(`  => compDateVal used:`, compDateVal ? (compDateVal.toDate ? compDateVal.toDate().toISOString() : compDateVal) : null);
-      console.log(`  => compTime parsed: ${new Date(compTime).toISOString()} (${compTime})`);
-      console.log(`  => compTime >= weekStart? ${compTime >= weekStart.getTime()}`);
-
-      if (compTime >= weekStart.getTime()) {
-        doneBookHours += bookTime;
-        console.log(`  => ADDED to doneBookHours!`);
+      // Let's filter to Tuesday
+      if (compDate >= startOfTuesday && compDate <= endOfTuesday) {
+        tuesdayTasks.push({
+          id: doc.id,
+          title: data.title,
+          status: data.status,
+          bookTime: data.bookTime,
+          assignedStaff: data.assignedStaff || [],
+          qcCompletedAt: data.qcCompletedAt ? (data.qcCompletedAt.toDate ? data.qcCompletedAt.toDate().toISOString() : data.qcCompletedAt) : null,
+          completedAt: data.completedAt ? (data.completedAt.toDate ? data.completedAt.toDate().toISOString() : data.completedAt) : null,
+          createdAt: data.createdAt ? (data.createdAt.toDate ? data.createdAt.toDate().toISOString() : data.createdAt) : null,
+          updatedAt: data.updatedAt ? (data.updatedAt.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt) : null,
+          completedByStaffName: data.completedByStaffName || null
+        });
       }
-    } else {
-      scheduledBookHours += bookTime;
     }
   });
 
-  console.log(`\n--- Summary ---`);
-  console.log(`doneBookHours: ${doneBookHours}h`);
-  console.log(`scheduledBookHours: ${scheduledBookHours}h`);
+  console.log(`\nFound ${tuesdayTasks.length} tasks completed on Tuesday:`);
+  tuesdayTasks.forEach((t, idx) => {
+    console.log(`\n[${idx + 1}] Title: "${t.title}"`);
+    console.log(`    Status: ${t.status} | Book Time: ${t.bookTime}`);
+    console.log(`    Assigned Techs:`, JSON.stringify(t.assignedStaff));
+    console.log(`    qcCompletedAt: ${t.qcCompletedAt}`);
+    console.log(`    completedAt:   ${t.completedAt}`);
+    console.log(`    createdAt:     ${t.createdAt}`);
+    console.log(`    updatedAt:     ${t.updatedAt}`);
+  });
+
   process.exit(0);
 }
 

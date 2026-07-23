@@ -54,6 +54,8 @@ export const PERMISSIONS = {
   'sales.manage': 'Manage Sales & CRM',
   'dashboard.customize': 'Customize Personal Dashboard',
   'development.view': 'View In-Development Features',
+  'safety.view': 'View Safety & OSHA Center',
+  'safety.manage': 'Manage Safety & OSHA Compliance',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;

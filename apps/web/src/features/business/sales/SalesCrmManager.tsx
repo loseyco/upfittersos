@@ -1,12 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs, addDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, getDoc, updateDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase/config';
-import { 
-  TrendingUp, Users, MessageSquare, BarChart3, Plus, 
-  Briefcase, X
-} from 'lucide-react';
+import { TrendingUp, Plus, X, Briefcase, UserCheck, Search, ChevronDown, Maximize2, Minimize2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '../../../lib/utils';
 import { SalesPipeline } from './SalesPipeline';
 import { SalesProspects } from './SalesProspects';
 import { SalesActivities } from './SalesActivities';
@@ -14,11 +12,137 @@ import { SalesAnalytics } from './SalesAnalytics';
 
 interface SalesCrmManagerProps {
   tenantId: string;
+  activeTab?: string;
 }
 
-export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'pipeline' | 'prospects' | 'activities' | 'analytics'>('pipeline');
+export function SalesCrmManager({ tenantId, activeTab }: SalesCrmManagerProps) {
+  const getSubTabFromActiveTab = (tab?: string): 'pipeline' | 'prospects' | 'activities' | 'analytics' => {
+    if (tab === 'sales_prospects') return 'prospects';
+    if (tab === 'sales_activities') return 'activities';
+    if (tab === 'sales_analytics') return 'analytics';
+    return 'pipeline';
+  };
+
+  const [activeSubTab, setActiveSubTab] = useState<'pipeline' | 'prospects' | 'activities' | 'analytics'>(() => 
+    getSubTabFromActiveTab(activeTab)
+  );
+
+  useEffect(() => {
+    if (activeTab) {
+      setActiveSubTab(getSubTabFromActiveTab(activeTab));
+    }
+  }, [activeTab]);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => {
+        console.error(err);
+        toast.error('Unable to enter fullscreen mode');
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => setIsFullscreen(false));
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFSChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => document.removeEventListener('fullscreenchange', handleFSChange);
+  }, []);
+
   const [isAddProspectOpen, setIsAddProspectOpen] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+
+  // Helper to normalize customer objects from either native customers or qb_customers
+  const normalizeCustomer = (c: any) => {
+    const name = (
+      c.name || 
+      c.displayName || 
+      c.DisplayName || 
+      c.FullyQualifiedName || 
+      c.companyName || 
+      c.CompanyName || 
+      (c.GivenName && c.FamilyName ? `${c.GivenName} ${c.FamilyName}` : '') || 
+      ''
+    ).trim();
+
+    const contactPerson = (
+      c.contactPerson || 
+      c.givenName || 
+      c.GivenName || 
+      (c.GivenName && c.FamilyName ? `${c.GivenName} ${c.FamilyName}` : '') || 
+      c.PrimaryContactName ||
+      c.primaryContactName ||
+      ''
+    ).trim();
+
+    const email = (
+      c.email || 
+      c.primaryEmailAddr || 
+      (typeof c.PrimaryEmailAddr === 'string' ? c.PrimaryEmailAddr : c.PrimaryEmailAddr?.Address) || 
+      (typeof c.primaryEmailAddr === 'object' ? c.primaryEmailAddr?.Address : '') || 
+      c.Email ||
+      ''
+    ).trim();
+
+    const phone = (
+      c.phone || 
+      c.mobilePhone || 
+      c.MobilePhone || 
+      c.primaryPhone || 
+      (typeof c.PrimaryPhone === 'string' ? c.PrimaryPhone : c.PrimaryPhone?.FreeFormNumber) || 
+      (typeof c.primaryPhone === 'object' ? c.primaryPhone?.FreeFormNumber : '') || 
+      c.Phone ||
+      ''
+    ).trim();
+
+    const notes = c.notes || c.Notes || '';
+    const isQB = !!(c.quickbooksId || c.FullyQualifiedName || c.Notes?.includes('QB') || c.source === 'QuickBooks');
+
+    return {
+      id: c.id,
+      name,
+      contactPerson,
+      email,
+      phone,
+      notes,
+      pipelineStage: c.pipelineStage || 'existing',
+      value: Number(c.value) || 0,
+      assignedTo: c.assignedTo || null,
+      assignedToName: c.assignedToName || 'Unassigned',
+      source: isQB ? 'QuickBooks Sync' : 'Direct Account'
+    };
+  };
+
+  // Fetch Existing Customers (from both native customers & QuickBooks synced qb_customers)
+  const { data: customerList = [], refetch: refetchCustomers } = useQuery({
+    queryKey: ['customers-list-crm', tenantId],
+    queryFn: async () => {
+      const [nativeSnap, qbSnap] = await Promise.all([
+        getDocs(collection(db, `businesses/${tenantId}/customers`)),
+        getDocs(collection(db, `businesses/${tenantId}/qb_customers`))
+      ]);
+
+      const nativeList = nativeSnap.docs.map(doc => normalizeCustomer({ id: doc.id, ...doc.data() }));
+      const qbList = qbSnap.docs.map(doc => normalizeCustomer({ id: doc.id, ...doc.data() }));
+
+      const map = new Map<string, any>();
+      [...nativeList, ...qbList].forEach(cust => {
+        if (!cust.name) return;
+        const key = cust.name.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, cust);
+        }
+      });
+
+      return Array.from(map.values());
+    }
+  });
   
 
 
@@ -34,6 +158,37 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
       return snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
     }
   });
+
+  // Combine real sales prospects with all unimported customers into 'existing' or saved stage
+  const allProspects = useMemo(() => {
+    const list = [...prospects];
+
+    customerList.forEach(cust => {
+      const custName = (cust.name || '').toLowerCase().trim();
+      if (!custName) return;
+
+      const alreadyInProspects = prospects.some(p => (p.name || '').toLowerCase().trim() === custName);
+      if (!alreadyInProspects) {
+        list.push({
+          id: `cust_${cust.id}`,
+          customerId: cust.id,
+          name: cust.name,
+          contactPerson: cust.contactPerson || '',
+          email: cust.email || '',
+          phone: cust.phone || '',
+          value: cust.value || 0,
+          status: cust.pipelineStage || 'existing',
+          source: cust.source || 'QuickBooks Sync',
+          notes: cust.notes || 'Master Customer Account',
+          assignedTo: cust.assignedTo || null,
+          assignedToName: cust.assignedToName || 'Unassigned',
+          isVirtualCustomer: true
+        });
+      }
+    });
+
+    return list;
+  }, [prospects, customerList]);
 
   // Fetch Activities
   const { data: activities = [], refetch: refetchActivities } = useQuery({
@@ -80,22 +235,64 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
       const selectedRep = staffList.find(s => s.id === newProspect.assignedTo);
       const repName = selectedRep ? `${selectedRep.firstName} ${selectedRep.lastName}` : 'Unassigned';
 
+      const trimmedName = newProspect.name.trim().toLowerCase();
+      const existing = customerList.find(c => (c.name || '').toLowerCase().trim() === trimmedName);
+
+      // Create deal in sales_prospects collection
       await addDoc(collection(db, `businesses/${tenantId}/sales_prospects`), {
         name: newProspect.name.trim(),
-        contactPerson: newProspect.contactPerson.trim(),
-        email: newProspect.email.trim(),
-        phone: newProspect.phone.trim(),
+        contactPerson: newProspect.contactPerson.trim() || existing?.contactPerson || '',
+        email: newProspect.email.trim() || existing?.email || '',
+        phone: newProspect.phone.trim() || existing?.phone || '',
         value: Number(newProspect.value) || 0,
         status: newProspect.status,
-        notes: newProspect.notes.trim(),
+        notes: newProspect.notes.trim() || existing?.notes || '',
         assignedTo: newProspect.assignedTo || null,
         assignedToName: repName,
         source: newProspect.source,
+        customerId: existing ? existing.id : null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
 
-      toast.success('Prospect added successfully!');
+      if (existing) {
+        // Also update stage on master customer record
+        const nativeRef = doc(db, `businesses/${tenantId}/customers`, existing.id);
+        const nativeSnap = await getDoc(nativeRef);
+        const data = {
+          pipelineStage: newProspect.status,
+          status: newProspect.status,
+          updatedAt: serverTimestamp()
+        };
+
+        if (nativeSnap.exists()) {
+          await updateDoc(nativeRef, data);
+        } else {
+          const qbRef = doc(db, `businesses/${tenantId}/qb_customers`, existing.id);
+          await updateDoc(qbRef, data);
+        }
+      } else {
+        // Create 1 master customer record in customers
+        await addDoc(collection(db, `businesses/${tenantId}/customers`), {
+          name: newProspect.name.trim(),
+          contactPerson: newProspect.contactPerson.trim(),
+          email: newProspect.email.trim(),
+          phone: newProspect.phone.trim(),
+          value: Number(newProspect.value) || 0,
+          pipelineStage: newProspect.status,
+          status: newProspect.status,
+          notes: newProspect.notes.trim(),
+          assignedTo: newProspect.assignedTo || null,
+          assignedToName: repName,
+          source: newProspect.source,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      toast.success(`Added deal for "${newProspect.name}" in ${newProspect.status.toUpperCase()} stage!`);
+      refetchProspects();
+      refetchCustomers();
       setIsAddProspectOpen(false);
       
       // Reset form
@@ -118,6 +315,9 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
     }
   };
 
+ 
+
+
   // Metrics Calculations
   const activeProspects = prospects.filter(p => p.status !== 'won' && p.status !== 'lost');
   const wonProspects = prospects.filter(p => p.status === 'won');
@@ -130,7 +330,10 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
   const winRate = totalDecided > 0 ? Math.round((wonProspects.length / totalDecided) * 100) : 0;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className={cn(
+      "space-y-6 animate-in fade-in duration-500",
+      isFullscreen && "fixed inset-0 z-[99999] bg-zinc-950 p-6 overflow-y-auto w-screen h-screen m-0"
+    )}>
       
       {/* Sales Overview Banner */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 bg-white dark:bg-zinc-900 p-6 rounded-3xl border border-zinc-200 dark:border-zinc-800 shadow-sm relative overflow-hidden group">
@@ -165,78 +368,44 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
             </div>
           </div>
 
-          <button 
-            onClick={() => setIsAddProspectOpen(true)}
-            className="flex items-center gap-2 px-5 py-3 bg-indigo-650 hover:bg-indigo-700 text-white rounded-2xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            Add Prospect
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            <button 
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Display"}
+              className="flex items-center gap-2 px-4 py-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 rounded-2xl text-xs font-extrabold transition-all border border-zinc-200 dark:border-zinc-700/80 active:scale-95 shrink-0"
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4 text-indigo-500" /> : <Maximize2 className="w-4 h-4 text-indigo-500" />}
+              <span className="hidden sm:inline">
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </span>
+            </button>
+
+            <button 
+              onClick={() => setIsAddProspectOpen(true)}
+              className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-2xl text-sm font-black shadow-xl shadow-indigo-500/30 hover:shadow-indigo-500/50 transition-all transform hover:-translate-y-0.5 active:translate-y-0 active:scale-95 shrink-0 border border-indigo-400/30"
+            >
+              <Plus className="w-5 h-5 text-white" />
+              <span>+ Add New Prospect</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-zinc-200 dark:border-zinc-800 gap-2 overflow-x-auto no-scrollbar">
-        <button
-          onClick={() => setActiveSubTab('pipeline')}
-          className={`flex items-center gap-2 px-5 py-3.5 border-b-2 text-xs font-extrabold uppercase tracking-wider transition-all whitespace-nowrap ${
-            activeSubTab === 'pipeline' 
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-500/[0.02]' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-          }`}
-        >
-          <Briefcase className="w-4 h-4" />
-          Pipeline Board
-        </button>
-        <button
-          onClick={() => setActiveSubTab('prospects')}
-          className={`flex items-center gap-2 px-5 py-3.5 border-b-2 text-xs font-extrabold uppercase tracking-wider transition-all whitespace-nowrap ${
-            activeSubTab === 'prospects' 
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-500/[0.02]' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          Prospects Directory
-        </button>
-        <button
-          onClick={() => setActiveSubTab('activities')}
-          className={`flex items-center gap-2 px-5 py-3.5 border-b-2 text-xs font-extrabold uppercase tracking-wider transition-all whitespace-nowrap ${
-            activeSubTab === 'activities' 
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-500/[0.02]' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-          }`}
-        >
-          <MessageSquare className="w-4 h-4" />
-          Meetings & Logs
-        </button>
-        <button
-          onClick={() => setActiveSubTab('analytics')}
-          className={`flex items-center gap-2 px-5 py-3.5 border-b-2 text-xs font-extrabold uppercase tracking-wider transition-all whitespace-nowrap ${
-            activeSubTab === 'analytics' 
-              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 bg-indigo-500/[0.02]' 
-              : 'border-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          Sales Performance
-        </button>
-      </div>
-
       {/* Sub-tab Rendering */}
-      <div className="mt-4">
+      <div>
         {activeSubTab === 'pipeline' && (
           <SalesPipeline 
             tenantId={tenantId} 
-            prospects={prospects} 
+            prospects={allProspects} 
             staffList={staffList}
-            onUpdate={refetchProspects} 
+            onUpdate={() => { refetchProspects(); refetchCustomers(); }} 
+            onOpenAddProspect={() => setIsAddProspectOpen(true)}
           />
         )}
         {activeSubTab === 'prospects' && (
           <SalesProspects 
             tenantId={tenantId} 
-            prospects={prospects} 
+            prospects={allProspects} 
             staffList={staffList} 
             activities={activities}
             onUpdate={refetchProspects} 
@@ -246,14 +415,14 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
         {activeSubTab === 'activities' && (
           <SalesActivities 
             tenantId={tenantId} 
-            prospects={prospects} 
+            prospects={allProspects} 
             activities={activities} 
             onUpdate={refetchActivities} 
           />
         )}
         {activeSubTab === 'analytics' && (
           <SalesAnalytics 
-            prospects={prospects} 
+            prospects={allProspects} 
             activities={activities} 
             staffList={staffList}
           />
@@ -276,6 +445,109 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
             
             <form onSubmit={handleAddProspect} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto no-scrollbar">
               
+              {customerList.length > 0 && (
+                <div className="p-3.5 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-2xl border border-indigo-200/80 dark:border-indigo-800/60 relative">
+                  <label className="block text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-500" /> Pull From Customer Directory
+                    </span>
+                    <span className="text-[9px] text-zinc-400 font-semibold uppercase">Type to filter</span>
+                  </label>
+
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={customerSearchQuery}
+                      onFocus={() => setIsCustomerDropdownOpen(true)}
+                      onChange={(e) => {
+                        setCustomerSearchQuery(e.target.value);
+                        setIsCustomerDropdownOpen(true);
+                      }}
+                      placeholder="Type customer name to search & auto-fill..."
+                      className="w-full pl-9 pr-8 py-2 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-zinc-900 dark:text-white placeholder-zinc-400 focus:ring-2 focus:ring-indigo-500/25 outline-none transition-all"
+                    />
+                    {customerSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerSearchQuery('');
+                          setIsCustomerDropdownOpen(false);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-white p-0.5"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    )}
+                  </div>
+
+                  {/* Filtered Customer Search Results Popup */}
+                  {isCustomerDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl z-50 max-h-60 overflow-y-auto p-1.5 space-y-1 animate-in fade-in-50 duration-150">
+                      {(() => {
+                        const queryText = customerSearchQuery.toLowerCase().trim();
+                        const filtered = customerList.filter(c => {
+                          const name = (c.name || c.displayName || c.companyName || '').toLowerCase();
+                          const contact = (c.contactPerson || c.givenName || '').toLowerCase();
+                          const email = (c.email || c.primaryEmailAddr || '').toLowerCase();
+                          const phone = (c.phone || c.primaryPhone || '').toLowerCase();
+                          return !queryText || name.includes(queryText) || contact.includes(queryText) || email.includes(queryText) || phone.includes(queryText);
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="p-3 text-center text-xs text-zinc-400 font-medium">
+                              No matching customers found
+                            </div>
+                          );
+                        }
+
+                        return filtered.map(c => {
+                          const custName = c.name || c.displayName || c.companyName || 'Unnamed';
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setNewProspect(prev => ({
+                                  ...prev,
+                                  name: custName,
+                                  contactPerson: c.contactPerson || c.givenName || prev.contactPerson,
+                                  email: c.email || c.primaryEmailAddr || prev.email,
+                                  phone: c.phone || c.primaryPhone || prev.phone,
+                                  source: c.source || 'QuickBooks Sync',
+                                  notes: c.notes ? `[Customer Record Linked] ${c.notes}` : prev.notes
+                                }));
+                                setCustomerSearchQuery(custName);
+                                setIsCustomerDropdownOpen(false);
+                                toast.success(`Auto-filled details for ${custName}`);
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2 text-left rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors group cursor-pointer"
+                            >
+                              <div>
+                                <div className="text-xs font-bold text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                                  {custName}
+                                </div>
+                                {(c.contactPerson || c.email || c.phone) && (
+                                  <div className="text-[10px] text-zinc-400 font-medium truncate max-w-[280px]">
+                                    {[c.contactPerson, c.email, c.phone].filter(Boolean).join(' • ')}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900 dark:group-hover:text-indigo-300">
+                                {c.source || 'Customer'}
+                              </span>
+                            </button>
+                          );
+                        });
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest mb-1.5">Prospect Name / Company Name</label>
                 <input 
@@ -362,9 +634,11 @@ export function SalesCrmManager({ tenantId }: SalesCrmManagerProps) {
                     className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-indigo-500/25 outline-none transition-all"
                   >
                     <option value="Website">Website</option>
+                    <option value="Text Message">Text Message (SMS)</option>
+                    <option value="Phone Call">Phone Call / Inbound</option>
                     <option value="Referral">Referral</option>
-                    <option value="Cold Call">Cold Call</option>
-                    <option value="QuickBooks">QuickBooks Sync</option>
+                    <option value="Cold Call">Cold Call / Outreach</option>
+                    <option value="QuickBooks Sync">QuickBooks Sync</option>
                     <option value="Advertisement">Advertisement</option>
                     <option value="Trade Show">Trade Show</option>
                     <option value="Other">Other</option>

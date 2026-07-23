@@ -1177,6 +1177,7 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
             console.log(`Auto-creating native task for QuickBooks labor item: ${lineItem.item} at index ${index}`);
             const tasksRef = collection(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`);
             const docRef = await addDoc(tasksRef, {
+              tenantId: tenantId,
               name: itemTitle,
               title: itemTitle,
               description: lineDescription,

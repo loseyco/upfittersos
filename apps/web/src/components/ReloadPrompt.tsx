@@ -135,7 +135,7 @@ export function ReloadPrompt() {
 
   if (needRefresh && isSnoozed && !isCountingDown) {
     return (
-      <div className="fixed bottom-6 right-6 z-[200]">
+      <div className="fixed bottom-20 md:bottom-6 right-6 z-[200]">
         <button 
           onClick={() => setSnoozedUntil(null)}
           className="p-3 bg-indigo-600 text-white rounded-full shadow-lg hover:scale-110 transition-transform active:scale-95 animate-pulse"
@@ -148,7 +148,7 @@ export function ReloadPrompt() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-[200] animate-in fade-in slide-in-from-bottom-8 duration-500 ease-out">
+    <div className="fixed bottom-20 md:bottom-6 right-6 z-[200] animate-in fade-in slide-in-from-bottom-8 duration-500 ease-out">
       <div className={cn(
         "relative overflow-hidden",
         "bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl",

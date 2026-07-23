@@ -267,13 +267,30 @@ export function ForemanDashboard({ tenantId, onTabChange }: { tenantId: string, 
       }
 
       // Automatically link the vehicle to the job if both are present and not already linked
-      if (actionType === 'assign' && trimmedVin && jobId) {
+      if (actionType === 'assign' && jobId) {
         const job = allJobs.find((j: any) => j.id === jobId);
-        if (job && job.vehicleVin !== trimmedVin) {
-          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
-            vehicleVin: trimmedVin,
+        const jobUpdate: any = {
+          bayId: zoneId,
+          updatedAt: serverTimestamp()
+        };
+        if (job) {
+          if (trimmedVin && job.vehicleVin !== trimmedVin) {
+            jobUpdate.vehicleVin = trimmedVin;
+          }
+          if (['completed', 'complete', 'closed'].includes(job.status?.toLowerCase() || '')) {
+            jobUpdate.status = 'Open';
+            jobUpdate.completedAt = null;
+            jobUpdate.readyForCustomerAt = null;
+          }
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), jobUpdate);
+      } else if ((actionType === 'clear' || actionType === 'remove_job') && (jobId || previousJobId)) {
+        const targetJobId = jobId || previousJobId;
+        if (targetJobId) {
+          await updateDoc(doc(db, `businesses/${tenantId}/jobs`, targetJobId), {
+            bayId: null,
             updatedAt: serverTimestamp()
-          });
+          }).catch(err => console.warn("Failed to clear bayId on job:", err));
         }
       }
 

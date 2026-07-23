@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Home, Users, Briefcase, Layers, Map,
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
-  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck,
+  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp,
-  Code, MapPin
+  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp, BarChart3,
+  Code, MapPin, Tv
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -21,7 +21,7 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'safety';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
@@ -31,12 +31,14 @@ export const ITEMS: NavItem[] = [
   // Dashboard Hub
   { id: 'overview', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'dashboard' },
   { id: 'time_details', label: 'Time Clock', icon: Clock, hub: 'dashboard' },
+  { id: 'time_details_v3', label: 'Time Clock (v3)', icon: Clock, hub: 'dashboard' },
   { id: 'device_settings', label: 'Device Settings', icon: Settings, hub: 'dashboard' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'dashboard' },
 
 
   // Upfitters Dept
   { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
+  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'foreman_todo', label: 'Foreman Todo List', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'jobs.view' },
   { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'upfitters', permission: 'jobs.view' },
@@ -44,6 +46,14 @@ export const ITEMS: NavItem[] = [
   { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'bay_worksheet.view' },
   { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'upfitters', permission: 'foreman.view' },
+
+  // Safety Dept
+  { id: 'safety', label: 'Safety Overview', icon: ShieldCheck, hub: 'safety', permission: 'safety.view' },
+  { id: 'safety_standards', label: 'OSHA Standards', icon: BookOpen, hub: 'safety', permission: 'safety.view' },
+  { id: 'safety_sds', label: 'SDS Binders & HazMat', icon: FileSpreadsheet, hub: 'safety', permission: 'safety.view' },
+  { id: 'safety_incidents', label: 'Incident & Near-Miss Log', icon: ClipboardList, hub: 'safety', permission: 'safety.view' },
+  { id: 'safety_inspections', label: 'Audits & Checklists', icon: ShieldAlert, hub: 'safety', permission: 'safety.view' },
+  { id: 'safety_training', label: 'Training & Certs', icon: GraduationCap, hub: 'safety', permission: 'safety.view' },
 
   // Parts Dept
   { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
@@ -69,7 +79,10 @@ export const ITEMS: NavItem[] = [
   { id: 'harness', label: 'Overview', icon: Layers, hub: 'harness', permission: 'harness.view' },
 
   // Sales Dept
-  { id: 'sales', label: 'Sales & CRM', icon: TrendingUp, hub: 'sales', permission: 'sales.view' },
+  { id: 'sales_pipeline', label: 'CRM', icon: Briefcase, hub: 'sales', permission: 'sales.view' },
+  { id: 'sales_prospects', label: 'Prospects Directory', icon: Users, hub: 'sales', permission: 'sales.view' },
+  { id: 'sales_activities', label: 'Meetings & Logs', icon: MessageSquare, hub: 'sales', permission: 'sales.view' },
+  { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'sales', permission: 'sales.view' },
 
   // Office Dept (Main Office)
   { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
@@ -113,13 +126,17 @@ export const ITEMS: NavItem[] = [
   { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
 
+  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'development', permission: 'development.view' },
   { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', permission: 'development.view' },
+  { id: 'conference_control', label: 'TV Monitor Control', icon: Tv, hub: 'development', permission: 'development.view' },
+  { id: 'overview_v3', label: 'Overview (v3)', icon: ClipboardList, hub: 'development', permission: 'development.view' },
   { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', permission: 'development.view' },
   { id: 'staff_sheet', label: 'Staff Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'jobs_sheet', label: 'Jobs Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'tasks_sheet', label: 'Tasks Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
   { id: 'wires_sheet', label: 'Wires Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
+  { id: 'telemetry_sheet', label: 'Telemetry & Trends (v3)', icon: TrendingUp, hub: 'development', permission: 'development.view' },
 
   // Help Hub
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },
@@ -158,15 +175,16 @@ export const ITEMS: NavItem[] = [
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
+  id: 'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
   label: string;
   icon: React.ElementType;
 };
 
-const HUBS: HubType[] = [
+export const HUBS: HubType[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'office', label: 'Main Office', icon: Building2 },
   { id: 'upfitters', label: 'Upfitters', icon: ClipboardList },
+  { id: 'safety', label: 'Safety & OSHA', icon: ShieldAlert },
   { id: 'parts', label: 'Parts Dept', icon: Package },
   { id: 'printed_parts', label: 'Print Farm', icon: Printer },
   { id: 'graphics', label: 'Graphics', icon: PenTool },
@@ -223,8 +241,10 @@ export function BusinessSidebar({
   });
 
   // Track the selected Hub (Tier 1)
-  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development'>(() => {
+  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development'>(() => {
     if (activeTab === 'job' || activeTab === 'task') return 'facility';
+    if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
+    if (activeTab?.startsWith('safety')) return 'safety';
     if (activeTab?.startsWith('help_')) return 'help';
     if (activeTab?.startsWith('sop_')) return 'sop';
     const activeItem = ITEMS.find(item => item.id === activeTab);
@@ -235,6 +255,8 @@ export function BusinessSidebar({
   useEffect(() => {
     setActiveHub(current => {
       if (activeTab === 'job' || activeTab === 'task') return 'facility';
+      if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
+      if (activeTab?.startsWith('safety')) return 'safety';
       if (activeTab?.startsWith('help_')) return 'help';
       if (activeTab?.startsWith('sop_')) return 'sop';
       const currentHubItems = ITEMS.filter(item => item.hub === current);
@@ -300,7 +322,7 @@ export function BusinessSidebar({
     return visibleItems.filter(item => item.hub === hubId);
   };
 
-  const renderSubmenuContent = (hubId: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development', isOverlay = false) => {
+  const renderSubmenuContent = (hubId: HubType['id'], isOverlay = false) => {
     const hubItems = getSubmenuItemsForHub(hubId);
 
     // Extract unique groups

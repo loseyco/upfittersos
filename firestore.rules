@@ -239,6 +239,9 @@ service cloud.firestore {
       match /staff_dashboard_configs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
+      match /monitors/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
       match /staff_logs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }

@@ -4,7 +4,8 @@ import { db } from '../../lib/firebase/config';
 import { 
   ClipboardList, Plus, Trash2, Printer, Sparkles, Save, Calendar, RefreshCw,
   Search, CheckCircle2, AlertTriangle, AlertCircle, Info, Square, Package, Sliders,
-  CheckSquare, X, ChevronRight, MessageSquare, AlertOctagon, HelpCircle, Layers, Check
+  CheckSquare, X, ChevronRight, MessageSquare, AlertOctagon, HelpCircle, Layers, Check,
+  Clock, Wrench, CalendarDays, ListTodo, User, Building2, Maximize2, Minimize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../lib/auth/store';
@@ -91,11 +92,32 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   const [newMeetingDate, setNewMeetingDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Interactive Meeting Board State
-  const [viewMode, setViewMode] = useState<'board' | 'print'>('board');
+  const [viewMode, setViewMode] = useState<'board' | 'bay_jobs' | 'print'>('bay_jobs');
   const [selectedBoardJobId, setSelectedBoardJobId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [blockerFilter, setBlockerFilter] = useState<'all' | 'blocked' | 'ready' | 'parts'>('all');
   const [isSavingJobAlignment, setIsSavingJobAlignment] = useState(false);
+
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(err => {
+        console.error(err);
+        toast.error('Unable to enter fullscreen mode');
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => setIsFullscreen(false));
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handleFSChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFSChange);
+    return () => document.removeEventListener('fullscreenchange', handleFSChange);
+  }, []);
 
   // Firestore real-time collections
   const [jobs, setJobs] = useState<any[]>([]);
@@ -104,6 +126,8 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   const [zones, setZones] = useState<any[]>([]);
   const [parts, setParts] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
 
   // Setup Real-time Firestore Listeners
   useEffect(() => {
@@ -146,6 +170,14 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
       setStaff(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
     });
 
+    const unsubDepts = onSnapshot(collection(db, `businesses/${tenantId}/departments`), (snap) => {
+      setDepartments(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+    });
+
+    const unsubSessions = onSnapshot(collection(db, `businesses/${tenantId}/timecard_sessions`), (snap) => {
+      setSessions(snap.docs.map(d => ({ id: d.id, ...d.data() } as any)));
+    });
+
     return () => {
       unsubJobs();
       unsubVehicles();
@@ -153,6 +185,8 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
       unsubTasks();
       unsubParts();
       unsubStaff();
+      unsubDepts();
+      unsubSessions();
     };
   }, [tenantId]);
 
@@ -784,12 +818,28 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
   }
 
   return (
-    <div className="h-full flex flex-col lg:flex-row bg-zinc-50 dark:bg-zinc-950 font-sans select-none relative overflow-hidden">
+    <div className={cn(
+      "h-full flex flex-col lg:flex-row bg-zinc-50 dark:bg-zinc-950 font-sans select-none relative overflow-hidden",
+      isFullscreen && "fixed inset-0 z-[99999] p-4 overflow-hidden w-screen h-screen m-0 bg-zinc-950 flex-row"
+    )}>
+
+      {/* Floating Exit Fullscreen Button */}
+      {isFullscreen && (
+        <button
+          onClick={toggleFullscreen}
+          className="fixed top-4 right-4 z-[100000] flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900/90 hover:bg-zinc-800 text-white rounded-xl text-xs font-black shadow-2xl backdrop-blur-md border border-zinc-700/60 transition active:scale-95 opacity-80 hover:opacity-100"
+          title="Exit Fullscreen (or press Esc)"
+        >
+          <Minimize2 className="w-4 h-4 text-indigo-400" />
+          <span>Exit Fullscreen</span>
+        </button>
+      )}
       
       {/* ----------------------------------------------------
           SIDEBAR: PAST MEETINGS & SELECTION
       ---------------------------------------------------- */}
-      <div className="w-full lg:w-64 bg-white dark:bg-zinc-900 border-b lg:border-b-0 lg:border-r border-zinc-200 dark:border-zinc-800 p-4 flex flex-col gap-4 no-print shrink-0">
+      {!isFullscreen && (
+        <div className="w-full lg:w-64 bg-white dark:bg-zinc-900 border-b lg:border-b-0 lg:border-r border-zinc-200 dark:border-zinc-800 p-4 flex flex-col gap-4 no-print shrink-0">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
             <ClipboardList className="w-4 h-4 text-indigo-500" />
@@ -843,14 +893,19 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
           )}
         </div>
       </div>
+      )}
 
       {/* ----------------------------------------------------
           MAIN DOCUMENT WORKBOARD
       ---------------------------------------------------- */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar relative min-w-0">
+      <div className={cn(
+        "flex-1 overflow-y-auto p-4 md:p-8 no-scrollbar relative min-w-0",
+        isFullscreen && "p-2 h-screen overflow-hidden flex flex-col"
+      )}>
         
         {/* Editor Floating Actions Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm mb-6 no-print">
+        {!isFullscreen && (
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm mb-6 no-print">
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-lg font-black text-zinc-900 dark:text-white flex items-center gap-2">
@@ -864,15 +919,16 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
             {/* View Mode Toggle */}
             <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-xl shrink-0 border border-zinc-200/50 dark:border-zinc-700/50">
               <button
-                onClick={() => setViewMode('board')}
+                onClick={() => setViewMode('bay_jobs')}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200",
-                  viewMode === 'board' 
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition duration-200 flex items-center gap-1.5",
+                  viewMode === 'bay_jobs' 
                     ? "bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm" 
                     : "text-zinc-500 hover:text-zinc-850 dark:hover:text-zinc-350"
                 )}
               >
-                Interactive Board
+                <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                Jobs in Bay
               </button>
               <button
                 onClick={() => setViewMode('print')}
@@ -886,6 +942,17 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
                 Print Document
               </button>
             </div>
+
+            <button
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Display"}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800/80 dark:hover:bg-zinc-700/80 text-zinc-800 dark:text-zinc-200 rounded-xl text-xs font-extrabold transition-all border border-zinc-200 dark:border-zinc-700/80 active:scale-95 shrink-0"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-500" /> : <Maximize2 className="w-3.5 h-3.5 text-indigo-500" />}
+              <span className="hidden sm:inline">
+                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              </span>
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
@@ -935,11 +1002,26 @@ export function WeeklyMeetingNotes({ tenantId }: { tenantId: string }) {
             )}
           </div>
         </div>
+      )}
 
         {/* ----------------------------------------------------
             THE WEEKLY MEETING CONTENT
         ---------------------------------------------------- */}
-        {meetingData ? (
+        {viewMode === 'bay_jobs' ? (
+          <BayJobsView
+            tenantId={tenantId}
+            jobs={jobs}
+            tasks={tasks}
+            vehicles={vehicles}
+            zones={zones}
+            departments={departments}
+            staff={staff}
+            sessions={sessions}
+            onSaveJobAlignment={handleSaveJobAlignment}
+            isSavingJobAlignment={isSavingJobAlignment}
+            isFullscreen={isFullscreen}
+          />
+        ) : meetingData ? (
           viewMode === 'print' ? (
             <div className="print-container w-full max-w-4xl mx-auto space-y-12">
             
@@ -2177,4 +2259,853 @@ function JobAlignmentWorkspace({ job, tasks, vehicles, zones, parts, staff, tena
     </div>
   );
 }
+
+// ----------------------------------------------------
+// JOBS IN BAY VIEW
+// --------------------------------------// ----------------------------------------------------
+// JOBS IN BAY VIEW
+// ----------------------------------------------------
+const parseSafeDate = (val: any): Date | null => {
+  if (!val) return null;
+  if (typeof val.toDate === 'function') {
+    try {
+      return val.toDate();
+    } catch (e) {}
+  }
+  if (val && typeof val.seconds === 'number') {
+    return new Date(val.seconds * 1000);
+  }
+  if (val instanceof Date) return val;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const projectWorkingHours = (startDate: Date, totalHours: number, schedule?: any) => {
+  if (totalHours <= 0) return startDate;
+  
+  const days = schedule?.days || [1, 2, 3, 4, 5];
+  const startStr = schedule?.startTime || "08:00";
+  const endStr = schedule?.endTime || "17:00";
+  
+  const [startH, startM] = startStr.split(':').map(Number);
+  const [endH, endM] = endStr.split(':').map(Number);
+  
+  const dailyWorkMs = ((endH * 60 + endM) - (startH * 60 + startM)) * 60000;
+  if (dailyWorkMs <= 0 || days.length === 0) return startDate;
+  
+  let current = new Date(startDate);
+  let remainingMs = totalHours * 3600000;
+  
+  while (remainingMs > 0) {
+    const dayOfWeek = current.getDay();
+    const mappedDay = dayOfWeek === 0 ? 7 : dayOfWeek;
+    
+    if (!days.includes(mappedDay)) {
+      current.setDate(current.getDate() + 1);
+      current.setHours(startH, startM, 0, 0);
+      continue;
+    }
+    
+    const startOfShift = new Date(current);
+    startOfShift.setHours(startH, startM, 0, 0);
+    
+    const endOfShift = new Date(current);
+    endOfShift.setHours(endH, endM, 0, 0);
+    
+    if (current >= endOfShift) {
+      current.setDate(current.getDate() + 1);
+      current.setHours(startH, startM, 0, 0);
+      continue;
+    }
+    
+    if (current < startOfShift) {
+      current = new Date(startOfShift);
+    }
+    
+    const msLeftInShift = endOfShift.getTime() - current.getTime();
+    
+    if (remainingMs <= msLeftInShift) {
+      current = new Date(current.getTime() + remainingMs);
+      remainingMs = 0;
+    } else {
+      remainingMs -= msLeftInShift;
+      current.setDate(current.getDate() + 1);
+      current.setHours(startH, startM, 0, 0);
+    }
+  }
+  
+  return current;
+};
+
+const calculateJobCalculatedFinish = (job: any, jobTasks: any[], departments: any[]) => {
+  if (!jobTasks || jobTasks.length === 0) {
+    return { calculatedDate: parseSafeDate(job?.expectedFinishTime), totalRemainingHours: 0, incompleteCount: 0, isAllCompleted: false };
+  }
+
+  const nonGeneralTasks = jobTasks.filter(t => t && t.title !== 'General');
+  const incompleteTasks = nonGeneralTasks.filter(t => t && !['QC Complete', 'QC', 'completed'].includes(t.status));
+
+  if (incompleteTasks.length === 0) {
+    return { calculatedDate: null, totalRemainingHours: 0, incompleteCount: 0, isAllCompleted: true };
+  }
+
+  // Sum remaining book time
+  const deptHours: Record<string, number> = {};
+  let totalRemainingHours = 0;
+
+  incompleteTasks.forEach(t => {
+    const rawHours = parseFloat(t.bookTime || t.estimatedHours || t.duration || t.hours || '0') || 0;
+    const deptId = t.departmentId || 'unassigned';
+    deptHours[deptId] = (deptHours[deptId] || 0) + rawHours;
+    totalRemainingHours += rawHours;
+  });
+
+  const nowTime = new Date();
+  let maxETA = nowTime;
+
+  if (totalRemainingHours > 0) {
+    Object.entries(deptHours).forEach(([deptId, hours]) => {
+      const dept = departments.find(d => d.id === deptId);
+      const schedule = dept?.defaultSchedule;
+      const eta = projectWorkingHours(nowTime, hours, schedule);
+      if (eta > maxETA) {
+        maxETA = eta;
+      }
+    });
+  } else {
+    // Fallback: 1 hour per incomplete task
+    const fallbackHours = incompleteTasks.length * 1.0;
+    maxETA = projectWorkingHours(nowTime, fallbackHours);
+    totalRemainingHours = fallbackHours;
+  }
+
+  return {
+    calculatedDate: maxETA,
+    totalRemainingHours,
+    incompleteCount: incompleteTasks.length,
+    isAllCompleted: false
+  };
+};
+
+interface BayJobsViewProps {
+  tenantId: string;
+  jobs: any[];
+  tasks: any[];
+  vehicles: any[];
+  zones: any[];
+  departments: any[];
+  staff: any[];
+  sessions?: any[];
+  onSaveJobAlignment: (jobId: string, data: any) => Promise<void>;
+  isSavingJobAlignment: boolean;
+  isFullscreen?: boolean;
+}
+
+function BayJobsView({
+  tenantId,
+  jobs,
+  tasks,
+  vehicles,
+  zones,
+  departments,
+  staff,
+  sessions = [],
+  onSaveJobAlignment,
+  isSavingJobAlignment,
+  isFullscreen = false
+}: BayJobsViewProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMode, setFilterMode] = useState<'all' | 'in_progress' | 'has_notes'>('all');
+
+  // Ensure Bays 1 through 10 exist and sort numerically (Bay 1 to Bay 10)
+  const bayZones = useMemo(() => {
+    const existingBayZones = zones.filter((z: any) => !z.isArchived && z.type === 'bay');
+
+    // Create 1-10 default bays
+    const defaultBays = Array.from({ length: 10 }, (_, i) => {
+      const num = i + 1;
+      const name = `Bay ${num}`;
+      const existing = existingBayZones.find((z: any) => {
+        const zName = String(z.name || '').toLowerCase().trim();
+        return zName === name.toLowerCase() || zName === `bay ${num}` || zName === `${num}`;
+      });
+
+      if (existing) return existing;
+
+      return {
+        id: `bay-${num}`,
+        name: `Bay ${num}`,
+        type: 'bay',
+        isDefault: true
+      };
+    });
+
+    // Add any extra bay zones from Firestore not in 1-10
+    const extraBays = existingBayZones.filter((z: any) => {
+      const zName = String(z.name || '').toLowerCase().trim();
+      return !defaultBays.some(b => String(b.name || '').toLowerCase().trim() === zName);
+    });
+
+    const allBays = [...defaultBays, ...extraBays];
+
+    // Natural numerical sort: Bay 1, Bay 2, ..., Bay 9, Bay 10
+    return allBays.sort((a: any, b: any) => {
+      const nameA = String(a.name || '');
+      const nameB = String(b.name || '');
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [zones]);
+
+  // Map jobs in bays
+  const bayJobsData = useMemo(() => {
+    const activeJobs = jobs.filter((j: any) => !['Completed', 'Closed'].includes(j.status));
+
+    const items: Array<{ id: string; zone: any; job: any | null }> = [];
+    const matchedJobIds = new Set<string>();
+
+    bayZones.forEach((z: any) => {
+      const zNameLower = String(z.name || '').toLowerCase().trim();
+      const bayNumMatch = zNameLower.match(/\d+/);
+      const bayNumStr = bayNumMatch ? bayNumMatch[0] : null;
+
+      const job = activeJobs.find((j: any) => {
+        if (matchedJobIds.has(j.id)) return false;
+
+        // Direct zone currentJobId
+        if (z.currentJobId === j.id) return true;
+
+        // Direct zone currentVehicleVin
+        if (j.vehicleId && z.currentVehicleVin && z.currentVehicleVin === j.vehicleId) return true;
+
+        // Match by job.bayId
+        if (j.bayId) {
+          const jBayLower = String(j.bayId).toLowerCase().trim();
+          if (jBayLower === z.id.toLowerCase() || jBayLower === zNameLower) return true;
+          if (bayNumStr && (jBayLower === bayNumStr || jBayLower === `bay ${bayNumStr}` || jBayLower === `bay-${bayNumStr}`)) return true;
+        }
+
+        return false;
+      });
+
+      if (job) {
+        matchedJobIds.add(job.id);
+      }
+
+      items.push({
+        id: z.id,
+        zone: z,
+        job: job || null
+      });
+    });
+
+    // Also include any active jobs that have an unmapped bayId assigned (excluding parking/lot spots)
+    activeJobs.forEach((j: any) => {
+      if (matchedJobIds.has(j.id)) return;
+
+      if (j.bayId && j.bayId !== 'none') {
+        const jBayLower = String(j.bayId).toLowerCase().trim();
+        const isNonBay = jBayLower.includes('park') || jBayLower.includes('lot') || jBayLower.includes('spot') || jBayLower.includes('staging') || jBayLower.includes('offsite');
+        if (!isNonBay && (jBayLower.includes('bay') || /^\d+$/.test(jBayLower))) {
+          const syntheticZone = {
+            id: `synthetic-${j.id}`,
+            name: typeof j.bayId === 'string' ? (j.bayId.toLowerCase().includes('bay') ? j.bayId : `Bay ${j.bayId}`) : 'Bay',
+            type: 'bay'
+          };
+          items.push({
+            id: `synthetic-${j.id}`,
+            zone: syntheticZone,
+            job: j
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [bayZones, jobs]);
+
+  // Stats calculation
+  const stats = useMemo(() => {
+    const totalBays = bayZones.length;
+    const occupied = bayJobsData.filter(item => !!item.job).length;
+    let totalRemainingBookTime = 0;
+
+    const activeClockIns = (sessions || []).filter((s: any) => !s.clockOutTime && s.status !== 'clocked_out');
+    
+    // Count active tasks or active clock-in sessions on bay jobs
+    let activeTasksCount = 0;
+    const activeJobIds = new Set<string>();
+    
+    activeClockIns.forEach((s: any) => {
+      if (s.jobId) activeJobIds.add(s.jobId);
+    });
+
+    bayJobsData.forEach(item => {
+      if (!item.job) return;
+      const jobTasks = tasks.filter(t => t.jobId === item.job.id && t.title !== 'General');
+      
+      const inProg = jobTasks.filter(t => ['In Progress', 'in_progress', 'active', 'working', 'clocked_in'].includes(t.status));
+      const clockInsForJob = activeClockIns.filter((s: any) => s.jobId === item.job.id);
+      
+      const jobActiveCount = Math.max(inProg.length, clockInsForJob.length);
+      if (jobActiveCount > 0) {
+        activeTasksCount += jobActiveCount;
+        activeJobIds.add(item.job.id);
+      }
+
+      const incompleteTasks = jobTasks.filter(t => !['QC', 'QC Complete', 'completed'].includes(t.status));
+      incompleteTasks.forEach(t => {
+        totalRemainingBookTime += parseFloat(t.bookTime || t.estimatedHours || t.duration || t.hours || '0') || 0;
+      });
+    });
+
+    const finalActiveTasksCount = Math.max(activeTasksCount, activeClockIns.length, activeJobIds.size);
+
+    return { totalBays, occupied, activeTasksCount: finalActiveTasksCount, totalRemainingBookTime };
+  }, [bayZones, bayJobsData, tasks, sessions]);
+
+  // Filter items: ONLY show occupied bays with a job (no empty bays)
+  const filteredItems = useMemo(() => {
+    return bayJobsData.filter(item => {
+      // Exclude empty bays
+      if (!item.job) return false;
+
+      const job = item.job;
+      const zoneName = item.zone?.name || '';
+      
+      const activeClockIns = (sessions || []).filter((s: any) => !s.clockOutTime && s.status !== 'clocked_out');
+      const jobTasks = tasks.filter(t => t.jobId === job.id && t.title !== 'General');
+      const hasInProgress = jobTasks.some(t => ['In Progress', 'in_progress', 'active', 'working', 'clocked_in'].includes(t.status)) || activeClockIns.some((s: any) => s.jobId === job.id);
+      const hasNotes = !!job.weeklyMeetingNotes && job.weeklyMeetingNotes.trim().length > 0;
+
+      if (filterMode === 'in_progress' && !hasInProgress) return false;
+      if (filterMode === 'has_notes' && !hasNotes) return false;
+
+      // Search query check
+      if (!searchQuery) return true;
+      const search = searchQuery.toLowerCase().trim();
+      const jobNum = String(job?.jobNumber || '').toLowerCase();
+      const jobTitle = String(job?.title || '').toLowerCase();
+      const zName = String(zoneName).toLowerCase();
+      const vehicle = job ? vehicles.find((v: any) => v.vin === job.vehicleId || v.id === job.vehicleId) : null;
+      const vehicleStr = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''} ${vehicle.vin || ''}`.toLowerCase() : '';
+
+      return jobNum.includes(search) || jobTitle.includes(search) || zName.includes(search) || vehicleStr.includes(search);
+    });
+  }, [bayJobsData, filterMode, searchQuery, tasks, vehicles, sessions]);
+
+  return (
+    <div className={cn(
+      "flex flex-col gap-6 w-full h-full select-text",
+      isFullscreen && "h-full flex-1 gap-2"
+    )}>
+      {/* Header Stat Cards */}
+      {!isFullscreen && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Jobs in Bay</p>
+              <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">{stats.occupied}</p>
+            </div>
+            <div className="p-2.5 bg-indigo-500/10 text-indigo-500 rounded-xl">
+              <Building2 className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Remaining Book Time</p>
+              <p className="text-2xl font-black text-emerald-500 mt-1">{stats.totalRemainingBookTime.toFixed(1)} hrs</p>
+            </div>
+            <div className="p-2.5 bg-emerald-500/10 text-emerald-500 rounded-xl">
+              <Wrench className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Controls / Filter Bar */}
+      {!isFullscreen && (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-4 rounded-2xl shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-400" />
+            <input
+              type="text"
+              placeholder="Search bay name, job #, vehicle..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold outline-none focus:border-indigo-500 dark:text-white"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-zinc-400 hover:text-zinc-600">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex bg-zinc-100 dark:bg-zinc-950 p-1 rounded-xl border border-zinc-200/60 dark:border-zinc-800/60 shrink-0">
+            {(['all', 'in_progress', 'has_notes'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setFilterMode(tab)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition uppercase tracking-wider text-[10px]",
+                  filterMode === tab
+                    ? "bg-white dark:bg-zinc-900 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {tab === 'all' ? 'All Jobs in Bay' : tab === 'in_progress' ? 'In Progress' : 'Has Notes'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sideways Scrollable Kanban Board */}
+      {filteredItems.length === 0 ? (
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-12 text-center rounded-3xl">
+          <Building2 className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-3" />
+          <h3 className="font-bold text-zinc-800 dark:text-white text-base">No Active Jobs in Bays</h3>
+          <p className="text-zinc-500 text-xs mt-1">There are currently no active jobs in any production bay matching your search.</p>
+        </div>
+      ) : (
+        <div className={cn(
+          "flex-1 overflow-x-auto overflow-y-auto no-scrollbar pb-6",
+          isFullscreen && "h-full pt-2 pb-2"
+        )}>
+          <div className="flex flex-row gap-6 min-w-max items-start h-full">
+            {filteredItems.map(item => (
+              <div key={item.id} className="w-[450px] shrink-0 snap-start">
+                <BayJobCard
+                  zone={item.zone}
+                  job={item.job}
+                  tasks={tasks}
+                  vehicles={vehicles}
+                  departments={departments}
+                  staff={staff}
+                  tenantId={tenantId}
+                  onSaveJobAlignment={onSaveJobAlignment}
+                  isSavingJobAlignment={isSavingJobAlignment}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface BayJobCardProps {
+  zone: any;
+  job: any;
+  tasks: any[];
+  vehicles: any[];
+  departments: any[];
+  staff: any[];
+  tenantId: string;
+  onSaveJobAlignment: (jobId: string, data: any) => Promise<void>;
+  isSavingJobAlignment: boolean;
+}
+
+function BayJobCard({
+  zone,
+  job,
+  tasks,
+  vehicles,
+  departments,
+  staff,
+  tenantId,
+  onSaveJobAlignment,
+  isSavingJobAlignment
+}: BayJobCardProps) {
+  // Helpers to format dates for inputs & displays
+  const formatDatetimeLocalInput = (dateVal?: any) => {
+    if (!dateVal) return '';
+    try {
+      const date = typeof dateVal.toDate === 'function' ? dateVal.toDate() : new Date(dateVal);
+      if (isNaN(date.getTime())) return '';
+      date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+      return date.toISOString().slice(0, 16);
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const formatDisplayDate = (dateVal?: any) => {
+    if (!dateVal) return 'Not Set';
+    try {
+      const date = typeof dateVal.toDate === 'function' ? dateVal.toDate() : new Date(dateVal);
+      if (isNaN(date.getTime())) return 'Not Set';
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return 'Not Set';
+    }
+  };
+
+  const formatTaskTime = (ts?: any) => {
+    if (!ts) return '';
+    try {
+      const date = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + date.toLocaleDateString([], { month: 'numeric', day: 'numeric' }) + ')';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  // Tasks classification
+  const jobTasks = useMemo(() => {
+    if (!job) return [];
+    return tasks.filter((t: any) => t.jobId === job.id && t.title !== 'General');
+  }, [tasks, job]);
+
+  // Dynamic ETA calculation based on schedule and uncompleted task book time
+  const finishCalc = useMemo(() => {
+    return calculateJobCalculatedFinish(job, jobTasks, departments);
+  }, [job, jobTasks, departments]);
+
+  // Notes and ETA local state
+  const [notes, setNotes] = useState(job?.weeklyMeetingNotes || '');
+  const effectiveDate = job?.expectedFinishTime || finishCalc.calculatedDate;
+  const [expectedFinishInput, setExpectedFinishInput] = useState(formatDatetimeLocalInput(effectiveDate));
+  const [isSavingLocal, setIsSavingLocal] = useState(false);
+
+  // Sync state when job or finish calculation changes
+  useEffect(() => {
+    setNotes(job?.weeklyMeetingNotes || '');
+    const dateToUse = job?.expectedFinishTime || finishCalc.calculatedDate;
+    setExpectedFinishInput(formatDatetimeLocalInput(dateToUse));
+  }, [job, finishCalc.calculatedDate]);
+
+  const handleUseCalculatedFinish = () => {
+    if (finishCalc.calculatedDate) {
+      setExpectedFinishInput(formatDatetimeLocalInput(finishCalc.calculatedDate));
+      toast.info("Recalculated finish date from remaining task book times & schedule!");
+    }
+  };
+
+  const vehicle = useMemo(() => {
+    if (!job) return null;
+    return vehicles.find((v: any) => v.vin === job.vehicleId || v.id === job.vehicleId);
+  }, [vehicles, job]);
+
+  const vehicleLabel = vehicle 
+    ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''} ${vehicle.vin ? `(VIN: ${vehicle.vin})` : ''}`.trim()
+    : job?.vehicleId || '';
+
+  // 1. Worked On (In Progress)
+  const workedOnTasks = useMemo(() => {
+    return jobTasks.filter((t: any) => t.status === 'In Progress' || t.status === 'in_progress' || t.status === 'active');
+  }, [jobTasks]);
+
+  // 2. Latest Worked On Task
+  const latestWorkedOnTask = useMemo(() => {
+    if (jobTasks.length === 0) return null;
+    
+    const getTaskTime = (t: any) => {
+      const ts = t.lastWorkedOn || t.updatedAt || t.completedAt || t.startedAt || t.createdAt;
+      if (!ts) return 0;
+      if (typeof ts === 'number') return ts;
+      if (ts.seconds) return ts.seconds * 1000;
+      if (ts.toDate) return ts.toDate().getTime();
+      return new Date(ts).getTime() || 0;
+    };
+
+    const sorted = [...jobTasks].sort((a, b) => getTaskTime(b) - getTaskTime(a));
+    return sorted[0] || null;
+  }, [jobTasks]);
+
+  // 3. Completed Tasks
+  const completedTasks = useMemo(() => {
+    return jobTasks.filter((t: any) => ['QC', 'QC Complete', 'completed'].includes(t.status));
+  }, [jobTasks]);
+
+  // 4. To Do Tasks
+  const todoTasks = useMemo(() => {
+    return jobTasks.filter((t: any) => !['QC', 'QC Complete', 'completed', 'In Progress', 'in_progress', 'active'].includes(t.status));
+  }, [jobTasks]);
+
+  const hasUnsavedChanges = 
+    notes !== (job?.weeklyMeetingNotes || '') ||
+    expectedFinishInput !== formatDatetimeLocalInput(job?.expectedFinishTime);
+
+  const handleSaveCard = async () => {
+    if (!job || !tenantId) return;
+    setIsSavingLocal(true);
+    try {
+      const finishIso = expectedFinishInput ? new Date(expectedFinishInput).toISOString() : null;
+      await onSaveJobAlignment(job.id, {
+        weeklyMeetingNotes: notes,
+        expectedFinishTime: finishIso
+      });
+      toast.success(`Saved notes & finish date for #${job.jobNumber || 'WO'}`);
+    } catch (err: any) {
+      toast.error(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSavingLocal(false);
+    }
+  };
+
+  return (
+    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-5 flex flex-col gap-5 shadow-sm hover:border-zinc-300 dark:hover:border-zinc-700 transition">
+      
+      {/* Card Header: Bay & Job Info */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-150 dark:border-zinc-800 pb-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-lg font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+              <Building2 className="w-3.5 h-3.5" />
+              {zone.name || 'Production Bay'}
+            </span>
+            <span className="text-xs font-black px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-md">
+              #{job.jobNumber || 'WO'}
+            </span>
+            <span className={cn(
+              "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider",
+              job.status === 'Blocked' ? "bg-rose-100 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                : job.status === 'Ready for Customer' ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
+                : job.status === 'QC' || job.status === 'Ready for QC' ? "bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400"
+                : "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400"
+            )}>
+              {job.status || 'Open'}
+            </span>
+          </div>
+
+          <h3 className="text-base font-black text-zinc-900 dark:text-white mt-2 flex items-center gap-2">
+            {job.title}
+            <a
+              href={`/business/${tenantId}/jobs/${job.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-zinc-400 hover:text-indigo-500 transition p-0.5"
+              title="Open job details"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </a>
+          </h3>
+
+          {vehicleLabel && (
+            <p className="text-xs font-bold text-zinc-450 dark:text-zinc-500 mt-0.5 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+              {vehicleLabel}
+            </p>
+          )}
+        </div>
+
+        {/* Estimated Finish Date/Time Section */}
+        <div className="flex flex-col gap-1.5 bg-zinc-50 dark:bg-zinc-950 p-3 rounded-2xl border border-zinc-200/60 dark:border-zinc-800/60 shrink-0 min-w-[250px]">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-[9px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1">
+              <CalendarDays className="w-3 h-3 text-indigo-500" /> Est. Finish Date & Time
+            </label>
+            {finishCalc.calculatedDate && (
+              <button
+                type="button"
+                onClick={handleUseCalculatedFinish}
+                className="text-[9px] font-black text-indigo-500 hover:text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5"
+                title="Reset finish date to schedule calculation from incomplete task book time"
+              >
+                <Sparkles className="w-2.5 h-2.5" /> Recalculate
+              </button>
+            )}
+          </div>
+
+          <input
+            type="datetime-local"
+            value={expectedFinishInput}
+            onChange={e => setExpectedFinishInput(e.target.value)}
+            className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-bold text-zinc-800 dark:text-zinc-100 outline-none focus:border-indigo-500 cursor-pointer"
+          />
+
+          {finishCalc.isAllCompleted ? (
+            <p className="text-[9px] font-bold text-emerald-500 flex items-center gap-1 mt-0.5">
+              <CheckCircle2 className="w-3 h-3" /> All tasks completed
+            </p>
+          ) : (
+            <div className="text-[9px] font-bold text-zinc-400 dark:text-zinc-500 leading-tight space-y-0.5 mt-0.5">
+              <p className="flex items-center justify-between gap-1">
+                <span>Calculated ETA:</span>
+                <span className="font-black text-indigo-600 dark:text-indigo-400">
+                  {formatDisplayDate(finishCalc.calculatedDate)}
+                </span>
+              </p>
+              <p className="text-[8.5px] text-zinc-400">
+                ({finishCalc.totalRemainingHours.toFixed(1)}h remaining across {finishCalc.incompleteCount} incomplete {finishCalc.incompleteCount === 1 ? 'task' : 'tasks'})
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4 Task Categories Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        
+        {/* 1. What task is worked on */}
+        <div className="bg-zinc-50 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/40 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Wrench className="w-3.5 h-3.5" /> Task Worked On
+            </h4>
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 bg-indigo-500/10 text-indigo-500 rounded-md">
+              {workedOnTasks.length} Active
+            </span>
+          </div>
+
+          {workedOnTasks.length === 0 ? (
+            <p className="text-xs text-zinc-400 italic py-2">No task currently in progress.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {workedOnTasks.map((t: any) => {
+                const tech = staff.find((s: any) => s.id === t.assignedTo || s.userId === t.assignedTo);
+                const techName = tech ? `${tech.firstName} ${tech.lastName}` : 'Unassigned Tech';
+
+                return (
+                  <div key={t.id} className="bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 p-2 rounded-xl text-xs flex items-center justify-between gap-2 shadow-2xs">
+                    <div className="min-w-0">
+                      <p className="font-extrabold text-zinc-900 dark:text-white truncate">{t.title}</p>
+                      <p className="text-[10px] font-bold text-zinc-450 flex items-center gap-1">
+                        <User className="w-3 h-3 text-zinc-400" /> {techName}
+                      </p>
+                    </div>
+                    <span className="text-[9px] px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-black rounded-md uppercase tracking-wider shrink-0 animate-pulse">
+                      In Progress
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 2. Latest Worked On */}
+        <div className="bg-zinc-50 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/40 flex flex-col gap-2">
+          <h4 className="text-xs font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" /> Latest Worked On
+          </h4>
+
+          {!latestWorkedOnTask ? (
+            <p className="text-xs text-zinc-400 italic py-2">No task updates recorded yet.</p>
+          ) : (
+            <div className="bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 p-2.5 rounded-xl text-xs flex flex-col gap-1 shadow-2xs">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-extrabold text-zinc-900 dark:text-white truncate">{latestWorkedOnTask.title}</p>
+                <span className={cn(
+                  "text-[9px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider shrink-0",
+                  latestWorkedOnTask.status === 'completed' || latestWorkedOnTask.status === 'QC Complete' ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400"
+                    : latestWorkedOnTask.status === 'In Progress' || latestWorkedOnTask.status === 'in_progress' ? "bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400"
+                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                )}>
+                  {latestWorkedOnTask.status}
+                </span>
+              </div>
+              
+              <p className="text-[10px] font-bold text-zinc-400 flex items-center justify-between mt-1">
+                <span>
+                  Tech: {staff.find((s: any) => s.id === latestWorkedOnTask.assignedTo || s.userId === latestWorkedOnTask.assignedTo)?.firstName || 'Staff'}
+                </span>
+                {formatTaskTime(latestWorkedOnTask.lastWorkedOn || latestWorkedOnTask.updatedAt || latestWorkedOnTask.completedAt) && (
+                  <span className="text-zinc-500 dark:text-zinc-400 font-extrabold">
+                    {formatTaskTime(latestWorkedOnTask.lastWorkedOn || latestWorkedOnTask.updatedAt || latestWorkedOnTask.completedAt)}
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* 3. Completed Tasks */}
+        <div className="bg-zinc-50 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/40 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Completed Tasks
+            </h4>
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-md">
+              {completedTasks.length} / {jobTasks.length} Done
+            </span>
+          </div>
+
+          {completedTasks.length === 0 ? (
+            <p className="text-xs text-zinc-400 italic py-2">No completed tasks yet.</p>
+          ) : (
+            <div className="max-h-28 overflow-y-auto no-scrollbar space-y-1">
+              {completedTasks.map((t: any) => (
+                <div key={t.id} className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5 bg-white dark:bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-200/60 dark:border-zinc-800/60">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span className="truncate">{t.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 4. To Do Tasks */}
+        <div className="bg-zinc-50 dark:bg-zinc-955 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/40 flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+              <ListTodo className="w-3.5 h-3.5 text-zinc-400" /> To-Do Tasks
+            </h4>
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-md">
+              {todoTasks.length} Pending
+            </span>
+          </div>
+
+          {todoTasks.length === 0 ? (
+            <p className="text-xs text-zinc-400 italic py-2">All tasks completed or in progress!</p>
+          ) : (
+            <div className="max-h-28 overflow-y-auto no-scrollbar space-y-1">
+              {todoTasks.map((t: any) => (
+                <div key={t.id} className="text-xs font-semibold text-zinc-600 dark:text-zinc-400 flex items-center gap-1.5 bg-white dark:bg-zinc-900 px-2.5 py-1 rounded-lg border border-zinc-200/60 dark:border-zinc-800/60">
+                  <Square className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                  <span className="truncate">{t.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+      </div>
+
+      {/* Notes & Actions for this Bay Job */}
+      <div className="border-t border-zinc-150 dark:border-zinc-800 pt-4 flex flex-col gap-2">
+        <label className="text-[10px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
+          <MessageSquare className="w-3.5 h-3.5 text-indigo-500" /> Bay Meeting Notes
+        </label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Type notes for this bay job during the meeting (parts status, roadblocks, crew instructions)..."
+          className="w-full min-h-[75px] p-3 bg-zinc-50 dark:bg-zinc-955 border border-zinc-200 dark:border-zinc-800 rounded-2xl outline-none focus:border-indigo-500 font-semibold text-xs dark:text-white leading-relaxed resize-y placeholder:italic"
+        />
+
+        <div className="flex items-center justify-between pt-1">
+          {hasUnsavedChanges ? (
+            <span className="text-[10px] font-extrabold text-amber-500 flex items-center gap-1 animate-pulse">
+              <AlertCircle className="w-3 h-3" /> Unsaved changes
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Synced to job file
+            </span>
+          )}
+
+          <button
+            onClick={handleSaveCard}
+            disabled={isSavingLocal || isSavingJobAlignment || !hasUnsavedChanges}
+            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-100 dark:disabled:bg-zinc-800 text-white disabled:text-zinc-400 rounded-xl text-xs font-black transition shadow-sm active:scale-95 disabled:scale-100 shrink-0"
+          >
+            {isSavingLocal || isSavingJobAlignment ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Save className="w-3.5 h-3.5" />
+            )}
+            Save Bay Notes & ETA
+          </button>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 

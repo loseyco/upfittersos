@@ -311,6 +311,15 @@ export const onJobTaskWritten = functions.firestore.onDocumentWritten(
             });
             console.log(`Updated job ${jobId} updatedAt due to task write`);
 
+            // Auto-populate missing tenantId on the task document if not set
+            if (event.data?.after.exists) {
+                const taskData = event.data.after.data();
+                if (taskData && !taskData.tenantId) {
+                    await event.data.after.ref.update({ tenantId });
+                    console.log(`Auto-populated missing tenantId on task ${taskId}`);
+                }
+            }
+
             // Clean up active clock-in sessions if this task was deleted
             if (event.data && !event.data.after.exists) {
                 console.log(`Task ${taskId} in job ${jobId} was deleted. Cleaning up active clock-in sessions...`);

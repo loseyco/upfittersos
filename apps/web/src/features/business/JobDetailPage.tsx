@@ -37,6 +37,16 @@ const isGeneralTask = (taskOrTitle?: any) => {
   return t === 'general' || t === 'general labor';
 };
 
+const getConditionPrintColor = (condition: string) => {
+  switch(condition) {
+    case 'Good': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    case 'Broken': return 'text-rose-700 bg-rose-50 border-rose-200';
+    case 'Missing Parts': return 'text-amber-700 bg-amber-50 border-amber-200';
+    case 'Needs Repair': return 'text-orange-700 bg-orange-50 border-orange-200';
+    default: return 'text-zinc-700 bg-zinc-50 border-zinc-200';
+  }
+};
+
 export function JobDetailPage({ 
   tenantId, 
   setDynamicTitle 
@@ -142,6 +152,7 @@ export function JobDetailPage({
   const [isPartRequestOpen, setIsPartRequestOpen] = useState(false);
   const [isETAOpen, setIsETAOpen] = useState(false);
   const [parts, setParts] = useState<any[]>([]);
+  const [takeoffs, setTakeoffs] = useState<any[]>([]);
 
   const [showCcSyncModal, setShowCcSyncModal] = useState(false);
   const [selectedCcPhotos, setSelectedCcPhotos] = useState<string[]>([]);
@@ -780,6 +791,22 @@ export function JobDetailPage({
     return () => unsub();
   }, [jobId, tenantId]);
 
+  // Fetch Takeoffs
+  useEffect(() => {
+    if (!tenantId || !jobId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/jobs/${jobId}/takeoffs`),
+      orderBy('createdAt', 'desc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setTakeoffs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.error("Takeoffs listener error in JobDetailPage:", err);
+      setTakeoffs([]);
+    });
+    return () => unsub();
+  }, [jobId, tenantId]);
+
   // Fetch Departments
   useEffect(() => {
     if (!tenantId) return;
@@ -884,6 +911,70 @@ export function JobDetailPage({
       }, 0);
       return acc + segMs;
     }, 0);
+  };
+
+  const getTaskStaffLoggedMs = (taskId: string, staffId: string) => {
+    const staffRec = allStaff.find(s => s.id === staffId || s.userId === staffId);
+    const searchIds = [staffId];
+    if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+    if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
+    return timeLogs
+      .filter(session => searchIds.includes(session.userId))
+      .reduce((acc, session) => {
+        const taskSegments = (session.jobs || []).filter((j: any) => j.id === jobId && j.taskId === taskId);
+        const segMs = taskSegments.reduce((segAcc: number, seg: any) => {
+          const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+          
+          let endMs = now;
+          if (seg.end) {
+            endMs = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+          } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+            const clockOutVal = session.clockOut?.timestamp;
+            if (clockOutVal) {
+              endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+            } else {
+              const updatedVal = session.updatedAt || session.createdAt;
+              endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+            }
+          }
+
+          return segAcc + Math.max(0, endMs - start);
+        }, 0);
+        return acc + segMs;
+      }, 0);
+  };
+
+  const getStaffJobLoggedMs = (staffId: string) => {
+    const staffRec = allStaff.find(s => s.id === staffId || s.userId === staffId);
+    const searchIds = [staffId];
+    if (staffRec?.id && !searchIds.includes(staffRec.id)) searchIds.push(staffRec.id);
+    if (staffRec?.userId && !searchIds.includes(staffRec.userId)) searchIds.push(staffRec.userId);
+
+    return timeLogs
+      .filter(session => searchIds.includes(session.userId))
+      .reduce((acc, session) => {
+        const jobSegments = (session.jobs || []).filter((j: any) => j.id === jobId);
+        const segMs = jobSegments.reduce((segAcc: number, seg: any) => {
+          const start = seg.start?.toDate ? seg.start.toDate().getTime() : new Date(seg.start).getTime();
+          
+          let endMs = now;
+          if (seg.end) {
+            endMs = seg.end.toDate ? seg.end.toDate().getTime() : new Date(seg.end).getTime();
+          } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+            const clockOutVal = session.clockOut?.timestamp;
+            if (clockOutVal) {
+              endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+            } else {
+              const updatedVal = session.updatedAt || session.createdAt;
+              endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+            }
+          }
+
+          return segAcc + Math.max(0, endMs - start);
+        }, 0);
+        return acc + segMs;
+      }, 0);
   };
 
   const formatMs = (ms: number) => {
@@ -1210,6 +1301,12 @@ export function JobDetailPage({
           updatedAt: serverTimestamp()
         };
 
+        if (job && ['completed', 'complete', 'closed'].includes(job.status?.toLowerCase() || '')) {
+          jobUpdate.status = 'Open';
+          jobUpdate.completedAt = null;
+          jobUpdate.readyForCustomerAt = null;
+        }
+
         if (isBay) {
           jobUpdate.currentBaySessionStart = serverTimestamp();
           jobUpdate.currentParkingSessionStart = null;
@@ -1372,11 +1469,15 @@ export function JobDetailPage({
       completedHours: number;
       totalTasks: number;
       completedTasks: number;
+      clockedHours: number;
     }> = {};
 
     visibleTasks.forEach(task => {
       const isCompleted = task.status === 'QC' || task.status === 'QC Complete';
-      const bookTime = task.payBasis === 'hourly' ? 0 : (parseFloat(task.bookTime) || 0);
+      const taskActualHours = task.actualTime !== undefined && task.actualTime > 0 
+        ? task.actualTime 
+        : (getTaskLoggedMs(task.id) / 3600000);
+      const bookTime = task.payBasis === 'hourly' ? taskActualHours : (parseFloat(task.bookTime) || 0);
       
       const assignedStaff = task.assignedStaff || [];
       if (assignedStaff.length === 0) {
@@ -1389,7 +1490,8 @@ export function JobDetailPage({
             totalHours: 0,
             completedHours: 0,
             totalTasks: 0,
-            completedTasks: 0
+            completedTasks: 0,
+            clockedHours: 0
           };
         }
         statsMap[staffId].totalHours += bookTime;
@@ -1399,6 +1501,16 @@ export function JobDetailPage({
           statsMap[staffId].completedTasks += 1;
         }
       } else {
+        const staffTimes: Record<string, number> = {};
+        let totalTaskLoggedMs = 0;
+
+        assignedStaff.forEach((staff: any) => {
+          const staffId = staff.id || staff.uid;
+          const loggedMs = getTaskStaffLoggedMs(task.id, staffId);
+          staffTimes[staffId] = loggedMs;
+          totalTaskLoggedMs += loggedMs;
+        });
+
         assignedStaff.forEach((staff: any) => {
           const staffId = staff.id || staff.uid;
           const staffName = staff.name || staff.displayName || 'Technician';
@@ -1410,17 +1522,38 @@ export function JobDetailPage({
               totalHours: 0,
               completedHours: 0,
               totalTasks: 0,
-              completedTasks: 0
+              completedTasks: 0,
+              clockedHours: 0
             };
           }
           
-          statsMap[staffId].totalHours += bookTime;
-          statsMap[staffId].totalTasks += 1;
-          if (isCompleted) {
-            statsMap[staffId].completedHours += bookTime;
-            statsMap[staffId].completedTasks += 1;
+          let proportion = 0;
+          let shouldAddCount = false;
+
+          if (totalTaskLoggedMs > 0) {
+            proportion = staffTimes[staffId] / totalTaskLoggedMs;
+            shouldAddCount = staffTimes[staffId] > 0;
+          } else {
+            proportion = 1 / assignedStaff.length;
+            shouldAddCount = true;
+          }
+
+          if (shouldAddCount) {
+            statsMap[staffId].totalHours += bookTime * proportion;
+            statsMap[staffId].totalTasks += 1;
+            if (isCompleted) {
+              statsMap[staffId].completedHours += bookTime * proportion;
+              statsMap[staffId].completedTasks += 1;
+            }
           }
         });
+      }
+    });
+
+    Object.keys(statsMap).forEach(staffId => {
+      if (staffId !== 'unassigned') {
+        const loggedMs = getStaffJobLoggedMs(staffId);
+        statsMap[staffId].clockedHours = loggedMs / 3600000;
       }
     });
 
@@ -1572,11 +1705,14 @@ export function JobDetailPage({
     tasks.forEach(task => {
       if (task.isAccidental) return;
       
-      const bookHours = parseFloat(task.bookTime) || 0;
       const loggedMs = getTaskLoggedMs(task.id);
       const actualHours = task.actualTime !== undefined && task.actualTime > 0 
         ? task.actualTime 
         : (loggedMs / 3600000);
+
+      const bookHours = task.payBasis === 'hourly' 
+        ? actualHours 
+        : (parseFloat(task.bookTime) || 0);
 
       if (!isGeneralTask(task)) {
         totalBook += bookHours;
@@ -3617,7 +3753,8 @@ export function JobDetailPage({
                             <tr className="border-b border-zinc-200 text-zinc-400 font-bold uppercase tracking-wider text-[9px]">
                               <th className="py-1">Technician</th>
                               <th className="py-1 text-center">Tasks (Done / Total)</th>
-                              <th className="py-1 text-right">Hours (Done / Total)</th>
+                              <th className="py-1 text-right">Time Clocked</th>
+                              <th className="py-1 text-right">Book Time Earned</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-100">
@@ -3626,7 +3763,10 @@ export function JobDetailPage({
                                 <td className="py-2 font-bold text-zinc-700">{s.name}</td>
                                 <td className="py-2 text-center text-zinc-500">{s.completedTasks} / {s.totalTasks}</td>
                                 <td className="py-2 text-right font-mono font-bold text-zinc-700">
-                                  {s.completedHours.toFixed(1)} / {s.totalHours.toFixed(1)}h
+                                  {s.clockedHours.toFixed(1)}h
+                                </td>
+                                <td className="py-2 text-right font-mono font-bold text-indigo-650">
+                                  {s.completedHours.toFixed(1)}h
                                 </td>
                               </tr>
                             ))}
@@ -3656,6 +3796,57 @@ export function JobDetailPage({
                             </div>
                             <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
                               {p.status || 'requested'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Removed Parts (Takeoffs) Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5" />
+                      Removed Parts (Takeoffs)
+                    </h2>
+                    {takeoffs.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No removed parts logged.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {takeoffs.map(t => (
+                          <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                            <div className="flex gap-3">
+                              {t.photoUrls && t.photoUrls.length > 0 && (
+                                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-zinc-100 border border-zinc-200">
+                                  <img src={t.photoUrls[0]} alt={t.name} className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.name}</h4>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[10px] text-zinc-450">
+                                  {t.serialNumber && (
+                                    <>
+                                      <span>S/N: <span className="font-mono">{t.serialNumber}</span></span>
+                                      <span>&bull;</span>
+                                    </>
+                                  )}
+                                  {t.location && (
+                                    <>
+                                      <span>Loc: {t.location}</span>
+                                      {t.notes && <span>&bull;</span>}
+                                    </>
+                                  )}
+                                  {t.notes && (
+                                    <span className="italic">Note: {t.notes}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={cn(
+                              "px-2 py-0.5 text-[8px] font-black uppercase tracking-widest rounded border shrink-0",
+                              getConditionPrintColor(t.condition)
+                            )}>
+                              {t.condition}
                             </span>
                           </div>
                         ))}
@@ -4034,7 +4225,7 @@ export function JobDetailPage({
       {/* Floating Action Navigation Dock at the Bottom */}
       {job && (
         <div 
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 max-w-[95vw] md:max-w-2xl overflow-x-auto transition-all duration-300 hover:shadow-indigo-500/10 hover:border-indigo-500/30 scale-100 hover:scale-[1.02] no-print"
+          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-zinc-200 dark:border-zinc-800 px-4 py-2 rounded-full shadow-2xl flex items-center gap-1.5 max-w-[95vw] md:max-w-2xl overflow-x-auto transition-all duration-300 hover:shadow-indigo-500/10 hover:border-indigo-500/30 scale-100 hover:scale-[1.02] no-print"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           <button

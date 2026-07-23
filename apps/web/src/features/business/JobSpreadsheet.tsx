@@ -37,6 +37,8 @@ export interface Job {
   isPlaceholder?: boolean;
   travelerPrintedAt?: any;
   bayId?: string;
+  createdAt?: any;
+  TimeCreated?: string;
 }
 
 export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
@@ -45,6 +47,8 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadAllHistory, setLoadAllHistory] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(true);
   const showArchived = false;
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [printingJob, setPrintingJob] = useState<Job | null>(null);
@@ -112,6 +116,42 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [selectedCell, setSelectedCell] = useState<{ rowId: string; colKey: string } | null>(null);
   const [editingCell, setEditingCell] = useState<{ rowId: string; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState<string>('');
+
+  // Fade completed/closed rows away after 1 second
+  const [completedTimestamps, setCompletedTimestamps] = useState<Record<string, number>>({});
+  const prevStatusesRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    const now = Date.now();
+    let changed = false;
+    const newTimestamps = { ...completedTimestamps };
+
+    jobs.forEach(job => {
+      const prevStatus = prevStatusesRef.current[job.id];
+      const currentStatus = job.status || '';
+      
+      if (prevStatus !== undefined && prevStatus !== currentStatus) {
+        const isNowCompleted = ['completed', 'complete', 'closed'].includes(currentStatus.toLowerCase());
+        const wasCompleted = ['completed', 'complete', 'closed'].includes(prevStatus.toLowerCase());
+        
+        if (isNowCompleted && !wasCompleted) {
+          newTimestamps[job.id] = now;
+          changed = true;
+          
+          // Force re-render after 1 second to filter it out
+          setTimeout(() => {
+            setCompletedTimestamps(prev => ({ ...prev }));
+          }, 1050);
+        }
+      }
+      
+      prevStatusesRef.current[job.id] = currentStatus;
+    });
+
+    if (changed) {
+      setCompletedTimestamps(newTimestamps);
+    }
+  }, [jobs, completedTimestamps]);
 
   // Refs
   const cellInputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
@@ -225,6 +265,14 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     return Array.from(set).sort();
   }, [jobs]);
 
+  const uniqueLocations = useMemo(() => {
+    const set = new Set<string>();
+    zones.filter(z => !z.isArchived).forEach(z => {
+      if (z.name) set.add(z.name);
+    });
+    return Array.from(set).sort();
+  }, [zones]);
+
   const uniquePriorities = useMemo(() => {
     const set = new Set<string>();
     jobs.forEach(j => {
@@ -251,30 +299,76 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
 
   // Define Columns
   const COLUMNS = useMemo(() => [
-    { key: 'isArchived', label: 'Active', letter: 'A', type: 'checkbox' },
-    { key: 'details', label: 'Details & Card', letter: 'B', type: 'custom' },
-    { key: 'priority', label: 'Priority', letter: 'C', type: 'priority-select' },
-    { key: 'status', label: 'Status', letter: 'D', type: 'status-select' },
-    { key: 'jobNumber', label: 'Job #', letter: 'E', type: 'text' },
-    { key: 'title', label: 'Job Title', letter: 'F', type: 'text' },
-    { key: 'customerName', label: 'Customer', letter: 'G', type: 'customer-select' },
-    { key: 'vehicleId', label: 'Vehicle VIN', letter: 'H', type: 'vehicle-select' },
-    { key: 'location', label: 'Bay / Parking', letter: 'I', type: 'custom' },
-    { key: 'progress', label: 'Task Progress', letter: 'J', type: 'custom' },
-    { key: 'scheduledStartDate', label: 'Start Date', letter: 'K', type: 'datetime-local' },
-    { key: 'scheduledEndDate', label: 'End Date', letter: 'L', type: 'datetime-local' },
-    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'M', type: 'datetime-local' },
-    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'N', type: 'datetime-local' },
-    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'O', type: 'datetime-local' },
-    { key: 'completedAt', label: 'Completed At', letter: 'P', type: 'datetime-local' },
-    { key: 'companyCamId', label: 'Company Cam ID', letter: 'Q', type: 'text' },
-    { key: 'notes', label: 'Notes', letter: 'R', type: 'text' }
+    { key: 'priority', label: 'Priority', letter: 'A', type: 'priority-select' },
+    { key: 'location', label: 'Bay / Parking', letter: 'B', type: 'custom' },
+    { key: 'jobNumber', label: 'Job #', letter: 'C', type: 'text' },
+    { key: 'title', label: 'Job Title', letter: 'D', type: 'text' },
+    { key: 'customerName', label: 'Customer', letter: 'E', type: 'customer-select' },
+    { key: 'progress', label: 'Task Progress', letter: 'F', type: 'custom' },
+    { key: 'details', label: 'Details & Card', letter: 'G', type: 'custom' },
+    { key: 'status', label: 'Status', letter: 'H', type: 'status-select' },
+    { key: 'vehicleId', label: 'Vehicle VIN', letter: 'I', type: 'vehicle-select' },
+    { key: 'scheduledStartDate', label: 'Start Date', letter: 'J', type: 'datetime-local' },
+    { key: 'scheduledEndDate', label: 'End Date', letter: 'K', type: 'datetime-local' },
+    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'L', type: 'datetime-local' },
+    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'M', type: 'datetime-local' },
+    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'N', type: 'datetime-local' },
+    { key: 'completedAt', label: 'Completed At', letter: 'O', type: 'datetime-local' },
+    { key: 'companyCamId', label: 'Company Cam ID', letter: 'P', type: 'text' },
+    { key: 'notes', label: 'Notes', letter: 'Q', type: 'text' }
   ], []);
 
   // Filter jobs
   const filteredJobs = useMemo(() => {
-    return jobs.filter(member => {
-      if (member.isArchived && !showArchived) return false;
+    const now = Date.now();
+    const list = jobs.filter(member => {
+      // Keep the currently selected or edited job visible so it doesn't vanish under the cursor
+      const isSelected = selectedCell?.rowId === member.id;
+
+      const isTarget = member.id === '80000AE3-1766437027';
+      if (isTarget) {
+        console.log("Checking target job 80000AE3-1766437027:", {
+          status: member.status,
+          createdAt: member.createdAt,
+          TimeCreated: member.TimeCreated,
+          isArchived: member.isArchived,
+          isSelected,
+          showCompleted,
+          loadAllHistory
+        });
+      }
+
+      // Keep row visible for 1 second if recently marked completed/closed so it can transition
+      const completedTime = completedTimestamps[member.id];
+      const isRecentCompleted = completedTime && (now - completedTime < 1000);
+
+      // If completed and not showing completed, only keep in DOM if recently completed (under 1 second)
+      if (!showCompleted && ['completed', 'complete', 'closed'].includes(member.status?.toLowerCase() || '')) {
+        if (!isRecentCompleted) {
+          if (isTarget) console.log("Target job filtered out: completed/closed & showCompleted is false");
+          return false;
+        }
+      }
+
+      if (!isSelected && !isRecentCompleted) {
+        if (member.isArchived && !showArchived) {
+          if (isTarget) console.log("Target job filtered out: isArchived & showArchived is false");
+          return false;
+        }
+
+        // 1-year age filter if loadAllHistory is false
+        if (!loadAllHistory) {
+          const timeVal = member.createdAt || member.TimeCreated;
+          if (timeVal) {
+            const created = timeVal.toDate ? timeVal.toDate() : new Date(timeVal);
+            const oneYearAgo = now - (365 * 24 * 60 * 60 * 1000);
+            if (!isNaN(created.getTime()) && created.getTime() < oneYearAgo) {
+              if (isTarget) console.log("Target job filtered out: older than 1 year", created);
+              return false;
+            }
+          }
+        }
+      }
 
       // Search Query filter
       if (searchQuery.trim()) {
@@ -289,6 +383,12 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
           member.notes
         ].map(f => String(f || '').toLowerCase());
         if (!fields.some(f => f.includes(queryStr))) return false;
+      }
+
+      // Only in Bay/Spot filter
+      if (onlyInBayOrSpot) {
+        const activeZone = zones.find(z => z.currentJobId === member.id) || zones.find(z => z.id === member.bayId);
+        if (!activeZone) return false;
       }
 
       // Column Filters
@@ -329,6 +429,15 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         });
         if (!matches) return false;
       }
+      if (colFilters.location && colFilters.location.length > 0) {
+        const activeZone = zones.find(z => z.currentJobId === member.id) || zones.find(z => z.id === member.bayId);
+        const locationName = activeZone ? activeZone.name : '';
+        const matches = colFilters.location.some(val => {
+          if (val === 'empty') return !locationName || locationName === '';
+          return locationName === val;
+        });
+        if (!matches) return false;
+      }
       if (colFilters.cardPrinted && colFilters.cardPrinted.length > 0) {
         const hasJobCard = !!member.travelerPrintedAt;
         const matches = colFilters.cardPrinted.some(val => {
@@ -341,12 +450,71 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
 
       return true;
     });
-  }, [jobs, searchQuery, showArchived, colFilters]);
+
+    // Default sort: priority weight first (higher first), then bay#, then parking spot, then fallback to newest Job Number
+    const getPriorityWeight = (p: string) => {
+      const str = String(p || '').trim().toLowerCase();
+      if (str.includes('critical') || str.includes('urgent') || str.startsWith('5')) return 5;
+      if (str.includes('high') || str.startsWith('4')) return 4;
+      if (str.includes('medium-low') || str.startsWith('2')) return 2;
+      if (str.includes('medium') || str.startsWith('3')) return 3;
+      if (str.includes('low') || str.startsWith('1')) return 1;
+      if (str.includes('not ready') || str.startsWith('0')) return 0;
+      
+      return 0; // Unknown or empty
+    };
+
+    const getJobZoneInfo = (job: Job) => {
+      const zone = zones.find(z => z.currentJobId === job.id) || zones.find(z => z.id === job.bayId);
+      if (!zone) {
+        return { type: 'none', name: '', order: 999 };
+      }
+      let order = 999;
+      if (zone.type === 'bay') order = 1;
+      else if (zone.type === 'parking') order = 2;
+      else if (zone.type === 'office') order = 3;
+      else if (zone.type === 'other') order = 4;
+      
+      return { type: zone.type || 'other', name: zone.name || '', order };
+    };
+
+    list.sort((a, b) => {
+      // 1. Priority (higher weight first: weight 4 comes before weight 1)
+      const weightA = getPriorityWeight(a.priority || '');
+      const weightB = getPriorityWeight(b.priority || '');
+      if (weightA !== weightB) {
+        return weightB - weightA;
+      }
+
+      // 2. Bay / Parking spot
+      const infoA = getJobZoneInfo(a);
+      const infoB = getJobZoneInfo(b);
+      
+      if (infoA.order !== infoB.order) {
+        return infoA.order - infoB.order;
+      }
+      
+      if (infoA.type !== 'none') {
+        const nameComp = infoA.name.localeCompare(infoB.name, undefined, { numeric: true, sensitivity: 'base' });
+        if (nameComp !== 0) return nameComp;
+      }
+      
+      // 3. Fallback: sort by newest Job Number
+      const numA = parseInt(a.jobNumber || '0') || 0;
+      const numB = parseInt(b.jobNumber || '0') || 0;
+      return numB - numA;
+    });
+
+    return list;
+  }, [jobs, searchQuery, showArchived, colFilters, showCompleted, loadAllHistory, completedTimestamps, onlyInBayOrSpot, zones]);
 
   const activeFiltersSummary = useMemo(() => {
     const list: string[] = [];
     if (searchQuery.trim()) {
       list.push(`search "${searchQuery}"`);
+    }
+    if (onlyInBayOrSpot) {
+      list.push('in bay/spot only');
     }
     if (colFilters.status && colFilters.status.length > 0) {
       list.push(`status (${colFilters.status.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
@@ -366,18 +534,23 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     if (colFilters.cardPrinted && colFilters.cardPrinted.length > 0) {
       list.push(`card (${colFilters.cardPrinted.map(v => v === 'printed' ? 'Printed' : 'No Card').join(', ')})`);
     }
+    if (colFilters.location && colFilters.location.length > 0) {
+      list.push(`location (${colFilters.location.map(v => v === 'empty' ? 'Choose Empty' : v).join(', ')})`);
+    }
     return list.join('; ');
-  }, [searchQuery, colFilters]);
+  }, [searchQuery, colFilters, onlyInBayOrSpot]);
 
   const handleClearFilters = () => {
     setSearchQuery('');
+    setOnlyInBayOrSpot(false);
     setColFilters({
       status: [],
       priority: [],
       customerName: [],
       vehicleId: [],
       isArchived: [],
-      cardPrinted: []
+      cardPrinted: [],
+      location: []
     });
   };
 
@@ -438,7 +611,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
 
   const getCellValue = (row: Job, colKey: string): string => {
     if (colKey === 'location') {
-      const activeZone = zones.find(z => z.currentJobId === row.id);
+      const activeZone = zones.find(z => z.currentJobId === row.id) || zones.find(z => z.id === row.bayId);
       return activeZone ? activeZone.id : 'none';
     }
     if (colKey === 'isArchived') {
@@ -598,6 +771,16 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
           updates.readyForCustomerAt = new Date().toISOString();
         } else if (['Completed', 'Closed'].includes(newValue)) {
           updates.completedAt = new Date().toISOString();
+          
+          // Clear any assigned bay/parking spot in zones
+          const assignedZone = zones.find(z => z.currentJobId === finalRowId);
+          if (assignedZone) {
+            await updateDoc(doc(db, `businesses/${tenantId}/zones`, assignedZone.id), {
+              currentJobId: '',
+              currentVehicleVin: '',
+              assignedAt: null
+            }).catch(err => console.error("Failed to auto-clear zone:", err));
+          }
         } else if (['Active', 'Open', 'Ready for QC'].includes(newValue)) {
           updates.readyForCustomerAt = null;
           updates.completedAt = null;
@@ -739,7 +922,11 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   };
 
   const handleCellClick = (rowId: string, colKey: string) => {
-    if (selectedCell?.rowId === rowId && selectedCell?.colKey === colKey) {
+    const col = COLUMNS.find(c => c.key === colKey);
+    const isSelectCol = col && ['status-select', 'priority-select', 'vehicle-select', 'customer-select'].includes(col.type);
+
+    if ((selectedCell?.rowId === rowId && selectedCell?.colKey === colKey) || isSelectCol) {
+      setSelectedCell({ rowId, colKey });
       startEditing(rowId, colKey);
     } else {
       setSelectedCell({ rowId, colKey });
@@ -819,6 +1006,11 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
           assignedAt: null
         });
       }
+      const jobUpdates: any = {
+        bayId: newZoneId === 'none' ? null : newZoneId,
+        updatedAt: serverTimestamp()
+      };
+
       // 2. Assign new linked zone
       if (newZoneId && newZoneId !== 'none') {
         const targetZone = zones.find(z => z.id === newZoneId);
@@ -829,7 +1021,16 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             assignedAt: new Date().toISOString()
           });
         }
+
+        const job = jobs.find(j => j.id === jobId);
+        if (job && ['completed', 'complete', 'closed'].includes(job.status?.toLowerCase() || '')) {
+          jobUpdates.status = 'Open';
+          jobUpdates.completedAt = null;
+          jobUpdates.readyForCustomerAt = null;
+        }
       }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), jobUpdates);
       setSyncStatus('saved');
       toast.success('Location updated');
     } catch (err) {
@@ -1052,6 +1253,30 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
               >
                 {loadAllHistory ? "All History" : "Last 365 Days"}
               </button>
+              <button
+                onClick={() => setShowCompleted(!showCompleted)}
+                className={cn(
+                  "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0",
+                  showCompleted 
+                    ? "bg-emerald-500/10 border-emerald-500 text-emerald-400" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
+                )}
+                title={showCompleted ? "Showing completed and closed jobs" : "Hiding completed and closed jobs by default"}
+              >
+                {showCompleted ? "Completed/Closed: Shown" : "Completed/Closed: Hidden"}
+              </button>
+              <button
+                onClick={() => setOnlyInBayOrSpot(!onlyInBayOrSpot)}
+                className={cn(
+                  "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0",
+                  onlyInBayOrSpot 
+                    ? "bg-blue-500/10 border-blue-500 text-blue-400" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
+                )}
+                title={onlyInBayOrSpot ? "Only showing jobs currently assigned to a bay or parking spot" : "Showing all jobs regardless of bay or parking spot assignment"}
+              >
+                {onlyInBayOrSpot ? "In Bay/Spot: Only" : "In Bay/Spot: All"}
+              </button>
             </div>
             {searchQuery.trim() && !loadAllHistory && (
               <div className="text-[10px] text-zinc-500 animate-pulse mt-1 px-1">
@@ -1139,24 +1364,23 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         >
           <colgroup>
             <col className="w-[50px]" />
-            <col className="w-[70px]" />  {/* Active */}
-            <col className="w-[160px]" /> {/* Details & Card */}
-            <col className="w-[140px]" /> {/* Priority */}
-            <col className="w-[140px]" /> {/* Status */}
-            <col className="w-[100px]" /> {/* Job # */}
-            <col className="w-[220px]" /> {/* Job Title */}
-            <col className="w-[180px]" /> {/* Customer */}
-            <col className="w-[180px]" /> {/* Vehicle VIN */}
-            <col className="w-[150px]" /> {/* Bay / Parking */}
-            <col className="w-[140px]" /> {/* Task Progress */}
-            <col className="w-[180px]" /> {/* Start Date */}
-            <col className="w-[180px]" /> {/* End Date */}
-            <col className="w-[180px]" /> {/* Arrival Time */}
-            <col className="w-[180px]" /> {/* Expected Finish */}
-            <col className="w-[180px]" /> {/* Ready for Cust At */}
-            <col className="w-[180px]" /> {/* Completed At */}
-            <col className="w-[140px]" /> {/* Company Cam ID */}
-            <col className="w-[280px]" /> {/* Notes */}
+            <col className="w-[140px]" />
+            <col className="w-[150px]" />
+            <col className="w-[100px]" />
+            <col className="w-[220px]" />
+            <col className="w-[180px]" />
+            <col className="w-[140px]" />
+            <col className="w-[160px]" />
+            <col className="w-[140px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[180px]" />
+            <col className="w-[140px]" />
+            <col className="w-[280px]" />
           </colgroup>
 
           <thead className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 text-zinc-400 select-none">
@@ -1204,6 +1428,12 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                     { value: 'empty', label: '(Choose Empty)' },
                     ...uniqueVehicles.map(v => ({ value: v, label: v }))
                   ]);
+                } else if (col.key === 'location') {
+                  filterElement = renderHeaderFilter('location', [
+                    { value: 'all', label: 'All Locations' },
+                    { value: 'empty', label: '(Choose Empty)' },
+                    ...uniqueLocations.map(l => ({ value: l, label: l }))
+                  ]);
                 } else if (col.key === 'details') {
                   filterElement = renderHeaderFilter('cardPrinted', [
                     { value: 'all', label: 'All Card Statuses' },
@@ -1227,13 +1457,16 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
           <tbody className="divide-y divide-zinc-900">
             {rows.map((row, rIndex) => {
               const isPlaceholder = !!row.isPlaceholder;
+              const isFaded = completedTimestamps[row.id] && !showCompleted && ['completed', 'complete', 'closed'].includes(row.status?.toLowerCase() || '');
 
               return (
                 <tr 
                   key={row.id} 
-                  className={`hover:bg-zinc-900/20 group transition-colors duration-100 ${
-                    isPlaceholder ? 'bg-zinc-950 text-zinc-600' : 'bg-transparent text-zinc-200'
-                  }`}
+                  className={cn(
+                    "hover:bg-zinc-900/20 group transition-all duration-1000 ease-out origin-center",
+                    isPlaceholder ? 'bg-zinc-950 text-zinc-600' : 'bg-transparent text-zinc-200',
+                    isFaded ? 'opacity-0 translate-x-12 scale-98 pointer-events-none bg-rose-950/10' : 'opacity-100'
+                  )}
                 >
                   <td className="bg-zinc-900/40 border-r border-zinc-800 h-9 relative text-center text-[10px] text-zinc-500 font-bold select-none cursor-default">
                     {!isPlaceholder ? (
@@ -1335,12 +1568,14 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       );
                     }
 
+
+
                     if (col.key === 'location') {
                       if (isPlaceholder) {
                         displayContent = <span className="text-zinc-700 italic">--</span>;
                       } else {
-                        const activeZone = zones.find(z => z.currentJobId === row.id);
-                        displayContent = activeZone ? activeZone.name : (row.bayId || <span className="text-zinc-550 italic">None</span>);
+                        const activeZone = zones.find(z => z.currentJobId === row.id) || zones.find(z => z.id === row.bayId);
+                        displayContent = activeZone ? activeZone.name : <span className="text-zinc-550 italic">None</span>;
                       }
                     }
 
@@ -1396,10 +1631,17 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => {
-                                  saveLocationValue(row.id, row.vehicleId || '', editValue);
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditValue(val);
+                                  saveLocationValue(row.id, row.vehicleId || '', val);
                                   setEditingCell(null);
+                                }}
+                                onBlur={() => {
+                                  if (editingCell?.rowId === row.id && editingCell?.colKey === col.key) {
+                                    saveLocationValue(row.id, row.vehicleId || '', editValue);
+                                    setEditingCell(null);
+                                  }
                                 }}
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter') {
@@ -1422,8 +1664,18 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => saveCellValue(row.id, col.key, editValue)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditValue(val);
+                                  saveCellValue(row.id, col.key, val);
+                                  setEditingCell(null);
+                                }}
+                                onBlur={() => {
+                                  if (editingCell?.rowId === row.id && editingCell?.colKey === col.key) {
+                                    saveCellValue(row.id, col.key, editValue);
+                                    setEditingCell(null);
+                                  }
+                                }}
                                 onKeyDown={handleKeyDownEditor}
                                 className="w-full h-full bg-transparent px-2 text-xs text-white font-mono outline-none border-none"
                               >
@@ -1439,8 +1691,18 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => saveCellValue(row.id, col.key, editValue)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditValue(val);
+                                  saveCellValue(row.id, col.key, val);
+                                  setEditingCell(null);
+                                }}
+                                onBlur={() => {
+                                  if (editingCell?.rowId === row.id && editingCell?.colKey === col.key) {
+                                    saveCellValue(row.id, col.key, editValue);
+                                    setEditingCell(null);
+                                  }
+                                }}
                                 onKeyDown={handleKeyDownEditor}
                                 className="w-full h-full bg-transparent px-2 text-xs text-white font-mono outline-none border-none"
                               >
@@ -1455,8 +1717,18 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => saveCellValue(row.id, col.key, editValue)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditValue(val);
+                                  saveCellValue(row.id, col.key, val);
+                                  setEditingCell(null);
+                                }}
+                                onBlur={() => {
+                                  if (editingCell?.rowId === row.id && editingCell?.colKey === col.key) {
+                                    saveCellValue(row.id, col.key, editValue);
+                                    setEditingCell(null);
+                                  }
+                                }}
                                 onKeyDown={handleKeyDownEditor}
                                 className="w-full h-full bg-transparent px-2 text-xs text-white font-mono outline-none border-none"
                               >
@@ -1468,14 +1740,24 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                               <select
                                 ref={cellInputRef as any}
                                 value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={() => saveCellValue(row.id, col.key, editValue)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditValue(val);
+                                  saveCellValue(row.id, col.key, val);
+                                  setEditingCell(null);
+                                }}
+                                onBlur={() => {
+                                  if (editingCell?.rowId === row.id && editingCell?.colKey === col.key) {
+                                    saveCellValue(row.id, col.key, editValue);
+                                    setEditingCell(null);
+                                  }
+                                }}
                                 onKeyDown={handleKeyDownEditor}
                                 className="w-full h-full bg-transparent px-2 text-xs text-white font-mono outline-none border-none"
                               >
-                                {['1 - Critical', '2 - High', '3 - Medium', '4 - Low'].map(pr => (
-                                  <option key={pr} value={pr} className="bg-zinc-900 text-white">{pr}</option>
-                                ))}
+                                 {['5 - Urgent', '4 - High', '3 - Medium', '2 - Medium-Low', '1 - Low', '0 - Not Ready'].map(pr => (
+                                   <option key={pr} value={pr} className="bg-zinc-900 text-white">{pr}</option>
+                                 ))}
                               </select>
                             ) : (
                               <input

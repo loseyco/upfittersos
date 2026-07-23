@@ -314,6 +314,7 @@ exports.onActivityFeedCreated = functions.firestore.onDocumentCreated('businesse
 });
 // Triggered when a job's task is created, updated, or deleted
 exports.onJobTaskWritten = functions.firestore.onDocumentWritten('businesses/{tenantId}/jobs/{jobId}/tasks/{taskId}', async (event) => {
+    var _a;
     const { tenantId, jobId, taskId } = event.params;
     const db = admin.firestore();
     try {
@@ -321,6 +322,14 @@ exports.onJobTaskWritten = functions.firestore.onDocumentWritten('businesses/{te
             updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
         console.log(`Updated job ${jobId} updatedAt due to task write`);
+        // Auto-populate missing tenantId on the task document if not set
+        if ((_a = event.data) === null || _a === void 0 ? void 0 : _a.after.exists) {
+            const taskData = event.data.after.data();
+            if (taskData && !taskData.tenantId) {
+                await event.data.after.ref.update({ tenantId });
+                console.log(`Auto-populated missing tenantId on task ${taskId}`);
+            }
+        }
         // Clean up active clock-in sessions if this task was deleted
         if (event.data && !event.data.after.exists) {
             console.log(`Task ${taskId} in job ${jobId} was deleted. Cleaning up active clock-in sessions...`);
