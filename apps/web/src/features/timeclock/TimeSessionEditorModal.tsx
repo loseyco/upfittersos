@@ -828,13 +828,13 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                             <div className="space-y-2.5 pt-1">
                               <div>
                                 <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock In</span>
-                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400">
                                   {formatDatetimeDisplay(requestDetails.originalClockIn)}
                                 </span>
                               </div>
                               <div>
                                 <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Clock Out</span>
-                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400 line-through">
+                                <span className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400">
                                   {formatDatetimeDisplay(requestDetails.originalClockOut)}
                                 </span>
                               </div>
@@ -844,7 +844,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                                   <div className="border-t border-rose-500/10 pt-2.5 space-y-1">
                                     <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
                                     {originalBreaks.map((b: any, idx: number) => (
-                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 line-through block leading-tight">
+                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 block leading-tight">
                                         • {formatBreakDisplay(b)}
                                       </span>
                                     ))}
@@ -852,7 +852,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                                 ) : (
                                   <div className="border-t border-rose-500/10 pt-2.5">
                                     <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Breaks</span>
-                                    <span className="font-mono text-[10px] text-zinc-500 line-through block leading-tight">None</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 block leading-tight">None</span>
                                   </div>
                                 )
                               ) : (
@@ -867,7 +867,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                                   <div className="border-t border-rose-500/10 pt-2.5 space-y-1">
                                     <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
                                     {originalJobs.map((j: any, idx: number) => (
-                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 line-through block leading-tight">
+                                      <span key={idx} className="font-mono text-[10px] text-rose-600 dark:text-rose-400 block leading-tight">
                                         • {formatJobDisplay(j)}
                                       </span>
                                     ))}
@@ -875,7 +875,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                                 ) : (
                                   <div className="border-t border-rose-500/10 pt-2.5">
                                     <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase block">Jobs Worked</span>
-                                    <span className="font-mono text-[10px] text-zinc-500 line-through block leading-tight">None</span>
+                                    <span className="font-mono text-[10px] text-zinc-500 block leading-tight">None</span>
                                   </div>
                                 )
                               ) : (
@@ -887,7 +887,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
                               <div className="border-t border-rose-500/10 pt-2 flex justify-between items-center">
                                 <span className="text-[9px] font-bold text-zinc-400 dark:text-zinc-505 uppercase">Duration:</span>
-                                <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400 line-through text-right">
+                                <span className="font-mono text-xs font-bold text-rose-600 dark:text-rose-400 text-right">
                                   {getDurationString(requestDetails.originalClockIn, requestDetails.originalClockOut)}
                                 </span>
                               </div>
