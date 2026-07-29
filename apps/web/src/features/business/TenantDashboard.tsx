@@ -33,6 +33,7 @@ import { PrintedPartsMissionControl } from './PrintedPartsMissionControl';
 import { PartsManager } from './PartsManager';
 import { TasksManager } from './TasksManager';
 import { ScheduleBoard } from './ScheduleBoard';
+import { PermissionMatrixPortal } from '../super-admin/PermissionMatrixPortal';
 import { ControlBoard } from './ControlBoard';
 
 import { BusinessSettings } from './BusinessSettings';
@@ -541,6 +542,12 @@ export function TenantDashboard() {
               )
             )}
 
+            {activeTab === 'permission_matrix' && (
+              <PermissionGate permission="permission_matrix.view">
+                <PermissionMatrixPortal tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'org_chart' && (
               <OrgChartPage tenantId={tenantId!} />
             )}
@@ -965,7 +972,7 @@ export function TenantDashboard() {
             )}
 
             {(activeTab === 'daily_log' || activeTab === 'daily_log_v3') && (
-              <PermissionGate permissions={['office.view', 'jobs.view', 'foreman.view', 'development.view']}>
+              <PermissionGate permissions={['office.view', 'foreman.view', 'development.view']}>
                 <DailyLogV3 tenantId={tenantId!} />
               </PermissionGate>
             )}

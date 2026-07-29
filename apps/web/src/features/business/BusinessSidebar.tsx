@@ -4,8 +4,8 @@ import {
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  GraduationCap, LogIn, Pizza, BookOpen, TrendingUp, BarChart3,
-  Code, MapPin, Tv, Table
+  GraduationCap, LogIn, Pizza, BookOpen, BarChart3,
+  Code, Table
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -21,7 +21,7 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'safety';
+  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'safety' | 'super_admin';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
@@ -75,16 +75,15 @@ export const ITEMS: NavItem[] = [
   { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
 
   // Office Dept (Main Office)
-  { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
-  { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
+  { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
+  { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'foreman.view'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'office', permission: 'staff.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
 
-  // Facility & Comm (TV Monitors & Zones Config)
-  { id: 'zones', label: 'Zones Config', icon: Layers, hub: 'facility', permission: 'facility.view' },
+  // Facility & Comm (TV Monitors)
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'conference_monitor', label: 'Conference Room (TV)', icon: Monitor, hub: 'facility', permission: 'facility.view' },
@@ -100,43 +99,25 @@ export const ITEMS: NavItem[] = [
   { id: 'messages', label: 'Messages Feed', icon: MessageSquare, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
   { id: 'announcements', label: 'Announcements', icon: Megaphone, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
   { id: 'events', label: 'Events Calendar', icon: Calendar, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
-  { id: 'feedback', label: 'Feedback & Dev Roadmap', icon: MessageSquare, hub: 'development', groupLabel: 'Communication & Events', permission: 'facility.view' },
+  // Admin & Sync Hub
+  { id: 'zones', label: 'Zones & Bins Config', icon: Layers, hub: 'settings', groupLabel: 'Facility & Hardware', permission: 'zones.view' },
+  { id: 'staff', label: 'Staff Manager & Profiles', icon: UserCog, hub: 'settings', groupLabel: 'Staff & Security', permission: 'staff.view' },
+  { id: 'departments', label: 'Department Configuration', icon: Building2, hub: 'settings', groupLabel: 'Staff & Security', permission: 'staff.manage' },
 
-  // Admin & Sync
-  { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'settings', permission: 'staff.view' },
-  { id: 'departments', label: 'Departments Config', icon: Building2, hub: 'settings', permission: 'staff.view' },
-  { id: 'settings', label: 'System Settings', icon: Settings, hub: 'settings', permission: 'settings.view' },
-  { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_health_audit', label: 'Data Health Audit', icon: ShieldCheck, hub: 'settings', permission: 'sync.view' },
-
-  // QB Raw Tables (In Development)
-  { id: 'qb_customers', label: 'QB Customers Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
-  { id: 'qb_jobs', label: 'QB Jobs Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
-  { id: 'qb_items', label: 'QB Items Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
-  { id: 'qb_invoices', label: 'QB Invoices Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
-  { id: 'qb_pos', label: 'QB Purchase Orders Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
-
-  // Development Hub (In Development)
-  { id: 'page_catalog', label: 'App Pages & Access Directory', icon: Code, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
-  { id: 'page_analytics', label: 'Page Views & Usage Analytics', icon: BarChart3, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
-  { id: 'telemetry_sheet', label: 'Telemetry & Trends (v3)', icon: TrendingUp, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
-  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'office', label: 'Office Board', icon: Building2, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'foreman_todo', label: 'Foreman Todo List', icon: ClipboardList, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
-  { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
-  { id: 'staff_sitemap', label: 'Staff Site Map (Live)', icon: Users, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'staff.view' },
-  { id: 'conference_control', label: 'TV Monitor Control', icon: Tv, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
-  { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
-  { id: 'staff_sheet', label: 'Staff Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
-  { id: 'time_sheet', label: 'Time Logs Sheet (v3)', icon: Clock, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
-  { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
-  { id: 'tasks_sheet', label: 'Tasks Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
-  { id: 'wires_sheet', label: 'Wires Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
-  { id: 'progress_digest_v3', label: 'Progress Digest (v3)', icon: Activity, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  // Super Admin Hub (Super Admin Only)
+  { id: 'staff', label: 'Staff Manager & Profiles', icon: UserCog, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'staff.view' },
+  { id: 'departments', label: 'Department Configuration', icon: Building2, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'staff.manage' },
+  { id: 'permission_matrix', label: 'Permission Matrix & Overrides', icon: ShieldCheck, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'permission_matrix.view' },
+  { id: 'page_analytics', label: 'Page Views & Usage Analytics', icon: BarChart3, hub: 'super_admin', groupLabel: 'Telemetry & Analytics', permission: 'development.view' },
+  { id: 'feedback', label: 'Feedback & Dev Roadmap', icon: MessageSquare, hub: 'super_admin', groupLabel: 'Development & Backlog', permission: 'facility.view' },
+  { id: 'page_catalog', label: 'App Pages & Access Directory', icon: Code, hub: 'super_admin', groupLabel: 'Development & Backlog', permission: 'development.view' },
+  { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'super_admin', groupLabel: 'Data & QuickBooks Sync', permission: 'sync.view' },
+  { id: 'qb_health_audit', label: 'Data Health Audit', icon: ShieldCheck, hub: 'super_admin', groupLabel: 'Data & QuickBooks Sync', permission: 'sync.view' },
+  { id: 'qb_customers', label: 'QB Customers Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_jobs', label: 'QB Jobs Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_items', label: 'QB Items Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_invoices', label: 'QB Invoices Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_pos', label: 'QB Purchase Orders Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
 
   // Help Hub (In Development)
   { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'development', groupLabel: 'Help & Academy' },
@@ -148,19 +129,22 @@ export const ITEMS: NavItem[] = [
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development';
+  id: 'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'super_admin';
   label: string;
   icon: React.ElementType;
+  superAdminOnly?: boolean;
+  permission?: PermissionKey;
 };
 
 export const HUBS: HubType[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
-  { id: 'office', label: 'Main Office', icon: Building2 },
-  { id: 'upfitters', label: 'Upfitters', icon: ClipboardList },
-  { id: 'parts', label: 'Parts Dept', icon: Package },
-  { id: 'facility', label: 'Facility', icon: Map },
-  { id: 'settings', label: 'Admin & Sync', icon: Settings },
-  { id: 'development', label: 'In Development', icon: Code },
+  { id: 'office', label: 'Main Office', icon: Building2, permission: 'office.view' },
+  { id: 'upfitters', label: 'Upfitters', icon: ClipboardList, permission: 'foreman.view' },
+  { id: 'parts', label: 'Parts Dept', icon: Package, permission: 'parts.view' },
+  { id: 'facility', label: 'Facility', icon: Map, permission: 'facility.view' },
+  { id: 'settings', label: 'Admin & Sync', icon: Settings, permission: 'settings.view' },
+  { id: 'super_admin', label: 'Super Admin', icon: ShieldCheck, superAdminOnly: true },
+  { id: 'development', label: 'In Development', icon: Code, permission: 'development.view' },
 ];
 
 export function BusinessSidebar({
@@ -178,7 +162,9 @@ export function BusinessSidebar({
   lastSync?: any;
   activeSync?: any;
 }) {
-  const { permissions, isSuperAdmin } = useAuthStore();
+  const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
+  const SUPER_ADMIN_EMAILS = ['p.losey@saegrp.com', 'loseyp@gmail.com'];
+  const canAccessSuperAdmin = !impersonatedStaff && (isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email)));
   const params = useParams();
 
   let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : useAuthStore.getState().tenantId;
@@ -201,7 +187,7 @@ export function BusinessSidebar({
   });
 
   // Track the selected Hub (Tier 1)
-  const [activeHub, setActiveHub] = useState<'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development'>(() => {
+  const [activeHub, setActiveHub] = useState<HubType['id']>(() => {
     if (activeTab === 'job' || activeTab === 'task') return 'facility';
     if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
     if (activeTab?.startsWith('safety')) return 'safety';
@@ -262,10 +248,23 @@ export function BusinessSidebar({
     localStorage.setItem('upfitters_sidebar_pinned', String(newVal));
   };
 
-  // Filter items based on active role permissions
+  // Helper to check if a Hub permission is granted
+  const isHubGranted = (hubId: HubType['id']) => {
+    if (isSuperAdmin || canAccessSuperAdmin) return true;
+    const hubObj = HUBS.find(h => h.id === hubId);
+    if (!hubObj) return true;
+    if (hubObj.superAdminOnly && !canAccessSuperAdmin) return false;
+    if (hubObj.permission && !permissions[hubObj.permission]) return false;
+    return true;
+  };
+
+  // Filter items based on active role permissions AND parent Hub permission
   const visibleItems = ITEMS.filter(item => {
-    if (item.hub === 'development' && !isSuperAdmin && !permissions['development.view']) return false;
-    if (isSuperAdmin) return true;
+    if (isSuperAdmin || canAccessSuperAdmin) return true;
+
+    // Check parent Hub master permission first
+    if (!isHubGranted(item.hub)) return false;
+
     if (item.permissions) {
       return item.permissions.some(p => permissions[p]);
     }
@@ -273,8 +272,10 @@ export function BusinessSidebar({
     return permissions[item.permission];
   });
 
-  // Filter hubs so we only show them if they contain at least one visible item
+  // Filter hubs so we only show them if Master Hub Permission is granted AND it contains at least one visible item
   const visibleHubs = HUBS.filter(hub => {
+    if (!isHubGranted(hub.id)) return false;
+    if (hub.id === 'dashboard') return true;
     return visibleItems.some(item => item.hub === hub.id);
   });
 

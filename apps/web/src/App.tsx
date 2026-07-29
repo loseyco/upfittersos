@@ -21,6 +21,7 @@ import { ReloadPrompt } from './components/ReloadPrompt';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { DebugPortal } from './components/super-admin/DebugPortal';
 import { FeedbackReports } from './features/super-admin/FeedbackReports';
+import { PermissionMatrixPortal } from './features/super-admin/PermissionMatrixPortal';
 import { GlobalWakeLock } from './components/telemetry/GlobalWakeLock';
 import { FCMListener } from './components/FCMListener';
 
@@ -58,6 +59,7 @@ function App() {
             {/* Super Admin Tier */}
             <Route element={<SuperAdminGuard />}>
               <Route path="/super-admin/feedback" element={<FeedbackReports />} />
+              <Route path="/super-admin/permissions" element={<PermissionMatrixPortal tenantId="loseyco" />} />
               <Route path="/super-admin/*" element={<BusinessManager />} />
             </Route>
 

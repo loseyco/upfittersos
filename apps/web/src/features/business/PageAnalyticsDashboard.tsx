@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestor
 import { db } from '../../lib/firebase/config';
 import {
   BarChart3, Eye, Clock, Users, Flame, Search, ChevronDown, ChevronUp,
-  User, RefreshCw, Code, Table
+  User, RefreshCw, Code, Table, History, Globe, FileText, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -58,9 +58,15 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [timeframe, setTimeframe] = useState<'today' | '7days' | '30days' | 'all'>('7days');
-  const [activeViewTab, setActiveViewTab] = useState<'pages' | 'users'>('pages');
+  const [activeViewTab, setActiveViewTab] = useState<'pages' | 'users' | 'logs'>('pages');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({});
+  const [showDevLogs, setShowDevLogs] = useState<boolean>(false);
+  const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
+  const [selectedPageFilter, setSelectedPageFilter] = useState<string>('all');
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 50;
 
   // Subscribe to real-time page_analytics collection
   useEffect(() => {
@@ -99,14 +105,14 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
     return () => unsub();
   }, [tenantId]);
 
-  // Filter logs by timeframe (and exclude any localhost/dev telemetry logs)
+  // Filter logs by timeframe (and exclude any localhost/dev telemetry logs unless showDevLogs is enabled)
   const filteredLogs = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     return telemetryLogs.filter(log => {
-      // Exclude localhost/dev entries
-      if (log.hostname === 'localhost' || log.hostname === '127.0.0.1' || log.hostname?.includes('localhost')) {
+      // Exclude localhost/dev entries unless showDevLogs is true
+      if (!showDevLogs && (log.hostname === 'localhost' || log.hostname === '127.0.0.1' || log.hostname?.includes('localhost'))) {
         return false;
       }
 
@@ -122,7 +128,68 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
       }
       return true;
     });
-  }, [telemetryLogs, timeframe]);
+  }, [telemetryLogs, timeframe, showDevLogs]);
+
+  // Available unique users for filter dropdown
+  const availableUsers = useMemo(() => {
+    const map = new Map<string, string>();
+    telemetryLogs.forEach(r => {
+      const name = r.userName || r.userUid || 'Anonymous';
+      map.set(name, name);
+    });
+    return Array.from(map.values()).sort().map(name => ({ id: name, name }));
+  }, [telemetryLogs]);
+
+  // Available unique pages for filter dropdown
+  const availablePages = useMemo(() => {
+    const map = new Map<string, string>();
+    telemetryLogs.forEach(r => {
+      const pid = r.pageId || 'unknown';
+      const title = PAGE_NAME_MAP[pid]?.title || pid;
+      map.set(pid, title);
+    });
+    return Array.from(map.entries())
+      .map(([pageId, title]) => ({ pageId, title }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [telemetryLogs]);
+
+  // Log Feed Computation for "Page View Logs" Tab
+  const logFeed = useMemo(() => {
+    let list = [...filteredLogs];
+
+    if (selectedUserFilter !== 'all') {
+      list = list.filter(r => (r.userName || r.userUid) === selectedUserFilter);
+    }
+
+    if (selectedPageFilter !== 'all') {
+      list = list.filter(r => r.pageId === selectedPageFilter);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(r => 
+        (r.userName || '').toLowerCase().includes(q) ||
+        (r.userEmail || '').toLowerCase().includes(q) ||
+        (r.pageId || '').toLowerCase().includes(q) ||
+        (PAGE_NAME_MAP[r.pageId]?.title || '').toLowerCase().includes(q) ||
+        (r.hostname || '').toLowerCase().includes(q) ||
+        (r.id || '').toLowerCase().includes(q)
+      );
+    }
+
+    return list.sort((a, b) => {
+      const tsA = a.timestamp instanceof Date ? a.timestamp.getTime() : 0;
+      const tsB = b.timestamp instanceof Date ? b.timestamp.getTime() : 0;
+      return tsB - tsA;
+    });
+  }, [filteredLogs, selectedUserFilter, selectedPageFilter, searchQuery]);
+
+  // Paginated logs for logs view tab
+  const totalPages = Math.ceil(logFeed.length / itemsPerPage) || 1;
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return logFeed.slice(start, start + itemsPerPage);
+  }, [logFeed, currentPage]);
 
   // Format seconds to human-readable string (e.g. 1h 24m 10s or 45m 12s)
   const formatSec = (sec: number) => {
@@ -134,6 +201,39 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
     if (hrs > 0) return `${hrs}h ${mins}m`;
     if (mins > 0) return `${mins}m ${secs}s`;
     return `${secs}s`;
+  };
+
+  const formatFullDate = (d: any) => {
+    if (!d) return 'N/A';
+    const dateObj = d instanceof Date ? d : new Date(d.seconds ? d.seconds * 1000 : d);
+    if (isNaN(dateObj.getTime())) return 'N/A';
+    return dateObj.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+  };
+
+  const formatTimeAgo = (d: any) => {
+    if (!d) return '';
+    const dateObj = d instanceof Date ? d : new Date(d.seconds ? d.seconds * 1000 : d);
+    if (isNaN(dateObj.getTime())) return '';
+    const diffSec = Math.floor((Date.now() - dateObj.getTime()) / 1000);
+    if (diffSec < 60) return `${Math.max(0, diffSec)}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  };
+
+  const formatTimeOnly = (d: any) => {
+    if (!d) return '--:--';
+    const dateObj = d instanceof Date ? d : new Date(d.seconds ? d.seconds * 1000 : d);
+    if (isNaN(dateObj.getTime())) return '--:--';
+    return dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   };
 
   // Top Level Metrics
@@ -277,7 +377,7 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
                 </span>
               </h1>
               <p className="text-xs text-zinc-400 font-medium">
-                Track real-time page views, duration per route, and detailed user activity ("who visited what and for how long")
+                Track real-time page views, duration per route, user activity, and detailed chronological view logs
               </p>
             </div>
           </div>
@@ -364,11 +464,11 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
 
         {/* Tab Selection & Search Controls */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-          <div className="flex items-center gap-2 bg-zinc-950 p-1 border border-zinc-800 rounded-xl w-full sm:w-auto">
+          <div className="flex items-center gap-2 bg-zinc-950 p-1 border border-zinc-800 rounded-xl w-full sm:w-auto overflow-x-auto">
             <button
               onClick={() => setActiveViewTab('pages')}
               className={cn(
-                "flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer",
+                "flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap",
                 activeViewTab === 'pages' ? "bg-indigo-600 text-white shadow" : "text-zinc-400 hover:text-white"
               )}
             >
@@ -379,12 +479,23 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
             <button
               onClick={() => setActiveViewTab('users')}
               className={cn(
-                "flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer",
+                "flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap",
                 activeViewTab === 'users' ? "bg-indigo-600 text-white shadow" : "text-zinc-400 hover:text-white"
               )}
             >
               <Users className="w-4 h-4" />
               <span>User Activity ("Who & How Long")</span>
+            </button>
+
+            <button
+              onClick={() => setActiveViewTab('logs')}
+              className={cn(
+                "flex-1 sm:flex-none px-4 py-2 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer whitespace-nowrap",
+                activeViewTab === 'logs' ? "bg-indigo-600 text-white shadow" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              <History className="w-4 h-4" />
+              <span>Page View Logs</span>
             </button>
           </div>
 
@@ -393,9 +504,13 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
             <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder={activeViewTab === 'pages' ? "Search page routes..." : "Search staff name or email..."}
+              placeholder={
+                activeViewTab === 'pages' ? "Search page routes..." :
+                activeViewTab === 'users' ? "Search staff name or email..." :
+                "Search logs by user, page, host..."
+              }
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
@@ -473,7 +588,7 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : activeViewTab === 'users' ? (
           /* TAB 2: USER ACTIVITY BREAKDOWN ("WHO & HOW LONG PER PERSON") */
           <div className="space-y-3">
             {userStats.length === 0 ? (
@@ -568,9 +683,231 @@ export function PageAnalyticsDashboard({ tenantId }: PageAnalyticsDashboardProps
               })
             )}
           </div>
+        ) : (
+          /* TAB 3: PAGE VIEW LOGS (RAW FEED) */
+          <div className="flex-1 flex flex-col space-y-4">
+            {/* Filter controls sub-bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* User Filter Dropdown */}
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-zinc-400" />
+                  <select
+                    value={selectedUserFilter}
+                    onChange={(e) => { setSelectedUserFilter(e.target.value); setCurrentPage(1); }}
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-sans"
+                  >
+                    <option value="all">All Users ({availableUsers.length})</option>
+                    {availableUsers.map(u => (
+                      <option key={u.id} value={u.name}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Page Filter Dropdown */}
+                <div className="flex items-center gap-1.5">
+                  <Code className="w-3.5 h-3.5 text-zinc-400" />
+                  <select
+                    value={selectedPageFilter}
+                    onChange={(e) => { setSelectedPageFilter(e.target.value); setCurrentPage(1); }}
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-indigo-500 font-sans"
+                  >
+                    <option value="all">All Pages ({availablePages.length})</option>
+                    {availablePages.map(p => (
+                      <option key={p.pageId} value={p.pageId}>{p.title}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Dev / Localhost Toggle */}
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-400 hover:text-zinc-200 bg-zinc-900 border border-zinc-800 px-2.5 py-1.5 rounded-lg transition">
+                  <input
+                    type="checkbox"
+                    checked={showDevLogs}
+                    onChange={(e) => { setShowDevLogs(e.target.checked); setCurrentPage(1); }}
+                    className="rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-0 w-3.5 h-3.5 cursor-pointer"
+                  />
+                  <Globe className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Include Dev / Localhost Logs</span>
+                </label>
+              </div>
+
+              {/* Log Count summary */}
+              <div className="text-xs text-zinc-400 font-mono">
+                Showing <span className="text-indigo-400 font-bold">{paginatedLogs.length}</span> of <span className="text-white font-bold">{logFeed.length}</span> log entries
+              </div>
+            </div>
+
+            {/* Chronological Table */}
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left border-collapse font-sans">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-[10px] uppercase font-black tracking-wider text-zinc-400 bg-zinc-950/60">
+                    <th className="py-3 px-4">Timestamp</th>
+                    <th className="py-3 px-4">User</th>
+                    <th className="py-3 px-4">Page / Feature Visited</th>
+                    <th className="py-3 px-4 text-center">Duration</th>
+                    <th className="py-3 px-4 text-right">Entry ➔ Exit</th>
+                    <th className="py-3 px-4 text-center">Host</th>
+                    <th className="py-3 px-4 text-right">Inspect Payload</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/60 font-mono text-xs">
+                  {paginatedLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-zinc-500 font-sans">
+                        No individual page view logs match your filter criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedLogs.map(log => {
+                      const isExpanded = expandedLogId === log.id;
+                      const pageTitle = PAGE_NAME_MAP[log.pageId]?.title || log.pageId;
+                      const pageCategory = PAGE_NAME_MAP[log.pageId]?.category || 'General';
+                      const isDev = log.hostname === 'localhost' || log.hostname === '127.0.0.1' || log.hostname?.includes('localhost');
+
+                      return (
+                        <tr key={log.id} className="hover:bg-zinc-800/30 transition group">
+                          {/* Timestamp */}
+                          <td className="py-3 px-4 text-zinc-200">
+                            <div className="font-bold">{formatFullDate(log.timestamp)}</div>
+                            <div className="text-[10px] text-zinc-500">{formatTimeAgo(log.timestamp)}</div>
+                          </td>
+
+                          {/* User */}
+                          <td className="py-3 px-4 font-sans">
+                            <div className="font-bold text-white flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              {log.userName || 'Anonymous'}
+                            </div>
+                            {log.userEmail && (
+                              <div className="text-[10px] text-zinc-500 font-mono pl-5">{log.userEmail}</div>
+                            )}
+                          </td>
+
+                          {/* Page / Feature */}
+                          <td className="py-3 px-4 font-sans">
+                            <div className="font-bold text-indigo-300 flex items-center gap-1.5">
+                              <Code className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              <span>{pageTitle}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-zinc-400 font-mono bg-zinc-950 px-1.5 py-0.5 rounded border border-zinc-800">
+                                /{log.pageId}
+                              </span>
+                              <span className="text-[9px] font-bold text-zinc-400 uppercase bg-zinc-800/80 px-1.5 py-0.5 rounded">
+                                {pageCategory}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Duration */}
+                          <td className="py-3 px-4 text-center font-bold">
+                            <span className={cn(
+                              "px-2 py-1 rounded text-xs inline-block font-mono",
+                              log.durationSeconds > 60 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                              log.durationSeconds > 10 ? "bg-teal-500/10 text-teal-400 border border-teal-500/20" :
+                              "bg-zinc-800 text-zinc-400 border border-zinc-700"
+                            )}>
+                              {formatSec(log.durationSeconds)}
+                            </span>
+                          </td>
+
+                          {/* Entry ➔ Exit */}
+                          <td className="py-3 px-4 text-right text-[11px] text-zinc-400 font-mono">
+                            <div>{formatTimeOnly(log.entryTime)}</div>
+                            <div className="text-[10px] text-zinc-500">➔ {formatTimeOnly(log.exitTime)}</div>
+                          </td>
+
+                          {/* Host */}
+                          <td className="py-3 px-4 text-center font-sans">
+                            {isDev ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                                DEV
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                                PROD
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Details Button */}
+                          <td className="py-3 px-4 text-right">
+                            <button
+                              onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                              className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition text-[11px] font-sans font-bold cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <FileText className="w-3 h-3" />
+                              {isExpanded ? 'Hide' : 'Inspect'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-zinc-800 pt-4 mt-2 text-xs font-sans">
+                <div className="text-zinc-400">
+                  Page <span className="font-bold text-white">{currentPage}</span> of <span className="font-bold text-white">{totalPages}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </button>
+                  <button
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1 font-bold"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Drawer Modal / Raw payload inspector when row is expanded */}
+            {expandedLogId && (
+              <div className="mt-4 p-4 bg-zinc-950 border border-zinc-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between text-indigo-400 font-bold border-b border-zinc-800 pb-2 text-xs font-sans">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    <span>Raw Telemetry Document: {expandedLogId}</span>
+                  </div>
+                  <button
+                    onClick={() => setExpandedLogId(null)}
+                    className="text-zinc-400 hover:text-white cursor-pointer"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
+                {(() => {
+                  const log = telemetryLogs.find(l => l.id === expandedLogId);
+                  if (!log) return <div className="text-zinc-500">Record not found.</div>;
+                  return (
+                    <pre className="text-zinc-300 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] bg-zinc-900 p-3 rounded-lg border border-zinc-800">
+                      {JSON.stringify(log, null, 2)}
+                    </pre>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
     </div>
   );
 }
+

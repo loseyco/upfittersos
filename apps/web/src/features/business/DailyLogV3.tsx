@@ -321,7 +321,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
 
   // Ready for QC Jobs
   const readyForQcJobs = useMemo(() => {
-    return jobs.filter(j => ['Ready for QC', 'qc'].includes((j.status || '').toLowerCase().trim()));
+    return jobs.filter(j => ['ready for qc', 'qc', 'ready_for_qc'].includes((j.status || '').toLowerCase().trim()));
   }, [jobs]);
 
   // Unified Master Log Feed
@@ -1228,7 +1228,16 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
 
         const doneTasksDetails = jFeed.filter(f => f.category === 'task').map(f => f.details).join('; ');
         const partsForJob = partsRequests.filter(p => p.jobId === j.id);
-        const partsSummary = partsForJob.map(p => `${p.partTitle || p.description || 'Part'} (${(p.status || 'pending').toUpperCase()})`).join(', ');
+        const partsSummary = partsForJob.map(p => {
+          const name = p.partName || p.partTitle || p.name || p.title || p.itemDescription || p.description;
+          const num = p.partNumber || p.sku || p.partNum;
+          let label = name || (num ? `#${num}` : 'Part');
+          if (name && num && !name.toLowerCase().includes(String(num).toLowerCase())) {
+            label = `${name} (#${num})`;
+          }
+          const qtyStr = p.quantity ? ` x${p.quantity}` : '';
+          return `${label}${qtyStr} (${(p.status || 'pending').toUpperCase()})`;
+        }).join(', ');
 
         report += `[Job #${j.jobNumber || 'N/A'}] — ${j.customerName || j.title || 'Upfit Job'}\n`;
         report += `• Status: ${j.status || 'In Progress'}\n`;

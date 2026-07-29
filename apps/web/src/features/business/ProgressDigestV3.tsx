@@ -434,7 +434,7 @@ export function ProgressDigestV3({ tenantId }: ProgressDigestV3Props) {
 
   // Jobs Ready for QC
   const readyForQcJobs = useMemo(() => {
-    return jobs.filter(j => ['Ready for QC', 'qc'].includes((j.status || '').toLowerCase().trim()));
+    return jobs.filter(j => ['ready for qc', 'qc', 'ready_for_qc'].includes((j.status || '').toLowerCase().trim()));
   }, [jobs]);
 
   // Blocked / Missing Parts Jobs

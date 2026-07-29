@@ -3,12 +3,13 @@ import { useAuthStore } from '../../lib/auth/store';
 import { db } from '../../lib/firebase/config';
 import { 
   collection, query, where, onSnapshot, doc, updateDoc, 
-  getDoc, addDoc, serverTimestamp, getDocs, orderBy, limit, collectionGroup, deleteField
+  getDoc, addDoc, serverTimestamp, getDocs, orderBy, limit, collectionGroup, deleteField, deleteDoc
 } from 'firebase/firestore';
 import { 
   Clock, Play, Square, Coffee, Pizza, 
   ChevronLeft, ChevronRight,
-  Wrench, RefreshCw, AlertCircle, Check, X
+  Wrench, RefreshCw, AlertCircle, Check, X,
+  Loader2, Plus, Calendar
 } from 'lucide-react';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useJobClock } from '../timeclock/useJobClock';
@@ -207,6 +208,7 @@ interface TimelineEvent {
   bayName?: string;
   sessionId?: string;
   jobIndex?: number;
+  breakIndex?: number;
   segmentNote?: string;
   taskNotes?: string;
 }
@@ -242,11 +244,13 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   const [staffMember, setStaffMember] = useState<any>(null);
   const [business, setBusiness] = useState<any>(null);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [editRequests, setEditRequests] = useState<any[]>([]);
   const [myAssignedTasks, setMyAssignedTasks] = useState<any[]>([]);
   const [allJobs, setAllJobs] = useState<any[]>([]);
   const [zones, setZones] = useState<any[]>([]);
   const [isClockProcessing, setIsClockProcessing] = useState(false);
   const [editingGapKey, setEditingGapKey] = useState<string | null>(null);
+  const [isAddingMissingShift, setIsAddingMissingShift] = useState(false);
 
   const saveGapNote = async (sessionId: string, gapStart: number, noteText: string) => {
     if (!tenantId || !sessionId) return;
@@ -262,20 +266,23 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     }
   };
 
-  // Gap allocation & Labor editing states
+  // Gap allocation & Labor/Segment editing states
   const [allocatingGap, setAllocatingGap] = useState<{ sessionId: string, start: number, end: number } | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string>('');
   const [selectedTaskId, setSelectedTaskId] = useState<string>('');
   
-  const [editingLabor, setEditingLabor] = useState<{
+  const [editingSegment, setEditingSegment] = useState<{
     sessionId: string;
-    jobIndex: number;
-    jobId: string;
-    taskId?: string;
-    taskName?: string;
+    type: 'labor' | 'shift_start' | 'shift_end' | 'break';
+    title: string;
+    subTitle?: string;
     start: number;
     end?: number;
+    jobIndex?: number;
+    jobId?: string;
+    taskId?: string;
     note?: string;
+    breakIndex?: number;
   } | null>(null);
 
   const myAssignedJobs = useMemo(() => {
@@ -309,7 +316,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   const effectiveUserUid = staffMember?.userId || (!targetStaffId ? user?.uid : '');
 
   const isOwnSession = effectiveUserUid === user?.uid;
-  const canApprove = (isSuperAdmin || !!permissions['timeclock.approve']) && !isOwnSession;
+  const hasAutoApprovePermission = isSuperAdmin || !!permissions['timeclock.no_review_required'];
+  const canApprove = (hasAutoApprovePermission || !!permissions['timeclock.approve']) && (!isOwnSession || hasAutoApprovePermission);
 
   const saveJobsEdit = async (session: any, updatedJobs: any[], editReason: string) => {
     const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
@@ -408,74 +416,474 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleSaveLaborEdit = async (timeInStr: string, timeOutStr: string, noteStr: string) => {
-    if (!editingLabor) return;
+  const handleSaveSegmentEdit = async (timeInStr: string, timeOutStr: string, noteStr: string) => {
+    if (!editingSegment) return;
 
     try {
-      const session = sessions.find(s => s.id === editingLabor.sessionId);
+      const session = sessions.find(s => s.id === editingSegment.sessionId);
       if (!session) return;
 
-      const sessionStartMs = getMs(session.clockIn?.timestamp);
-      const sessionEndMs = session.clockOut?.timestamp ? getMs(session.clockOut.timestamp) : currentTime;
+      const newStart = parseLocalTimeInput(timeInStr, editingSegment.start);
+      const newEnd = parseLocalTimeInput(timeOutStr, editingSegment.end || Date.now());
 
-      const newStart = parseLocalTimeInput(timeInStr, editingLabor.start);
-      const newEnd = parseLocalTimeInput(timeOutStr, editingLabor.end || Date.now());
-
-      if (newStart.getTime() < sessionStartMs || newEnd.getTime() > sessionEndMs) {
-        toast.error("Edited segment must fall within the shift boundaries.");
+      const nowMs = Date.now();
+      if (newStart.getTime() > nowMs + 60000) {
+        toast.error("Start time cannot be set in the future.");
+        return;
+      }
+      if (editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end' && editingSegment.end && newEnd.getTime() > nowMs + 60000) {
+        toast.error("Stop time cannot be set in the future.");
         return;
       }
 
-      if (newStart.getTime() >= newEnd.getTime()) {
-        toast.error("Time Out must be after Time In.");
+      if (newStart.getTime() > newEnd.getTime() && editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end') {
+        toast.error("Stop time cannot be earlier than start time.");
         return;
       }
 
-      const jobs = [...(session.jobs || [])];
-      if (editingLabor.jobIndex >= 0 && editingLabor.jobIndex < jobs.length) {
-        jobs[editingLabor.jobIndex] = {
-          ...jobs[editingLabor.jobIndex],
-          start: newStart,
-          end: newEnd,
-          note: noteStr.trim() || null
+      // Enforce strict boundary checks for Shift Clock In and Shift Clock Out
+      if (editingSegment.type === 'shift_start') {
+        let earliestMs = Infinity;
+        let earliestName = '';
+        (session.jobs || []).forEach((j: any) => {
+          const jStart = getMs(j.start);
+          if (jStart < earliestMs) {
+            earliestMs = jStart;
+            earliestName = j.taskName || j.name || 'task';
+          }
+        });
+        (session.breaks || []).forEach((b: any) => {
+          const bStart = getMs(b.start);
+          if (bStart < earliestMs) {
+            earliestMs = bStart;
+            earliestName = 'break';
+          }
+        });
+
+        if (earliestMs !== Infinity && newStart.getTime() > earliestMs) {
+          toast.error(`Shift Clock In cannot be set later than the first ${earliestName} (${formatClockTime(earliestMs)}).`);
+          return;
+        }
+      }
+
+      if (editingSegment.type === 'shift_end') {
+        let latestMs = 0;
+        let latestName = '';
+        (session.jobs || []).forEach((j: any) => {
+          const jEnd = j.end ? getMs(j.end) : currentTime;
+          if (jEnd > latestMs) {
+            latestMs = jEnd;
+            latestName = j.taskName || j.name || 'task';
+          }
+        });
+        (session.breaks || []).forEach((b: any) => {
+          const bEnd = b.end ? getMs(b.end) : currentTime;
+          if (bEnd > latestMs) {
+            latestMs = bEnd;
+            latestName = 'break';
+          }
+        });
+
+        if (latestMs !== 0 && newStart.getTime() < latestMs) {
+          toast.error(`Shift Clock Out cannot be set earlier than the last ${latestName} end (${formatClockTime(latestMs)}).`);
+          return;
+        }
+      }
+
+      // Enforce strict segment boundary checks for labor tasks and breaks
+      if (editingSegment.type === 'labor' || editingSegment.type === 'break') {
+        const origStartMs = editingSegment.start;
+
+        // 0. Prevent setting start time earlier than Shift Clock In
+        if (session.clockIn?.timestamp) {
+          const shiftStartMs = getMs(session.clockIn.timestamp);
+          if (newStart.getTime() < shiftStartMs) {
+            toast.error(`Start time cannot be set earlier than Shift Clock In (${formatClockTime(shiftStartMs)}).`);
+            return;
+          }
+        }
+
+        // 0b. Prevent extending stop time past Shift Clock Out
+        if (session.clockOut?.timestamp) {
+          const shiftEndMs = getMs(session.clockOut.timestamp);
+          if (newEnd.getTime() > shiftEndMs) {
+            toast.error(`Stop time cannot extend past Shift Clock Out (${formatClockTime(shiftEndMs)}).`);
+            return;
+          }
+        }
+
+        // 1. Prevent extending stop time past next activity's start time
+        let nextActivity: any = null;
+        let nextActivityStartMs = Infinity;
+
+        (session.jobs || []).forEach((j: any, idx: number) => {
+          if (editingSegment.type === 'labor' && idx === editingSegment.jobIndex) return;
+          const jStartMs = getMs(j.start);
+          if (jStartMs >= origStartMs && jStartMs < nextActivityStartMs) {
+            nextActivityStartMs = jStartMs;
+            nextActivity = { name: j.taskName || j.name || 'task', start: jStartMs };
+          }
+        });
+
+        (session.breaks || []).forEach((b: any, idx: number) => {
+          if (editingSegment.type === 'break' && idx === editingSegment.breakIndex) return;
+          const bStartMs = getMs(b.start);
+          if (bStartMs >= origStartMs && bStartMs < nextActivityStartMs) {
+            nextActivityStartMs = bStartMs;
+            nextActivity = { name: 'break', start: bStartMs };
+          }
+        });
+
+        if (newEnd.getTime() > nextActivityStartMs) {
+          toast.error(`Stop time cannot extend past the start of ${nextActivity?.name || 'next activity'} (${formatClockTime(nextActivityStartMs)}).`);
+          return;
+        }
+
+        // 2. Prevent setting start time earlier than previous activity's end time
+        let prevActivity: any = null;
+        let prevActivityEndMs = 0;
+
+        (session.jobs || []).forEach((j: any, idx: number) => {
+          if (editingSegment.type === 'labor' && idx === editingSegment.jobIndex) return;
+          const jStartMs = getMs(j.start);
+          const jEndMs = j.end ? getMs(j.end) : currentTime;
+          if (jStartMs < origStartMs && jEndMs > prevActivityEndMs) {
+            prevActivityEndMs = jEndMs;
+            prevActivity = { name: j.taskName || j.name || 'task', end: jEndMs };
+          }
+        });
+
+        (session.breaks || []).forEach((b: any, idx: number) => {
+          if (editingSegment.type === 'break' && idx === editingSegment.breakIndex) return;
+          const bStartMs = getMs(b.start);
+          const bEndMs = b.end ? getMs(b.end) : currentTime;
+          if (bStartMs < origStartMs && bEndMs > prevActivityEndMs) {
+            prevActivityEndMs = bEndMs;
+            prevActivity = { name: 'break', end: bEndMs };
+          }
+        });
+
+        if (newStart.getTime() < prevActivityEndMs) {
+          toast.error(`Start time cannot be set earlier than the end of ${prevActivity?.name || 'previous activity'} (${formatClockTime(prevActivityEndMs)}).`);
+          return;
+        }
+      }
+
+      let updatedClockIn = session.clockIn;
+      let updatedClockOut = session.clockOut;
+      let updatedJobs = [...(session.jobs || [])];
+      let updatedBreaks = [...(session.breaks || [])];
+
+      if (editingSegment.type === 'labor' && editingSegment.jobIndex !== undefined && editingSegment.jobIndex >= 0) {
+        if (editingSegment.jobIndex < updatedJobs.length) {
+          updatedJobs[editingSegment.jobIndex] = {
+            ...updatedJobs[editingSegment.jobIndex],
+            start: newStart,
+            end: newEnd,
+            note: noteStr.trim() || null
+          };
+        }
+      } else if (editingSegment.type === 'shift_start') {
+        updatedClockIn = { ...session.clockIn, timestamp: newStart };
+      } else if (editingSegment.type === 'shift_end') {
+        if (session.clockOut) {
+          updatedClockOut = { ...session.clockOut, timestamp: newStart };
+        }
+      } else if (editingSegment.type === 'break' && editingSegment.breakIndex !== undefined && editingSegment.breakIndex >= 0) {
+        if (editingSegment.breakIndex < updatedBreaks.length) {
+          updatedBreaks[editingSegment.breakIndex] = {
+            ...updatedBreaks[editingSegment.breakIndex],
+            start: newStart,
+            end: newEnd
+          };
+        }
+      }
+
+      const updates: any = {
+        clockIn: updatedClockIn,
+        clockOut: updatedClockOut,
+        jobs: updatedJobs,
+        breaks: updatedBreaks,
+        manuallyEdited: true,
+        updatedAt: serverTimestamp()
+      };
+
+      if (canApprove) {
+        updates.verificationStatus = 'verified';
+        updates.approvedBy = user!.displayName || user!.email || 'Admin';
+      } else {
+        updates.verificationStatus = 'pending';
+        updates.approvedBy = '';
+      }
+
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, session.id);
+      await updateDoc(sessionRef, updates);
+
+      if (!canApprove) {
+        const q = query(
+          collection(db, `businesses/${tenantId}/time_edit_requests`),
+          where('sessionId', '==', session.id),
+          where('status', '==', 'pending')
+        );
+        const snap = await getDocs(q);
+
+        // Detect if edited labor segment overlaps with other task segments
+        let overlapDetected = false;
+        if (editingSegment.type === 'labor' && editingSegment.jobIndex !== undefined) {
+          const checkStart = newStart.getTime();
+          const checkEnd = newEnd.getTime();
+          updatedJobs.forEach((j: any, idx: number) => {
+            if (idx === editingSegment.jobIndex) return;
+            const jStart = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+            const jEnd = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : currentTime;
+
+            if (Math.max(checkStart, jStart) < Math.min(checkEnd, jEnd)) {
+              overlapDetected = true;
+            }
+          });
+        }
+
+        const baseNote = noteStr.trim() || `Edited ${editingSegment.title}`;
+        const finalNote = overlapDetected ? `[OVERLAP DETECTED] ${baseNote}` : baseNote;
+
+        const requestData = {
+          sessionId: session.id,
+          userId: session.userId || effectiveUserUid,
+          userName: session.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+          note: finalNote,
+          status: 'pending',
+          originalClockIn: session.clockIn?.timestamp,
+          originalClockOut: session.clockOut?.timestamp || null,
+          proposedClockIn: updatedClockIn?.timestamp,
+          proposedClockOut: updatedClockOut?.timestamp || null,
+          originalBreaks: session.breaks || [],
+          proposedBreaks: updatedBreaks,
+          originalJobs: session.jobs || [],
+          proposedJobs: updatedJobs,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
         };
+
+        if (snap.empty) {
+          await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), requestData);
+        } else {
+          const docRef = doc(db, `businesses/${tenantId}/time_edit_requests`, snap.docs[0].id);
+          await updateDoc(docRef, requestData);
+        }
       }
-      
-      const reason = `Edited labor segment: changed times to ${timeInStr}-${timeOutStr} with note: ${noteStr}`;
 
-      await saveJobsEdit(session, jobs, reason);
-
-      toast.success(canApprove ? "Labor segment updated" : "Segment update request submitted for approval");
-      setEditingLabor(null);
+      toast.success(canApprove ? "Time segment updated" : "Time change request submitted for review & verification");
+      setEditingSegment(null);
     } catch (err) {
       console.error(err);
       toast.error("Failed to save segment changes.");
     }
   };
 
-  const handleDeleteLaborSegment = async () => {
-    if (!editingLabor) return;
+  const handleDeleteSegment = async () => {
+    if (!editingSegment) return;
 
     try {
-      const session = sessions.find(s => s.id === editingLabor.sessionId);
+      const session = sessions.find(s => s.id === editingSegment.sessionId);
       if (!session) return;
 
-      const jobs = [...(session.jobs || [])];
-      let removedSegmentName = '';
-      if (editingLabor.jobIndex >= 0 && editingLabor.jobIndex < jobs.length) {
-        removedSegmentName = jobs[editingLabor.jobIndex].taskName || jobs[editingLabor.jobIndex].name || 'Labor segment';
-        jobs.splice(editingLabor.jobIndex, 1);
+      if (editingSegment.type === 'labor' && editingSegment.jobIndex !== undefined) {
+        const jobs = [...(session.jobs || [])];
+        let removedSegmentName = '';
+        if (editingSegment.jobIndex >= 0 && editingSegment.jobIndex < jobs.length) {
+          removedSegmentName = jobs[editingSegment.jobIndex].taskName || jobs[editingSegment.jobIndex].name || 'Labor segment';
+          jobs.splice(editingSegment.jobIndex, 1);
+        }
+        await saveJobsEdit(session, jobs, `Deleted labor segment: ${removedSegmentName}`);
+        toast.success(canApprove ? "Labor segment deleted" : "Segment deletion request submitted for approval");
+      } else if (editingSegment.type === 'break' && editingSegment.breakIndex !== undefined) {
+        const breaks = [...(session.breaks || [])];
+        if (editingSegment.breakIndex >= 0 && editingSegment.breakIndex < breaks.length) {
+          breaks.splice(editingSegment.breakIndex, 1);
+        }
+        const updates: any = {
+          breaks,
+          manuallyEdited: true,
+          updatedAt: serverTimestamp(),
+          verificationStatus: canApprove ? 'verified' : 'pending'
+        };
+        await updateDoc(doc(db, `businesses/${tenantId}/time_sessions`, session.id), updates);
+        if (!canApprove) {
+          await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+            sessionId: session.id,
+            userId: session.userId || effectiveUserUid,
+            userName: session.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+            note: `Deleted break entry`,
+            status: 'pending',
+            proposedBreaks: breaks,
+            createdAt: serverTimestamp()
+          });
+        }
+        toast.success(canApprove ? "Break deleted" : "Break deletion request submitted for verification");
+      } else if (editingSegment.type === 'shift_start' || editingSegment.type === 'shift_end') {
+        const sessionClockInMs = getMs(session.clockIn.timestamp);
+        const sessionClockOutMs = session.clockOut?.timestamp ? getMs(session.clockOut.timestamp) : null;
+
+        // Check if there is an adjacent session in the same day (within 10 minutes) that can be merged
+        const adjacentSession = sessions.find(other => {
+          if (other.id === session.id) return false;
+          const otherClockInMs = getMs(other.clockIn.timestamp);
+          const otherClockOutMs = other.clockOut?.timestamp ? getMs(other.clockOut.timestamp) : null;
+
+          if (editingSegment.type === 'shift_end' && sessionClockOutMs) {
+            return Math.abs(otherClockInMs - sessionClockOutMs) < 600000;
+          }
+          if (editingSegment.type === 'shift_start') {
+            return otherClockOutMs && Math.abs(sessionClockInMs - otherClockOutMs) < 600000;
+          }
+          return false;
+        });
+
+        if (adjacentSession) {
+          // Perform Smart Merge of split shift sessions into one continuous shift
+          const primarySession = editingSegment.type === 'shift_end' ? session : adjacentSession;
+          const secondarySession = editingSegment.type === 'shift_end' ? adjacentSession : session;
+
+          const mergedJobs = [...(primarySession.jobs || []), ...(secondarySession.jobs || [])];
+          const mergedBreaks = [...(primarySession.breaks || []), ...(secondarySession.breaks || [])];
+          const mergedClockOut = secondarySession.clockOut || primarySession.clockOut || null;
+
+          const updates: any = {
+            jobs: mergedJobs,
+            breaks: mergedBreaks,
+            clockOut: mergedClockOut,
+            manuallyEdited: true,
+            updatedAt: serverTimestamp(),
+            verificationStatus: canApprove ? 'verified' : 'pending'
+          };
+
+          const primaryRef = doc(db, `businesses/${tenantId}/time_sessions`, primarySession.id);
+          await updateDoc(primaryRef, updates);
+
+          const secondaryRef = doc(db, `businesses/${tenantId}/time_sessions`, secondarySession.id);
+          await deleteDoc(secondaryRef);
+
+          if (!canApprove) {
+            await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+              sessionId: primarySession.id,
+              userId: primarySession.userId || effectiveUserUid,
+              userName: primarySession.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+              note: `Merged accidental split shift (${formatClockTime(sessionClockInMs)})`,
+              status: 'pending',
+              action: 'merge_shifts',
+              proposedClockIn: primarySession.clockIn?.timestamp,
+              proposedClockOut: mergedClockOut?.timestamp || null,
+              proposedJobs: mergedJobs,
+              proposedBreaks: mergedBreaks,
+              createdAt: serverTimestamp()
+            });
+          }
+
+          toast.success(canApprove ? "Merged split shifts into a single continuous shift" : "Shift merge request submitted for verification");
+        } else if (editingSegment.type === 'shift_end') {
+          // If no adjacent session, removing shift_end removes clockOut timestamp (making shift open/active)
+          const updates: any = {
+            clockOut: deleteField(),
+            manuallyEdited: true,
+            updatedAt: serverTimestamp(),
+            verificationStatus: canApprove ? 'verified' : 'pending'
+          };
+          await updateDoc(doc(db, `businesses/${tenantId}/time_sessions`, session.id), updates);
+
+          if (!canApprove) {
+            await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+              sessionId: session.id,
+              userId: session.userId || effectiveUserUid,
+              userName: session.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+              note: `Removed shift clock-out time`,
+              status: 'pending',
+              action: 'remove_clockout',
+              createdAt: serverTimestamp()
+            });
+          }
+
+          toast.success(canApprove ? "Shift clock-out removed" : "Clock-out removal request submitted for verification");
+        } else {
+          // Delete entire shift session doc
+          if (canApprove) {
+            await deleteDoc(doc(db, `businesses/${tenantId}/time_sessions`, session.id));
+            toast.success("Shift deleted");
+          } else {
+            await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+              sessionId: session.id,
+              userId: session.userId || effectiveUserUid,
+              userName: session.userName || staffMember?.name || user?.displayName || user?.email || 'Technician',
+              note: `Requested deletion of shift session`,
+              status: 'pending',
+              action: 'delete_shift',
+              createdAt: serverTimestamp()
+            });
+            toast.success("Shift deletion request submitted for manager review");
+          }
+        }
       }
-
-      const reason = `Deleted labor segment: ${removedSegmentName}`;
-
-      await saveJobsEdit(session, jobs, reason);
-
-      toast.success(canApprove ? "Labor segment deleted" : "Segment deletion request submitted for approval");
-      setEditingLabor(null);
+      setEditingSegment(null);
     } catch (err) {
       console.error(err);
-      toast.error("Failed to delete labor segment.");
+      toast.error("Failed to delete segment.");
+    }
+  };
+
+  const handleCreateMissingShift = async (shiftDateStr: string, clockInStr: string, clockOutStr: string, noteStr: string) => {
+    if (!tenantId || !effectiveUserUid) return;
+
+    try {
+      const targetDate = new Date(shiftDateStr + 'T00:00:00');
+      const clockInDate = parseLocalTimeInput(clockInStr, targetDate.getTime());
+      const clockOutDate = parseLocalTimeInput(clockOutStr, targetDate.getTime());
+
+      if (clockInDate.getTime() >= clockOutDate.getTime()) {
+        toast.error("Clock Out time must be after Clock In time.");
+        return;
+      }
+
+      const newSessionData = {
+        userId: effectiveUserUid,
+        userName: staffMember?.name || user?.displayName || user?.email || 'Technician',
+        clockIn: {
+          timestamp: clockInDate,
+          location: 'Manual Entry'
+        },
+        clockOut: {
+          timestamp: clockOutDate,
+          location: 'Manual Entry'
+        },
+        jobs: [],
+        breaks: [],
+        verificationStatus: canApprove ? 'verified' : 'pending',
+        manuallyCreated: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), newSessionData);
+
+      if (!canApprove) {
+        await addDoc(collection(db, `businesses/${tenantId}/time_edit_requests`), {
+          sessionId: docRef.id,
+          userId: effectiveUserUid,
+          userName: staffMember?.name || user?.displayName || user?.email || 'Technician',
+          note: noteStr.trim() || `Added missing shift for ${shiftDateStr}`,
+          status: 'pending',
+          action: 'add_shift',
+          proposedClockIn: clockInDate,
+          proposedClockOut: clockOutDate,
+          createdAt: serverTimestamp()
+        });
+        toast.success("Missing shift logged and sent for manager verification.");
+      } else {
+        toast.success("Missing shift added successfully.");
+      }
+
+      setIsAddingMissingShift(false);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to add missing shift.");
     }
   };
 
@@ -585,6 +993,26 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
           });
         setSessions(filtered);
       });
+    });
+
+    return unsub;
+  }, [tenantId, effectiveUserUid, staffMember?.id]);
+
+  // Real-time listener for user time edit requests
+  useEffect(() => {
+    if (!tenantId || !effectiveUserUid) return;
+    const searchIds = [effectiveUserUid];
+    if (staffMember?.id) searchIds.push(staffMember.id);
+
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_edit_requests`),
+      where('userId', 'in', searchIds)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setEditRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => {
+      console.warn("Time edit requests listener warning:", err);
     });
 
     return unsub;
@@ -882,7 +1310,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       label: 'SHIFT STARTED',
       subLabel: `CLOCKED IN ${inLocLabel.toUpperCase()} VIA ${inCap.toUpperCase()}`,
       locationOnSite: ses.clockIn?.onSite,
-      remoteReason: inRemoteDetails || undefined
+      remoteReason: inRemoteDetails || undefined,
+      sessionId: ses.id
     });
 
     // 2. Shift clock out
@@ -903,7 +1332,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         label: 'SHIFT ENDED',
         subLabel: `CLOCKED OUT ${outLocLabel.toUpperCase()} VIA ${outCap.toUpperCase()}`,
         locationOnSite: ses.clockOut?.onSite,
-        remoteReason: outRemoteDetails || undefined
+        remoteReason: outRemoteDetails || undefined,
+        sessionId: ses.id
       });
     }
 
@@ -919,6 +1349,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         timeEnd: bEndMs,
         label: 'ON BREAK',
         subLabel: (b.type || 'break').toUpperCase(),
+        sessionId: ses.id,
+        breakIndex: bIdx
       });
     });
 
@@ -1459,13 +1891,20 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                   ) : (
                     <button
                       onClick={handleEndBreak}
-                      className="w-full py-4 bg-indigo-650 hover:bg-indigo-700 text-white rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-500/10 transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full py-4 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-md shadow-amber-500/10 transition-all hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <Play className="w-4 h-4 fill-current animate-pulse" /> Resume Shift
+                      <Square className="w-4 h-4 fill-current" /> End Break
                     </button>
                   )}
                 </div>
               )}
+
+              <button
+                onClick={() => setIsAddingMissingShift(true)}
+                className="w-full py-2.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-2xl text-xs font-extrabold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-1"
+              >
+                <Plus className="w-4 h-4 text-emerald-500" /> Add Forgotten / Missing Shift
+              </button>
             </div>
           )}
         </div>
@@ -1481,30 +1920,52 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                 <div key={idx} className="flex items-center justify-between gap-3 p-3 bg-indigo-500/[0.02] border border-indigo-500/10 rounded-2xl shadow-sm">
                   <div className="min-w-0 flex-1">
                     {seg.id ? (
-                      <a
-                        href={`/business/${tenantId}/jobs/${seg.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[9px] font-bold text-indigo-500 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted uppercase tracking-wider block"
-                      >
-                        JOB #{seg.jobNumber}
-                      </a>
+                      seg.taskId ? (
+                        <a
+                          href={`/business/${tenantId}/task/${seg.id}/${seg.taskId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[9px] font-bold text-indigo-500 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted uppercase tracking-wider block"
+                        >
+                          JOB #{seg.jobNumber}
+                        </a>
+                      ) : (
+                        <a
+                          href={`/business/${tenantId}/jobs/${seg.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[9px] font-bold text-indigo-500 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted uppercase tracking-wider block"
+                        >
+                          JOB #{seg.jobNumber}
+                        </a>
+                      )
                     ) : (
                       <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider block">
-                        JOB #{seg.jobNumber}
+                        JOB #{seg.jobNumber || 'N/A'}
                       </span>
                     )}
                     {seg.id ? (
-                      <a
-                        href={`/business/${tenantId}/jobs/${seg.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-black text-zinc-800 dark:text-zinc-200 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted truncate leading-snug mt-0.5 block"
-                      >
-                        {seg.jobTitle}
-                      </a>
+                      seg.taskId ? (
+                        <a
+                          href={`/business/${tenantId}/task/${seg.id}/${seg.taskId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-black text-zinc-800 dark:text-zinc-200 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted truncate leading-snug mt-0.5 block"
+                        >
+                          {seg.jobTitle}
+                        </a>
+                      ) : (
+                        <a
+                          href={`/business/${tenantId}/jobs/${seg.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs font-black text-zinc-800 dark:text-zinc-200 hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted truncate leading-snug mt-0.5 block"
+                        >
+                          {seg.jobTitle}
+                        </a>
+                      )
                     ) : (
-                      <h4 className="text-xs font-black text-zinc-800 dark:text-zinc-200 truncate leading-snug mt-0.5">{seg.jobTitle}</h4>
+                      <h4 className="text-xs font-black text-zinc-800 dark:text-zinc-200 truncate leading-snug mt-0.5">{seg.jobTitle || 'Unassigned Labor'}</h4>
                     )}
                     {seg.zoneName && (
                       <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-wider block mt-0.5">
@@ -1794,21 +2255,51 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                         key={evt.id} 
                         onClick={() => {
                           if (evt.type === 'labor') {
-                            setEditingLabor({
+                            setEditingSegment({
                               sessionId: evt.sessionId!,
-                              jobIndex: evt.jobIndex!,
-                              jobId: evt.jobId!,
-                              taskId: evt.taskId,
-                              taskName: evt.taskName,
+                              type: 'labor',
+                              title: evt.taskName || evt.label,
+                              subTitle: evt.label,
                               start: evt.timeStart,
                               end: evt.timeEnd,
+                              jobIndex: evt.jobIndex,
+                              jobId: evt.jobId,
+                              taskId: evt.taskId,
                               note: evt.segmentNote
+                            });
+                          } else if (evt.type === 'shift_start') {
+                            setEditingSegment({
+                              sessionId: evt.sessionId!,
+                              type: 'shift_start',
+                              title: 'Shift Clock In',
+                              subTitle: evt.subLabel,
+                              start: evt.timeStart,
+                              end: evt.timeStart
+                            });
+                          } else if (evt.type === 'shift_end') {
+                            setEditingSegment({
+                              sessionId: evt.sessionId!,
+                              type: 'shift_end',
+                              title: 'Shift Clock Out',
+                              subTitle: evt.subLabel,
+                              start: evt.timeStart,
+                              end: evt.timeStart
+                            });
+                          } else if (evt.type === 'break') {
+                            setEditingSegment({
+                              sessionId: evt.sessionId!,
+                              type: 'break',
+                              title: `Break (${evt.subLabel || 'Rest'})`,
+                              subTitle: evt.label,
+                              start: evt.timeStart,
+                              end: evt.timeEnd,
+                              breakIndex: evt.breakIndex
                             });
                           }
                         }}
                         className={cn(
                           "p-4 flex items-center justify-between gap-4 hover:bg-zinc-50/[0.3] dark:hover:bg-zinc-955/[0.1] transition-colors",
-                          evt.type === 'labor' && "cursor-pointer"
+                          (evt.type === 'labor' || evt.type === 'shift_start' || evt.type === 'shift_end' || evt.type === 'break') && "cursor-pointer"
                         )}
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
@@ -1822,24 +2313,72 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                           </div>
  
                           <div className="flex flex-col gap-1 min-w-0">
-                            {/* Red highlighted time tag */}
-                            <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 font-mono block leading-none">
-                              {formatClockTime(evt.timeStart)}
-                              {evt.timeEnd && ` - ${formatClockTime(evt.timeEnd)}`}
-                              {!evt.timeEnd && (evt.type === 'labor' || evt.type === 'break') && " - ACTIVE NOW"}
-                            </span>
+                            {/* Time tag with Verification status badge */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 font-mono block leading-none">
+                                {formatClockTime(evt.timeStart)}
+                                {evt.timeEnd && ` - ${formatClockTime(evt.timeEnd)}`}
+                                {!evt.timeEnd && (evt.type === 'labor' || evt.type === 'break') && " - ACTIVE NOW"}
+                              </span>
+
+                              {(() => {
+                                if (!evt.sessionId) return null;
+                                const session = sessions.find(s => s.id === evt.sessionId);
+                                const pendingReq = editRequests.find(r => r.sessionId === evt.sessionId && r.status === 'pending');
+                                const rejectedReq = editRequests.find(r => r.sessionId === evt.sessionId && r.status === 'rejected');
+                                const approvedReq = editRequests.find(r => r.sessionId === evt.sessionId && r.status === 'approved');
+
+                                const status = pendingReq ? 'pending' : (session?.verificationStatus || (rejectedReq ? 'rejected' : (approvedReq ? 'approved' : null)));
+
+                                if (status === 'pending') {
+                                  return (
+                                    <span className="text-[8px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase leading-none bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                      PENDING VERIFICATION
+                                    </span>
+                                  );
+                                } else if (status === 'rejected') {
+                                  return (
+                                    <span className="text-[8px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase leading-none bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/25 flex items-center gap-1">
+                                      <X className="w-2.5 h-2.5" />
+                                      REJECTED
+                                    </span>
+                                  );
+                                } else if (status === 'verified' || status === 'approved' || session?.approvedBy) {
+                                  return (
+                                    <span className="text-[8px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase leading-none bg-emerald-500/10 text-emerald-600 dark:text-emerald-450 border border-emerald-500/25 flex items-center gap-1">
+                                      <Check className="w-2.5 h-2.5" />
+                                      VERIFIED
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
  
                             {/* Bold Capitalized Title */}
                             {evt.jobId ? (
-                              <a
-                                href={`/business/${tenantId}/jobs/${evt.jobId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-black text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted transition-colors leading-tight uppercase truncate block"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {evt.label}
-                              </a>
+                              evt.taskId ? (
+                                <a
+                                  href={`/business/${tenantId}/task/${evt.jobId}/${evt.taskId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-black text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted transition-colors leading-tight uppercase truncate block"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {evt.label}
+                                </a>
+                              ) : (
+                                <a
+                                  href={`/business/${tenantId}/jobs/${evt.jobId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-black text-zinc-900 dark:text-white hover:text-indigo-650 dark:hover:text-indigo-400 underline decoration-dotted transition-colors leading-tight uppercase truncate block"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {evt.label}
+                                </a>
+                              )
                             ) : (
                               <h4 className="text-xs font-black text-zinc-900 dark:text-white leading-tight uppercase truncate">
                                 {evt.label}
@@ -2092,39 +2631,56 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         );
       })()}
 
-      {/* Edit Labor Segment Modal */}
-      {editingLabor && (() => {
-        return (
-          <LaborSegmentEditModalInline
-            editingLabor={editingLabor}
-            onClose={() => setEditingLabor(null)}
-            onSave={handleSaveLaborEdit}
-            onDelete={handleDeleteLaborSegment}
-          />
-        );
-      })()}
+      {/* Small Inline Segment / Event Edit Modal */}
+      {editingSegment && (
+        <SmallSegmentEditModalInline
+          editingSegment={editingSegment}
+          sessionClockIn={sessions.find(s => s.id === editingSegment.sessionId)?.clockIn?.timestamp}
+          sessionClockOut={sessions.find(s => s.id === editingSegment.sessionId)?.clockOut?.timestamp}
+          sessionJobs={sessions.find(s => s.id === editingSegment.sessionId)?.jobs}
+          sessionBreaks={sessions.find(s => s.id === editingSegment.sessionId)?.breaks}
+          onClose={() => setEditingSegment(null)}
+          onSave={handleSaveSegmentEdit}
+          onDelete={handleDeleteSegment}
+        />
+      )}
+
+      {/* Add Missing Shift Modal */}
+      {isAddingMissingShift && (
+        <AddMissingShiftModalInline
+          onClose={() => setIsAddingMissingShift(false)}
+          onSave={handleCreateMissingShift}
+        />
+      )}
 
     </div>
   );
 }
 
-interface LaborSegmentEditModalInlineProps {
-  editingLabor: {
+interface SmallSegmentEditModalProps {
+  editingSegment: {
     sessionId: string;
-    jobIndex: number;
-    jobId: string;
-    taskId?: string;
-    taskName?: string;
+    type: 'labor' | 'shift_start' | 'shift_end' | 'break';
+    title: string;
+    subTitle?: string;
     start: number;
     end?: number;
+    jobIndex?: number;
+    jobId?: string;
+    taskId?: string;
     note?: string;
+    breakIndex?: number;
   };
+  sessionClockIn?: any;
+  sessionClockOut?: any;
+  sessionJobs?: any[];
+  sessionBreaks?: any[];
   onClose: () => void;
-  onSave: (timeIn: string, timeOut: string, note: string) => void;
-  onDelete: () => void;
+  onSave: (timeIn: string, timeOut: string, note: string) => Promise<void>;
+  onDelete?: () => void;
 }
 
-function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }: LaborSegmentEditModalInlineProps) {
+function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionClockOut, sessionJobs, sessionBreaks, onClose, onSave, onDelete }: SmallSegmentEditModalProps) {
   const toLocalTimeString24h = (ms: number) => {
     const d = new Date(ms);
     const hrs = String(d.getHours()).padStart(2, '0');
@@ -2132,9 +2688,176 @@ function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }
     return `${hrs}:${mins}`;
   };
 
-  const [timeIn, setTimeIn] = useState(toLocalTimeString24h(editingLabor.start));
-  const [timeOut, setTimeOut] = useState(toLocalTimeString24h(editingLabor.end || Date.now()));
-  const [note, setNote] = useState(editingLabor.note || '');
+  const [timeIn, setTimeIn] = useState(toLocalTimeString24h(editingSegment.start));
+  const [timeOut, setTimeOut] = useState(toLocalTimeString24h(editingSegment.end || editingSegment.start));
+  const [note, setNote] = useState(editingSegment.note || '');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const liveValidationWarning = useMemo(() => {
+    if (!timeIn) return null;
+    const newStart = parseLocalTimeInput(timeIn, editingSegment.start);
+    const newEnd = parseLocalTimeInput(timeOut || timeIn, editingSegment.end || editingSegment.start);
+
+    const nowMs = Date.now();
+    if (newStart.getTime() > nowMs + 60000) {
+      return "Start time cannot be set in the future";
+    }
+    if (editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end' && editingSegment.end && newEnd.getTime() > nowMs + 60000) {
+      return "Stop time cannot be set in the future";
+    }
+
+    if (editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end' && newStart.getTime() > newEnd.getTime()) {
+      return "Stop time cannot be earlier than start time";
+    }
+
+    if (editingSegment.type === 'shift_start') {
+      let earliestMs = Infinity;
+      let earliestName = '';
+      if (sessionJobs) {
+        sessionJobs.forEach((j: any) => {
+          const jStart = getMs(j.start);
+          if (jStart < earliestMs) {
+            earliestMs = jStart;
+            earliestName = j.taskName || j.name || 'task';
+          }
+        });
+      }
+      if (sessionBreaks) {
+        sessionBreaks.forEach((b: any) => {
+          const bStart = getMs(b.start);
+          if (bStart < earliestMs) {
+            earliestMs = bStart;
+            earliestName = 'break';
+          }
+        });
+      }
+
+      if (earliestMs !== Infinity && newStart.getTime() > earliestMs) {
+        return `Shift Clock In cannot be set later than first ${earliestName} (${formatClockTime(earliestMs)})`;
+      }
+    }
+
+    if (editingSegment.type === 'shift_end') {
+      let latestMs = 0;
+      let latestName = '';
+      if (sessionJobs) {
+        sessionJobs.forEach((j: any) => {
+          const jEnd = j.end ? getMs(j.end) : Date.now();
+          if (jEnd > latestMs) {
+            latestMs = jEnd;
+            latestName = j.taskName || j.name || 'task';
+          }
+        });
+      }
+      if (sessionBreaks) {
+        sessionBreaks.forEach((b: any) => {
+          const bEnd = b.end ? getMs(b.end) : Date.now();
+          if (bEnd > latestMs) {
+            latestMs = bEnd;
+            latestName = 'break';
+          }
+        });
+      }
+
+      if (latestMs !== 0 && newStart.getTime() < latestMs) {
+        return `Shift Clock Out cannot be set earlier than last ${latestName} end (${formatClockTime(latestMs)})`;
+      }
+    }
+
+    if (editingSegment.type === 'labor' || editingSegment.type === 'break') {
+      const origStartMs = editingSegment.start;
+
+      // Check against Shift Clock In
+      if (sessionClockIn) {
+        const shiftStartMs = getMs(sessionClockIn);
+        if (newStart.getTime() < shiftStartMs) {
+          return `Start time cannot be set earlier than Shift Clock In (${formatClockTime(shiftStartMs)})`;
+        }
+      }
+
+      // Check against Shift Clock Out
+      if (sessionClockOut) {
+        const shiftEndMs = getMs(sessionClockOut);
+        if (newEnd.getTime() > shiftEndMs) {
+          return `Stop time cannot extend past Shift Clock Out (${formatClockTime(shiftEndMs)})`;
+        }
+      }
+
+      // Check next activity start time
+      let nextActivity: any = null;
+      let nextActivityStartMs = Infinity;
+
+      if (sessionJobs) {
+        sessionJobs.forEach((j: any, idx: number) => {
+          if (editingSegment.type === 'labor' && idx === editingSegment.jobIndex) return;
+          const jStartMs = getMs(j.start);
+          if (jStartMs >= origStartMs && jStartMs < nextActivityStartMs) {
+            nextActivityStartMs = jStartMs;
+            nextActivity = { name: j.taskName || j.name || 'task', start: jStartMs };
+          }
+        });
+      }
+
+      if (sessionBreaks) {
+        sessionBreaks.forEach((b: any, idx: number) => {
+          if (editingSegment.type === 'break' && idx === editingSegment.breakIndex) return;
+          const bStartMs = getMs(b.start);
+          if (bStartMs >= origStartMs && bStartMs < nextActivityStartMs) {
+            nextActivityStartMs = bStartMs;
+            nextActivity = { name: 'break', start: bStartMs };
+          }
+        });
+      }
+
+      if (newEnd.getTime() > nextActivityStartMs) {
+        return `Stop time cannot extend past ${nextActivity?.name || 'next activity'} start (${formatClockTime(nextActivityStartMs)})`;
+      }
+
+      // Check previous activity end time
+      let prevActivity: any = null;
+      let prevActivityEndMs = 0;
+
+      if (sessionJobs) {
+        sessionJobs.forEach((j: any, idx: number) => {
+          if (editingSegment.type === 'labor' && idx === editingSegment.jobIndex) return;
+          const jStartMs = getMs(j.start);
+          const jEndMs = j.end ? getMs(j.end) : Date.now();
+          if (jStartMs < origStartMs && jEndMs > prevActivityEndMs) {
+            prevActivityEndMs = jEndMs;
+            prevActivity = { name: j.taskName || j.name || 'task', end: jEndMs };
+          }
+        });
+      }
+
+      if (sessionBreaks) {
+        sessionBreaks.forEach((b: any, idx: number) => {
+          if (editingSegment.type === 'break' && idx === editingSegment.breakIndex) return;
+          const bStartMs = getMs(b.start);
+          const bEndMs = b.end ? getMs(b.end) : Date.now();
+          if (bStartMs < origStartMs && bEndMs > prevActivityEndMs) {
+            prevActivityEndMs = bEndMs;
+            prevActivity = { name: 'break', end: bEndMs };
+          }
+        });
+      }
+
+      if (newStart.getTime() < prevActivityEndMs) {
+        return `Start time cannot be set earlier than ${prevActivity?.name || 'previous activity'} end (${formatClockTime(prevActivityEndMs)})`;
+      }
+    }
+
+    return null;
+  }, [timeIn, timeOut, editingSegment, sessionJobs, sessionBreaks]);
+
+  const handleSave = async () => {
+    if (liveValidationWarning) return;
+    setIsSaving(true);
+    try {
+      await onSave(timeIn, timeOut, note);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div 
@@ -2149,13 +2872,15 @@ function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }
         <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-indigo-500/10 rounded-xl">
-              <Wrench className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />
+              <Clock className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Edit Labor Segment</h3>
-              <p className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-widest mt-0.5">
-                {editingLabor.taskName || 'GENERAL LABOR'}
-              </p>
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Edit {editingSegment.title}</h3>
+              {editingSegment.subTitle && (
+                <p className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-widest mt-0.5">
+                  {editingSegment.subTitle}
+                </p>
+              )}
             </div>
           </div>
           <button 
@@ -2170,7 +2895,7 @@ function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }
         <div className="p-5 flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Time In</label>
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Start Time</label>
               <input
                 type="time"
                 value={timeIn}
@@ -2179,24 +2904,35 @@ function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }
               />
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Time Out</label>
-              <input
-                type="time"
-                value={timeOut}
-                onChange={(e) => setTimeOut(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
+            {editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end' && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Stop Time</label>
+                <input
+                  type="time"
+                  value={timeOut}
+                  onChange={(e) => setTimeOut(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            )}
           </div>
 
+          {/* Live Validation Warning Notice */}
+          {liveValidationWarning && (
+            <div className="text-[11px] font-bold text-rose-500 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-xl flex items-center gap-2 animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{liveValidationWarning}</span>
+            </div>
+          )}
+
+          {/* Custom Note */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-550 uppercase tracking-wider">Custom Note</label>
+            <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-wider">Notes / Reason for Edit</label>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="e.g. Spent additional time diagnosing speaker wiring harness issue"
-              rows={3}
+              placeholder="e.g. Forgot to clock into task, or adjusted start time per work order"
+              rows={2}
               className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
             />
           </div>
@@ -2204,31 +2940,195 @@ function LaborSegmentEditModalInline({ editingLabor, onClose, onSave, onDelete }
 
         {/* Footer */}
         <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-between gap-2.5">
-          <button
-            onClick={() => {
-              if (confirm("Are you sure you want to delete this segment completely?")) {
-                onDelete();
-              }
-            }}
-            className="px-4 py-2 hover:bg-rose-50 dark:hover:bg-rose-955/20 text-rose-500 rounded-xl text-xs font-black uppercase tracking-wider border border-rose-200 dark:border-rose-900 transition-colors"
-          >
-            Delete
-          </button>
+          {onDelete ? (
+            <button
+              onClick={() => {
+                if (confirm("Are you sure you want to delete this segment?")) {
+                  onDelete();
+                }
+              }}
+              className="px-3.5 py-2 hover:bg-rose-50 dark:hover:bg-rose-955/20 text-rose-500 rounded-xl text-xs font-black uppercase tracking-wider border border-rose-200 dark:border-rose-900 transition-colors"
+            >
+              Delete
+            </button>
+          ) : <div />}
           
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors"
+              disabled={isSaving}
+              className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50"
             >
               Cancel
             </button>
             <button
-              onClick={() => onSave(timeIn, timeOut, note)}
-              className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
+              onClick={handleSave}
+              disabled={isSaving || !!liveValidationWarning}
+              className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
-              Save Changes
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Submitting...</span>
+                </>
+              ) : (
+                <span>Submit For Verification</span>
+              )}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface AddMissingShiftModalProps {
+  onClose: () => void;
+  onSave: (dateStr: string, timeIn: string, timeOut: string, note: string) => Promise<void>;
+}
+
+function AddMissingShiftModalInline({ onClose, onSave }: AddMissingShiftModalProps) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [dateStr, setDateStr] = useState(todayStr);
+  const [timeIn, setTimeIn] = useState('08:00');
+  const [timeOut, setTimeOut] = useState('17:00');
+  const [note, setNote] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const liveWarning = useMemo(() => {
+    if (!dateStr || !timeIn || !timeOut) return null;
+    const targetDate = new Date(dateStr + 'T00:00:00');
+    const start = parseLocalTimeInput(timeIn, targetDate.getTime());
+    const end = parseLocalTimeInput(timeOut, targetDate.getTime());
+
+    if (start.getTime() >= end.getTime()) {
+      return "Clock Out time must be after Clock In time";
+    }
+
+    if (start.getTime() > Date.now() + 60000) {
+      return "Clock In time cannot be set in the future";
+    }
+
+    return null;
+  }, [dateStr, timeIn, timeOut]);
+
+  const handleSave = async () => {
+    if (liveWarning) return;
+    setIsSaving(true);
+    try {
+      await onSave(dateStr, timeIn, timeOut, note);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-zinc-955/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200 flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-emerald-500/10 rounded-xl">
+              <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-white">Add Missing Shift</h3>
+              <p className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-widest mt-0.5">
+                Log Forgotten Shift Entry
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-450 dark:text-zinc-500 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Shift Date</label>
+            <input
+              type="date"
+              value={dateStr}
+              max={todayStr}
+              onChange={(e) => setDateStr(e.target.value)}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Clock In Time</label>
+              <input
+                type="time"
+                value={timeIn}
+                onChange={(e) => setTimeIn(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Clock Out Time</label>
+              <input
+                type="time"
+                value={timeOut}
+                onChange={(e) => setTimeOut(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+
+          {liveWarning && (
+            <div className="text-[11px] font-bold text-rose-500 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-xl flex items-center gap-2 animate-in fade-in duration-200">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{liveWarning}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-555 uppercase tracking-wider">Reason / Notes</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Forgot to clock in on PC yesterday"
+              rows={2}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 resize-none"
+            />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-end gap-2.5">
+          <button
+            onClick={onClose}
+            disabled={isSaving}
+            className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving || !!liveWarning}
+            className="px-4 py-2 bg-emerald-650 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <span>Submit Missing Shift</span>
+            )}
+          </button>
         </div>
       </div>
     </div>

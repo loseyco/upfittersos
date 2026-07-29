@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   Trash2, Keyboard, Search, Loader2,
   Cloud, AlertCircle, ChevronDown,
-  Printer, ExternalLink, Maximize2, Minimize2, Plus
+  Printer, ExternalLink, Maximize2, Minimize2, Plus, RefreshCw
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { 
@@ -56,13 +56,35 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [loadAllHistory, setLoadAllHistory] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(true);
+  const [showNewQbOnly, setShowNewQbOnly] = useState(false);
+  const [zones, setZones] = useState<any[]>([]);
+
+  const checkIsNewUnassignedQb = (job: any) => {
+    const isQbSynced = job.isNewQbSync === true || (job.tags && job.tags.includes('QuickBooks')) || job.source === 'QuickBooks';
+    if (!isQbSynced) return false;
+    const isActiveWorkflow = job.status !== 'Completed' && job.status !== 'Closed';
+    if (!isActiveWorkflow) return false;
+    const activeZone = zones.find(z => z.currentJobId === job.id) || zones.find(z => z.id === job.bayId);
+    if (activeZone) return false;
+
+    if (job.isNewQbSync === true) return true;
+    const now = Date.now();
+    const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+    const timeVal = job.createdAt || job.updatedAt;
+    const jobDate = timeVal ? (timeVal.toDate ? timeVal.toDate() : new Date(timeVal)) : null;
+    const isRecent = jobDate && !isNaN(jobDate.getTime()) ? (now - jobDate.getTime() <= fourteenDaysMs) : true;
+    return isRecent;
+  };
+
+  const newQbCount = useMemo(() => {
+    return jobs.filter(checkIsNewUnassignedQb).length;
+  }, [jobs, zones]);
   const showArchived = false;
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [printingJob, setPrintingJob] = useState<Job | null>(null);
   const [businessLogo, setBusinessLogo] = useState<string>('');
   const [businessName, setBusinessName] = useState<string>('');
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
-  const [zones, setZones] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
@@ -392,8 +414,10 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         if (!fields.some(f => f.includes(queryStr))) return false;
       }
 
-      // Only in Bay/Spot filter
-      if (onlyInBayOrSpot) {
+      // New QB Synced vs Only in Bay/Spot filter
+      if (showNewQbOnly) {
+        if (!checkIsNewUnassignedQb(member)) return false;
+      } else if (onlyInBayOrSpot) {
         const activeZone = zones.find(z => z.currentJobId === member.id) || zones.find(z => z.id === member.bayId);
         if (!activeZone) return false;
       }
@@ -520,7 +544,9 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     if (searchQuery.trim()) {
       list.push(`search "${searchQuery}"`);
     }
-    if (onlyInBayOrSpot) {
+    if (showNewQbOnly) {
+      list.push('new QB synced');
+    } else if (onlyInBayOrSpot) {
       list.push('in bay/spot only');
     }
     if (colFilters.status && colFilters.status.length > 0) {
@@ -1273,10 +1299,31 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                 {showCompleted ? "Completed/Closed: Shown" : "Completed/Closed: Hidden"}
               </button>
               <button
-                onClick={() => setOnlyInBayOrSpot(!onlyInBayOrSpot)}
+                onClick={() => setShowNewQbOnly(!showNewQbOnly)}
+                className={cn(
+                  "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0 flex items-center gap-1.5",
+                  showNewQbOnly 
+                    ? "bg-emerald-500/20 border-emerald-500 text-emerald-400 shadow-md shadow-emerald-500/10" 
+                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
+                )}
+                title="Show unassigned jobs newly synced from QuickBooks"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>New QB Synced</span>
+                {newQbCount > 0 && (
+                  <span className="px-1.5 py-0.5 bg-emerald-500 text-white text-[10px] font-black rounded-full">
+                    {newQbCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setOnlyInBayOrSpot(!onlyInBayOrSpot);
+                  if (showNewQbOnly) setShowNewQbOnly(false);
+                }}
                 className={cn(
                   "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0",
-                  onlyInBayOrSpot 
+                  onlyInBayOrSpot && !showNewQbOnly
                     ? "bg-blue-500/10 border-blue-500 text-blue-400" 
                     : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
                 )}

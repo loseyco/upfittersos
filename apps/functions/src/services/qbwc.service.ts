@@ -327,9 +327,7 @@ export class QbwcService {
                     };
 
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_jobs').doc(cust.ListID);
-                    const prodRef = db.collection('businesses').doc(this.tenantId).collection('jobs').doc(cust.ListID);
                     safeBatchSet(ref, jobData, { merge: true });
-                    safeBatchSet(prodRef, jobData, { merge: true });
                 } else {
                     const ref = db.collection('businesses').doc(this.tenantId).collection('qb_customers').doc(cust.ListID);
                     const prodRef = db.collection('businesses').doc(this.tenantId).collection('customers').doc(cust.ListID);

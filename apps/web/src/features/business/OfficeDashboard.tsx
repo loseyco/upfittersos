@@ -134,7 +134,7 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
 
   // 1. Jobs Flagged as Ready for QC
   const readyForQcJobs = jobs.filter(job => 
-    job.status === 'Ready for QC'
+    ['ready for qc', 'qc', 'ready_for_qc'].includes((job.status || '').toLowerCase().trim())
   ).filter(job => {
     const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
     return matchesSearch(job, vehicle);

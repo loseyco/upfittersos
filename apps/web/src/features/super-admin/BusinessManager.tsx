@@ -5,7 +5,7 @@ import { db } from '../../lib/firebase/config';
 import { submitAuditLog } from '../../lib/logging/audit';
 import { useAuthStore } from '../../lib/auth/store';
 import { TopNav } from '../../components/layout/TopNav';
-import { Plus, Building2, ExternalLink, AlertCircle, Activity, ChevronDown, ChevronUp, Eye, MapPin, Map, Loader2 } from 'lucide-react';
+import { Plus, Building2, ExternalLink, AlertCircle, Activity, ChevronDown, ChevronUp, Eye, MapPin, Map, Loader2, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { usePageTitle } from '../../lib/hooks/usePageTitle';
 import { toast } from 'sonner';
@@ -416,16 +416,49 @@ export function BusinessManager() {
             <h1 className="text-3xl font-bold text-zinc-900 dark:text-white tracking-tight">Platform Hub</h1>
             <p className="text-zinc-500 dark:text-zinc-400 mt-1">Manage global tenant instances and monitor activity.</p>
           </div>
-          <button
-            onClick={() => navigate('/super-admin/feedback')}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-lg font-medium transition-colors border border-indigo-600/20"
-          >
-            View Feedback Reports
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (businesses && businesses.length > 0) {
+                  navigate(`/business/${businesses[0].id}/permission_matrix`);
+                } else {
+                  navigate('/super-admin/permissions');
+                }
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Permission Matrix</span>
+            </button>
+            <button
+              onClick={() => navigate('/super-admin/feedback')}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-bold transition-colors border border-indigo-600/20 cursor-pointer"
+            >
+              View Feedback Reports
+            </button>
+          </div>
         </div>
 
         {/* Platform Stats Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div 
+            onClick={() => {
+              if (businesses && businesses.length > 0) {
+                navigate(`/business/${businesses[0].id}/permission_matrix`);
+              } else {
+                navigate('/super-admin/permissions');
+              }
+            }}
+            className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between cursor-pointer hover:border-indigo-500/50 transition-colors"
+          >
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-zinc-500 dark:text-zinc-400">Permission Matrix</p>
+              <p className="text-lg font-black text-indigo-650 dark:text-indigo-400 mt-1">Audit & Toggle</p>
+            </div>
+            <div className="w-12 h-12 bg-indigo-500/10 rounded-xl flex items-center justify-center text-indigo-500">
+              <ShieldCheck size={24} />
+            </div>
+          </div>
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">Total Tenants</p>

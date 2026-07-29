@@ -6,21 +6,8 @@ import { resolvePermissions, type PermissionSet } from '../../lib/auth/permissio
 import { 
   Search, 
   ExternalLink, 
-  Building2, 
-  Users, 
-  Compass, 
-  ArrowRight
+  FileSpreadsheet
 } from 'lucide-react';
-
-const HUB_NAMES: Record<string, string> = {
-  dashboard: '🏠 Dashboard',
-  office: '🏢 Main Office',
-  upfitters: '📋 Upfitters',
-  parts: '📦 Parts Dept',
-  facility: '🗺️ Facility',
-  settings: '⚙️ Admin & Sync',
-  development: '💻 In Development'
-};
 
 interface Department {
   id: string;
@@ -54,6 +41,16 @@ interface PageCatalogItem {
   altAccessPaths: string[];
   description: string;
 }
+
+const HUB_NAMES: Record<string, string> = {
+  dashboard: '🏠 Dashboard',
+  office: '🏢 Main Office',
+  upfitters: '📋 Upfitters',
+  parts: '📦 Parts Dept',
+  facility: '🗺️ Facility',
+  settings: '⚙️ Admin & Sync',
+  development: '💻 In Development'
+};
 
 const MASTER_APP_PAGES: PageCatalogItem[] = [
   // Dashboard Pages
@@ -144,8 +141,17 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
     hub: 'office',
     permission: 'staff.view',
     route: 'staff',
-    altAccessPaths: ['Admin & Sync Sidebar Submenu', 'Org Chart Member Click', 'Global Search (Ctrl+K)'],
+    altAccessPaths: ['Admin & Sync Submenu', 'Org Chart Member Click', 'Global Search (Ctrl+K)'],
     description: 'Staff directory for searching employees, viewing profile cards, managing permissions, and setting up accounts.'
+  },
+  {
+    id: 'permission_matrix',
+    title: 'Superadmin Permission Matrix',
+    hub: 'office',
+    permission: 'staff.manage',
+    route: 'permission_matrix',
+    altAccessPaths: ['Main Office Submenu', 'Staff Manager Header'],
+    description: 'Superadmin audit portal for reviewing, auditing, and toggling granular permissions across all staff members in real time.'
   },
 
   // Upfitters Pages
@@ -307,6 +313,16 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
 
   // In Development Pages
   {
+    id: 'page_catalog',
+    title: 'App Pages & Access Directory',
+    hub: 'development',
+    groupLabel: 'Analytics & Telemetry',
+    permission: 'development.view',
+    route: 'page_catalog',
+    altAccessPaths: ['In Development Submenu', 'Staff Site Map Inspector link'],
+    description: 'Master Excel-style catalog of all pages, detailing menu placement, alternative routes, allowed departments, and authorized staff.'
+  },
+  {
     id: 'page_analytics',
     title: 'Page Views & Usage Analytics',
     hub: 'development',
@@ -333,7 +349,7 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
     groupLabel: 'Tools & Utilities',
     permission: 'staff.view',
     route: 'staff_sitemap',
-    altAccessPaths: ['In Development Submenu', 'App Pages & Access Directory link'],
+    altAccessPaths: ['In Development Submenu', 'App Pages Directory link'],
     description: 'Live Firestore permission inspector showing exact page availability and click paths for every staff member.'
   },
   {
@@ -404,9 +420,9 @@ export function AppPageDirectory({ tenantId }: { tenantId: string }) {
         const indPerms = staff.individualPermissions || {};
 
         const resolvedPerms = resolvePermissions(deptPerms, indPerms);
+        const resolvedMap = resolvedPerms as Record<string, boolean | undefined>;
 
         let canAccess = false;
-        const resolvedMap = resolvedPerms as Record<string, boolean | undefined>;
         if (isSuper) {
           canAccess = true;
         } else if (!page.permission && !page.permissions) {
@@ -469,67 +485,79 @@ export function AppPageDirectory({ tenantId }: { tenantId: string }) {
   }, [pageAccessMatrix, searchQuery, selectedHub, selectedDeptId]);
 
   return (
-    <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6 font-sans text-zinc-100 select-none">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-2 flex items-center gap-3">
-            App Pages & Access Directory <span className="text-indigo-400 font-normal">/ Master Sitemap</span>
-          </h1>
-          <p className="text-zinc-400 text-xs sm:text-sm">
-            Centralized directory of all pages in UpfittersOS, detailing menu locations, alternative access routes, allowed departments, and authorized staff.
-          </p>
+    <div className="p-4 sm:p-6 max-w-[1700px] mx-auto space-y-4 font-sans text-zinc-100 select-none">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-zinc-900 border border-zinc-800 p-5 rounded-2xl shadow-xl">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+            <FileSpreadsheet className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black text-white tracking-tight flex items-center gap-2">
+              App Pages & Access Directory <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold uppercase tracking-wider">Spreadsheet V3</span>
+            </h1>
+            <p className="text-zinc-400 text-xs mt-0.5">
+              Excel-style master catalog detailing page placement, alternative access paths, allowed departments, and authorized staff.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4 bg-zinc-950 p-4 rounded-2xl border border-zinc-800/80">
-          <div className="text-center px-4 border-r border-zinc-800">
-            <div className="text-2xl font-black text-white">{MASTER_APP_PAGES.length}</div>
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-extrabold">Total App Pages</div>
+        <div className="flex items-center gap-4 bg-zinc-950 px-4 py-2.5 rounded-xl border border-zinc-800 shrink-0">
+          <div className="text-center px-3 border-r border-zinc-800">
+            <div className="text-lg font-black text-white">{filteredPages.length}</div>
+            <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-extrabold">Matching Pages</div>
           </div>
-          <div className="text-center px-4">
-            <div className="text-2xl font-black text-indigo-400">{staffMembers.length}</div>
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-extrabold">Active Staff</div>
+          <div className="text-center px-3">
+            <div className="text-lg font-black text-indigo-400">{staffMembers.length}</div>
+            <div className="text-[9px] text-zinc-500 uppercase tracking-wider font-extrabold">Active Staff</div>
           </div>
         </div>
       </div>
 
-      {/* Controls Bar */}
-      <div className="flex flex-col lg:flex-row gap-3 bg-zinc-900/90 p-3 rounded-2xl border border-zinc-800 sticky top-4 z-20 backdrop-blur-xl shadow-xl">
+      {/* Spreadsheet Toolbar */}
+      <div className="flex flex-col lg:flex-row gap-3 bg-zinc-900/90 p-2.5 rounded-xl border border-zinc-800 sticky top-4 z-20 backdrop-blur-xl shadow-xl">
         <div className="relative flex-1 group">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" size={16} />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" size={15} />
           <input
             type="text"
-            placeholder="Search page name, description, staff name, or navigation path..."
+            placeholder="Filter pages, routes, staff names, or entry paths..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-11 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-all"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-10 pr-4 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-all font-mono"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Hub Filter */}
-          <select
-            value={selectedHub}
-            onChange={(e) => setSelectedHub(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
-          >
-            <option value="ALL">All Hubs (7 Main Hubs)</option>
-            <option value="dashboard">🏠 Dashboard</option>
-            <option value="office">🏢 Main Office</option>
-            <option value="upfitters">📋 Upfitters</option>
-            <option value="parts">📦 Parts Dept</option>
-            <option value="facility">🗺️ Facility</option>
-            <option value="settings">⚙️ Admin & Sync</option>
-            <option value="development">💻 In Development</option>
-          </select>
+          {/* Hub Filter Tabs */}
+          <div className="flex bg-zinc-950 p-1 rounded-lg border border-zinc-800 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setSelectedHub('ALL')}
+              className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+                selectedHub === 'ALL' ? 'bg-indigo-600 text-white shadow' : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              All Hubs
+            </button>
+            {Object.entries(HUB_NAMES).map(([hId, name]) => (
+              <button
+                key={hId}
+                onClick={() => setSelectedHub(hId)}
+                className={`px-3 py-1 rounded-md text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+                  selectedHub === hId ? 'bg-indigo-600 text-white shadow' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
 
-          {/* Department Filter */}
+          {/* Department Dropdown */}
           <select
             value={selectedDeptId}
             onChange={(e) => setSelectedDeptId(e.target.value)}
-            className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
+            className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
-            <option value="ALL">All Departments ({departments.length})</option>
+            <option value="ALL">All Depts ({departments.length})</option>
             {departments.map(d => (
               <option key={d.id} value={d.id}>{d.name}</option>
             ))}
@@ -537,116 +565,131 @@ export function AppPageDirectory({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      {/* Pages Grid */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {filteredPages.map((page) => {
-          const targetUrl = `/business/${tenantId}/${page.route}`;
+      {/* Excel Data Grid Table */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-zinc-950 border-b border-zinc-800 text-[10px] font-black text-zinc-400 uppercase tracking-wider select-none">
+                <th className="py-3 px-3 w-12 text-center border-r border-zinc-800/60">#</th>
+                <th className="py-3 px-4 min-w-[240px] border-r border-zinc-800/60">Page Title & Route</th>
+                <th className="py-3 px-4 min-w-[180px] border-r border-zinc-800/60">Primary Menu Location</th>
+                <th className="py-3 px-4 min-w-[260px] border-r border-zinc-800/60">How Else You Can Get There (Alternative Access)</th>
+                <th className="py-3 px-4 min-w-[180px] border-r border-zinc-800/60">Allowed Departments</th>
+                <th className="py-3 px-4 min-w-[220px] border-r border-zinc-800/60">Authorized Staff Members</th>
+                <th className="py-3 px-3 w-28 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/60 font-sans">
+              {filteredPages.map((page, idx) => {
+                const targetUrl = `/business/${tenantId}/${page.route}`;
 
-          return (
-            <div 
-              key={page.id}
-              className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 flex flex-col justify-between space-y-5 shadow-xl transition-all hover:border-indigo-500/40"
-            >
-              <div className="space-y-4">
-                {/* Header & Launch Button */}
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="px-2.5 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-black uppercase tracking-wider">
-                        {HUB_NAMES[page.hub] || page.hub}
-                      </span>
-                      {page.groupLabel && (
-                        <span className="px-2 py-0.5 rounded-lg bg-zinc-950 text-zinc-400 border border-zinc-800 text-[9px] font-bold font-mono">
-                          {page.groupLabel}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-lg font-black text-white">{page.title}</h3>
-                  </div>
-
-                  <a
-                    href={targetUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl transition shadow flex items-center gap-1.5 shrink-0 cursor-pointer"
+                return (
+                  <tr 
+                    key={page.id}
+                    className="hover:bg-zinc-800/40 transition-colors group"
                   >
-                    🚀 Open Page <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
+                    {/* Index */}
+                    <td className="py-3 px-3 text-center font-mono text-[11px] text-zinc-500 border-r border-zinc-800/60 bg-zinc-950/30">
+                      {idx + 1}
+                    </td>
 
-                <p className="text-xs text-zinc-300 leading-relaxed font-medium">
-                  {page.description}
-                </p>
+                    {/* Page Title & Route */}
+                    <td className="py-3 px-4 border-r border-zinc-800/60">
+                      <div className="space-y-1">
+                        <div className="font-black text-white text-xs flex items-center gap-2">
+                          <span>{page.title}</span>
+                        </div>
+                        <div className="text-[10px] font-mono text-indigo-400 tracking-tight">
+                          /{page.route}
+                        </div>
+                        <p className="text-[10px] text-zinc-400 leading-tight line-clamp-1 group-hover:line-clamp-none transition-all font-normal">
+                          {page.description}
+                        </p>
+                      </div>
+                    </td>
 
-                {/* Direct Menu Location */}
-                <div className="p-3 bg-zinc-950 rounded-2xl border border-zinc-800/80 space-y-1">
-                  <div className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Compass className="w-3.5 h-3.5 text-indigo-400" /> Primary Sidebar Menu Location
-                  </div>
-                  <div className="text-xs font-mono font-bold text-indigo-300">
-                    {HUB_NAMES[page.hub] || page.hub} {page.groupLabel ? `➜ [${page.groupLabel}]` : ''} ➜ {page.title}
-                  </div>
-                  <div className="text-[10px] text-zinc-500 font-mono">URL Route: {targetUrl}</div>
-                </div>
+                    {/* Primary Menu Location */}
+                    <td className="py-3 px-4 border-r border-zinc-800/60">
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 text-[11px] font-extrabold">
+                          {HUB_NAMES[page.hub] || page.hub}
+                        </span>
+                        {page.groupLabel && (
+                          <div className="text-[10px] text-zinc-400 font-mono">
+                            ↳ [{page.groupLabel}]
+                          </div>
+                        )}
+                      </div>
+                    </td>
 
-                {/* Alternative Access Routes */}
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <ArrowRight className="w-3.5 h-3.5 text-amber-400" /> How Else You Can Get There (Alternative Access)
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {page.altAccessPaths.map((path, idx) => (
-                      <span key={idx} className="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-semibold">
-                        {path}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+                    {/* Alternative Access Routes */}
+                    <td className="py-3 px-4 border-r border-zinc-800/60">
+                      <div className="flex flex-wrap gap-1">
+                        {page.altAccessPaths.map((path, pIdx) => (
+                          <span 
+                            key={pIdx}
+                            className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] font-medium"
+                          >
+                            {path}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
 
-              {/* Department & Staff Access */}
-              <div className="pt-4 border-t border-zinc-800/80 space-y-3">
-                {/* Allowed Departments */}
-                <div className="space-y-1">
-                  <div className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-emerald-400" /> Allowed Departments ({page.allowedDepts.length})
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {page.allowedDepts.map(d => (
-                      <span key={d.id} className="px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
-                        {d.name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                    {/* Allowed Departments */}
+                    <td className="py-3 px-4 border-r border-zinc-800/60">
+                      <div className="flex flex-wrap gap-1">
+                        {page.allowedDepts.map(d => (
+                          <span key={d.id} className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-bold">
+                            {d.name}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
 
-                {/* Authorized Staff Members */}
-                <div className="space-y-1.5">
-                  <div className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-indigo-400" /> Authorized Real Staff ({page.authorizedStaff.length})
-                    </span>
-                    <span className="text-zinc-500 font-mono text-[9px]">
-                      {Math.round((page.authorizedStaff.length / Math.max(1, staffMembers.length)) * 100)}% of team
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto no-scrollbar">
-                    {page.authorizedStaff.map(s => (
-                      <span key={s.id} className="px-2 py-0.5 rounded-lg bg-zinc-950 border border-zinc-800 text-zinc-300 text-[10px] font-medium flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                        {s.name} {s.isSuper && <span className="text-[8px] text-rose-400 font-bold">(Super)</span>}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                    {/* Authorized Staff Members */}
+                    <td className="py-3 px-4 border-r border-zinc-800/60">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1">
+                          <span className="font-bold text-white">{page.authorizedStaff.length} Staff Authorized</span>
+                          <span>{Math.round((page.authorizedStaff.length / Math.max(1, staffMembers.length)) * 100)}%</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto no-scrollbar">
+                          {page.authorizedStaff.map(s => (
+                            <span 
+                              key={s.id}
+                              className="px-1.5 py-0.5 rounded bg-zinc-950 border border-zinc-800 text-zinc-300 text-[9px] font-mono truncate max-w-[130px]"
+                              title={`${s.name} (${s.email})`}
+                            >
+                              {s.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Launch Action */}
+                    <td className="py-3 px-3 text-center">
+                      <a
+                        href={targetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-lg transition shadow cursor-pointer shrink-0"
+                      >
+                        Launch <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
         {filteredPages.length === 0 && (
-          <div className="col-span-full py-16 text-center border-2 border-dashed border-zinc-800 rounded-3xl text-zinc-500 text-xs">
-            No pages found matching your search query.
+          <div className="py-16 text-center border-t border-zinc-800 text-zinc-500 text-xs">
+            No matching pages found in catalog.
           </div>
         )}
       </div>

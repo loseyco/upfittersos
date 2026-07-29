@@ -201,9 +201,38 @@ exports.onQbJobWrite = functions.firestore
             jobDestRef.collection('tasks').limit(1).get()
         ]);
         if (existingDoc.exists) {
-            const existingData = existingDoc.data();
-            wasAttention = (existingData === null || existingData === void 0 ? void 0 : existingData.needsAttention) === true;
-            currentStatus = (existingData === null || existingData === void 0 ? void 0 : existingData.status) || currentStatus;
+            const existingData = existingDoc.data() || {};
+            wasAttention = existingData.needsAttention === true;
+            // NON-DESTRUCTIVE MERGE SYSTEM: Preserve active work done on existing job in bay
+            if (existingData.status) {
+                jobMappedData.status = existingData.status;
+            }
+            currentStatus = jobMappedData.status;
+            if (existingData.vehicleId) {
+                jobMappedData.vehicleId = existingData.vehicleId;
+            }
+            if (existingData.bayId) {
+                jobMappedData.bayId = existingData.bayId;
+            }
+            if (existingData.notes && existingData.notes !== 'Imported via QBWC.') {
+                jobMappedData.notes = existingData.notes;
+            }
+            if (existingData.priority) {
+                jobMappedData.priority = existingData.priority;
+            }
+            if (existingData.expectedFinishTime) {
+                jobMappedData.expectedFinishTime = existingData.expectedFinishTime;
+            }
+            if (existingData.companyCamProjectId || existingData.companyCamId) {
+                jobMappedData.companyCamId = existingData.companyCamId || existingData.companyCamProjectId;
+            }
+            jobMappedData.isNewQbSync = false;
+            jobMappedData.lastQbSyncedAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+        else {
+            // BRAND NEW SYNC: Flag as new QB job needing initial bay/staff assignment
+            jobMappedData.isNewQbSync = true;
+            jobMappedData.lastQbSyncedAt = admin.firestore.FieldValue.serverTimestamp();
         }
         hasTasks = !tasksSnap.empty;
     }

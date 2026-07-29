@@ -59,7 +59,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const { user, permissions = {}, isSuperAdmin } = useAuthStore();
   const isAdmin = isSuperAdmin || !!permissions['timeclock.manage'];
   const isOwnSession = session.userId === user?.uid;
-  const canApprove = (isSuperAdmin || !!permissions['timeclock.approve']) && !isOwnSession;
+  const hasAutoApprovePermission = isSuperAdmin || !!permissions['timeclock.no_review_required'];
+  const canApprove = (hasAutoApprovePermission || !!permissions['timeclock.approve']) && (!isOwnSession || hasAutoApprovePermission);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clockIn, setClockIn] = useState('');

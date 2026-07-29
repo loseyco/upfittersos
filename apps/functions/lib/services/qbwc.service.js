@@ -293,9 +293,7 @@ class QbwcService {
                         }
                         const jobData = Object.assign(Object.assign({}, commonData), { jobName: cust.Name || '', vehicle });
                         const ref = db.collection('businesses').doc(this.tenantId).collection('qb_jobs').doc(cust.ListID);
-                        const prodRef = db.collection('businesses').doc(this.tenantId).collection('jobs').doc(cust.ListID);
                         safeBatchSet(ref, jobData, { merge: true });
-                        safeBatchSet(prodRef, jobData, { merge: true });
                     }
                     else {
                         const ref = db.collection('businesses').doc(this.tenantId).collection('qb_customers').doc(cust.ListID);
