@@ -866,14 +866,14 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
 
     // 1. Shift clock in
-    const inCap = ses.clockIn?.captureMethod || 'device';
-    const inLocLabel = ses.clockIn?.locationOnSite ? 'At Shop' : 'Remote';
-    const inDistSuffix = (!ses.clockIn?.locationOnSite && ses.clockIn?.latitude !== undefined) 
-      ? getDistanceLabel(ses.clockIn.latitude, ses.clockIn.longitude) 
+    const inCap = ses.clockIn?.device || 'device';
+    const inLocLabel = ses.clockIn?.onSite ? 'At Shop' : 'Remote';
+    const inDistSuffix = (!ses.clockIn?.onSite && ses.clockIn?.lat !== undefined) 
+      ? getDistanceLabel(ses.clockIn.lat, ses.clockIn.lng) 
       : '';
-    const inRemoteDetails = !ses.clockIn?.locationOnSite 
-      ? (ses.clockIn?.latitude !== undefined ? `OFFSITE${inDistSuffix}` : "NO GPS DATA (PERMISSIONS DENIED OR ON PC)") 
-      : '';
+    const inRemoteDetails = !ses.clockIn?.onSite 
+      ? (ses.clockIn?.lat !== undefined ? `OFFSITE${inDistSuffix}` : "NO GPS DATA (PERMISSIONS DENIED OR ON PC)") 
+      : (ses.clockIn?.type === 'ip' ? "NO GPS DATA (PERMISSIONS DENIED OR ON PC)" : '');
 
     list.push({
       id: `in-${ses.id}`,
@@ -881,20 +881,20 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       timeStart: sStartMs,
       label: 'SHIFT STARTED',
       subLabel: `CLOCKED IN ${inLocLabel.toUpperCase()} VIA ${inCap.toUpperCase()}`,
-      locationOnSite: ses.clockIn?.locationOnSite,
+      locationOnSite: ses.clockIn?.onSite,
       remoteReason: inRemoteDetails || undefined
     });
 
     // 2. Shift clock out
     if (ses.clockOut?.timestamp) {
-      const outCap = ses.clockOut?.captureMethod || 'device';
-      const outLocLabel = ses.clockOut?.locationOnSite ? 'At Shop' : 'Remote';
-      const outDistSuffix = (!ses.clockOut?.locationOnSite && ses.clockOut?.latitude !== undefined) 
-        ? getDistanceLabel(ses.clockOut.latitude, ses.clockOut.longitude) 
+      const outCap = ses.clockOut?.device || 'device';
+      const outLocLabel = ses.clockOut?.onSite ? 'At Shop' : 'Remote';
+      const outDistSuffix = (!ses.clockOut?.onSite && ses.clockOut?.lat !== undefined) 
+        ? getDistanceLabel(ses.clockOut.lat, ses.clockOut.lng) 
         : '';
-      const outRemoteDetails = !ses.clockOut?.locationOnSite 
-        ? (ses.clockOut?.latitude !== undefined ? `OFFSITE${outDistSuffix}` : "NO GPS DATA (PERMISSIONS DENIED OR ON PC)") 
-        : '';
+      const outRemoteDetails = !ses.clockOut?.onSite 
+        ? (ses.clockOut?.lat !== undefined ? `OFFSITE${outDistSuffix}` : "NO GPS DATA (PERMISSIONS DENIED OR ON PC)") 
+        : (ses.clockOut?.type === 'ip' ? "NO GPS DATA (PERMISSIONS DENIED OR ON PC)" : '');
 
       list.push({
         id: `out-${ses.id}`,
@@ -902,7 +902,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         timeStart: getMs(ses.clockOut.timestamp),
         label: 'SHIFT ENDED',
         subLabel: `CLOCKED OUT ${outLocLabel.toUpperCase()} VIA ${outCap.toUpperCase()}`,
-        locationOnSite: ses.clockOut?.locationOnSite,
+        locationOnSite: ses.clockOut?.onSite,
         remoteReason: outRemoteDetails || undefined
       });
     }
@@ -985,7 +985,18 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         actualName = `${staffMember.firstName || ''} ${staffMember.lastName || ''}`.trim() || actualName;
       }
 
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to clock in. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
       let isRemote = false;
 
@@ -1067,7 +1078,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
             lat: loc.lat,
             lng: loc.lng,
             accuracy: loc.accuracy,
-            onSite
+            onSite,
+            device: isMobile ? 'mobile' : 'pc'
           },
           isRemote,
           status: 'active',
@@ -1105,7 +1117,18 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       const lastJob = jobsListCopy.length > 0 ? jobsListCopy[jobsListCopy.length - 1] : null;
       if (lastJob && !lastJob.end) lastJob.end = new Date();
 
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to clock out. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
 
       let settings: any = null;
@@ -1142,7 +1165,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
           lat: loc.lat,
           lng: loc.lng,
           accuracy: loc.accuracy,
-          onSite
+          onSite,
+          device: isMobile ? 'mobile' : 'pc'
         },
         status: 'completed',
         breaks,
@@ -1186,7 +1210,18 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         };
       }
       
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to start a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
 
       breaks.push({
         type,
@@ -1194,7 +1229,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         isPaid: type === 'lunch' ? false : true,
         suspendedJob,
         startLat: loc.lat,
-        startLng: loc.lng
+        startLng: loc.lng,
+        startDevice: isMobile ? 'mobile' : 'pc'
       });
 
       await updateDoc(sessionRef, {
@@ -1221,6 +1257,19 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     if (!sesId) return;
     setIsClockProcessing(true);
     try {
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to end a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
+
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, sesId);
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.data();
@@ -1230,6 +1279,9 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       const activeBreak = breaks.find(b => !b.end);
       if (activeBreak) {
         activeBreak.end = new Date();
+        activeBreak.endLat = loc.lat;
+        activeBreak.endLng = loc.lng;
+        activeBreak.endDevice = isMobile ? 'mobile' : 'pc';
         
         if (activeBreak.suspendedJob) {
           jobsListCopy.push({
@@ -1241,8 +1293,6 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
           });
         }
       }
-
-      const loc = await getCurrentLocation();
 
       await updateDoc(sessionRef, {
         breaks,

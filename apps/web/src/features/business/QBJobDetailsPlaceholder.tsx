@@ -1552,11 +1552,13 @@ export function QBJobDetailsPlaceholder({ tenantId }: QBJobDetailsPlaceholderPro
     if (!selectedJob || !newTaskTitle.trim()) return;
     setIsAddingTask(true);
     try {
+      const isDiagRepair = newTaskTitle.toLowerCase().trim() === 'labor:diagnose/repair';
+      const defaultHours = isDiagRepair ? 1 : 0;
       await addDoc(collection(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`), {
         title: newTaskTitle.trim(),
         name: newTaskTitle.trim(),
         description: newTaskDesc.trim(),
-        bookTime: newTaskPayBasis === 'hourly' ? 0 : Number(newTaskBookTime) || 0,
+        bookTime: newTaskPayBasis === 'hourly' ? 0 : (Number(newTaskBookTime) || defaultHours),
         payBasis: newTaskPayBasis,
         status: 'Not Started',
         tenantId: tenantId,

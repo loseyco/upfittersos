@@ -40,7 +40,7 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
       // Fetch task details if available
       let bookTime = 0;
       let payBasis = 'book_time';
-      if (taskId) {
+      if (taskId && jobId !== 'unassigned') {
         try {
           const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
           if (taskSnap.exists()) {
@@ -76,9 +76,11 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
       });
 
       // Update lastWorkedAt on the job itself for dashboard sorting
-      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
-        lastWorkedAt: serverTimestamp()
-      });
+      if (jobId !== 'unassigned') {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+          lastWorkedAt: serverTimestamp()
+        });
+      }
 
       // Update staff last location
       const { user } = useAuthStore.getState();

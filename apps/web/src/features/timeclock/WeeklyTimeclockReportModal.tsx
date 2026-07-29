@@ -21,11 +21,19 @@ interface TimeSession {
     timestamp: any;
     location?: string;
     onSite?: boolean;
+    device?: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
   };
   clockOut?: {
     timestamp: any;
     location?: string;
     onSite?: boolean;
+    device?: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
   };
   isRemote?: boolean;
   breaks: Array<{
@@ -1947,9 +1955,24 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                     : 0;
 
                   // Off-task time calculation: total clocked shift time - total time clocked into tasks
-                  const totalTaskClockedMs = Object.values(taskTotalClockedMsMap).reduce((sum, val) => sum + val, 0);
+                  let totalTaskClockedMs = 0;
+                  if (emp.sessions) {
+                    emp.sessions.filter((s: TimeSession) => s.source !== 'QuickBooks').forEach((sess: any) => {
+                      if (sess.jobs) {
+                        sess.jobs.forEach((job: any) => {
+                          const start = job.start?.toDate ? job.start.toDate().getTime() : new Date(job.start).getTime();
+                          const end = job.end ? (job.end.toDate ? job.end.toDate().getTime() : new Date(job.end).getTime()) : Date.now();
+                          const duration = Math.max(0, end - start);
+                          if (duration > 0) {
+                            totalTaskClockedMs += duration;
+                          }
+                        });
+                      }
+                    });
+                  }
                   const idleMs = Math.max(0, emp.totals.totalNativeMs - totalTaskClockedMs);
                   const idleHours = idleMs / 3600000;
+                  const taskClockedHours = totalTaskClockedMs / 3600000;
 
                   const deptName = dept?.name || 'Unassigned';
                   const showDeptDivider = (emp.departmentId || 'unassigned') !== lastDeptId;
@@ -1988,11 +2011,17 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                               Pay Type: <span className="font-bold text-zinc-850 dark:text-zinc-300 uppercase">{emp.payType}</span> | Department: <span className="font-bold text-zinc-855 dark:text-zinc-300 uppercase">{deptName}</span> | Role: Technician
                             </p>
                           </div>
-                      <div className="text-right flex items-center sm:block gap-6">
+                      <div className="text-right flex flex-wrap items-center sm:block gap-y-4 gap-x-6">
                         <div className="inline-block text-left sm:text-right mr-4 align-top">
                           <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Period Clocked</span>
                           <span className="text-sm font-black text-zinc-900 dark:text-white font-mono">
                             {(emp.totals.totalNativeMs / 3600000).toFixed(2)}h
+                          </span>
+                        </div>
+                        <div className="inline-block text-left sm:text-right mr-4 align-top">
+                          <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest block">On Task Time</span>
+                          <span className="text-sm font-black text-emerald-600 dark:text-emerald-450 font-mono">
+                            {taskClockedHours.toFixed(2)}h
                           </span>
                         </div>
                         <div className="inline-block text-left sm:text-right mr-4 align-top">
@@ -2144,7 +2173,7 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                             </span>
                                           )}
                                         </div>
-                                        <div className="flex items-center space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
+                                        <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-4 text-[10px] text-zinc-500 dark:text-zinc-400 font-mono gap-1">
                                           <div>
                                             Clock: <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockInTimeStr}</span> to <span className="font-bold text-zinc-900 dark:text-zinc-100">{clockOutTimeStr}</span>
                                           </div>
@@ -2155,6 +2184,36 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                           )}
                                           <div>
                                             Total: <span className="text-zinc-900 dark:text-zinc-100 font-bold">{formatDurationDecimal(workMs)}h</span>
+                                          </div>
+                                          <div className="flex items-center space-x-2 text-[9px] uppercase font-bold shrink-0">
+                                            {session.clockIn?.device === 'mobile' || (session.clockIn?.lat && session.clockIn?.lng) ? (
+                                              <a 
+                                                href={`https://www.google.com/maps/search/?api=1&query=${session.clockIn.lat},${session.clockIn.lng}`} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="text-indigo-650 dark:text-indigo-400 hover:underline flex items-center gap-0.5 print:no-underline print:text-zinc-900"
+                                                title={`GPS: ${session.clockIn.lat}, ${session.clockIn.lng}`}
+                                              >
+                                                📱 GPS In ({session.clockIn.lat?.toFixed(3)}, {session.clockIn.lng?.toFixed(3)})
+                                              </a>
+                                            ) : (
+                                              <span className="text-zinc-500">💻 PC In</span>
+                                            )}
+                                            {session.clockOut && (
+                                              session.clockOut.device === 'mobile' || (session.clockOut.lat && session.clockOut.lng) ? (
+                                                <a 
+                                                  href={`https://www.google.com/maps/search/?api=1&query=${session.clockOut.lat},${session.clockOut.lng}`} 
+                                                  target="_blank" 
+                                                  rel="noopener noreferrer" 
+                                                  className="text-indigo-650 dark:text-indigo-400 hover:underline flex items-center gap-0.5 print:no-underline print:text-zinc-900"
+                                                  title={`GPS: ${session.clockOut.lat}, ${session.clockOut.lng}`}
+                                                >
+                                                  📱 GPS Out ({session.clockOut.lat?.toFixed(3)}, {session.clockOut.lng?.toFixed(3)})
+                                                </a>
+                                              ) : (
+                                                <span className="text-zinc-500">💻 PC Out</span>
+                                              )
+                                            )}
                                           </div>
                                         </div>
                                       </div>
@@ -2305,24 +2364,35 @@ export function WeeklyTimeclockReportModal({ tenantId, onClose, isInline = false
                                               onClick={(e) => e.stopPropagation()}
                                             />
                                           ) : (
-                                            <div 
-                                              className="flex items-center justify-between gap-1 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 p-1 rounded min-h-[24px]"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                setEditingNote({
-                                                  sessionId: session.id,
-                                                  field: 'segment',
-                                                  segmentIndex: segmentIdx,
-                                                  value: j.notes || ''
-                                                });
-                                              }}
-                                            >
-                                              {j.notes ? (
-                                                <span className="italic text-[10px] text-zinc-700 dark:text-zinc-300 font-medium">{j.notes}</span>
-                                              ) : (
-                                                <span className="text-zinc-300 dark:text-zinc-700 italic group-hover:text-zinc-400">—</span>
+                                            <div className="space-y-1">
+                                              {(taskRef?.description || taskRef?.notes) && (
+                                                <div className="font-medium text-zinc-700 dark:text-zinc-300 italic text-[10px]">
+                                                  Task: {taskRef.description || taskRef.notes}
+                                                </div>
                                               )}
-                                              <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pl-1 print:hidden" />
+                                              <div 
+                                                className="flex items-center justify-between gap-1 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 p-1 rounded min-h-[24px]"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setEditingNote({
+                                                    sessionId: session.id,
+                                                    field: 'segment',
+                                                    segmentIndex: segmentIdx,
+                                                    value: j.notes || ''
+                                                  });
+                                                }}
+                                              >
+                                                {j.notes ? (
+                                                  <span className="italic text-[10px] text-zinc-600 dark:text-zinc-400 font-medium">Tech: {j.notes}</span>
+                                                ) : (
+                                                  !(taskRef?.description || taskRef?.notes) ? (
+                                                    <span className="text-zinc-300 dark:text-zinc-705 italic group-hover:text-zinc-400">—</span>
+                                                  ) : (
+                                                    <span className="text-zinc-300 dark:text-zinc-705 italic group-hover:text-zinc-400 text-[9px] opacity-40">Add note...</span>
+                                                  )
+                                                )}
+                                                <Pencil className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity pl-1 print:hidden" />
+                                              </div>
                                             </div>
                                           )}
                                         </td>

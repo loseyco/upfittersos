@@ -221,6 +221,10 @@ service cloud.firestore {
       allow update: if isTenant(tenantId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['conferenceTvMode', 'conferenceTvModeExpiresAt']);
       
       // V2 AUDIT LOGS (Tenant Scoped)
+      match /page_analytics/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+
       match /audit_logs/{logId} {
         allow create: if isTenant(tenantId);
         allow read: if isTenant(tenantId) && request.auth.token.role == 'admin';

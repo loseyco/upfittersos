@@ -15,6 +15,7 @@ import { WeeklyTimeclockReportModal } from './WeeklyTimeclockReportModal';
 import { TSheetsComparison } from './TSheetsComparison';
 import { TimeclockVerification } from './TimeclockVerification';
 import { StaffLink } from '../business/StaffPerformance';
+import { calculateDistance } from '../../lib/locationService';
 import { toast } from 'sonner';
 
 interface TimeclockAdminProps {
@@ -30,11 +31,21 @@ interface TimeSession {
     timestamp: any;
     location?: string;
     onSite?: boolean;
+    device?: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    type?: 'gps' | 'ip' | null;
   };
   clockOut?: {
     timestamp: any;
     location?: string;
     onSite?: boolean;
+    device?: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    type?: 'gps' | 'ip' | null;
   };
   isRemote?: boolean;
   breaks: Array<{
@@ -281,6 +292,23 @@ const getAnomalyBadgeProps = (type: string) => {
   }
 };
 
+const getDistanceString = (
+  lat: number | undefined, 
+  lng: number | undefined, 
+  settings: any
+): string | null => {
+  if (!lat || !lng || !settings?.siteLat || !settings?.siteLng) return null;
+  const distMeters = calculateDistance(
+    lat, lng,
+    parseFloat(settings.siteLat), parseFloat(settings.siteLng)
+  );
+  const distMiles = distMeters * 0.000621371; // convert to miles
+  if (distMiles < 0.15) {
+    return 'On-site';
+  }
+  return `${distMiles.toFixed(2)} mi from shop`;
+};
+
 export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -291,6 +319,15 @@ export function TimeclockAdmin({ tenantId }: TimeclockAdminProps) {
   const [activeRequestId, setActiveRequestId] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'logs' | 'reconciliation' | 'corrections' | 'activity' | 'tsheets_comparison' | 'verify_sign'>('logs');
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+
+  const { data: businessSettings } = useQuery({
+    queryKey: ['business-settings', tenantId],
+    queryFn: async () => {
+      if (!tenantId) return null;
+      const snap = await getDoc(doc(db, 'businesses', tenantId));
+      return snap.exists() ? snap.data() : null;
+    }
+  });
 
   const { data: activityLogs, isLoading: isLoadingLogs } = useQuery({
     queryKey: ['admin-timeclock-activity-logs', tenantId],
@@ -1025,6 +1062,90 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                                     <MapPin className="w-3 h-3" /> Off-site
                                   </span>
                                 )}
+                                
+                                {/* Clock In Device / Location info */}
+                                {(() => {
+                                  const hasCoords = session.clockIn?.lat && session.clockIn?.lng;
+                                  const isIp = session.clockIn?.type === 'ip';
+                                  const isMobile = session.clockIn?.device === 'mobile';
+                                  const distStr = hasCoords ? getDistanceString(session.clockIn.lat, session.clockIn.lng, businessSettings) : null;
+                                  
+                                  let locationLabel = '';
+                                  let titleTip = `Accuracy: ${session.clockIn?.accuracy?.toFixed(1) || '?'}m`;
+                                  
+                                  if (isIp) {
+                                    locationLabel = isMobile 
+                                      ? "Mobile In (IP Fallback / GPS Denied)"
+                                      : "PC In (IP)";
+                                    titleTip = "Clocked in via IP address location (GPS denied or unavailable)";
+                                  } else if (hasCoords) {
+                                    const distSuffix = distStr ? ` (${distStr})` : '';
+                                    locationLabel = `${isMobile ? 'Mobile' : 'PC'} GPS In${distSuffix}`;
+                                  } else {
+                                    locationLabel = `${isMobile ? 'Mobile' : 'PC'} In`;
+                                  }
+
+                                  if (hasCoords) {
+                                    return (
+                                      <a 
+                                        href={`https://www.google.com/maps/search/?api=1&query=${session.clockIn.lat},${session.clockIn.lng}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="flex items-center gap-1 text-[10px] font-bold text-indigo-500 uppercase hover:underline"
+                                        title={titleTip}
+                                      >
+                                        <MapPin className="w-3 h-3 text-indigo-650" /> {locationLabel}
+                                      </a>
+                                    );
+                                  }
+                                  return (
+                                    <span className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase" title={titleTip}>
+                                      {locationLabel}
+                                    </span>
+                                  );
+                                })()}
+
+                                {/* Clock Out Device / Location info */}
+                                {session.clockOut && (() => {
+                                   const hasCoords = session.clockOut.lat && session.clockOut.lng;
+                                   const isIp = session.clockOut.type === 'ip';
+                                   const isMobile = session.clockOut.device === 'mobile';
+                                   const distStr = hasCoords ? getDistanceString(session.clockOut.lat, session.clockOut.lng, businessSettings) : null;
+                                   
+                                   let locationLabel = '';
+                                   let titleTip = `Accuracy: ${session.clockOut.accuracy?.toFixed(1) || '?'}m`;
+                                   
+                                   if (isIp) {
+                                     locationLabel = isMobile 
+                                       ? "Mobile Out (IP Fallback / GPS Denied)"
+                                       : "PC Out (IP)";
+                                     titleTip = "Clocked out via IP address location (GPS denied or unavailable)";
+                                   } else if (hasCoords) {
+                                     const distSuffix = distStr ? ` (${distStr})` : '';
+                                     locationLabel = `${isMobile ? 'Mobile' : 'PC'} GPS Out${distSuffix}`;
+                                   } else {
+                                     locationLabel = `${isMobile ? 'Mobile' : 'PC'} Out`;
+                                   }
+
+                                   if (hasCoords) {
+                                     return (
+                                       <a 
+                                         href={`https://www.google.com/maps/search/?api=1&query=${session.clockOut.lat},${session.clockOut.lng}`} 
+                                         target="_blank" 
+                                         rel="noopener noreferrer" 
+                                         className="flex items-center gap-1 text-[10px] font-bold text-indigo-500 uppercase hover:underline"
+                                         title={titleTip}
+                                       >
+                                         <MapPin className="w-3 h-3 text-indigo-650" /> {locationLabel}
+                                       </a>
+                                     );
+                                   }
+                                   return (
+                                     <span className="flex items-center gap-1 text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase" title={titleTip}>
+                                       {locationLabel}
+                                     </span>
+                                   );
+                                 })()}
                                 {session.status !== 'completed' && (
                                   <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500 animate-pulse uppercase">
                                     Active
@@ -1413,6 +1534,11 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-bold text-zinc-900 dark:text-white">{req.userName}</p>
+                          {req.isAppeal && (
+                            <span className="bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider animate-pulse">
+                              Appeal
+                            </span>
+                          )}
                           <span className="text-[10px] text-zinc-400 font-medium">Requested on {formatDate(req.createdAt)}</span>
                         </div>
                         <p className="text-xs text-zinc-650 dark:text-zinc-350 italic mt-0.5">"{req.note}"</p>
@@ -1641,8 +1767,15 @@ const buildChronologicalTimeline = (session: any, sessionEnd: number) => {
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-zinc-650 dark:text-zinc-400 italic text-xs max-w-xs truncate" title={req.note}>
-                            {req.note || 'No reason provided'}
+                          <td className="px-6 py-4 text-xs max-w-xs">
+                            <p className="text-zinc-650 dark:text-zinc-400 italic truncate" title={req.note}>
+                              {req.note || 'No reason provided'}
+                            </p>
+                            {req.status === 'rejected' && req.rejectionReason && (
+                              <p className="text-[10px] text-rose-600 dark:text-rose-400 font-black mt-1 leading-normal whitespace-pre-wrap" title={req.rejectionReason}>
+                                Reason: {req.rejectionReason}
+                              </p>
+                            )}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${

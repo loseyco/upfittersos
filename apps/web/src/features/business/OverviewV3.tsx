@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TimeAllocationModal } from './TimeAllocationModal';
+import { UnassignedTaskModal } from './UnassignedTaskModal';
 
 export function OverviewV3({ tenantId }: { tenantId: string }) {
   const navigate = useNavigate();
@@ -40,11 +41,11 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [expandedJobs, setExpandedJobs] = useState<Record<string, boolean>>({});
   const [activeTaskForCompletion, setActiveTaskForCompletion] = useState<any | null>(null);
+  const [unassignedTaskToComplete, setUnassignedTaskToComplete] = useState<any | null>(null);
   const [timeLogsForJob, setTimeLogsForJob] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [myTimeSessions, setMyTimeSessions] = useState<any[]>([]);
   const [jobTaskQueries, setJobTaskQueries] = useState<Record<string, string>>({});
-  const [showStatsExpander, setShowStatsExpander] = useState(false);
 
   const effectiveUserUid = staffMember?.userId || (!impersonatedStaff ? user?.uid : '');
 
@@ -283,13 +284,19 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
     if (!activeSessionData?.jobs) return [];
     return activeSessionData.jobs.filter((j: any) => !j.end).map((j: any) => {
       const fullJob = jobs.find(job => job.id === j.id);
+      const fullTask = myTasks.find(t => t.id === j.taskId);
       return {
         ...j,
         jobNumber: fullJob?.jobNumber || '',
-        jobTitle: fullJob?.title || j.name || 'Job'
+        jobTitle: fullJob?.title || j.name || 'Job',
+        taskDescription: fullTask?.description || fullTask?.notes || j.description || j.notes || '',
+        payBasis: fullTask?.payBasis || j.payBasis || 'book_time',
+        bookTime: fullTask?.bookTime !== undefined ? fullTask.bookTime : (j.bookTime || 0)
       };
     });
-  }, [activeSessionData, jobs]);
+  }, [activeSessionData, jobs, myTasks]);
+
+
 
 
 
@@ -515,14 +522,18 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       }
     });
 
-    // 2. Book Time Completed
+    // 2. Book Time Completed (excluding hourly tasks, applying split shares)
     let bookToday = 0;
     let bookThisWeek = 0;
 
     myTasks.forEach((task: any) => {
-      if (isTaskCompleted(task.status) && task.completedAt) {
+      if (isTaskCompleted(task.status) && task.completedAt && task.payBasis !== 'hourly') {
         const completedMs = getTaskCompletionTime(task.completedAt);
-        const bookTimeVal = parseFloat(task.bookTime) || 0;
+        
+        const assignedStaffCount = task.assignedStaffIds?.length || 1;
+        const splitPercent = task.splitPercent || (100 / assignedStaffCount);
+        const shareRatio = splitPercent / 100;
+        const bookTimeVal = (parseFloat(task.bookTime) || 0) * shareRatio;
         
         if (completedMs >= startOfTodayMs) {
           bookToday += bookTimeVal;
@@ -558,7 +569,12 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
         actualName = `${staffMember.firstName || ''} ${staffMember.lastName || ''}`.trim() || actualName;
       }
 
-      const loc = await getCurrentLocation();
+      const loc = await getCurrentLocation(7000, false);
+      if (!loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
       let isRemote = false;
 
@@ -571,7 +587,9 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       }
 
       if (loc.lat !== null && loc.lng !== null) {
-        if (settings?.siteLat && settings?.siteLng) {
+        if (loc.type === 'ip') {
+          onSite = true;
+        } else if (settings?.siteLat && settings?.siteLng) {
           const dist = calculateDistance(
             loc.lat, loc.lng,
             parseFloat(settings.siteLat), parseFloat(settings.siteLng)
@@ -586,6 +604,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
       if (isRemote && settings && !settings.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
         toast.error("Clocking in off-site is not allowed for your account.");
+        setIsClockProcessing(false);
         return;
       }
 
@@ -632,6 +651,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
         }
         toast.success("Clocked back in for today's shift");
       } else {
+        const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
           userId: effectiveUserId,
           userName: actualName,
@@ -641,7 +661,9 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
             lat: loc.lat,
             lng: loc.lng,
             accuracy: loc.accuracy,
-            onSite
+            onSite,
+            device: isMobile ? 'mobile' : 'pc',
+            type: loc.type || null
           },
           isRemote,
           status: 'active',
@@ -679,7 +701,13 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       const lastJob = jobsListCopy.length > 0 ? jobsListCopy[jobsListCopy.length - 1] : null;
       if (lastJob && !lastJob.end) lastJob.end = new Date();
 
-      const loc = await getCurrentLocation();
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const loc = await getCurrentLocation(7000, false);
+      if (!loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
 
       let settings: any = null;
@@ -692,7 +720,10 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
       let allowedClockOut = true;
       if (loc.lat !== null && loc.lng !== null) {
-        if (settings?.siteLat && settings?.siteLng) {
+        if (loc.type === 'ip') {
+          onSite = true;
+          allowedClockOut = true;
+        } else if (settings?.siteLat && settings?.siteLng) {
           const dist = calculateDistance(
             loc.lat, loc.lng,
             parseFloat(settings.siteLat), parseFloat(settings.siteLng)
@@ -707,6 +738,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
       if (!allowedClockOut && settings && !settings.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
         toast.error("Clocking out off-site is not allowed for your account.");
+        setIsClockProcessing(false);
         return;
       }
 
@@ -716,7 +748,9 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
           lat: loc.lat,
           lng: loc.lng,
           accuracy: loc.accuracy,
-          onSite
+          onSite,
+          device: isMobile ? 'mobile' : 'pc',
+          type: loc.type || null
         },
         status: 'completed',
         breaks,
@@ -733,6 +767,112 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       toast.error("Failed to clock out");
     } finally {
       setIsClockProcessing(false);
+    }
+  };
+
+  const handleStartUnassignedTask = async () => {
+    try {
+      const taskId = `unassigned_${Date.now()}`;
+      await clockIntoJob('unassigned', 'Unassigned Task', taskId, 'Unassigned Task');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to start unassigned task.');
+    }
+  };
+
+  const handleCompleteUnassignedTask = async (ac: any, whatDidYouDo: string, selectedJob: any | null) => {
+    if (!activeSessionData?.id) return;
+    try {
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionData.id);
+      const sessionSnap = await getDoc(sessionRef);
+      if (!sessionSnap.exists()) {
+        toast.error('Active session not found.');
+        return;
+      }
+
+      const sessionData = sessionSnap.data();
+      const jobsList = [...(sessionData.jobs || [])];
+      
+      const segmentIndex = jobsList.findIndex((j: any) => !j.end && j.id === ac.id && j.taskId === ac.taskId);
+      if (segmentIndex === -1) {
+        toast.error('Segment not found or already closed.');
+        return;
+      }
+
+      const loc = await getCurrentLocation();
+      const segment = jobsList[segmentIndex];
+      
+      segment.end = new Date();
+      segment.endLat = loc.lat;
+      segment.endLng = loc.lng;
+      segment.taskName = whatDidYouDo || 'Unassigned Task';
+      
+      let createdTaskId = ac.taskId;
+
+      if (selectedJob) {
+        segment.id = selectedJob.id;
+        segment.name = selectedJob.title;
+
+        try {
+          const staffObj = staffMember?.id ? [{
+            id: staffMember.id,
+            name: staffMember.name || `${staffMember.firstName || ''} ${staffMember.lastName || ''}`.trim()
+          }] : [];
+
+          // Create the completed task document under the job in Firestore
+          const taskDocRef = await addDoc(collection(db, `businesses/${tenantId}/jobs/${selectedJob.id}/tasks`), {
+            tenantId: tenantId,
+            title: whatDidYouDo || 'Unassigned Task',
+            description: whatDidYouDo || '',
+            notes: whatDidYouDo || '',
+            status: 'completed',
+            completedAt: new Date(),
+            assignedStaff: staffObj,
+            assignedStaffIds: staffMember?.id ? [staffMember.id] : [],
+            bookTime: 0,
+            payBasis: 'hourly',
+            taskGroup: 'Uncategorized',
+            departmentId: staffMember?.departmentId || '',
+            canComplete: true,
+            qaStatus: 'NEEDS QA',
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          createdTaskId = taskDocRef.id;
+        } catch (taskErr) {
+          console.error("Failed to create task document under job", taskErr);
+        }
+      }
+
+      segment.taskId = createdTaskId;
+
+      const updatedJobIds = Array.from(new Set(jobsList.map((j: any) => j.id)));
+      
+      await updateDoc(sessionRef, {
+        jobs: jobsList,
+        jobIds: updatedJobIds,
+        updatedAt: serverTimestamp()
+      });
+
+      const { user } = useAuthStore.getState();
+      await updateStaffLastLocation(
+        tenantId, 
+        effectiveUserUid, 
+        user?.email, 
+        loc, 
+        `Completed Task: ${whatDidYouDo || 'Unassigned Task'}${selectedJob ? ` (Assigned to: ${selectedJob.title})` : ''}`
+      );
+
+      if (selectedJob) {
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, selectedJob.id), {
+          lastWorkedAt: serverTimestamp()
+        });
+      }
+
+      toast.success('Task completed successfully!');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to complete task.');
     }
   };
 
@@ -760,7 +900,18 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
         };
       }
       
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to start a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
 
       breaks.push({
         type,
@@ -768,7 +919,8 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
         isPaid: type === 'lunch' ? false : true,
         suspendedJob,
         startLat: loc.lat,
-        startLng: loc.lng
+        startLng: loc.lng,
+        startDevice: isMobile ? 'mobile' : 'pc'
       });
 
       await updateDoc(sessionRef, {
@@ -795,6 +947,19 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
     if (!sesId) return;
     setIsClockProcessing(true);
     try {
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to end a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
+
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, sesId);
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.data();
@@ -804,6 +969,9 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       const activeBreak = breaks.find(b => !b.end);
       if (activeBreak) {
         activeBreak.end = new Date();
+        activeBreak.endLat = loc.lat;
+        activeBreak.endLng = loc.lng;
+        activeBreak.endDevice = isMobile ? 'mobile' : 'pc';
         
         // Auto-resume job if it was suspended
         if (activeBreak.suspendedJob) {
@@ -816,8 +984,6 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
           });
         }
       }
-
-      const loc = await getCurrentLocation();
 
       await updateDoc(sessionRef, {
         breaks,
@@ -888,6 +1054,33 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
     }
   };
 
+  const recentTaskIds = useMemo(() => {
+    const taskSegments: { taskId: string; start: number }[] = [];
+    myTimeSessions.forEach(session => {
+      if (session.jobs && Array.isArray(session.jobs)) {
+        session.jobs.forEach((j: any) => {
+          if (j.taskId && j.start) {
+            const startMs = j.start.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+            taskSegments.push({ taskId: j.taskId, start: startMs });
+          }
+        });
+      }
+    });
+
+    // Sort by start descending
+    taskSegments.sort((a, b) => b.start - a.start);
+
+    // Get unique top 3
+    const uniqueIds: string[] = [];
+    for (const item of taskSegments) {
+      if (!uniqueIds.includes(item.taskId)) {
+        uniqueIds.push(item.taskId);
+      }
+      if (uniqueIds.length >= 3) break;
+    }
+    return uniqueIds;
+  }, [myTimeSessions]);
+
   const getSortedTasks = (tasksList: any[], jobId: string) => {
     return [...tasksList].sort((a, b) => {
       const aCurrentClock = activeClocks.some((ac: any) => ac.id === jobId && ac.taskId === a.id);
@@ -895,10 +1088,23 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
       if (aCurrentClock && !bCurrentClock) return -1;
       if (!aCurrentClock && bCurrentClock) return 1;
 
-      const aHours = getHoursForTask(jobId, a.id);
-      const bHours = getHoursForTask(jobId, b.id);
       const aCompleted = isTaskCompleted(a.status);
       const bCompleted = isTaskCompleted(b.status);
+
+      // Prioritize the top 3 recently clocked-in tasks (only if not completed)
+      const aRecentIdx = recentTaskIds.indexOf(a.id);
+      const bRecentIdx = recentTaskIds.indexOf(b.id);
+      const aIsRecent = aRecentIdx !== -1 && !aCompleted;
+      const bIsRecent = bRecentIdx !== -1 && !bCompleted;
+
+      if (aIsRecent && !bIsRecent) return -1;
+      if (!aIsRecent && bIsRecent) return 1;
+      if (aIsRecent && bIsRecent) {
+        return aRecentIdx - bRecentIdx; // Most recent first
+      }
+
+      const aHours = getHoursForTask(jobId, a.id);
+      const bHours = getHoursForTask(jobId, b.id);
 
       const aHasTimeIncomplete = aHours > 0 && !aCompleted;
       const bHasTimeIncomplete = bHours > 0 && !bCompleted;
@@ -915,14 +1121,14 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
   };
 
   return (
-    <div className="w-full mx-auto px-1.5 sm:px-4 py-3.5 space-y-3.5 text-zinc-200">
+    <div className="w-full max-w-7xl mx-auto px-1.5 sm:px-4 py-3.5 space-y-3.5 text-zinc-200">
       {/* Top Banner Greeting & Daily Clock */}
       <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-zinc-900/60 backdrop-blur-xl border border-zinc-800/80 p-4.5 md:p-5.5 rounded-2xl shadow-xl transition-all duration-300">
         <div className="space-y-1">
           <h1 className="text-xl md:text-2xl font-black text-white tracking-wide flex flex-wrap items-center gap-2">
             <span>Hi, <span className="bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">{staffMember?.firstName || user?.displayName || 'Technician'}</span></span>
             <button
-              onClick={() => navigate(`/business/${tenantId}/overview`)}
+              onClick={() => navigate(`/business/${tenantId}/overview_classic`)}
               className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors border border-zinc-750 cursor-pointer"
             >
               Classic Version
@@ -934,65 +1140,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
               <span>Today's Time: <strong className="text-zinc-300 font-mono text-sm">{stats.clockedToday.toFixed(2)} hrs</strong></span>
             </div>
             
-            <button 
-              onClick={() => setShowStatsExpander(!showStatsExpander)}
-              className="flex items-center gap-1 text-[11px] font-black text-indigo-400 hover:text-indigo-300 transition-colors uppercase tracking-wider mt-0.5 cursor-pointer"
-            >
-              <span>{showStatsExpander ? 'Hide Stats Summary' : 'View Time & Efficiency Stats'}</span>
-              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showStatsExpander && "rotate-180")} />
-            </button>
           </div>
-
-          <AnimatePresence initial={false}>
-            {showStatsExpander && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeInOut" }}
-                className="overflow-hidden mt-2 bg-zinc-950/40 border border-zinc-850/80 rounded-xl p-3.5 space-y-3 w-full max-w-sm"
-              >
-                <div className="grid grid-cols-3 gap-2 text-left">
-                  {/* Headers */}
-                  <div className="text-[10px] font-black uppercase text-zinc-550">Metric</div>
-                  <div className="text-[10px] font-black uppercase text-zinc-550 text-right">Today</div>
-                  <div className="text-[10px] font-black uppercase text-zinc-550 text-right">This Week</div>
-                  
-                  {/* Divider */}
-                  <div className="col-span-3 border-b border-zinc-900 my-0.5" />
-                  
-                  {/* Clocked Hours */}
-                  <div className="text-xs text-zinc-400 font-medium">Clocked Hours</div>
-                  <div className="text-xs text-zinc-200 font-mono text-right">{stats.clockedToday.toFixed(2)}h</div>
-                  <div className="text-xs text-zinc-200 font-mono text-right">{stats.clockedThisWeek.toFixed(2)}h</div>
-
-                  {/* Book Hours */}
-                  <div className="text-xs text-zinc-400 font-medium">Book Hours</div>
-                  <div className="text-xs text-zinc-200 font-mono text-right">{stats.bookToday.toFixed(2)}h</div>
-                  <div className="text-xs text-zinc-200 font-mono text-right">{stats.bookThisWeek.toFixed(2)}h</div>
-
-                  {/* Efficiency */}
-                  <div className="text-xs text-zinc-400 font-medium">Efficiency</div>
-                  <div className={cn(
-                    "text-xs font-mono font-bold text-right",
-                    stats.efficiencyToday >= 100 ? "text-emerald-400" :
-                    stats.efficiencyToday >= 85 ? "text-indigo-400" :
-                    stats.efficiencyToday > 0 ? "text-amber-400" : "text-zinc-500"
-                  )}>
-                    {stats.efficiencyToday > 0 ? `${stats.efficiencyToday.toFixed(0)}%` : '—'}
-                  </div>
-                  <div className={cn(
-                    "text-xs font-mono font-bold text-right",
-                    stats.efficiencyThisWeek >= 100 ? "text-emerald-400" :
-                    stats.efficiencyThisWeek >= 85 ? "text-indigo-400" :
-                    stats.efficiencyThisWeek > 0 ? "text-amber-400" : "text-zinc-500"
-                  )}>
-                    {stats.efficiencyThisWeek > 0 ? `${stats.efficiencyThisWeek.toFixed(0)}%` : '—'}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
         
         {/* Daily Time Clock Controls */}
@@ -1074,65 +1222,144 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
       {/* Clocked In Tasks Section */}
       <div className="space-y-3">
-        <h2 className="text-xs font-black tracking-widest text-zinc-400 uppercase flex items-center gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          Currently Clocked In
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-black tracking-widest text-zinc-400 uppercase flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            Currently Clocked In
+          </h2>
+          {clockStatus === 'clocked_in' && (
+            <button
+              onClick={handleStartUnassignedTask}
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-xl text-xs font-black transition-all border border-indigo-500/25 cursor-pointer shadow-md shadow-indigo-600/20 active:scale-95"
+            >
+              + Start Unassigned Task
+            </button>
+          )}
+        </div>
 
         {activeClocks.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {activeClocks.map((ac: any) => (
-              <div 
-                key={`${ac.id}-${ac.taskId || 'job'}`}
-                onClick={() => handleActiveClockClick(ac)}
-                className="flex items-center justify-between p-5 bg-gradient-to-br from-indigo-950/20 to-zinc-900 border border-emerald-500/35 rounded-2xl shadow-xl hover:border-emerald-500/60 transition-all cursor-pointer group"
-              >
-                <div className="space-y-1.5 pr-4 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-indigo-400 font-black tracking-wider uppercase font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                      Job #{ac.jobNumber}
-                    </span>
-                    <span className="text-[10px] text-emerald-400 font-black tracking-widest uppercase flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Active
-                    </span>
-                  </div>
-                  
-                  <h3 className="text-base font-black text-white group-hover:text-indigo-300 transition-colors line-clamp-1">
-                    {ac.taskName || 'Job Labor'}
-                  </h3>
-                  <p className="text-xs text-zinc-400 font-sans line-clamp-1">
-                    {ac.jobTitle}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-4 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  {/* Real-time Ticking Timer */}
-                  <div className="text-right">
-                    <span className="text-[10px] text-zinc-555 uppercase font-black tracking-widest block font-sans">Time Tracked</span>
-                    <span className="text-lg font-black text-white font-mono tracking-tight">{formatDuration(ac.start)}</span>
-                  </div>
-
-                  {/* Gigantic Stop Button */}
-                  <button
-                    onClick={() => clockOutOfJob(ac.id, ac.taskId)}
-                    className="w-12 h-12 rounded-xl bg-rose-500/10 hover:bg-rose-500 hover:text-black border border-rose-500/25 hover:border-transparent text-rose-400 flex items-center justify-center transition-all cursor-pointer scale-100 active:scale-95 shadow-md shadow-rose-950/10"
-                    title="Stop Clock"
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {activeClocks.map((ac: any) => {
+                const isUnassigned = ac.id === 'unassigned';
+                return (
+                  <div 
+                    key={`${ac.id}-${ac.taskId || 'job'}`}
+                    onClick={() => {
+                      if (!isUnassigned) {
+                        handleActiveClockClick(ac);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center justify-between p-5 bg-gradient-to-br from-indigo-950/20 to-zinc-900 border border-emerald-500/35 rounded-2xl shadow-xl transition-all group",
+                      isUnassigned ? "border-emerald-500/25 cursor-default" : "hover:border-emerald-500/60 cursor-pointer"
+                    )}
                   >
-                    <Square className="w-5 h-5 fill-current" />
-                  </button>
-                </div>
-              </div>
-            ))}
+                    <div className="space-y-1.5 pr-4 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-indigo-400 font-black tracking-wider uppercase font-mono bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                          {isUnassigned ? 'Unassigned' : `Job #${ac.jobNumber}`}
+                        </span>
+                        <span className="text-[10px] text-emerald-400 font-black tracking-widest uppercase flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Active
+                        </span>
+                      </div>
+                      
+                      <h3 className="text-base font-black text-white group-hover:text-indigo-300 transition-colors line-clamp-1">
+                        {ac.taskName || 'Job Labor'}
+                      </h3>
+                      <p className="text-xs text-zinc-400 font-sans line-clamp-1">
+                        {isUnassigned ? 'No Job Assigned' : ac.jobTitle}
+                      </p>
+
+                      {ac.taskDescription && (
+                        <p className="text-xs text-zinc-450 leading-normal mt-1 max-w-md">
+                          {ac.taskDescription}
+                        </p>
+                      )}
+
+                      {!isUnassigned && ac.taskId && (() => {
+                        const isHourly = ac.payBasis === 'hourly';
+                        const limit = parseFloat(ac.bookTime) || 0;
+                        const hours = getHoursForTask(ac.id, ac.taskId);
+                        return (
+                          <div className="flex items-center gap-2 flex-wrap pt-1.5">
+                            {isHourly ? (
+                              <>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                  Hourly
+                                </span>
+                                {hours > 0 && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    Logged: <strong className="text-indigo-400 font-semibold">{hours.toFixed(2)}h</strong>
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                                  Book Time
+                                </span>
+                                {limit > 0 && (
+                                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                                    Est: {limit}h
+                                  </span>
+                                )}
+                                {hours > 0 && (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    Logged: <strong className="text-indigo-400 font-semibold">{hours.toFixed(2)}h</strong>
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="flex items-center gap-4 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {/* Real-time Ticking Timer */}
+                      <div className="text-right">
+                        <span className="text-[10px] text-zinc-500 uppercase font-black tracking-widest block font-sans">Time Tracked</span>
+                        <span className="text-lg font-black text-white font-mono tracking-tight">{formatDuration(ac.start)}</span>
+                      </div>
+
+                      {/* Gigantic Stop Button */}
+                      <button
+                        onClick={() => {
+                          if (isUnassigned) {
+                            setUnassignedTaskToComplete(ac);
+                          } else {
+                            clockOutOfJob(ac.id, ac.taskId);
+                          }
+                        }}
+                        className="w-12 h-12 rounded-xl bg-rose-500/10 hover:bg-rose-500 hover:text-black border border-rose-500/25 hover:border-transparent text-rose-400 flex items-center justify-center transition-all cursor-pointer scale-100 active:scale-95 shadow-md shadow-rose-950/10"
+                        title="Stop Clock"
+                      >
+                        <Square className="w-5 h-5 fill-current" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : clockStatus === 'clocked_in' ? (
+          <div className="p-6 bg-amber-500/10 border-2 border-dashed border-amber-500/30 rounded-2xl text-center flex flex-col items-center justify-center gap-1.5 shadow-lg shadow-amber-950/20 animate-pulse">
+            <div className="flex items-center gap-2 text-amber-400">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <span className="font-extrabold uppercase tracking-wide text-xs">Attention Required</span>
+            </div>
+            <span className="text-zinc-150 dark:text-zinc-200 text-sm font-bold">You are not clocked into any tasks right now.</span>
+            <span className="text-xs text-zinc-400 font-medium">Tap a task inside a job below to start tracking your time.</span>
           </div>
         ) : (
           <div className="p-6 bg-zinc-900/30 border border-zinc-800/80 rounded-2xl text-center text-zinc-500 text-sm font-medium">
-            {clockStatus === 'clocked_in' 
-              ? 'You are not clocked into any tasks right now. Tap a task inside a job below to start tracking your time.'
-              : 'Please clock in for the day to begin working and tracking time.'}
+            Please clock in for the day to begin working and tracking time.
           </div>
         )}
       </div>
@@ -1835,6 +2062,18 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
             setActiveTaskForCompletion(null);
             await handleToggleTaskStatus(taskId, jobId, status);
           }}
+        />
+      )}
+
+      {unassignedTaskToComplete && (
+        <UnassignedTaskModal
+          isOpen={!!unassignedTaskToComplete}
+          onClose={() => setUnassignedTaskToComplete(null)}
+          onSubmit={async (whatDidYouDo, selectedJobId) => {
+            const selectedJob = jobs.find(j => j.id === selectedJobId) || null;
+            await handleCompleteUnassignedTask(unassignedTaskToComplete, whatDidYouDo, selectedJob);
+          }}
+          jobs={jobs}
         />
       )}
     </div>

@@ -4,10 +4,10 @@ import {
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  HelpCircle, GraduationCap, LogIn, Pizza, BookOpen, Workflow, TrendingUp, BarChart3,
-  Code, MapPin, Tv
+  GraduationCap, LogIn, Pizza, BookOpen, TrendingUp, BarChart3,
+  Code, MapPin, Tv, Table
 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
 import type { PermissionKey } from '../../lib/auth/permissions';
 import { useQuery } from '@tanstack/react-query';
@@ -31,147 +31,120 @@ export const ITEMS: NavItem[] = [
   // Dashboard Hub
   { id: 'overview', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'dashboard' },
   { id: 'time_details', label: 'Time Clock', icon: Clock, hub: 'dashboard' },
-  { id: 'time_details_v3', label: 'Time Clock (v3)', icon: Clock, hub: 'dashboard' },
   { id: 'device_settings', label: 'Device Settings', icon: Settings, hub: 'dashboard' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'dashboard' },
 
 
   // Upfitters Dept
   { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
-  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'upfitters', permission: 'foreman.view' },
-  { id: 'foreman_todo', label: 'Foreman Todo List', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'jobs.view' },
-  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'upfitters', permission: 'jobs.view' },
-  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'staff_worksheet.view' },
   { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'bay_worksheet.view' },
-  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'upfitters', permission: 'foreman.view' },
-  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'upfitters', permission: 'foreman.view' },
 
-  // Safety Dept
-  { id: 'safety', label: 'Safety Overview', icon: ShieldCheck, hub: 'safety', permission: 'safety.view' },
-  { id: 'safety_standards', label: 'OSHA Standards', icon: BookOpen, hub: 'safety', permission: 'safety.view' },
-  { id: 'safety_sds', label: 'SDS Binders & HazMat', icon: FileSpreadsheet, hub: 'safety', permission: 'safety.view' },
-  { id: 'safety_incidents', label: 'Incident & Near-Miss Log', icon: ClipboardList, hub: 'safety', permission: 'safety.view' },
-  { id: 'safety_inspections', label: 'Audits & Checklists', icon: ShieldAlert, hub: 'safety', permission: 'safety.view' },
-  { id: 'safety_training', label: 'Training & Certs', icon: GraduationCap, hub: 'safety', permission: 'safety.view' },
+  // Safety Dept (In Development)
+  { id: 'safety', label: 'Safety Overview', icon: ShieldCheck, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
+  { id: 'safety_standards', label: 'OSHA Standards', icon: BookOpen, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
+  { id: 'safety_sds', label: 'SDS Binders & HazMat', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
+  { id: 'safety_incidents', label: 'Incident & Near-Miss Log', icon: ClipboardList, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
+  { id: 'safety_inspections', label: 'Audits & Checklists', icon: ShieldAlert, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
+  { id: 'safety_training', label: 'Training & Certs', icon: GraduationCap, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
 
   // Parts Dept
   { id: 'parts', label: 'Overview', icon: Package, hub: 'parts', permission: 'parts.view' },
-  // { id: 'items', label: 'Parts Library', icon: PackageOpen, hub: 'parts', permission: 'parts.view' },
   { id: 'parts_worksheet', label: 'Parts Request', icon: FileSpreadsheet, hub: 'parts', permissions: ['parts_worksheet.view', 'parts.manage'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'parts', permission: 'jobs.view' },
-  // { id: 'package_intake', label: 'Package Intake', icon: Package, hub: 'parts', permission: 'parts.view' },
-  // { id: 'part_request', label: 'Add Part / Request', icon: PackagePlus, hub: 'parts', permission: 'parts.view' },
 
-  // Print Farm Dept
-  { id: 'printed_parts', label: 'Overview', icon: Printer, hub: 'printed_parts', permission: 'printed_parts.view' },
+  // Print Farm (In Development)
+  { id: 'printed_parts', label: 'Print Farm Overview', icon: Printer, hub: 'development', groupLabel: 'Print Farm', permission: 'printed_parts.view' },
 
-  // Graphics Dept
-  { id: 'graphics', label: 'Overview', icon: PenTool, hub: 'graphics', permission: 'graphics.view' },
+  // Graphics (In Development)
+  { id: 'graphics', label: 'Graphics Overview', icon: PenTool, hub: 'development', groupLabel: 'Graphics Dept', permission: 'graphics.view' },
 
-  // F.A.S.T Dept
-  { id: 'fast', label: 'Overview', icon: Activity, hub: 'fast', permission: 'fast.view' },
+  // F.A.S.T (In Development)
+  { id: 'fast', label: 'F.A.S.T Overview', icon: Activity, hub: 'development', groupLabel: 'F.A.S.T Dept', permission: 'fast.view' },
 
-  // Fabrication Dept
-  { id: 'fabrication', label: 'Overview', icon: Wrench, hub: 'fabrication', permission: 'fabrication.view' },
+  // Fabrication (In Development)
+  { id: 'fabrication', label: 'Fabrication Overview', icon: Wrench, hub: 'development', groupLabel: 'Fabrication Dept', permission: 'fabrication.view' },
 
-  // Harness Dept
-  { id: 'harness', label: 'Overview', icon: Layers, hub: 'harness', permission: 'harness.view' },
+  // Harness (In Development)
+  { id: 'harness', label: 'Harness Overview', icon: Layers, hub: 'development', groupLabel: 'Harness Dept', permission: 'harness.view' },
 
-  // Sales Dept
-  { id: 'sales_pipeline', label: 'CRM', icon: Briefcase, hub: 'sales', permission: 'sales.view' },
-  { id: 'sales_prospects', label: 'Prospects Directory', icon: Users, hub: 'sales', permission: 'sales.view' },
-  { id: 'sales_activities', label: 'Meetings & Logs', icon: MessageSquare, hub: 'sales', permission: 'sales.view' },
-  { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'sales', permission: 'sales.view' },
+  // Sales Dept (In Development)
+  { id: 'sales_pipeline', label: 'Sales CRM', icon: Briefcase, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
+  { id: 'sales_prospects', label: 'Prospects Directory', icon: Users, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
+  { id: 'sales_activities', label: 'Meetings & Logs', icon: MessageSquare, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
+  { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
 
   // Office Dept (Main Office)
-  { id: 'office', label: 'Office Board', icon: Building2, hub: 'office', permission: 'office.view' },
+  { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
-  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'office', permission: 'jobs.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'office', permission: 'staff.view' },
-  // { id: 'performance', label: 'Leaderboard', icon: Trophy, hub: 'office', permission: 'performance.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
-  // { id: 'vehicle_intake', label: 'Vehicle Intake', icon: Car, hub: 'office', permission: 'vehicle_intake.use' },
 
-  // Facility & Comm
-  { id: 'jobs', label: 'Jobs', icon: Briefcase, hub: 'facility', permission: 'jobs.view' },
-  { id: 'customers', label: 'Customers', icon: Users, hub: 'facility', permission: 'customers.view' },
-  { id: 'vehicles', label: 'Vehicles', icon: Car, hub: 'facility', permission: 'vehicles.view' },
-  { id: 'vendors', label: 'Vendors', icon: Handshake, hub: 'facility', permission: 'vendors.view' },
-  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'facility', permission: 'foreman.view' },
+  // Facility & Comm (TV Monitors & Zones Config)
   { id: 'zones', label: 'Zones Config', icon: Layers, hub: 'facility', permission: 'facility.view' },
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'conference_monitor', label: 'Conference Room (TV)', icon: Monitor, hub: 'facility', permission: 'facility.view' },
   { id: 'timeclock_monitor', label: 'Timeclock Station (TV)', icon: QrCode, hub: 'facility', permission: 'timeclock.view' },
-  { id: 'facility_maps', label: 'Facility Maps', icon: Map, hub: 'facility', permission: 'facility.view' },
-  { id: 'canvases', label: 'Canvases Gallery', icon: Layout, hub: 'facility', permission: 'whiteboards.view' },
-  { id: 'messages', label: 'Messages Feed', icon: MessageSquare, hub: 'facility', permission: 'communication.view' },
-  { id: 'announcements', label: 'Announcements', icon: Megaphone, hub: 'facility', permission: 'communication.view' },
-  { id: 'events', label: 'Events Calendar', icon: Calendar, hub: 'facility', permission: 'communication.view' },
-  { id: 'feedback', label: 'Feedback & Bugs', icon: MessageSquare, hub: 'facility', permission: 'facility.view' },
-  { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'facility', permissions: ['facility.view', 'jobs.view', 'communication.view'] },
+
+  // Facility Items (In Development)
+  { id: 'jobs', label: 'Jobs Directory', icon: Briefcase, hub: 'development', groupLabel: 'Facility & Operations', permission: 'jobs.view' },
+  { id: 'customers', label: 'Customers Directory', icon: Users, hub: 'development', groupLabel: 'Facility & Operations', permission: 'customers.view' },
+  { id: 'vehicles', label: 'Vehicles Directory', icon: Car, hub: 'development', groupLabel: 'Facility & Operations', permission: 'vehicles.view' },
+  { id: 'vendors', label: 'Vendors Directory', icon: Handshake, hub: 'development', groupLabel: 'Facility & Operations', permission: 'vendors.view' },
+  { id: 'facility_maps', label: 'Facility Maps', icon: Map, hub: 'development', groupLabel: 'Facility & Operations', permission: 'facility.view' },
+  { id: 'canvases', label: 'Canvases Gallery', icon: Layout, hub: 'development', groupLabel: 'Facility & Operations', permission: 'whiteboards.view' },
+  { id: 'messages', label: 'Messages Feed', icon: MessageSquare, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
+  { id: 'announcements', label: 'Announcements', icon: Megaphone, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
+  { id: 'events', label: 'Events Calendar', icon: Calendar, hub: 'development', groupLabel: 'Communication & Events', permission: 'communication.view' },
+  { id: 'feedback', label: 'Feedback & Dev Roadmap', icon: MessageSquare, hub: 'development', groupLabel: 'Communication & Events', permission: 'facility.view' },
 
   // Admin & Sync
+  { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'settings', permission: 'staff.view' },
   { id: 'departments', label: 'Departments Config', icon: Building2, hub: 'settings', permission: 'staff.view' },
   { id: 'settings', label: 'System Settings', icon: Settings, hub: 'settings', permission: 'settings.view' },
   { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'settings', permission: 'sync.view' },
   { id: 'qb_health_audit', label: 'Data Health Audit', icon: ShieldCheck, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_customers', label: 'QB Customers', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_jobs', label: 'QB Jobs', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_items', label: 'QB Items', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_invoices', label: 'QB Invoices', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
-  { id: 'qb_pos', label: 'QB Purchase Orders', icon: RefreshCw, hub: 'settings', permission: 'sync.view' },
 
-  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'development', permission: 'development.view' },
-  { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', permission: 'development.view' },
-  { id: 'conference_control', label: 'TV Monitor Control', icon: Tv, hub: 'development', permission: 'development.view' },
-  { id: 'overview_v3', label: 'Overview (v3)', icon: ClipboardList, hub: 'development', permission: 'development.view' },
-  { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', permission: 'development.view' },
-  { id: 'staff_sheet', label: 'Staff Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
-  { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
-  { id: 'jobs_sheet', label: 'Jobs Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
-  { id: 'tasks_sheet', label: 'Tasks Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
-  { id: 'wires_sheet', label: 'Wires Sheet (v3)', icon: FileSpreadsheet, hub: 'development', permission: 'development.view' },
-  { id: 'telemetry_sheet', label: 'Telemetry & Trends (v3)', icon: TrendingUp, hub: 'development', permission: 'development.view' },
+  // QB Raw Tables (In Development)
+  { id: 'qb_customers', label: 'QB Customers Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_jobs', label: 'QB Jobs Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_items', label: 'QB Items Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_invoices', label: 'QB Invoices Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
+  { id: 'qb_pos', label: 'QB Purchase Orders Raw', icon: RefreshCw, hub: 'development', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
 
-  // Help Hub
-  { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'help', groupLabel: 'Academy Catalog' },
-  
-  // Interactive Slide Decks
-  { id: 'help_clocking_in_out', label: 'Clocking In/Out (Slides)', icon: LogIn, hub: 'help', groupLabel: 'Interactive Slide Decks' },
-  { id: 'help_breaks_lunches', label: 'Breaks & Lunches (Slides)', icon: Pizza, hub: 'help', groupLabel: 'Interactive Slide Decks' },
+  // Development Hub (In Development)
+  { id: 'page_catalog', label: 'App Pages & Access Directory', icon: Code, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
+  { id: 'page_analytics', label: 'Page Views & Usage Analytics', icon: BarChart3, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
+  { id: 'telemetry_sheet', label: 'Telemetry & Trends (v3)', icon: TrendingUp, hub: 'development', groupLabel: 'Analytics & Telemetry', permission: 'development.view' },
+  { id: 'upfitters_kanban', label: 'Upfitters Kanban Board', icon: Layers, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'office', label: 'Office Board', icon: Building2, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'foreman_todo', label: 'Foreman Todo List', icon: ClipboardList, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'weekly_meeting', label: 'Weekly Meeting Notes', icon: Printer, hub: 'development', groupLabel: 'Operations & Boards', permission: 'development.view' },
+  { id: 'locations', label: 'Staff Locations', icon: MapPin, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
+  { id: 'staff_sitemap', label: 'Staff Site Map (Live)', icon: Users, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'staff.view' },
+  { id: 'conference_control', label: 'TV Monitor Control', icon: Tv, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
+  { id: 'qb_job_details', label: 'Job Hub (QB)', icon: Briefcase, hub: 'development', groupLabel: 'Tools & Utilities', permission: 'development.view' },
+  { id: 'staff_sheet', label: 'Staff Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  { id: 'time_sheet', label: 'Time Logs Sheet (v3)', icon: Clock, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  { id: 'vehicles_sheet', label: 'Vehicles Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  { id: 'tasks_sheet', label: 'Tasks Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  { id: 'wires_sheet', label: 'Wires Sheet (v3)', icon: FileSpreadsheet, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
+  { id: 'progress_digest_v3', label: 'Progress Digest (v3)', icon: Activity, hub: 'development', groupLabel: 'Sheets (v3)', permission: 'development.view' },
 
-  // Technician Portal
-  { id: 'help_my_jobs_todos', label: 'My Jobs & Todos', icon: ClipboardList, hub: 'help', groupLabel: 'Technician Portal' },
-  { id: 'help_time_details', label: 'Time Clock & Attendance', icon: Clock, hub: 'help', groupLabel: 'Technician Portal' },
+  // Help Hub (In Development)
+  { id: 'help_overview', label: 'All Tutorials', icon: GraduationCap, hub: 'development', groupLabel: 'Help & Academy' },
+  { id: 'help_clocking_in_out', label: 'Clocking In/Out (Slides)', icon: LogIn, hub: 'development', groupLabel: 'Help & Academy' },
+  { id: 'help_breaks_lunches', label: 'Breaks & Lunches (Slides)', icon: Pizza, hub: 'development', groupLabel: 'Help & Academy' },
 
-  // Upfitters & Operations
-  { id: 'help_jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
-  { id: 'help_job_schedule', label: 'Schedule Board', icon: Calendar, hub: 'help', groupLabel: 'Upfitters & Operations' },
-  { id: 'help_staff_worksheet', label: 'Staff Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
-  { id: 'help_bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'help', groupLabel: 'Upfitters & Operations' },
-  { id: 'help_morning_meeting', label: 'Morning Meeting', icon: Monitor, hub: 'help', groupLabel: 'Upfitters & Operations' },
-
-  // Management & Office
-  { id: 'help_live_timeclock', label: 'Live Timeclock Monitor', icon: Clock, hub: 'help', groupLabel: 'Management & Office' },
-  { id: 'help_timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'help', groupLabel: 'Management & Office' },
-  { id: 'help_qr_hub', label: 'QR Label Hub', icon: QrCode, hub: 'help', groupLabel: 'Management & Office' },
-  { id: 'help_audit', label: 'Weekly Audit', icon: ClipboardList, hub: 'help', groupLabel: 'Management & Office' },
-  { id: 'help_org_chart', label: 'Business Org Chart', icon: Users, hub: 'help', groupLabel: 'Management & Office' },
-
-  // System Settings
-  { id: 'help_staff', label: 'Staff Directory', icon: UserCog, hub: 'help', groupLabel: 'System Settings' },
-  { id: 'help_departments', label: 'Departments Config', icon: Building2, hub: 'help', groupLabel: 'System Settings' },
-  { id: 'help_settings', label: 'System Settings', icon: Settings, hub: 'help', groupLabel: 'System Settings' },
-  { id: 'help_qb_sync_status', label: 'QB Sync Monitor', icon: RefreshCw, hub: 'help', groupLabel: 'System Settings' },
-  { id: 'help_help_system', label: 'Help System', icon: HelpCircle, hub: 'help', groupLabel: 'System Settings' },
-
-  // SOP Hub
-  { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'sop' },
+  // SOP Hub (In Development)
+  { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'development', groupLabel: 'SOP Center' },
 ];
 
 export type HubType = {
@@ -184,17 +157,8 @@ export const HUBS: HubType[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'office', label: 'Main Office', icon: Building2 },
   { id: 'upfitters', label: 'Upfitters', icon: ClipboardList },
-  { id: 'safety', label: 'Safety & OSHA', icon: ShieldAlert },
   { id: 'parts', label: 'Parts Dept', icon: Package },
-  { id: 'printed_parts', label: 'Print Farm', icon: Printer },
-  { id: 'graphics', label: 'Graphics', icon: PenTool },
-  { id: 'fast', label: 'F.A.S.T', icon: Activity },
-  { id: 'fabrication', label: 'Fabrication', icon: Wrench },
-  { id: 'harness', label: 'Harness Dept', icon: Layers },
-  { id: 'sales', label: 'Sales Dept', icon: TrendingUp },
   { id: 'facility', label: 'Facility', icon: Map },
-  { id: 'help', label: 'Help Center', icon: HelpCircle },
-  { id: 'sop', label: 'SOP Center', icon: Workflow },
   { id: 'settings', label: 'Admin & Sync', icon: Settings },
   { id: 'development', label: 'In Development', icon: Code },
 ];
@@ -214,8 +178,7 @@ export function BusinessSidebar({
   lastSync?: any;
   activeSync?: any;
 }) {
-  const { user, permissions, isSuperAdmin, impersonatedStaff } = useAuthStore();
-  const navigate = useNavigate();
+  const { permissions, isSuperAdmin } = useAuthStore();
   const params = useParams();
 
   let tenantId = (isSuperAdmin && params.tenantId) ? params.tenantId : useAuthStore.getState().tenantId;
@@ -230,9 +193,6 @@ export function BusinessSidebar({
     },
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
-
-  const SUPER_ADMIN_EMAILS = ['p.losey@saegrp.com', 'loseyp@gmail.com'];
-  const canAccessGlobalAdmin = !impersonatedStaff && (isSuperAdmin || (user?.email && SUPER_ADMIN_EMAILS.includes(user.email)));
 
   // Sidebar Pinned (expanded) state
   const [isPinned, setIsPinned] = useState<boolean>(() => {
@@ -414,24 +374,6 @@ export function BusinessSidebar({
           })}
         </div>
 
-        {/* Super Admin Section */}
-        {hubId === 'settings' && canAccessGlobalAdmin && (
-          <div className="pt-5 mt-5 border-t border-zinc-800/80 space-y-2">
-            <h3 className="px-3 text-[9px] font-extrabold text-rose-500 dark:text-rose-400 uppercase tracking-[0.18em] mb-2">
-              Super Admin
-            </h3>
-            <button
-              onClick={() => {
-                navigate('/super-admin');
-                if (isOverlay) setIsOpen(false);
-              }}
-              className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-rose-400 hover:text-rose-200 hover:bg-rose-950/20 transition-all duration-200 active:scale-95 text-left"
-            >
-              <ShieldCheck className="w-4 h-4 text-rose-500" />
-              <span className="text-xs font-semibold tracking-wide">Platform Manager</span>
-            </button>
-          </div>
-        )}
       </div>
     );
   };

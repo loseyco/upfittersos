@@ -41,6 +41,13 @@ export interface Job {
   TimeCreated?: string;
 }
 
+const isTaskCompleted = (t: any) => {
+  if (!t) return false;
+  if (t.completed === true || t.isCompleted === true) return true;
+  const s = (t.status || '').toLowerCase().trim();
+  return ['completed', 'complete', 'qc', 'qc complete', 'closed', 'done'].includes(s);
+};
+
 export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1585,7 +1592,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                       } else {
                         const jobTasks = tasksMap[row.id] || [];
                         const total = jobTasks.length;
-                        const completed = jobTasks.filter(t => t.status === 'completed').length;
+                        const completed = jobTasks.filter(isTaskCompleted).length;
                         if (total === 0) {
                           displayContent = <span className="text-zinc-550 italic">No Tasks</span>;
                         } else {

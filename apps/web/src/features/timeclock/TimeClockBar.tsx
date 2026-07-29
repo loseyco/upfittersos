@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { calculateDistance, cn } from '../../lib/utils';
-import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
+import { getCurrentLocation, updateStaffLastLocation, getIpLocation } from '../../lib/locationService';
 
 export function TimeClockBar() {
   const navigate = useNavigate();
@@ -293,10 +293,13 @@ export function TimeClockBar() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const validateLocation = async (isClockOut = false): Promise<{ lat: number | null; lng: number | null; onSite: boolean; accuracy?: number | null } | null> => {
+  const validateLocation = async (isClockOut = false): Promise<{ lat: number | null; lng: number | null; onSite: boolean; accuracy?: number | null; type?: 'gps' | 'ip' | null } | null> => {
     return new Promise((resolve) => {
+      
       if (!navigator.geolocation) {
-        resolve({ lat: null, lng: null, onSite: true });
+        getIpLocation().then(ipLoc => {
+          resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: 'ip' });
+        });
         return;
       }
 
@@ -327,19 +330,21 @@ export function TimeClockBar() {
           return;
         }
 
-        resolve({ lat: latitude, lng: longitude, onSite, accuracy });
+        resolve({ lat: latitude, lng: longitude, onSite, accuracy, type: 'gps' });
       }, (err) => {
-        console.warn("Geolocation failed or denied, treating as remote:", err.message);
-        const onSite = false;
-        if (!settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
-          const msg = isClockOut 
-            ? "Could not resolve your location. Clocking out off-site is not allowed."
-            : "Could not resolve your location. Clocking in off-site is not allowed.";
-          toast.error(msg);
-          resolve(null);
-          return;
-        }
-        resolve({ lat: null, lng: null, onSite });
+        console.warn("Geolocation failed or denied:", err.message);
+        getIpLocation().then(ipLoc => {
+          if (!ipLoc.lat && !ipLoc.lng) {
+            toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+            resolve(null);
+          } else {
+            resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: 'ip' });
+          }
+        });
+      }, {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0
       });
     });
   };
@@ -383,6 +388,7 @@ export function TimeClockBar() {
         }
       }
 
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const docRef = await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
         userId: user!.uid,
         userName: actualName,
@@ -393,7 +399,9 @@ export function TimeClockBar() {
           lat: loc.lat,
           lng: loc.lng,
           accuracy: loc.accuracy || null,
-          onSite: loc.onSite
+          onSite: loc.onSite,
+          device: isMobile ? 'mobile' : 'pc',
+          type: loc.type || null
         },
         isRemote: !loc.onSite,
         status: 'active',
@@ -445,13 +453,16 @@ export function TimeClockBar() {
         lastJob.end = new Date();
       }
 
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       await updateDoc(sessionRef, {
         clockOut: {
           timestamp: serverTimestamp(),
           lat: loc.lat,
           lng: loc.lng,
           accuracy: loc.accuracy || null,
-          onSite: loc.onSite
+          onSite: loc.onSite,
+          device: isMobile ? 'mobile' : 'pc',
+          type: loc.type || null
         },
         status: 'completed',
         breaks,
@@ -498,16 +509,28 @@ export function TimeClockBar() {
         };
       }
       
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to start a break. Please enable GPS and allow location permissions.");
+        setIsProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsProcessing(false);
+        return;
+      }
 
       breaks.push({
-        type,
-        start: new Date(),
-        isPaid: !!(type === 'lunch' ? settings?.lunchPaid : settings?.breakPaid),
-        suspendedJob,
-        startLat: loc.lat,
-        startLng: loc.lng
-      });
+          type,
+          start: new Date(),
+          isPaid: !!(type === 'lunch' ? settings?.lunchPaid : settings?.breakPaid),
+          suspendedJob,
+          startLat: loc.lat,
+          startLng: loc.lng,
+          startDevice: isMobile ? 'mobile' : 'pc'
+        });
 
       await updateDoc(sessionRef, {
         breaks,
@@ -544,13 +567,25 @@ export function TimeClockBar() {
       const jobs = [...(sessionData?.jobs || [])];
       
       let suspendedJob = null;
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to end a break. Please enable GPS and allow location permissions.");
+        setIsProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsProcessing(false);
+        return;
+      }
 
       if (breaks.length > 0) {
         const lastBreak = breaks[breaks.length - 1];
         lastBreak.end = new Date();
         lastBreak.endLat = loc.lat;
         lastBreak.endLng = loc.lng;
+        lastBreak.endDevice = isMobile ? 'mobile' : 'pc';
         suspendedJob = lastBreak.suspendedJob;
       }
 

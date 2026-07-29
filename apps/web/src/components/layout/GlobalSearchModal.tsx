@@ -25,6 +25,8 @@ export function GlobalSearchModal() {
   const { isOpen, open, close, searchQuery, setSearchQuery } = useSearchStore();
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
   // Context data for specialized modals
   const { data: allVehicles = [] } = useQuery({
@@ -47,37 +49,49 @@ export function GlobalSearchModal() {
     enabled: isOpen && !!tenantId && tenantId !== 'GLOBAL'
   });
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Allow Ctrl+F or Cmd+F
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        open();
-      }
-      if (e.key === 'Escape') {
-        if (selectedResult) setSelectedResult(null);
-        else close();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedResult]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    } else {
-      setSelectedResult(null);
-    }
-  }, [isOpen]);
-
   const { data: searchIndex, isLoading } = useQuery({
     queryKey: ['global-search-index', tenantId, allVehicles?.length, allJobs?.length],
     queryFn: async () => {
       if (!tenantId || tenantId === 'GLOBAL') return [];
       
       const results: SearchResult[] = [];
+
+      // 1. Preload auxiliary collections for enrichment
+      let zonesList: any[] = [];
+      let staffList: any[] = [];
+      try {
+        const zonesSnap = await getDocs(collection(db, `businesses/${tenantId}/zones`));
+        zonesList = zonesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn('Failed to fetch zones for global search preload', e);
+      }
+      try {
+        const staffSnap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+        staffList = staffSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn('Failed to fetch staff for global search preload', e);
+      }
+
+      // Populate Staff results
+      staffList.forEach(data => {
+        if (data.isArchived) return;
+        const title = `${data.firstName || ''} ${data.lastName || ''}`.trim() || data.name || data.displayName || 'Unnamed Staff';
+        const subtitle = [data.role, data.email, data.phone].filter(Boolean).join(' • ') || 'No contact info';
+        const searchTerms = [data.role, data.email, data.phone, data.notes, data.firstName, data.lastName];
+        const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
+        results.push({ id: data.id, type: 'Staff', title, subtitle, searchString, rawData: data });
+      });
+
+      // Populate Bay/Zone results
+      zonesList.forEach(data => {
+        if (data.isArchived) return;
+        const title = data.name || 'Unnamed Bay';
+        const subtitle = `Type: ${data.type || 'Other'} • ${data.allowMultiple ? 'Multi-Vehicle Lot' : (data.currentVehicleVin ? `Occupied by ${data.currentVehicleVin}` : 'Empty')}`;
+        const searchTerms = [data.type, data.currentVehicleVin, data.notes];
+        const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
+        results.push({ id: data.id, type: 'Bay', title, subtitle, searchString, rawData: data });
+      });
+
       const fetchCollection = async (colName: string, type: SearchResult['type'], mapper: (doc: any) => { title: string, subtitle: string, searchTerms?: string[] }) => {
         try {
           const q = query(collection(db, `businesses/${tenantId}/${colName}`), limit(200));
@@ -86,14 +100,6 @@ export function GlobalSearchModal() {
             const data = docSnap.data();
             if (data.isArchived) return;
             const { title, subtitle, searchTerms = [] } = mapper(data);
-            
-            // Enrich Job with Vehicle info for searchability
-            if (type === 'Job' && data.vehicleId) {
-              const v = allVehicles.find(veh => veh.id === data.vehicleId || veh.vin === data.vehicleId);
-              if (v) {
-                searchTerms.push(`${v.year || ''} ${v.make || ''} ${v.model || ''}`.trim());
-              }
-            }
 
             const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
             results.push({ id: docSnap.id, type, title, subtitle, searchString, rawData: data });
@@ -107,7 +113,7 @@ export function GlobalSearchModal() {
         fetchCollection('customers', 'Customer', data => ({
           title: data.name || data.displayName || data.CompanyName || data.FullName || 'Unnamed Customer',
           subtitle: [data.email, data.mobilePhone, data.primaryPhone].filter(Boolean).join(' • ') || 'No contact info',
-          searchTerms: [data.company, data.address, data.notes, data.firstName, data.lastName]
+          searchTerms: [data.company, data.address, data.notes, data.firstName, data.lastName, ...(data.tags || [])]
         })),
         fetchCollection('vehicles', 'Vehicle', data => ({
           title: `${data.year || ''} ${data.make || ''} ${data.model || ''}`.trim() || 'Unknown Vehicle',
@@ -117,6 +123,24 @@ export function GlobalSearchModal() {
         fetchCollection('jobs', 'Job', data => {
           const vehicle = allVehicles.find(v => v.id === data.vehicleId || v.vin === data.vehicleId);
           const vehicleInfo = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : `VIN: ${data.vehicleId || data.vin || 'N/A'}`;
+          
+          // Resolve bay name
+          const bay = zonesList.find(z => z.id === data.bayId);
+          const bayName = bay ? bay.name : '';
+
+          // Resolve assigned staff names
+          const assignedStaffFromObjects = (data.assignedStaff || []).map((s: any) => s.name || s.displayName).filter(Boolean);
+          const assignedStaffFromIds = (data.assignedStaffIds || []).map((id: string) => {
+            const s = staffList.find(st => st.id === id);
+            return s ? `${s.firstName || ''} ${s.lastName || ''}`.trim() || s.name : '';
+          }).filter(Boolean);
+          const allAssignedStaffNames = Array.from(new Set([
+            ...assignedStaffFromObjects,
+            ...assignedStaffFromIds,
+            ...(data.assignedStaffNames || []),
+            data.assignedStaffId ? (staffList.find(st => st.id === data.assignedStaffId)?.name || '') : ''
+          ])).filter(Boolean);
+
           return {
             title: data.title || data.Name || data.FullName || 'Unnamed Job',
             subtitle: `${data.customerName || 'No Customer'} • ${vehicleInfo} • ${data.status || data.JobStatus || 'Pending'}`.substring(0, 100),
@@ -127,6 +151,17 @@ export function GlobalSearchModal() {
               data.customerName,
               data.vehicleId,
               data.vin,
+              data.priority,
+              data.status,
+              data.poNumber,
+              data.po_number,
+              data.invoiceNumber,
+              data.invoice_number,
+              data.workOrderNumber,
+              data.parkedLocation,
+              bayName,
+              ...allAssignedStaffNames,
+              ...(data.tags || []),
               vehicle?.vin || '',
               vehicle?.licensePlate || '',
               vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() : ''
@@ -137,16 +172,6 @@ export function GlobalSearchModal() {
           title: data.name || data.FullName || data.Name || 'Unnamed Item',
           subtitle: `SKU: ${data.sku || data.SalesDesc || 'N/A'} • Stock: ${data.quantityOnHand || data.QuantityOnHand || 0}`,
           searchTerms: [data.sku, data.description, data.notes, data.category]
-        })),
-        fetchCollection('zones', 'Bay', data => ({
-          title: data.name || 'Unnamed Bay',
-          subtitle: `Type: ${data.type || 'Other'} • ${data.allowMultiple ? 'Multi-Vehicle Lot' : (data.currentVehicleVin ? `Occupied by ${data.currentVehicleVin}` : 'Empty')}`,
-          searchTerms: [data.type, data.currentVehicleVin, data.notes]
-        })),
-        fetchCollection('staff', 'Staff', data => ({
-          title: `${data.firstName || ''} ${data.lastName || ''}`.trim() || data.name || data.displayName || 'Unnamed Staff',
-          subtitle: [data.role, data.email, data.phone].filter(Boolean).join(' • ') || 'No contact info',
-          searchTerms: [data.role, data.email, data.phone, data.notes, data.firstName, data.lastName]
         })),
         fetchCollection('shipments', 'Package', data => ({
           title: data.description || data.trackingNumber || 'Unnamed Package',
@@ -174,6 +199,24 @@ export function GlobalSearchModal() {
               // Enrich task searchTerms with job's vehicle info
               const vehicle = allVehicles.find((v: any) => v.id === job?.vehicleId || v.vin === job?.vehicleId);
               const vehicleVin = vehicle?.vin || job?.vin || '';
+              const vehicleInfo = vehicle ? `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''} ${vehicle.licensePlate || ''}`.trim() : '';
+
+              // Resolve task's assigned staff names
+              const taskStaffFromObjects = (data.assignedStaff || []).map((s: any) => s.name || s.displayName).filter(Boolean);
+              const taskStaffFromIds = (data.assignedStaffIds || []).map((id: string) => {
+                const s = staffList.find(st => st.id === id);
+                return s ? `${s.firstName || ''} ${s.lastName || ''}`.trim() || s.name : '';
+              }).filter(Boolean);
+              const allTaskStaffNames = Array.from(new Set([
+                ...taskStaffFromObjects,
+                ...taskStaffFromIds,
+                ...(data.assignedStaffNames || []),
+                ...(data.assignedCrew || [])
+              ])).filter(Boolean);
+
+              // Resolve job's bay
+              const jobBay = job ? zonesList.find(z => z.id === job.bayId) : null;
+              const jobBayName = jobBay ? jobBay.name : '';
 
               const searchTerms = [
                 data.description,
@@ -181,9 +224,14 @@ export function GlobalSearchModal() {
                 data.status,
                 jobNumber,
                 jobTitle,
+                job?.customerName || '',
+                job?.priority || '',
+                job?.status || '',
+                jobBayName,
                 vehicleVin,
-                ...(data.assignedStaffNames || []),
-                ...(data.assignedStaffIds || [])
+                vehicleInfo,
+                ...allTaskStaffNames,
+                ...(data.tags || [])
               ].filter(Boolean);
               const searchString = `${title} ${subtitle} ${searchTerms.join(' ')}`.toLowerCase();
               results.push({
@@ -211,17 +259,165 @@ export function GlobalSearchModal() {
     if (!searchIndex || !searchQuery.trim()) return [];
     
     const queryStr = searchQuery.toLowerCase();
-    const results = searchIndex.filter(item => item.searchString.includes(queryStr));
+    const queryTokens = queryStr.split(/\s+/).filter(Boolean);
+    
+    if (queryTokens.length === 0) return [];
 
-    // Group by type
-    const grouped = results.reduce((acc, curr) => {
+    const scoredResults = searchIndex
+      .map(item => {
+        const titleLower = item.title.toLowerCase();
+        const subtitleLower = item.subtitle.toLowerCase();
+        const searchStr = item.searchString;
+
+        // ALL query tokens must match somewhere in the item's searchString
+        const allTokensMatch = queryTokens.every(token => searchStr.includes(token));
+        if (!allTokensMatch) return null;
+
+        // Calculate score
+        let score = 0;
+
+        // 1. Exact match on title
+        if (titleLower === queryStr) {
+          score += 1000;
+        }
+        // 2. Prefix match on title
+        else if (titleLower.startsWith(queryStr)) {
+          score += 500;
+        }
+        // 3. Substring match of full query in title
+        else if (titleLower.includes(queryStr)) {
+          score += 300;
+        }
+
+        // 4. Exact match on subtitle
+        if (subtitleLower === queryStr) {
+          score += 200;
+        }
+        // 5. Substring match of full query in subtitle
+        else if (subtitleLower.includes(queryStr)) {
+          score += 100;
+        }
+
+        // 6. Token matching scores
+        queryTokens.forEach(token => {
+          const wordBoundaryRegex = new RegExp(`\\b${token}\\b`);
+          if (wordBoundaryRegex.test(titleLower)) {
+            score += 80;
+          } else {
+            const prefixRegex = new RegExp(`\\b${token}`);
+            if (prefixRegex.test(titleLower)) {
+              score += 40;
+            } else if (titleLower.includes(token)) {
+              score += 20;
+            }
+          }
+
+          if (subtitleLower.includes(token)) {
+            score += 10;
+          }
+        });
+
+        return { item, score };
+      })
+      .filter((res): res is { item: SearchResult; score: number } => res !== null)
+      .sort((a, b) => b.score - a.score)
+      .map(res => res.item);
+
+    // Desired display order for result categories
+    const TYPE_ORDER: Record<string, number> = {
+      'Job': 1,
+      'Task': 2,
+      'Customer': 3,
+      'Vehicle': 4,
+      'Bay': 5,
+      'Staff': 6,
+      'Inventory': 7,
+      'Package': 8,
+    };
+
+    // Group by type (preserving score sorting order within each group)
+    const grouped = scoredResults.reduce((acc, curr) => {
       if (!acc[curr.type]) acc[curr.type] = [];
       acc[curr.type].push(curr);
       return acc;
     }, {} as Record<string, SearchResult[]>);
 
-    return grouped;
+    // Sort grouped keys by TYPE_ORDER so they render in a consistent order
+    const sortedGrouped: Record<string, SearchResult[]> = {};
+    Object.keys(grouped)
+      .sort((a, b) => (TYPE_ORDER[a] || 99) - (TYPE_ORDER[b] || 99))
+      .forEach(key => {
+        sortedGrouped[key] = grouped[key];
+      });
+
+    return sortedGrouped;
   };
+
+  const filteredGroups = getFilteredResults();
+  const flatResults = Object.values(filteredGroups).flat();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow Ctrl+K or Cmd+K
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        open();
+        return;
+      }
+
+      if (!isOpen) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (selectedResult) {
+          setSelectedResult(null);
+        } else {
+          close();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (flatResults.length > 0) {
+          setActiveIndex(prev => (prev + 1) % flatResults.length);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (flatResults.length > 0) {
+          setActiveIndex(prev => (prev - 1 + flatResults.length) % flatResults.length);
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (flatResults.length > 0 && flatResults[activeIndex]) {
+          handleResultClick(flatResults[activeIndex]);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, selectedResult, activeIndex, flatResults]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => inputRef.current?.focus(), 100);
+    } else {
+      setSelectedResult(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (activeItemRef.current) {
+      activeItemRef.current.scrollIntoView({
+        block: 'nearest'
+      });
+    }
+  }, [activeIndex]);
 
   function handleResultClick(item: SearchResult) {
     if (item.type === 'Staff') {
@@ -247,7 +443,6 @@ export function GlobalSearchModal() {
     setSelectedResult(item);
   }
 
-  const filteredGroups = getFilteredResults();
   const hasResults = Object.keys(filteredGroups).length > 0;
 
   const getIcon = (type: string) => {
@@ -277,7 +472,7 @@ export function GlobalSearchModal() {
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search database (Ctrl+F)..."
+            placeholder="Search database (Ctrl+K)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="flex-1 bg-transparent border-none outline-none text-zinc-900 dark:text-white text-lg placeholder:text-zinc-400"
@@ -305,20 +500,33 @@ export function GlobalSearchModal() {
                     {type === 'Staff' ? 'Staff' : `${type}s`}
                   </div>
                   <div className="space-y-1">
-                    {items.map(item => (
-                      <button
-                        key={item.id}
-                        onClick={() => handleResultClick(item)}
-                        className="w-full text-left px-4 py-3 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 rounded-xl transition-colors flex flex-col gap-1 group"
-                      >
-                        <span className="font-semibold text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                          {item.title}
-                        </span>
-                        <span className="text-xs text-zinc-500 truncate">
-                          {item.subtitle}
-                        </span>
-                      </button>
-                    ))}
+                    {items.map(item => {
+                      const overallIndex = flatResults.findIndex(r => r.id === item.id && r.type === item.type);
+                      const isActive = overallIndex === activeIndex;
+                      return (
+                        <button
+                          key={item.id}
+                          ref={isActive ? activeItemRef : undefined}
+                          onClick={() => handleResultClick(item)}
+                          className={`w-full text-left px-4 py-3 rounded-xl transition-all flex flex-col gap-1 group border border-transparent ${
+                            isActive
+                              ? 'bg-zinc-100 dark:bg-zinc-800 border-indigo-500/30 shadow-sm'
+                              : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/50'
+                          }`}
+                        >
+                          <span className={`font-semibold transition-colors ${
+                            isActive 
+                              ? 'text-indigo-650 dark:text-indigo-400' 
+                              : 'text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400'
+                          }`}>
+                            {item.title}
+                          </span>
+                          <span className="text-xs text-zinc-500 truncate">
+                            {item.subtitle}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))

@@ -68,7 +68,7 @@ function detectCarrier(tracking: string) {
 }
 
 export function ItemDetailsModal({ isOpen, onClose, itemId, type, zones = [], onOpenIntake }: ItemDetailsModalProps) {
-  const { tenantId } = useAuthStore();
+  const { tenantId, user } = useAuthStore();
   const [item, setItem] = useState<ItemData | null>(null);
   const [job, setJob] = useState<JobData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,7 +143,11 @@ export function ItemDetailsModal({ isOpen, onClose, itemId, type, zones = [], on
     try {
       const updateData: Record<string, unknown> = {
         status: newStatus,
-        statusChangedAt: serverTimestamp()
+        statusChangedAt: serverTimestamp(),
+        statusChangedBy: user?.uid || '',
+        statusChangedByName: user?.displayName || user?.email || 'Parts Dept',
+        updatedBy: user?.uid || '',
+        updatedByName: user?.displayName || user?.email || 'Parts Dept'
       };
       
       if (newStatus === 'delivered') {
@@ -156,7 +160,7 @@ export function ItemDetailsModal({ isOpen, onClose, itemId, type, zones = [], on
       console.error(err);
       toast.error("Failed to update status");
     }
-  }, [tenantId, itemId, collectionName]);
+  }, [tenantId, itemId, collectionName, user]);
 
   // Camera Actions
   const startCamera = useCallback(async () => {

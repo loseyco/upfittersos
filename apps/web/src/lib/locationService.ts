@@ -44,9 +44,16 @@ export async function getIpLocation(): Promise<GeoLocation> {
 
 export function getCurrentLocation(timeoutMs = 7000, forceGps = true): Promise<GeoLocation> {
   return new Promise((resolve) => {
+    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+    const shouldForce = forceGps && isMobile;
+
     const getGpsLocation = () => {
       if (!navigator.geolocation) {
-        getIpLocation().then(resolve);
+        if (shouldForce) {
+          resolve({ lat: null, lng: null, accuracy: null, type: null });
+        } else {
+          getIpLocation().then(resolve);
+        }
         return;
       }
       
@@ -54,8 +61,12 @@ export function getCurrentLocation(timeoutMs = 7000, forceGps = true): Promise<G
       const timer = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          console.warn("Geolocation timeout exceeded. Falling back to IP.");
-          getIpLocation().then(resolve);
+          console.warn("Geolocation timeout exceeded. Falling back to IP if not forced.");
+          if (shouldForce) {
+            resolve({ lat: null, lng: null, accuracy: null, type: null });
+          } else {
+            getIpLocation().then(resolve);
+          }
         }
       }, timeoutMs);
 
@@ -76,8 +87,12 @@ export function getCurrentLocation(timeoutMs = 7000, forceGps = true): Promise<G
           if (!resolved) {
             resolved = true;
             clearTimeout(timer);
-            console.warn("Geolocation tracking error. Falling back to IP:", error);
-            getIpLocation().then(resolve);
+            console.warn("Geolocation tracking error. Falling back to IP if not forced:", error);
+            if (shouldForce) {
+              resolve({ lat: null, lng: null, accuracy: null, type: null });
+            } else {
+              getIpLocation().then(resolve);
+            }
           }
         },
         {
@@ -88,7 +103,7 @@ export function getCurrentLocation(timeoutMs = 7000, forceGps = true): Promise<G
       );
     };
 
-    if (!forceGps) {
+    if (!shouldForce) {
       if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
         try {
           navigator.permissions.query({ name: 'geolocation' })

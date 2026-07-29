@@ -280,7 +280,11 @@ export function PartsMissionControl() {
       const collectionName = item.type === 'shipment' ? 'shipments' : 'parts_requests';
       const updateData: any = {
         status: newStatus,
-        statusChangedAt: serverTimestamp()
+        statusChangedAt: serverTimestamp(),
+        statusChangedBy: user?.uid || '',
+        statusChangedByName: user?.displayName || user?.email || 'Parts Dept',
+        updatedBy: user?.uid || '',
+        updatedByName: user?.displayName || user?.email || 'Parts Dept'
       };
       
       // Special fields for specific statuses

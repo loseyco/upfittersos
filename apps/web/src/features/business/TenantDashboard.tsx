@@ -41,6 +41,8 @@ import { VehiclesManager } from './VehiclesManager';
 import { VehicleDetailPage } from './VehicleDetailPage';
 import { QRManager } from './QRManager';
 import { StaffManager, DepartmentsPage } from './StaffManager';
+import { StaffSitemapInspector } from './StaffSitemapInspector';
+import { AppPageDirectory } from './AppPageDirectory';
 import { StaffProfilePage } from './StaffProfilePage';
 import { OrgChartPage } from './OrgChartPage';
 import { ReportsManager } from './ReportsManager';
@@ -74,7 +76,6 @@ import { WorkflowCanvasTab } from './WorkflowCanvasTab';
 import { StaffWorksheet } from './StaffWorksheet';
 import { BayWorksheet } from './BayWorksheet';
 import { PartsWorksheet } from './PartsWorksheet';
-import { JobsWorksheet } from './JobsWorksheet';
 import { ProgressDigest } from './ProgressDigest';
 import { WeeklyMeetingNotes } from './WeeklyMeetingNotes';
 import { ForemanTodoList } from './ForemanTodoList';
@@ -85,12 +86,17 @@ import { SalesCrmManager } from './sales/SalesCrmManager';
 import { ProspectDetailPage } from './sales/ProspectDetailPage';
 import { StaffLocationsPage } from './StaffLocationsPage';
 import { StaffSpreadsheet } from './StaffSpreadsheet';
+import { TimeclockSpreadsheet } from './TimeclockSpreadsheet';
 import { VehicleSpreadsheet } from './VehicleSpreadsheet';
 import { JobSpreadsheet } from './JobSpreadsheet';
 import { TasksSpreadsheet } from './TasksSpreadsheet';
 import { WiresSpreadsheet } from './WiresSpreadsheet';
 import { TelemetryDashboard } from './TelemetryDashboard';
+import { ProgressDigestV3 } from './ProgressDigestV3';
+import { DailyLogV3 } from './DailyLogV3';
 import { WireScanPage } from './WireScanPage';
+import { PageAnalyticsDashboard } from './PageAnalyticsDashboard';
+import { usePageAnalytics } from '../../lib/telemetry/usePageAnalytics';
 import { SafetyManager } from './safety/SafetyManager';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 
@@ -105,16 +111,20 @@ export function TenantDashboard() {
 
   const titleMap: Record<string, string> = {
     overview: 'My Jobs & Todos',
+    overview_classic: 'My Jobs & Todos (Classic)',
     locations: 'Staff Locations',
     staff_sheet: 'Staff Sheet (v3)',
+    time_sheet: 'Time Logs Sheet (v3)',
     vehicles_sheet: 'Vehicles Sheet (v3)',
     jobs_sheet: 'Jobs Sheet (v3)',
     tasks_sheet: 'Tasks Sheet (v3)',
     wires_sheet: 'Wires Sheet (v3)',
+    progress_digest_v3: 'Progress Digest (v3)',
+    daily_log: 'Daily Operations Log',
+    page_analytics: 'Page Views & Usage Analytics',
     telemetry_sheet: 'Telemetry & Trends (v3)',
     wire_scan: 'Wire Wall Scanner',
     time_details: 'Time Clock',
-    time_details_v3: 'Time Clock (v3)',
     device_settings: 'Device Settings',
     quickdesk: 'QuickDesk (Classic)',
     mission_control: 'Mission Control',
@@ -202,8 +212,18 @@ export function TenantDashboard() {
     tenantId = storeTenantId;
   }
 
+  // Automatic Page Telemetry Tracker
+  usePageAnalytics(activeTab, tenantId || undefined);
+
   const navigate = useNavigate();
   
+  // Legacy Redirect: daily_log_v3 -> daily_log
+  useEffect(() => {
+    if (activeTab === 'daily_log_v3') {
+      navigate(`/business/${tenantId}/daily_log`, { replace: true });
+    }
+  }, [activeTab, navigate, tenantId]);
+
   // Legacy Redirect: foreman -> upfitters
   useEffect(() => {
     if (activeTab === 'foreman') {
@@ -428,18 +448,14 @@ export function TenantDashboard() {
 
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {activeTab === 'overview' && (
-              <UserMissionControl tenantId={tenantId!} viewMode="jobs" />
-            )}
-
-            {activeTab === 'overview_v3' && (
               <OverviewV3 tenantId={tenantId!} />
             )}
 
-            {activeTab === 'time_details' && (
-              <UserMissionControl tenantId={tenantId!} viewMode="time" />
+            {activeTab === 'overview_classic' && (
+              <UserMissionControl tenantId={tenantId!} viewMode="jobs" />
             )}
 
-            {activeTab === 'time_details_v3' && (
+            {activeTab === 'time_details' && (
               <TimeDetailsV3 tenantId={tenantId!} />
             )}
 
@@ -755,7 +771,7 @@ export function TenantDashboard() {
 
             {activeTab === 'jobs_worksheet' && (
               <PermissionGate permission="jobs.view">
-                <JobsWorksheet tenantId={tenantId!} />
+                <JobSpreadsheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 
@@ -912,6 +928,12 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'time_sheet' && (
+              <PermissionGate permission="development.view">
+                <TimeclockSpreadsheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'vehicles_sheet' && (
               <PermissionGate permission="development.view">
                 <VehicleSpreadsheet tenantId={tenantId!} />
@@ -936,9 +958,39 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'progress_digest_v3' && (
+              <PermissionGate permission="development.view">
+                <ProgressDigestV3 tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {(activeTab === 'daily_log' || activeTab === 'daily_log_v3') && (
+              <PermissionGate permissions={['office.view', 'jobs.view', 'foreman.view', 'development.view']}>
+                <DailyLogV3 tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'page_catalog' && (
+              <PermissionGate permission="development.view">
+                <AppPageDirectory tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'page_analytics' && (
+              <PermissionGate permission="development.view">
+                <PageAnalyticsDashboard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
             {activeTab === 'telemetry_sheet' && (
               <PermissionGate permission="development.view">
                 <TelemetryDashboard tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'staff_sitemap' && (
+              <PermissionGate permission="staff.view">
+                <StaffSitemapInspector tenantId={tenantId!} />
               </PermissionGate>
             )}
           </div>

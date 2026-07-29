@@ -71,6 +71,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const [staffNote, setStaffNote] = useState(session.staffNote || '');
 
   const [requestDetails, setRequestDetails] = useState<any>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
 
   useEffect(() => {
     const fetchRequest = async () => {
@@ -79,12 +81,21 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         try {
           const q = query(
             collection(db, `businesses/${tenantId}/time_edit_requests`),
-            where('sessionId', '==', session.id),
-            where('status', '==', 'pending')
+            where('sessionId', '==', session.id)
           );
           const snap = await getDocs(q);
           if (!snap.empty) {
-            activeId = snap.docs[0].id;
+            // Sort by createdAt desc to get the most recent request
+            const sortedDocs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
+              .sort((a, b) => {
+                const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+                const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+                return bTime - aTime;
+              });
+            // Look for a pending one first, or fall back to the most recent rejected/approved one
+            const pendingReq = sortedDocs.find(r => r.status === 'pending');
+            const targetReq = pendingReq || sortedDocs[0];
+            activeId = targetReq.id;
           }
         } catch (err) {
           console.warn("Error querying request:", err);
@@ -289,6 +300,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
 
       await updateDoc(requestRef, {
         status: 'rejected',
+        rejectionReason: rejectReason.trim() || 'No reason provided',
         resolvedAt: serverTimestamp(),
         resolvedBy: user!.displayName || user!.email || 'admin'
       });
@@ -297,14 +309,15 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
         type: 'time_session',
         title: 'Correction Rejected',
-        message: `Rejected time correction request for ${session.userName || 'Technician'}`,
+        message: `Rejected time correction request for ${session.userName || 'Technician'}${rejectReason.trim() ? `: "${rejectReason.trim()}"` : ''}`,
         timestamp: serverTimestamp(),
         severity: 'error',
         author: user!.displayName || user!.email || 'Admin',
         metadata: {
           requestId: activeId,
           sessionId: session.id,
-          technicianName: session.userName || ''
+          technicianName: session.userName || '',
+          rejectionReason: rejectReason.trim()
         }
       });
 
@@ -771,46 +784,87 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
             </div>
           )}
 
-          {(requestId || requestDetails) && (
-            <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-3xl p-5 space-y-4 animate-in fade-in duration-300 shadow-inner">
-              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-500/10 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-                  <div>
-                    <p className="text-sm font-black text-amber-800 dark:text-amber-200 uppercase tracking-wider">
-                      Pending Correction Request
-                    </p>
-                    <p className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold uppercase tracking-tight mt-0.5">
-                      Reviewing technician's suggested changes
-                    </p>
+          {(requestId || requestDetails) && (() => {
+            const isRejected = requestDetails?.status === 'rejected';
+            const isApproved = requestDetails?.status === 'approved';
+            
+            const cardBgClass = isRejected 
+              ? "bg-rose-500/5 dark:bg-rose-500/10 border-rose-500/20 text-rose-850 dark:text-rose-200"
+              : isApproved
+                ? "bg-emerald-500/5 dark:bg-emerald-500/10 border-emerald-500/20 text-emerald-850 dark:text-emerald-200"
+                : "bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/20 text-amber-850 dark:text-amber-200";
+            
+            const borderBClass = isRejected
+              ? "border-rose-500/10"
+              : isApproved
+                ? "border-emerald-500/10"
+                : "border-amber-500/10";
+                
+            const titleClass = isRejected
+              ? "text-rose-800 dark:text-rose-250"
+              : isApproved
+                ? "text-emerald-800 dark:text-emerald-250"
+                : "text-amber-800 dark:text-amber-250";
+                
+            const subtitleClass = isRejected
+              ? "text-rose-600 dark:text-rose-400"
+              : isApproved
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-amber-600 dark:text-amber-400";
+
+            return (
+              <div className={`border rounded-3xl p-5 space-y-4 animate-in fade-in duration-300 shadow-inner ${cardBgClass}`}>
+                <div className={`flex items-center justify-between flex-wrap gap-2 border-b pb-3 ${borderBClass}`}>
+                  <div className="flex items-center gap-2.5">
+                    <AlertCircle className={`w-5 h-5 shrink-0 ${isRejected ? 'text-rose-500' : isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
+                    <div>
+                      <p className={`text-sm font-black uppercase tracking-wider ${titleClass}`}>
+                        {isRejected ? 'Rejected Correction Request' : isApproved ? 'Approved Correction Request' : 'Pending Correction Request'}
+                      </p>
+                      <p className={`text-[10px] font-semibold uppercase tracking-tight mt-0.5 ${subtitleClass}`}>
+                        {isRejected 
+                          ? `Rejected by ${requestDetails.resolvedBy || 'Admin'}` 
+                          : isApproved 
+                            ? `Approved by ${requestDetails.resolvedBy || 'Admin'}` 
+                            : "Reviewing technician's suggested changes"}
+                      </p>
+                    </div>
                   </div>
+                  {requestDetails && getDurationDiffBadge(
+                    requestDetails.originalClockIn,
+                    requestDetails.originalClockOut,
+                    requestDetails.proposedClockIn,
+                    requestDetails.proposedClockOut,
+                    requestDetails.originalBreaks,
+                    requestDetails.proposedBreaks || (requestDetails.originalBreaks === undefined ? session.breaks : undefined)
+                  )}
                 </div>
-                {requestDetails && getDurationDiffBadge(
-                  requestDetails.originalClockIn,
-                  requestDetails.originalClockOut,
-                  requestDetails.proposedClockIn,
-                  requestDetails.proposedClockOut,
-                  requestDetails.originalBreaks,
-                  requestDetails.proposedBreaks || (requestDetails.originalBreaks === undefined ? session.breaks : undefined)
-                )}
-              </div>
 
-              {requestDetails && (() => {
-                const originalBreaks = requestDetails.originalBreaks;
-                const proposedBreaks = requestDetails.proposedBreaks || (originalBreaks === undefined ? session.breaks : undefined);
-                const originalJobs = requestDetails.originalJobs;
-                const proposedJobs = requestDetails.proposedJobs || (originalJobs === undefined ? session.jobs : undefined);
+                {requestDetails && (() => {
+                  const originalBreaks = requestDetails.originalBreaks;
+                  const proposedBreaks = requestDetails.proposedBreaks || (originalBreaks === undefined ? session.breaks : undefined);
+                  const originalJobs = requestDetails.originalJobs;
+                  const proposedJobs = requestDetails.proposedJobs || (originalJobs === undefined ? session.jobs : undefined);
 
-                return (
-                  <div className="space-y-4">
-                    {requestDetails.note && (
-                      <div className="bg-white/80 dark:bg-zinc-900/40 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80">
-                        <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase block tracking-widest">Technician Note / Explanation</span>
-                        <p className="text-xs font-semibold text-zinc-850 dark:text-zinc-200 italic mt-1.5 leading-relaxed">
-                          "{requestDetails.note}"
-                        </p>
-                      </div>
-                    )}
+                  return (
+                    <div className="space-y-4">
+                      {requestDetails.note && (
+                        <div className="bg-white/80 dark:bg-zinc-900/40 p-3.5 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80">
+                          <span className="text-[9px] font-black text-zinc-400 dark:text-zinc-555 uppercase block tracking-widest">Technician Note / Explanation</span>
+                          <p className="text-xs font-semibold text-zinc-850 dark:text-zinc-200 italic mt-1.5 leading-relaxed text-zinc-900 dark:text-white">
+                            "{requestDetails.note}"
+                          </p>
+                        </div>
+                      )}
+
+                      {isRejected && requestDetails.rejectionReason && (
+                        <div className="bg-rose-500/10 dark:bg-rose-955/20 p-3.5 rounded-2xl border border-rose-500/20">
+                          <span className="text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase block tracking-widest">Reason for Rejection</span>
+                          <p className="text-xs font-semibold text-rose-800 dark:text-rose-350 italic mt-1.5 leading-relaxed">
+                            "{requestDetails.rejectionReason}"
+                          </p>
+                        </div>
+                      )}
 
                     {/* High Contrast Side-by-Side Comparison */}
                     {(requestDetails.originalClockIn || requestDetails.originalClockOut) && (
@@ -965,7 +1019,8 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
                 );
               })()}
             </div>
-          )}
+          );
+        })()}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
@@ -1186,55 +1241,92 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
           )}
         </div>
 
-        <div className="p-6 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex flex-col sm:flex-row gap-3">
-          {(requestId || requestDetails?.id) && canApprove && (
-            <button 
-              disabled={isSubmitting}
-              onClick={handleReject}
-              className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
-            >
-              Reject Request
-            </button>
-          )}
-          <div className="flex-1 flex gap-3">
-            <button 
-              onClick={onClose}
-              className="flex-1 px-6 py-3 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 rounded-xl font-bold border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
-            >
-              Cancel
-            </button>
-            <button 
-              disabled={isSubmitting || !clockIn}
-              onClick={handleSave}
-              className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 ${
-                (requestId || requestDetails?.id) && canApprove
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
-              }`}
-            >
-              {isSubmitting ? (
-                'Processing...'
-              ) : (requestId || requestDetails?.id) && canApprove ? (
-                <>
-                  <Check className="w-4 h-4" /> Approve & Save Request
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" /> Save Changes
-                </>
+        <div className="p-6 bg-zinc-50 dark:bg-zinc-800/50 border-t border-zinc-100 dark:border-zinc-800 flex flex-col gap-4">
+          {showRejectConfirm ? (
+            <div className="space-y-3 w-full bg-rose-500/5 dark:bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 animate-in slide-in-from-bottom-2 duration-200">
+              <div className="flex items-center gap-2 text-rose-800 dark:text-rose-350">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                <span className="text-xs font-bold uppercase tracking-wider">Confirm Rejection</span>
+              </div>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Specify why you are rejecting this request (e.g. invalid hours, no job logs, mismatch with GPS)..."
+                className="w-full h-20 p-3 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl outline-none focus:ring-2 focus:ring-rose-500/50 text-xs text-zinc-900 dark:text-white resize-none"
+              />
+              <div className="flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRejectConfirm(false);
+                    setRejectReason('');
+                  }}
+                  className="px-4 py-2 bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-355 text-zinc-700 dark:text-zinc-300 rounded-lg text-xs font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={handleReject}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all shadow-md shadow-rose-600/20"
+                >
+                  {isSubmitting ? 'Rejecting...' : 'Reject Request'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-3 w-full">
+              {(requestId || requestDetails?.id) && canApprove && requestDetails?.status === 'pending' && (
+                <button 
+                  disabled={isSubmitting}
+                  onClick={() => setShowRejectConfirm(true)}
+                  className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0 cursor-pointer"
+                >
+                  Reject Request
+                </button>
               )}
-            </button>
-            {isAdmin && session.id && (
-              <button 
-                disabled={isSubmitting}
-                onClick={handleDelete}
-                className="px-6 py-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500/20 transition-all disabled:opacity-50 shrink-0"
-                title="Delete Entry"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-          </div>
+              <div className="flex-1 flex gap-3">
+                <button 
+                  onClick={onClose}
+                  className="flex-1 px-6 py-3 bg-white dark:bg-zinc-900 text-zinc-650 dark:text-zinc-400 rounded-xl font-bold border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  disabled={isSubmitting || !clockIn}
+                  onClick={handleSave}
+                  className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold shadow-lg transition-all disabled:opacity-50 cursor-pointer ${
+                    (requestId || requestDetails?.id) && canApprove && requestDetails?.status === 'pending'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-500/20'
+                  }`}
+                >
+                  {isSubmitting ? (
+                    'Processing...'
+                  ) : (requestId || requestDetails?.id) && canApprove && requestDetails?.status === 'pending' ? (
+                    <>
+                      <Check className="w-4 h-4" /> Approve & Save Request
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" /> Save Changes
+                    </>
+                  )}
+                </button>
+                {isAdmin && session.id && (
+                  <button 
+                    disabled={isSubmitting}
+                    onClick={handleDelete}
+                    className="p-3 bg-rose-500/10 text-rose-600 dark:text-rose-455 rounded-xl font-bold border border-rose-500/20 hover:bg-rose-500 hover:text-white transition-all disabled:opacity-50 cursor-pointer"
+                    title="Delete Time Entry"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

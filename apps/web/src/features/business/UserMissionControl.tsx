@@ -1037,7 +1037,13 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         }
       }
 
-      const loc = await getCurrentLocation();
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const loc = await getCurrentLocation(7000, false);
+      if (!loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
       let isRemote = false;
 
@@ -1053,7 +1059,9 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       }
 
       if (loc.lat !== null && loc.lng !== null) {
-        if (settings?.siteLat && settings?.siteLng) {
+        if (loc.type === 'ip') {
+          onSite = true;
+        } else if (settings?.siteLat && settings?.siteLng) {
           const dist = calculateDistance(
             loc.lat, loc.lng,
             parseFloat(settings.siteLat), parseFloat(settings.siteLng)
@@ -1122,7 +1130,9 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
             lat: loc.lat,
             lng: loc.lng,
             accuracy: loc.accuracy,
-            onSite
+            onSite,
+            device: isMobile ? 'mobile' : 'pc',
+            type: loc.type || null
           },
           isRemote,
           status: 'active',
@@ -1163,7 +1173,13 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         lastJob.end = new Date();
       }
 
-      const loc = await getCurrentLocation();
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+      const loc = await getCurrentLocation(7000, false);
+      if (!loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
       let onSite = true;
 
       // Fetch business settings
@@ -1179,7 +1195,10 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
 
       let allowedClockOut = true;
       if (loc.lat !== null && loc.lng !== null) {
-        if (settings?.siteLat && settings?.siteLng) {
+        if (loc.type === 'ip') {
+          onSite = true;
+          allowedClockOut = true;
+        } else if (settings?.siteLat && settings?.siteLng) {
           const dist = calculateDistance(
             loc.lat, loc.lng,
             parseFloat(settings.siteLat), parseFloat(settings.siteLng)
@@ -1204,7 +1223,9 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
           lat: loc.lat,
           lng: loc.lng,
           accuracy: loc.accuracy,
-          onSite
+          onSite,
+          device: isMobile ? 'mobile' : 'pc',
+          type: loc.type || null
         },
         status: 'completed',
         breaks,
@@ -1247,7 +1268,18 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         };
       }
       
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to start a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
 
       breaks.push({
         type,
@@ -1255,7 +1287,8 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
         isPaid: type === 'lunch' ? false : true,
         suspendedJob,
         startLat: loc.lat,
-        startLng: loc.lng
+        startLng: loc.lng,
+        startDevice: isMobile ? 'mobile' : 'pc'
       });
 
       await updateDoc(sessionRef, {
@@ -1288,13 +1321,25 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       const jobs = [...(sessionData?.jobs || [])];
       
       let suspendedJob = null;
+      const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();
+      if (isMobile && (!loc.lat || !loc.lng || loc.type !== 'gps')) {
+        toast.error("GPS location is mandatory to end a break. Please enable GPS and allow location permissions.");
+        setIsClockProcessing(false);
+        return;
+      }
+      if (!isMobile && !loc.lat && !loc.lng) {
+        toast.error("Could not resolve location. Please ensure you have an active network connection.");
+        setIsClockProcessing(false);
+        return;
+      }
 
       if (breaks.length > 0) {
         const lastBreak = breaks[breaks.length - 1];
         lastBreak.end = new Date();
         lastBreak.endLat = loc.lat;
         lastBreak.endLng = loc.lng;
+        lastBreak.endDevice = isMobile ? 'mobile' : 'pc';
         suspendedJob = lastBreak.suspendedJob;
       }
 
@@ -2161,10 +2206,10 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
             </div>
           </div>
           <button
-            onClick={() => navigate(`/business/${tenantId}/overview_v3`)}
+            onClick={() => navigate(`/business/${tenantId}/overview`)}
             className="px-4 py-2.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl text-xs font-black shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-95 shrink-0 self-start sm:self-auto border border-transparent"
           >
-            <span>Try V3 Dashboard (Beta)</span>
+            <span>Try V3 Dashboard</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>

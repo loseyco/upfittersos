@@ -1214,8 +1214,10 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
     if (isNew) {
       if (field === 'title') {
         const defaultHours = taskDefaults[value];
-        if (typeof defaultHours === 'number') {
-          setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value, bookTime: defaultHours } : t));
+        const isDiagRepair = value.toLowerCase().trim() === 'labor:diagnose/repair';
+        const finalHours = typeof defaultHours === 'number' ? defaultHours : (isDiagRepair ? 1 : undefined);
+        if (finalHours !== undefined) {
+          setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value, bookTime: finalHours, payBasis: 'book_time' } : t));
         } else {
           setJobTasks(prev => prev.map(t => t.id === taskId ? { ...t, title: value } : t));
         }
@@ -1286,8 +1288,11 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
         if (field === 'title') {
           const defaultHours = taskDefaults[value];
-          if (typeof defaultHours === 'number') {
-            updateObj.bookTime = defaultHours;
+          const isDiagRepair = value.toLowerCase().trim() === 'labor:diagnose/repair';
+          const finalHours = typeof defaultHours === 'number' ? defaultHours : (isDiagRepair ? 1 : undefined);
+          if (finalHours !== undefined) {
+            updateObj.bookTime = finalHours;
+            updateObj.payBasis = 'book_time';
           }
         }
 

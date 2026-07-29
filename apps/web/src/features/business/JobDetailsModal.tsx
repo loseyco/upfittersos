@@ -5453,6 +5453,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
     const title = newTaskTitle.trim() || 'General Labor';
+    const isDiagRepair = title.toLowerCase().trim() === 'labor:diagnose/repair';
 
 
 
@@ -5468,7 +5469,7 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
 
-    const bookTime = parseFloat(newTaskBookTime) || 0;
+    const bookTime = parseFloat(newTaskBookTime) || (isDiagRepair ? 1 : 0);
 
 
 
@@ -5709,6 +5710,22 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
 
 
         tenantId: tenantId,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        payBasis: 'book_time',
 
 
 
@@ -26761,6 +26778,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
     const title = newTaskTitle.trim() || 'General Labor';
+    const isDiagRepair = title.toLowerCase().trim() === 'labor:diagnose/repair';
 
 
 
@@ -26776,7 +26794,7 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
 
-    const bookTime = parseFloat(newTaskBookTime) || 0;
+    const bookTime = parseFloat(newTaskBookTime) || (isDiagRepair ? 1 : 0);
 
 
 
@@ -27017,6 +27035,22 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
 
 
         tenantId: tenantId,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        payBasis: 'book_time',
 
 
 

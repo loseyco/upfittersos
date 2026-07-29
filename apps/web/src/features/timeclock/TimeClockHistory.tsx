@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp, collectionGroup, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, limit, addDoc, serverTimestamp, collectionGroup, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useAuthStore } from '../../lib/auth/store';
 import { Clock, MapPin, Calendar, MessageSquare, Send, X, AlertCircle, Info, Timer, TrendingUp, FileSignature, Plus } from 'lucide-react';
@@ -221,6 +221,8 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
   const [editingSession, setEditingSession] = useState<TimeSession | null>(null);
   const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'sessions' | 'corrections'>('sessions');
+  const [appealingRequest, setAppealingRequest] = useState<any>(null);
+  const [appealNote, setAppealNote] = useState('');
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -282,7 +284,7 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
     enabled: !!effectiveUserId && !!tenantId
   });
 
-  const { data: requests } = useQuery({
+  const { data: requests, refetch: refetchRequests } = useQuery({
     queryKey: ['time-edit-requests', tenantId, effectiveUserId, staffMember?.id, staffMember?.userId],
     queryFn: async () => {
       if (!effectiveUserId) return [];
@@ -299,7 +301,12 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
         where('userId', 'in', searchIds)
       );
       const snap = await getDocs(q);
-      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => {
+          const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return bTime - aTime;
+        });
     },
     enabled: !!effectiveUserId && !!tenantId
   });
@@ -813,25 +820,25 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                       )}>
                         {session.status}
                       </span>
-                      {session.verificationStatus === 'pending' && (
+                      {request && (request as any).status === 'rejected' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-rose-500/10 text-rose-650 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 shrink-0 text-rose-500" />
+                          Correction Rejected
+                        </span>
+                      ) : request && (request as any).status === 'pending' ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-amber-500/10 text-amber-600 ring-1 ring-inset ring-amber-500/20">
+                          Edit Pending
+                        </span>
+                      ) : session.verificationStatus === 'pending' ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight bg-indigo-650 text-white dark:bg-indigo-500 border border-indigo-755 dark:border-indigo-455 animate-pulse shadow-[0_0_8px_rgba(79,70,229,0.4)] flex items-center gap-1">
                           <FileSignature className="w-3 h-3 shrink-0" />
                           Needs Verification
                         </span>
-                      )}
-                      {session.verificationStatus === 'verified' && (
+                      ) : session.verificationStatus === 'verified' ? (
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25">
                           Verified
                         </span>
-                      )}
-                      {request && !session.verificationStatus && (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ring-1 ring-inset",
-                          (request as any).status === 'pending' ? "bg-amber-500/10 text-amber-600 ring-amber-500/20" : "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20"
-                        )}>
-                          Edit {(request as any).status}
-                        </span>
-                      )}
+                      ) : null}
                       {session.isRemote && (
                         <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-600 text-white uppercase tracking-tight">
                           <MapPin className="w-2.5 h-2.5" /> Remote
@@ -865,6 +872,35 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                   </button>
                 </div>
               </div>
+
+              {request && (request as any).status === 'rejected' && (
+                <div 
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-4 bg-rose-500/5 dark:bg-rose-955/10 border border-rose-500/20 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-rose-800 dark:text-rose-300 transition-all animate-in slide-in-from-top-1 duration-200"
+                >
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-rose-700 dark:text-rose-400">Correction Request Rejected</p>
+                      <p className="text-xs text-rose-600 dark:text-rose-350 italic mt-1 font-semibold">
+                        "{ (request as any).rejectionReason || 'No reason provided' }"
+                      </p>
+                      <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1 uppercase font-bold tracking-tight">
+                        Resolved by {(request as any).resolvedBy || 'Admin'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setAppealingRequest(request);
+                      setAppealNote('');
+                    }}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-rose-600/20 cursor-pointer self-start sm:self-center"
+                  >
+                    Appeal Rejection
+                  </button>
+                </div>
+              )}
 
               {/* Session Activity & Breakdown Details */}
               <SessionBreakdownSection 
@@ -947,6 +983,117 @@ export function TimeClockHistory({ tenantId }: { tenantId: string }) {
                     className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-50"
                   >
                     {isSubmitting ? 'Submitting...' : <><Send className="w-4 h-4" /> Send Request</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Appeal Request Modal */}
+        {appealingRequest && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-zinc-955/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-rose-500/10 rounded-xl">
+                    <AlertCircle className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Appeal Rejection</h3>
+                </div>
+                <button onClick={() => setAppealingRequest(null)} className="p-2 text-zinc-400 hover:text-zinc-650 cursor-pointer"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-200/50 dark:border-zinc-800/80 text-xs space-y-2">
+                  <p className="font-bold text-zinc-700 dark:text-zinc-300">Original Request Details:</p>
+                  <p className="text-zinc-600 dark:text-zinc-400 italic">"{appealingRequest.note}"</p>
+                  {appealingRequest.rejectionReason && (
+                    <>
+                      <p className="font-bold text-rose-700 dark:text-rose-400 mt-2">Reason for Rejection:</p>
+                      <p className="text-rose-600 dark:text-rose-455 italic font-bold">"{appealingRequest.rejectionReason}"</p>
+                    </>
+                  )}
+                </div>
+                <p className="text-sm text-zinc-500">Provide an appeal note to explain why these changes are correct.</p>
+                <textarea 
+                  value={appealNote}
+                  onChange={(e) => setAppealNote(e.target.value)}
+                  placeholder="Tell us why the rejection should be reconsidered..."
+                  className="w-full h-32 p-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all dark:text-white text-sm resize-none"
+                />
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={() => setAppealingRequest(null)}
+                    className="flex-1 px-6 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-xl font-bold hover:bg-zinc-200 transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={!appealNote.trim() || isSubmitting}
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      try {
+                        const requestRef = doc(db, `businesses/${tenantId}/time_edit_requests`, appealingRequest.id);
+                        await updateDoc(requestRef, {
+                          status: 'pending',
+                          isAppeal: true,
+                          appealNote: appealNote.trim(),
+                          note: `${appealingRequest.note}\n\n[APPEAL]: ${appealNote.trim()}`,
+                          createdAt: serverTimestamp(),
+                          updatedAt: serverTimestamp()
+                        });
+
+                        const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, appealingRequest.sessionId);
+                        const sessionUpdates: any = {
+                          verificationStatus: 'pending',
+                          updatedAt: serverTimestamp()
+                        };
+                        if (appealingRequest.proposedClockIn) {
+                          sessionUpdates['clockIn.timestamp'] = appealingRequest.proposedClockIn;
+                        }
+                        if (appealingRequest.proposedClockOut !== undefined) {
+                          sessionUpdates['clockOut.timestamp'] = appealingRequest.proposedClockOut;
+                          sessionUpdates.status = appealingRequest.proposedClockOut ? 'completed' : 'active';
+                        }
+                        if (appealingRequest.proposedBreaks !== undefined) {
+                          sessionUpdates.breaks = appealingRequest.proposedBreaks;
+                        }
+                        if (appealingRequest.proposedJobs !== undefined) {
+                          sessionUpdates.jobs = appealingRequest.proposedJobs;
+                          sessionUpdates.jobIds = Array.from(new Set(appealingRequest.proposedJobs.map((j: any) => j.id)));
+                        }
+                        await updateDoc(sessionRef, sessionUpdates);
+
+                        // Log activity to the live timeline
+                        await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+                          type: 'time_session',
+                          title: 'Correction Appealed',
+                          message: `${staffMember?.name || user!.displayName || user!.email || 'Technician'} appealed a rejected clock correction.`,
+                          timestamp: serverTimestamp(),
+                          severity: 'warning',
+                          author: staffMember?.name || user!.displayName || user!.email || 'Technician',
+                          metadata: {
+                            requestId: appealingRequest.id,
+                            sessionId: appealingRequest.sessionId,
+                            appealNote: appealNote.trim()
+                          }
+                        });
+
+                        toast.success("Appeal submitted successfully");
+                        setAppealingRequest(null);
+                        setAppealNote('');
+                        refetch();
+                        refetchRequests();
+                      } catch (e) {
+                        console.error(e);
+                        toast.error("Failed to submit appeal");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold shadow-lg shadow-rose-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmitting ? 'Submitting...' : <><Send className="w-4 h-4" /> Submit Appeal</>}
                   </button>
                 </div>
               </div>
