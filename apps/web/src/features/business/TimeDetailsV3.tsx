@@ -1232,9 +1232,10 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         periodUnallocatedMs += (gap.end - gap.start);
       });
 
-      // Sum hourly clocked time
+      // Sum hourly & unallocated task clocked time
       (session.jobs || []).forEach((j: any) => {
-        if (j.payBasis === 'hourly') {
+        const isUnassigned = j.id === 'unassigned' || j.taskId === 'unassigned' || (j.name || '').toLowerCase().includes('unassigned');
+        if (j.payBasis === 'hourly' || isUnassigned) {
           const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
           const end = j.end 
             ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) 
@@ -2061,7 +2062,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
               // Hourly Labor: sum clocked task durations
               (session.jobs || []).forEach((j: any) => {
-                if (j.payBasis === 'hourly') {
+                const isUnassigned = j.id === 'unassigned' || j.taskId === 'unassigned' || (j.name || '').toLowerCase().includes('unassigned');
+                if (j.payBasis === 'hourly' || isUnassigned) {
                   const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
                   const end = j.end 
                     ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) 

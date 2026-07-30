@@ -39,7 +39,7 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
 
       // Fetch task details if available
       let bookTime = 0;
-      let payBasis = 'book_time';
+      let payBasis = jobId === 'unassigned' ? 'hourly' : 'book_time';
       if (taskId && jobId !== 'unassigned') {
         try {
           const taskSnap = await getDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
