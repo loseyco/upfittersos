@@ -751,16 +751,24 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
         let name = '';
         let id = actorId || '';
 
-        if (actorName && actorName.trim()) {
-          const found = staff.find(s => s.id === actorId || s.userId === actorId || s.name === actorName || `${s.firstName || ''} ${s.lastName || ''}`.trim() === actorName);
-          name = actorName.trim();
-          id = found?.id || found?.userId || actorId || '';
-        } else if (actorId) {
-          const found = staff.find(s => s.id === actorId || s.userId === actorId);
-          if (found) {
-            name = `${found.firstName || found.name || 'Staff'} ${found.lastName || ''}`.trim();
-            id = found.id || found.userId || '';
-          }
+        const candidateName = (actorName && actorName.trim()) ? actorName.trim() : (actorId && !actorId.includes('@') && actorId.length < 50 && !actorId.match(/^[a-zA-Z0-9]{20,}$/) ? actorId.trim() : '');
+        const candidateId = actorId || '';
+
+        const found = staff.find(s => {
+          if (candidateId && (s.id === candidateId || s.userId === candidateId)) return true;
+          const fullName = `${s.firstName || s.name || ''} ${s.lastName || ''}`.trim();
+          if (candidateName && (fullName.toLowerCase() === candidateName.toLowerCase() || s.name?.toLowerCase() === candidateName.toLowerCase())) return true;
+          if (candidateId && (fullName.toLowerCase() === candidateId.toLowerCase() || s.name?.toLowerCase() === candidateId.toLowerCase() || s.email?.toLowerCase() === candidateId.toLowerCase())) return true;
+          return false;
+        });
+
+        if (found) {
+          name = `${found.firstName || found.name || 'Staff'} ${found.lastName || ''}`.trim();
+          id = found.id || found.userId || '';
+        } else if (candidateName && candidateName !== 'Package Intake' && candidateName !== 'System' && candidateName !== 'Unknown') {
+          name = candidateName;
+        } else if (candidateId && candidateId.includes(' ')) {
+          name = candidateId;
         }
 
         if (!name || name.toLowerCase().includes('kathy')) {
@@ -772,8 +780,8 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
 
       // Initial Requester
       const initialRequester = resolveEventActor(
-        p.requestedBy || p.createdBy || p.userId,
-        p.requestedByName || p.createdByName,
+        p.requestedById || p.requestedByStaffId || p.createdBy || p.userId || p.requestedBy,
+        p.requestedByName || p.requestedBy || p.createdByName,
         mattFallback
       );
 
@@ -811,10 +819,15 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       };
 
       const statusLower = (p.status || 'pending').toLowerCase().trim();
+      const isDirectReceive = Boolean(
+        p.isDirectReceive ||
+        p.isIntake ||
+        (statusLower === 'received' && !p.requestedAt && (p.requestedBy === 'Package Intake' || !p.orderedAt))
+      );
 
-      // State 1: Request Created (Requested)
+      // State 1: Request Created (Requested) - Skip if directly received/intaked
       const createdAt = p.createdAt || p.requestedAt;
-      if (createdAt) {
+      if (createdAt && !isDirectReceive) {
         addPartEvent(
           'req',
           createdAt,
@@ -828,10 +841,10 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
 
       // State 2: Moved to Ordered
       const orderedAt = p.orderedAt || p.orderedDate || (statusLower === 'ordered' ? p.statusChangedAt || p.updatedAt : null);
-      if (orderedAt && orderedAt !== createdAt) {
+      if (orderedAt && orderedAt !== createdAt && !isDirectReceive) {
         const orderedActor = resolveEventActor(
-          p.orderedBy || p.orderedByStaffId || p.statusChangedBy || p.updatedBy,
-          p.orderedByName || p.statusChangedByName || p.updatedByName,
+          p.orderedBy || p.orderedByStaffId || p.orderedById || p.statusChangedBy || p.updatedBy,
+          p.orderedByName || p.orderedBy || p.statusChangedByName || p.updatedByName,
           mattFallback
         );
         addPartEvent(
@@ -846,11 +859,11 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       }
 
       // State 3: Moved to Received
-      const receivedAt = p.receivedAt || p.receivedDate || (statusLower === 'received' ? p.statusChangedAt || p.updatedAt : null);
-      if (receivedAt && receivedAt !== createdAt && receivedAt !== orderedAt) {
+      const receivedAt = p.receivedAt || p.receivedDate || (statusLower === 'received' ? p.statusChangedAt || p.updatedAt || p.createdAt : null);
+      if (receivedAt && (isDirectReceive || (receivedAt !== createdAt && receivedAt !== orderedAt))) {
         const receivedActor = resolveEventActor(
-          p.receivedBy || p.receivedByStaffId || p.statusChangedBy || p.updatedBy,
-          p.receivedByName || p.statusChangedByName || p.updatedByName,
+          p.receivedBy || p.receivedByStaffId || p.receivedById || p.statusChangedBy || p.updatedBy,
+          p.receivedByName || p.receivedBy || p.statusChangedByName || p.updatedByName,
           mattFallback
         );
         addPartEvent(
@@ -868,8 +881,8 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       const vehicleAt = p.stagedAt || p.deliveredAt || p.putAwayAt || (['fulfilled', 'delivered', 'staged', 'with_vehicle', 'with vehicle'].includes(statusLower) ? p.statusChangedAt || p.updatedAt : null);
       if (vehicleAt && vehicleAt !== createdAt && vehicleAt !== orderedAt && vehicleAt !== receivedAt) {
         const vehicleActor = resolveEventActor(
-          p.stagedBy || p.deliveredBy || p.putAwayBy || p.statusChangedBy || p.updatedBy,
-          p.stagedByName || p.deliveredByName || p.statusChangedByName || p.updatedByName,
+          p.stagedBy || p.stagedByStaffId || p.deliveredBy || p.putAwayBy || p.statusChangedBy || p.updatedBy,
+          p.stagedByName || p.stagedBy || p.deliveredByName || p.deliveredBy || p.statusChangedByName || p.updatedByName,
           mattFallback
         );
         addPartEvent(
@@ -899,11 +912,11 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
           if (['ordered'].includes(statusLower)) {
             statusText = 'ORDERED';
             detailsText = `Part Moved to Ordered: ${partTitle}`;
-            fallbackActor = resolveEventActor(p.orderedBy || p.updatedBy, p.orderedByName || p.updatedByName, mattFallback);
+            fallbackActor = resolveEventActor(p.orderedBy || p.orderedById || p.updatedBy, p.orderedByName || p.orderedBy || p.updatedByName, mattFallback);
           } else if (['received'].includes(statusLower)) {
             statusText = 'RECEIVED';
             detailsText = `Part Received into Shop: ${partTitle}`;
-            fallbackActor = resolveEventActor(p.receivedBy || p.updatedBy, p.receivedByName || p.updatedByName, mattFallback);
+            fallbackActor = resolveEventActor(p.receivedBy || p.receivedById || p.updatedBy, p.receivedByName || p.receivedBy || p.updatedByName, mattFallback);
           } else if (['fulfilled', 'delivered', 'staged', 'with_vehicle', 'with vehicle'].includes(statusLower)) {
             statusText = 'WITH VEHICLE';
             detailsText = `Part Moved to Vehicle / Tech: ${partTitle}`;
@@ -1104,7 +1117,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       }
     });
     const totalClockedHours = (totalClockedSec / 3600).toFixed(1);
-    const pendingPartsCount = partsRequests.filter(p => (p.status || 'pending').toLowerCase() === 'pending').length;
+    const pendingPartsCount = partsRequests.filter(p => ['pending', 'requested', 'ordered'].includes((p.status || '').toLowerCase().trim())).length;
 
     return {
       totalBookHours: totalBookHours.toFixed(1),
@@ -1113,6 +1126,76 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       pendingPartsCount
     };
   }, [unifiedDailyLogFeed, activeSessions, partsRequests, selectedDate]);
+
+  // Active Task & Job Blockers List
+  const activeBlockersList = useMemo(() => {
+    const list: { id: string; jobId?: string; taskName?: string; label: string; reason: string }[] = [];
+
+    const extractNote = (item: any, fallback: string) => {
+      if (Array.isArray(item.blockers) && item.blockers.length > 0) {
+        const activeB = item.blockers.find((b: any) => b.status === 'active' || (!b.resolvedAt && (b.reason || b.note || b.details)));
+        if (activeB) {
+          const note = activeB.reason || activeB.note || activeB.details || activeB.description;
+          if (note && typeof note === 'string' && note.trim()) return note.trim();
+        }
+        const lastB = item.blockers[item.blockers.length - 1];
+        if (lastB) {
+          const note = lastB.reason || lastB.note || lastB.details || lastB.description;
+          if (note && typeof note === 'string' && note.trim()) return note.trim();
+        }
+      }
+
+      const directNote = item.blockReason || item.blockedReason || item.blockNote || item.blockerNote || item.issueNote || item.reason || item.note || item.notes || item.details;
+      if (directNote && typeof directNote === 'string' && directNote.trim()) return directNote.trim();
+
+      return fallback;
+    };
+    
+    // 1. Check tasks in tasksMap for active blockers
+    Object.entries(tasksMap).forEach(([jobId, tasks]: [string, any[]]) => {
+      const job = jobs.find(j => j.id === jobId);
+      tasks.forEach((t: any) => {
+        if (!isTaskCompleted(t)) {
+          const s = (t.status || '').toLowerCase().trim();
+          const isExplicitBlocked = t.isBlocked === true || t.is_blocked === true || t.blocked === true || s === 'blocked' || s === 'task blocked';
+          const activeBlockerObj = Array.isArray(t.blockers) ? t.blockers.find((b: any) => b.status === 'active' || (!b.resolvedAt && (b.reason || b.note))) : null;
+          
+          if (isExplicitBlocked || activeBlockerObj) {
+            const reason = extractNote(t, activeBlockerObj?.reason || activeBlockerObj?.note || (s === 'blocked' ? 'Explicitly Blocked' : 'Task Blocker Active'));
+            const jobLabel = job ? `[Job #${job.jobNumber || 'N/A'}] ` : '';
+            const tName = t.name || t.title || 'Task';
+            list.push({
+              id: t.id || `task_${Math.random()}`,
+              jobId: job?.id,
+              taskName: tName,
+              label: `${jobLabel}${tName}`,
+              reason
+            });
+          }
+        }
+      });
+    });
+
+    // 2. Check jobs for active job-level blockers
+    jobs.forEach((j: any) => {
+      const s = (j.status || '').toLowerCase().trim();
+      const isExplicitBlocked = s === 'blocked' || j.isBlocked === true;
+      const activeBlockerObj = Array.isArray(j.blockers) ? j.blockers.find((b: any) => b.status === 'active' || (!b.resolvedAt && (b.reason || b.note))) : null;
+
+      if (isExplicitBlocked || activeBlockerObj) {
+        const reason = extractNote(j, activeBlockerObj?.reason || activeBlockerObj?.note || 'Job Status: Blocked');
+        list.push({
+          id: j.id,
+          jobId: j.id,
+          taskName: 'Entire Job',
+          label: `[Job #${j.jobNumber || 'N/A'}] ${j.customerName || j.title || 'Upfit Job'} (Job Blocked)`,
+          reason
+        });
+      }
+    });
+
+    return list;
+  }, [tasksMap, jobs]);
 
   // Sound Chime Trigger on New Event Arrival
   const [prevFeedIds, setPrevFeedIds] = useState<Set<string>>(new Set());
@@ -1166,7 +1249,12 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
     report += `• Total Techs Today:        ${topSummary.totalTechsToday} Techs\n`;
     report += `• Total Clocked Hours:     ${topSummary.totalClockedHours} hrs\n`;
     report += `• Tasks Finished Today:     ${metrics.taskCount} Tasks\n`;
-    report += `• Active Task Blockers:     ${unifiedDailyLogFeed.filter(f => f.status === 'TASK BLOCKED' || f.status === 'BLOCKED').length} Tasks Blocked\n`;
+    report += `• Active Task Blockers:     ${activeBlockersList.length} Tasks Blocked\n`;
+    if (activeBlockersList.length > 0) {
+      activeBlockersList.forEach(b => {
+        report += `    - ${b.label} — Note: "${b.reason}"\n`;
+      });
+    }
     report += `• Unfulfilled Parts (Shop): ${topSummary.pendingPartsCount} Pending Parts\n`;
     report += `• Jobs Ready for QC:        ${readyForQcJobs.length} Jobs\n\n`;
 
@@ -1239,6 +1327,8 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
           return `${label}${qtyStr} (${(p.status || 'pending').toUpperCase()})`;
         }).join(', ');
 
+        const jobBlockerNotes = activeBlockersList.filter(b => b.jobId === j.id || b.id === j.id);
+
         report += `[Job #${j.jobNumber || 'N/A'}] — ${j.customerName || j.title || 'Upfit Job'}\n`;
         report += `• Status: ${j.status || 'In Progress'}\n`;
         report += `• Assigned Tech(s): ${jTechs}\n`;
@@ -1246,6 +1336,10 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
         report += `• Hours Breakdown: ${doneBookHours.toFixed(1)}h Done | ${remainingBookHours.toFixed(1)}h Remaining (Total: ${totalBookHours.toFixed(1)}h Book)\n`;
         report += `• Single-Job ETA: ${etaText}\n`;
         if (doneTasksDetails) report += `• Completed Today: ${doneTasksDetails}\n`;
+        if (jobBlockerNotes.length > 0) {
+          const notesStr = jobBlockerNotes.map(b => `${b.taskName || 'Job'}: "${b.reason}"`).join('; ');
+          report += `• Blocker Note(s): ${notesStr}\n`;
+        }
         if (partsSummary) report += `• Parts Status: ${partsSummary}\n`;
         report += `\n`;
       });

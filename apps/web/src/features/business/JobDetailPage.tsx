@@ -1059,13 +1059,21 @@ export function JobDetailPage({
         if (!task?.completedAt) {
           updateData.completedAt = new Date().toISOString();
         }
-        updateData.completedBy = user?.displayName || user?.email;
-        updateData.completedByStaffId = staffMember?.id || effectiveUserId;
-        updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        updateData.closedBy = user?.displayName || user?.email;
+        updateData.closedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        if (!task?.completedByStaffId && !task?.assignedTo) {
+          updateData.completedBy = user?.displayName || user?.email;
+          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        }
       } else if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email;
-        if (!task?.completedByStaffId) {
+        updateData.closedBy = user?.displayName || user?.email;
+        updateData.closedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        if (!task?.completedByStaffId && !task?.assignedTo) {
           updateData.completedByStaffId = staffMember?.id || effectiveUserId;
           updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
         }

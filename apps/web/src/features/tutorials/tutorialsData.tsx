@@ -51,6 +51,81 @@ export const getTutorialsData = (business: any, staffMember: any, permissions: a
   }
 
   return {
+    yellowsheets: {
+      title: "Yellow Sheets Labor Payout Guide",
+      description: "Learn how Yellow Sheets calculates labor payout book hours, attributes multi-tech splits, and helps payroll process completed work.",
+      category: "Office & Payroll",
+      quickSteps: [
+        {
+          title: "Filter by Pay Period",
+          description: "Use presets (e.g. Last Week Payroll) to scope completed work to the exact payout date range.",
+          icon: Calendar
+        },
+        {
+          title: "Multi-Tech Labor Splits",
+          description: "Book time is split proportionally (e.g. 50/50 or 70/30). Click the Sliders icon to customize split %.",
+          icon: Users
+        },
+        {
+          title: "Adjust Payout & Notes",
+          description: "Click the Pencil icon next to book hours or notes to edit specs or staff completion notes.",
+          icon: FileSpreadsheet
+        },
+        {
+          title: "Export & Print Summary",
+          description: "Click Copy Summary, Export CSV, or Print Yellow Sheets to generate official payroll reports.",
+          icon: Download
+        }
+      ],
+      sections: [
+        {
+          title: "1. Selecting Pay Period & Filtering Staff",
+          icon: Calendar,
+          content: (
+            <div className="space-y-3">
+              <p>
+                Yellow Sheets breaks down completed labor by <strong>Job → Task Category → Task</strong> for staff payroll processing.
+              </p>
+              <div className="p-3.5 bg-zinc-50 dark:bg-zinc-800/40 rounded-2xl border border-zinc-100 dark:border-zinc-800 space-y-2">
+                <h4 className="text-xs font-bold text-zinc-800 dark:text-zinc-200">Date Range Presets</h4>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Select <strong>Last Week (Payroll)</strong>, <strong>This Week</strong>, <strong>Today</strong>, <strong>30 Days</strong>, or set a custom start and end date. The metrics at the top will automatically reflect completed work for that exact period.
+                </p>
+              </div>
+            </div>
+          )
+        },
+        {
+          title: "2. Multi-Tech Labor Attribution & Custom Splits",
+          icon: Users,
+          content: (
+            <div className="space-y-3">
+              <p>
+                When multiple technicians collaborate on a task, payout book time is attributed based on time worked or equal shares.
+              </p>
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-950/20 rounded-2xl border border-amber-200 dark:border-amber-900/40 text-xs font-medium text-amber-700 dark:text-amber-300">
+                <strong>Custom Split Adjustment:</strong> Click the <strong>Sliders icon</strong> next to any multi-tech task to set custom split percentages (e.g. Senior Tech 70% / Junior Tech 30%).
+              </div>
+            </div>
+          )
+        },
+        {
+          title: "3. Editing Book Hours & Task Notes",
+          icon: FileSpreadsheet,
+          content: (
+            <div className="space-y-3">
+              <p>
+                Payroll Admins and Managers can edit payout book time or staff notes directly on any task card.
+              </p>
+              <ul className="list-disc pl-5 text-xs text-zinc-600 dark:text-zinc-300 space-y-1">
+                <li>Click the <strong>Pencil icon</strong> next to book hours to adjust payout time (e.g. 1.0h to 4.0h).</li>
+                <li>Click <strong>Edit Notes</strong> to update task specifications or technician completion remarks.</li>
+              </ul>
+            </div>
+          )
+        }
+      ]
+    },
     time_details: {
       title: "Attendance & Time Clock Guide",
       description: "Learn how to log your attendance, manage breaks, scan shop QR codes, resolve location geofencing, view flat-rate tasks, and submit corrections.",

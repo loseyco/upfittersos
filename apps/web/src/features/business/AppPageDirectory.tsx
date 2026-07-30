@@ -99,6 +99,16 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
     description: 'Master daily log feed capturing active jobs, vehicle status changes, task activity, and daily printout summaries.'
   },
   {
+    id: 'yellowsheets',
+    title: 'Yellow Sheets',
+    hub: 'office',
+    permission: 'yellow_sheets.view',
+    permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'],
+    route: 'yellowsheets',
+    altAccessPaths: ['Main Office Submenu', 'Payroll & Attendance Submenu'],
+    description: 'Job → Task Category → Task completion breakdown for staff payroll labor payouts.'
+  },
+  {
     id: 'progress_digest',
     title: "Today's Progress Digest",
     hub: 'office',

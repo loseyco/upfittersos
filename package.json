@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy:web": "npm run build -w web && firebase deploy --only hosting"
+    "deploy:web": "npm run build -w web && firebase deploy --only hosting",
+    "db": "node tools/live-db.js"
   },
   "keywords": [],
   "author": "",

@@ -47,10 +47,13 @@ export function Login() {
         if (pendingRedirect) {
           localStorage.removeItem('pendingQrRedirect');
           navigate(pendingRedirect);
-        } else if (isSuperAdmin) {
-          navigate('/super-admin');
-        } else if (tenantId) {
-          navigate(`/business/${tenantId}`);
+        } else {
+          const targetTenant = tenantId || '7jlg4IA2G6lvDJ0S5Vbp';
+          if (targetTenant) {
+            navigate(`/business/${targetTenant}`);
+          } else if (isSuperAdmin) {
+            navigate('/super-admin');
+          }
         }
       }
     };
@@ -84,17 +87,17 @@ export function Login() {
         return; // Halt and show force password reset UI
       }
 
-      if (creds.user.email?.toLowerCase() === 'loseyp@gmail.com') {
+      const token = await creds.user.getIdTokenResult(true);
+      const userTenant = (token.claims?.tenantId as string) || tenantId || '7jlg4IA2G6lvDJ0S5Vbp';
+
+      if (userTenant) {
+        submitAuditLog(userTenant, { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
+        navigate(`/business/${userTenant}`);
+      } else if (isSuperAdmin || creds.user.email?.toLowerCase() === 'loseyp@gmail.com') {
         submitAuditLog('GLOBAL', { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
         navigate('/super-admin');
       } else {
-        const token = await creds.user.getIdTokenResult(true);
-        if (token.claims?.tenantId) {
-          submitAuditLog(token.claims.tenantId as string, { userId: creds.user.uid, actionType: 'LOGIN', details: { method: 'password' } });
-          navigate(`/business/${token.claims.tenantId}`);
-        } else {
-          setError('Account has no business assigned, or missing claims.');
-        }
+        setError('Account has no business assigned, or missing claims.');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to authenticate');

@@ -8,7 +8,7 @@ import {
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, getDocs, getDoc, query, where
+  onSnapshot, serverTimestamp, getDocs, getDoc, query, where, limit
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
@@ -55,7 +55,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [loadAllHistory, setLoadAllHistory] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(true);
+  const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(false);
   const [showNewQbOnly, setShowNewQbOnly] = useState(false);
   const [zones, setZones] = useState<any[]>([]);
 
@@ -255,11 +255,9 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     if (loadAllHistory) {
       q = query(collection(db, `businesses/${tenantId}/jobs`));
     } else {
-      const oneYearAgo = new Date();
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
       q = query(
         collection(db, `businesses/${tenantId}/jobs`),
-        where('createdAt', '>=', oneYearAgo)
+        limit(500)
       );
     }
 
@@ -1191,7 +1189,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
         "flex flex-col space-y-4 transition-all duration-200",
         isFullScreen 
           ? "fixed inset-0 z-50 bg-zinc-950 p-6 h-screen w-screen" 
-          : "h-[calc(100vh-12rem)]"
+          : "w-full min-h-full"
       )}
     >
       {/* Upper Sheet Bar */}
@@ -1398,7 +1396,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
       {/* Table grid */}
       <div 
         ref={gridContainerRef}
-        className="flex-1 overflow-auto border border-zinc-850 bg-zinc-950 rounded-2xl relative"
+        className="w-full overflow-x-auto overflow-y-visible border border-zinc-850 bg-zinc-950 rounded-2xl relative"
         onKeyDown={handleKeyDownGrid}
         tabIndex={0}
       >

@@ -150,7 +150,18 @@ export function ItemDetailsModal({ isOpen, onClose, itemId, type, zones = [], on
         updatedByName: user?.displayName || user?.email || 'Parts Dept'
       };
       
-      if (newStatus === 'delivered') {
+      const userName = user?.displayName || user?.email || 'Parts Dept';
+      if (newStatus === 'received') {
+        updateData.receivedAt = serverTimestamp();
+        updateData.receivedBy = userName;
+        updateData.receivedByName = userName;
+        updateData.receivedByStaffId = user?.uid || '';
+      } else if (newStatus === 'ordered') {
+        updateData.orderedAt = serverTimestamp();
+        updateData.orderedBy = userName;
+        updateData.orderedByName = userName;
+        updateData.orderedByStaffId = user?.uid || '';
+      } else if (newStatus === 'delivered') {
         updateData.putAwayAt = serverTimestamp();
       }
 

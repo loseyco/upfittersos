@@ -31,7 +31,7 @@ function detectIntakeCarrier(tracking: string) {
 }
 
 export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage = false }: PackageIntakeModalProps) {
-  const { tenantId, user } = useAuthStore();
+  const { tenantId, user, impersonatedStaff } = useAuthStore();
   const navigate = useNavigate();
   const [localZones, setLocalZones] = useState<{ id: string; name: string; type: string }[]>(zones || []);
 
@@ -423,6 +423,9 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage =
       }
       partNotes += `. Tracking: ${finalId}`;
 
+      const actorName = impersonatedStaff?.name || user?.displayName || user?.email?.split('@')[0] || 'Package Intake';
+      const actorId = impersonatedStaff?.id || user?.uid || null;
+
       await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
         partName: description.trim(),
         quantity: 1,
@@ -431,8 +434,14 @@ export function PackageIntakeModal({ isOpen, onClose, onSuccess, zones, isPage =
         jobTitle: null,
         notes: partNotes,
         status: 'received',
-        requestedBy: user?.displayName || user?.email?.split('@')[0] || 'Package Intake',
-        requestedById: user?.uid || null,
+        isDirectReceive: true,
+        requestedBy: actorName,
+        requestedById: actorId,
+        requestedByName: actorName,
+        receivedBy: actorName,
+        receivedByStaffId: actorId,
+        receivedByName: actorName,
+        receivedAt: serverTimestamp(),
         isArchived: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

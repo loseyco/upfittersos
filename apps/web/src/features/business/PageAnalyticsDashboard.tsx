@@ -27,6 +27,8 @@ interface PageAnalyticsDashboardProps {
 // Friendly Route Labels Lookup Map
 const PAGE_NAME_MAP: Record<string, { title: string; category: string }> = {
   daily_log: { title: 'Daily Operations Log', category: 'Main Office' },
+  yellowsheets: { title: 'Yellow Sheets', category: 'Main Office' },
+  yellowsheet: { title: 'Yellow Sheets', category: 'Main Office' },
   overview: { title: 'Overview Dashboard (v3)', category: 'Main Office' },
   jobs: { title: 'Jobs Worksheet', category: 'Facility' },
   tasks: { title: 'Tasks Manager', category: 'Facility' },

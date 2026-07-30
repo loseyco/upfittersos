@@ -6904,14 +6904,23 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
         if (!updatedData.completedAt) {
           updatedData.completedAt = new Date().toISOString();
         }
-        updatedData.completedBy = user?.displayName || user?.email;
-        updatedData.completedByStaffId = user?.uid;
-        updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        updatedData.closedBy = user?.displayName || user?.email;
+        updatedData.closedByStaffId = user?.uid;
+        updatedData.closedByStaffName = user?.displayName || user?.email || 'Staff';
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        if (!existingTask?.completedByStaffId && !existingTask?.assignedTo) {
+          updatedData.completedBy = user?.displayName || user?.email;
+          updatedData.completedByStaffId = user?.uid;
+          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        }
       } else if (updates.status === 'QC Complete') {
         updatedData.qcCompletedAt = new Date().toISOString();
         updatedData.qcCompletedBy = user?.displayName || user?.email;
+        updatedData.closedBy = user?.displayName || user?.email;
+        updatedData.closedByStaffId = user?.uid;
+        updatedData.closedByStaffName = user?.displayName || user?.email || 'Staff';
         const existingTask = (tasks || []).find((t: any) => t.id === taskId);
-        if (!existingTask?.completedByStaffId) {
+        if (!existingTask?.completedByStaffId && !existingTask?.assignedTo) {
           updatedData.completedByStaffId = user?.uid;
           updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
         }

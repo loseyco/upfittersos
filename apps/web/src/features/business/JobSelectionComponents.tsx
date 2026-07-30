@@ -30,6 +30,7 @@ export function JobSelector({ jobId, jobs, onAssign, onCreateNewRequest }: JobSe
   }, []);
 
   const filtered = jobs.filter(j => {
+    if (j.status === 'Draft' || j.isDraft) return false;
     const searchStr = inputValue.toLowerCase().trim();
     if (!searchStr) return true;
     return (j.title || '').toLowerCase().includes(searchStr) || 

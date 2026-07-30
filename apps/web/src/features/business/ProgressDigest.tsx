@@ -5,11 +5,12 @@ import {
 import { db } from '../../lib/firebase/config';
 import {
   ExternalLink, AlertTriangle, Package, Mail, Share2, Activity,
-  Clock, Wrench, ShieldCheck, MapPin, Sparkles, CheckCircle2,
-  Printer
+  Wrench, ShieldCheck, Sparkles, CheckCircle2,
+  Printer, User, Tag, Search, X
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { cn } from '../../lib/utils';
 
 interface Zone {
   id: string;
@@ -27,8 +28,16 @@ interface PartsRequest {
   partName?: string;
   partNumber?: string;
   description?: string;
-  status: 'pending' | 'ordered' | 'received' | 'fulfilled' | 'cancelled' | 'inventoried';
+  status: string;
   qty?: number;
+  quantity?: number;
+  createdAt?: any;
+  orderedAt?: any;
+  receivedAt?: any;
+  timestamp?: any;
+  requestedBy?: string;
+  createdByName?: string;
+  notes?: string;
 }
 
 const parseSafeDate = (val: any): Date | null => {
@@ -132,6 +141,256 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
       unsubs.forEach(unsub => unsub());
     };
   }, [tenantId, visibleJobIds]);
+
+  // Simplified Today's Operations Log Feed (Derived from DailyLogV3 format)
+  const todaysOperationsLogFeed = useMemo(() => {
+    const feed: any[] = [];
+    const today = new Date();
+
+    const isSameDate = (d: Date | null) => {
+      if (!d) return false;
+      return (
+        d.getDate() === today.getDate() &&
+        d.getMonth() === today.getMonth() &&
+        d.getFullYear() === today.getFullYear()
+      );
+    };
+
+    // Helper to resolve staff member
+    const resolveStaff = (actorId?: string, actorName?: string) => {
+      const found = staffList.find(s => s.id === actorId || s.userId === actorId || s.name === actorName || `${s.firstName || ''} ${s.lastName || ''}`.trim() === actorName);
+      let name = found ? `${found.firstName || found.name || ''} ${found.lastName || ''}`.trim() : (actorName || 'Tech');
+      if (name.toLowerCase().includes('kathy')) name = 'Technician';
+      return name;
+    };
+
+    // 1. Task Events (Done, Blocked, Notes)
+    const combinedTasksMap: Record<string, any[]> = { ...tasksMap };
+    jobsList.forEach(j => {
+      if (Array.isArray(j.tasks) && j.tasks.length > 0) {
+        const existing = combinedTasksMap[j.id] || [];
+        const existingIds = new Set(existing.map((t: any) => t.id));
+        const embedded = j.tasks
+          .filter((t: any) => t && (t.id || t.name || t.title) && !existingIds.has(t.id))
+          .map((t: any, idx: number) => ({ id: t.id || `embedded_${idx}`, jobId: j.id, ...t }));
+        combinedTasksMap[j.id] = [...existing, ...embedded];
+      }
+    });
+
+    Object.entries(combinedTasksMap).forEach(([jobId, tasks]) => {
+      const job = jobsList.find(j => j.id === jobId);
+      tasks.forEach(t => {
+        const taskTitle = t.name || t.title || 'Task';
+        const bookTimeVal = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
+
+        // Task Done
+        const compDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt || t.closedAt);
+        if (compDate && isSameDate(compDate)) {
+          const who = resolveStaff(t.completedByStaffId || t.completedBy || t.assignedTo, t.completedByStaffName);
+          const rawStatus = (t.status || 'READY FOR QC').toUpperCase();
+          const taskStatus = ['QC', 'READY_FOR_QC'].includes(rawStatus) ? 'READY FOR QC' : rawStatus;
+          feed.push({
+            id: `task_done_${t.id}_${compDate.getTime()}`,
+            timestamp: compDate,
+            timeStr: compDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            badgeLabel: taskStatus === 'READY FOR QC' ? 'READY FOR QC' : 'TASK DONE',
+            badgeClass: taskStatus === 'READY FOR QC' 
+              ? 'bg-amber-500/10 text-amber-500 dark:text-amber-400 border-amber-500/20'
+              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20',
+            who,
+            jobId,
+            jobNumber: job?.jobNumber || 'N/A',
+            jobTitle: job?.customerName || job?.title || 'Upfit Job',
+            details: `Task Completed: "${taskTitle}" ${bookTimeVal > 0 ? `(${bookTimeVal}h Book)` : ''}`,
+            note: t.note || t.notes || t.qcNote || ''
+          });
+        }
+
+        // Task Blocked / On Hold
+        const statusLower = (t.status || '').toLowerCase().trim();
+        const isBlocked = t.isBlocked === true || t.is_blocked === true || ['blocked', 'on_hold', 'hold', 'issue', 'needs_part', 'needs_parts', 'waiting_parts', 'waiting'].includes(statusLower);
+        if (isBlocked) {
+          const blockedDate = parseSafeDate(t.blockedAt || t.blockedDate || t.blocked_at || t.holdAt || t.updatedAt || t.createdAt);
+          if (blockedDate && isSameDate(blockedDate)) {
+            const who = resolveStaff(t.blockedBy || t.updatedBy, t.blockedByName || t.updatedByName);
+            feed.push({
+              id: `task_blocked_${t.id}_${blockedDate.getTime()}`,
+              timestamp: blockedDate,
+              timeStr: blockedDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+              badgeLabel: statusLower === 'on_hold' || statusLower === 'hold' ? 'ON HOLD' : 'BLOCKED',
+              badgeClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20',
+              who,
+              jobId,
+              jobNumber: job?.jobNumber || 'N/A',
+              jobTitle: job?.customerName || job?.title || 'Upfit Job',
+              details: `Task Blocked: "${taskTitle}"`,
+              note: t.blockedReason || t.blockReason || t.issue || t.reason || ''
+            });
+          }
+        }
+
+        // Task Note Added
+        const noteEvents = Array.isArray(t.notesHistory) ? t.notesHistory : (Array.isArray(t.comments) ? t.comments : []);
+        if (noteEvents.length > 0) {
+          noteEvents.forEach((n: any, nIdx: number) => {
+            const nDate = parseSafeDate(n.createdAt || n.timestamp || n.date);
+            if (nDate && isSameDate(nDate)) {
+              const who = resolveStaff(n.userId || n.authorId || n.createdBy, n.userName || n.authorName);
+              feed.push({
+                id: `task_note_${t.id}_${nIdx}_${nDate.getTime()}`,
+                timestamp: nDate,
+                timeStr: nDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                badgeLabel: 'TASK NOTE',
+                badgeClass: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
+                who,
+                jobId,
+                jobNumber: job?.jobNumber || 'N/A',
+                jobTitle: job?.customerName || job?.title || 'Upfit Job',
+                details: `Note Added to Task "${taskTitle}"`,
+                note: n.text || n.content || n.note || n.comment || ''
+              });
+            }
+          });
+        }
+      });
+    });
+
+    // 2. Timeclock Shift Events (Clock In / Clock Out)
+    sessionsList.forEach(s => {
+      const stMember = staffList.find(st => st.id === s.userId || st.userId === s.userId);
+      const who = stMember ? `${stMember.firstName || stMember.name || 'Staff'} ${stMember.lastName || ''}`.trim() : 'Staff Member';
+
+      // Clock In
+      const clockInDate = parseSafeDate(s.clockIn || s.startTime || s.createdAt);
+      if (clockInDate && isSameDate(clockInDate)) {
+        feed.push({
+          id: `shift_in_${s.id}_${clockInDate.getTime()}`,
+          timestamp: clockInDate,
+          timeStr: clockInDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          badgeLabel: 'CLOCK IN',
+          badgeClass: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20',
+          who,
+          jobId: '',
+          jobNumber: '--',
+          jobTitle: '',
+          details: `Clocked in (${s.deptName || stMember?.department || 'General Shop'})`,
+          note: s.notes || ''
+        });
+      }
+
+      // Clock Out
+      const clockOutDate = parseSafeDate(s.clockOut || s.endTime);
+      if (clockOutDate && isSameDate(clockOutDate)) {
+        feed.push({
+          id: `shift_out_${s.id}_${clockOutDate.getTime()}`,
+          timestamp: clockOutDate,
+          timeStr: clockOutDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          badgeLabel: 'CLOCK OUT',
+          badgeClass: 'bg-zinc-500/10 text-zinc-500 dark:text-zinc-400 border-zinc-500/20',
+          who,
+          jobId: '',
+          jobNumber: '--',
+          jobTitle: '',
+          details: `Clocked out of shift`,
+          note: s.notes || ''
+        });
+      }
+    });
+
+    // 3. Parts Requests Events
+    partsRequests.forEach(p => {
+      const pDate = parseSafeDate(p.createdAt || p.orderedAt || p.receivedAt || p.timestamp);
+      if (pDate && isSameDate(pDate)) {
+        const job = jobsList.find(j => j.id === p.jobId);
+        const pStatus = (p.status || 'pending').toUpperCase();
+        feed.push({
+          id: `part_${p.id}_${pDate.getTime()}`,
+          timestamp: pDate,
+          timeStr: pDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          badgeLabel: `PARTS ${pStatus}`,
+          badgeClass: pStatus === 'RECEIVED' || pStatus === 'FULFILLED' 
+            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+            : pStatus === 'ORDERED'
+            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+            : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+          who: p.requestedBy || p.createdByName || 'Parts Team',
+          jobId: p.jobId || '',
+          jobNumber: job?.jobNumber || 'N/A',
+          jobTitle: job?.customerName || job?.title || 'Upfit Job',
+          details: `Parts Request [${pStatus}]: ${p.qty || 1}x ${p.partName || p.description || 'Part'}${p.partNumber ? ` (#${p.partNumber})` : ''}`,
+          note: p.notes || ''
+        });
+      }
+    });
+
+    // Sort descending by timestamp
+    return feed.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }, [jobsList, tasksMap, sessionsList, partsRequests, staffList]);
+
+  // Operations Log Column Filters & Category Filter
+  const [logCategoryFilter, setLogCategoryFilter] = useState<string>('all');
+  const [logStaffFilter, setLogStaffFilter] = useState<string>('all');
+  const [logBadgeFilter, setLogBadgeFilter] = useState<string>('all');
+  const [logSearchQuery, setLogSearchQuery] = useState<string>('');
+
+  // Extract unique staff names and badge labels present in today's log feed for Excel-style column dropdowns
+  const availableLogStaff = useMemo(() => {
+    const set = new Set<string>();
+    todaysOperationsLogFeed.forEach(item => {
+      if (item.who && item.who !== 'Tech' && item.who !== 'Staff Member') {
+        set.add(item.who);
+      }
+    });
+    return Array.from(set).sort();
+  }, [todaysOperationsLogFeed]);
+
+  const availableLogBadges = useMemo(() => {
+    const set = new Set<string>();
+    todaysOperationsLogFeed.forEach(item => {
+      if (item.badgeLabel) set.add(item.badgeLabel);
+    });
+    return Array.from(set).sort();
+  }, [todaysOperationsLogFeed]);
+
+  // Filtered Today's Operations Log Feed
+  const filteredOperationsLogFeed = useMemo(() => {
+    return todaysOperationsLogFeed.filter(item => {
+      // 1. Category Filter (Tasks & QC vs Timeclock vs Parts vs Bay Moves)
+      if (logCategoryFilter === 'tasks') {
+        if (!['TASK DONE', 'READY FOR QC', 'TASK BLOCKED', 'ON HOLD', 'TASK NOTE', 'TASK PHOTO', 'QC PASSED', 'QC REWORK'].includes(item.badgeLabel)) return false;
+      } else if (logCategoryFilter === 'shifts') {
+        if (!['CLOCK IN', 'CLOCK OUT', 'LUNCH START', 'LUNCH END', 'BREAK START', 'BREAK END', 'TASK START', 'TASK END'].includes(item.badgeLabel)) return false;
+      } else if (logCategoryFilter === 'parts') {
+        if (!item.badgeLabel.startsWith('PARTS')) return false;
+      }
+
+      // 2. Specific Badge Filter (Excel Column Filter)
+      if (logBadgeFilter !== 'all' && item.badgeLabel !== logBadgeFilter) {
+        return false;
+      }
+
+      // 3. Staff Member Filter (Excel Column Filter)
+      if (logStaffFilter !== 'all' && item.who !== logStaffFilter) {
+        return false;
+      }
+
+      // 4. Search Query Filter
+      if (logSearchQuery.trim()) {
+        const q = logSearchQuery.toLowerCase().trim();
+        const detailsLower = (item.details || '').toLowerCase();
+        const whoLower = (item.who || '').toLowerCase();
+        const jobNumLower = (item.jobNumber || '').toLowerCase();
+        const jobTitleLower = (item.jobTitle || '').toLowerCase();
+        const noteLower = (item.note || '').toLowerCase();
+
+        if (!detailsLower.includes(q) && !whoLower.includes(q) && !jobNumLower.includes(q) && !jobTitleLower.includes(q) && !noteLower.includes(q)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [todaysOperationsLogFeed, logCategoryFilter, logStaffFilter, logBadgeFilter, logSearchQuery]);
 
   // Activity Resolver for "Today"
   const startOfToday = useMemo(() => {
@@ -1011,74 +1270,194 @@ export function ProgressDigest({ tenantId }: { tenantId: string }) {
 
           </div>
 
-          {/* Right Column: Other Progress Activity (Bay Moves, Blocker Changes, Tasks Passed) */}
-          <div className="space-y-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2.5">
-              <h3 className="font-black text-xs uppercase tracking-wider text-zinc-805 dark:text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-zinc-400 shrink-0 animate-spin" style={{ animationDuration: '6s' }} />
-                Live Shop Timeline (Today)
-              </h3>
+          {/* Right Column: Today's Operations Log (All event types with Excel Column Filters) */}
+          <div className="space-y-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 shadow-sm flex flex-col gap-4">
+            
+            {/* Header & Full Log Shortcut */}
+            <div className="flex items-center justify-between border-b border-zinc-100 dark:border-zinc-800 pb-2.5 flex-wrap gap-2">
+              <div>
+                <h3 className="font-black text-xs uppercase tracking-wider text-zinc-900 dark:text-white flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-amber-400 shrink-0" />
+                  Today's Operations Log ({filteredOperationsLogFeed.length} / {todaysOperationsLogFeed.length})
+                </h3>
+                <span className="text-[10px] text-zinc-400 font-semibold">Real-time shop log activity feed</span>
+              </div>
+
+              <button
+                onClick={() => navigate(`/business/${tenantId}/daily_log`)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 text-[11px] font-mono font-bold rounded-lg border border-amber-500/20 transition cursor-pointer"
+                title="Open full Daily Operations Log"
+              >
+                <span>Full Daily Log</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
             </div>
             
-            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+            {/* Category Preset Pills & Excel-Style Column Dropdown Filters */}
+            <div className="space-y-2 bg-zinc-50 dark:bg-zinc-950 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800/80">
               
-              {/* Logged Blockers */}
-              {reportData.blockersLogged.map((item, idx) => (
-                <div key={`bl-${idx}`} className="flex gap-3 text-xs border-l-2 border-red-500 pl-3 py-1">
-                  <div className="flex-1">
-                    <div className="font-black text-zinc-855 dark:text-white">{item.message}</div>
-                    <div className="text-[10px] text-zinc-450 dark:text-zinc-500 mt-0.5">{item.subtext}</div>
-                  </div>
-                </div>
-              ))}
+              {/* Row 1: Category Preset Pills */}
+              <div className="flex items-center gap-1.5 flex-wrap text-[10px] font-mono">
+                <button
+                  onClick={() => setLogCategoryFilter('all')}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                    logCategoryFilter === 'all' ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  All ({todaysOperationsLogFeed.length})
+                </button>
+                <button
+                  onClick={() => setLogCategoryFilter('tasks')}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                    logCategoryFilter === 'tasks' ? "bg-teal-500/20 text-teal-300 border border-teal-500/30" : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  ⚡ Tasks & QC
+                </button>
+                <button
+                  onClick={() => setLogCategoryFilter('shifts')}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                    logCategoryFilter === 'shifts' ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  ⏱️ Shifts
+                </button>
+                <button
+                  onClick={() => setLogCategoryFilter('parts')}
+                  className={cn(
+                    "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                    logCategoryFilter === 'parts' ? "bg-blue-500/20 text-blue-300 border border-blue-500/30" : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  📦 Parts
+                </button>
+              </div>
 
-              {/* Resolved Blockers */}
-              {reportData.blockersResolved.map((item, idx) => (
-                <div key={`br-${idx}`} className="flex gap-3 text-xs border-l-2 border-emerald-500 pl-3 py-1">
-                  <div className="flex-1">
-                    <div className="font-black text-zinc-855 dark:text-white">{item.message}</div>
-                    <div className="text-[10px] text-zinc-450 dark:text-zinc-500 mt-0.5">{item.subtext}</div>
-                  </div>
+              {/* Row 2: Excel-Style Column Dropdowns & Search */}
+              <div className="flex items-center gap-2 flex-wrap text-[10px] pt-1">
+                {/* Event Type / Badge Column Filter */}
+                <div className="flex items-center gap-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2 py-0.5">
+                  <Tag className="w-3 h-3 text-amber-400 shrink-0" />
+                  <select
+                    value={logBadgeFilter}
+                    onChange={e => setLogBadgeFilter(e.target.value)}
+                    className="bg-transparent text-zinc-800 dark:text-zinc-200 font-bold focus:outline-none cursor-pointer text-[10px]"
+                    title="Excel Column Filter: Event Type / Badge"
+                  >
+                    <option value="all" className="bg-zinc-900 text-zinc-200">Type: All Event Badges</option>
+                    {availableLogBadges.map(b => (
+                      <option key={b} value={b} className="bg-zinc-900 text-zinc-200">{b}</option>
+                    ))}
+                  </select>
                 </div>
-              ))}
 
-              {/* Bay Moves */}
-              {reportData.bayMoves.map((item, idx) => (
-                <div key={`bm-${idx}`} className="flex gap-3 text-xs border-l-2 border-indigo-500 pl-3 py-1">
-                  <div className="flex-1">
-                    <div className="font-black text-zinc-855 dark:text-white flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      {item.message}
+                {/* Staff Member / Who Column Filter */}
+                <div className="flex items-center gap-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2 py-0.5">
+                  <User className="w-3 h-3 text-indigo-400 shrink-0" />
+                  <select
+                    value={logStaffFilter}
+                    onChange={e => setLogStaffFilter(e.target.value)}
+                    className="bg-transparent text-zinc-800 dark:text-zinc-200 font-bold focus:outline-none cursor-pointer text-[10px]"
+                    title="Excel Column Filter: Staff Member (Who)"
+                  >
+                    <option value="all" className="bg-zinc-900 text-zinc-200">Who: All Staff</option>
+                    {availableLogStaff.map(s => (
+                      <option key={s} value={s} className="bg-zinc-900 text-zinc-200">{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Quick Search Input */}
+                <div className="flex items-center gap-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-2 py-0.5 flex-1 min-w-[120px]">
+                  <Search className="w-3 h-3 text-zinc-400 shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Filter log entries..."
+                    value={logSearchQuery}
+                    onChange={e => setLogSearchQuery(e.target.value)}
+                    className="bg-transparent text-zinc-800 dark:text-zinc-200 font-bold focus:outline-none w-full placeholder:text-zinc-500 text-[10px]"
+                  />
+                  {logSearchQuery && (
+                    <button onClick={() => setLogSearchQuery('')} className="text-zinc-400 hover:text-white">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Reset Filters button if any active */}
+                {(logCategoryFilter !== 'all' || logStaffFilter !== 'all' || logBadgeFilter !== 'all' || logSearchQuery) && (
+                  <button
+                    onClick={() => {
+                      setLogCategoryFilter('all');
+                      setLogStaffFilter('all');
+                      setLogBadgeFilter('all');
+                      setLogSearchQuery('');
+                    }}
+                    className="text-amber-400 hover:text-amber-300 font-bold text-[9px] uppercase cursor-pointer underline"
+                  >
+                    Reset Filters
+                  </button>
+                )}
+              </div>
+
+            </div>
+
+            {/* Feed List */}
+            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+              {filteredOperationsLogFeed.length === 0 ? (
+                <div className="p-10 text-center text-zinc-400 dark:text-zinc-500 italic text-xs">
+                  {todaysOperationsLogFeed.length === 0 ? "No shop operations logged yet today." : "No log entries match the selected column filters."}
+                </div>
+              ) : (
+                filteredOperationsLogFeed.map((item, idx) => (
+                  <div 
+                    key={item.id || idx} 
+                    className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200 dark:border-zinc-800/80 hover:border-zinc-300 dark:hover:border-zinc-700 transition flex flex-col gap-1 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap text-[10px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded font-mono font-black uppercase text-[8px] border",
+                          item.badgeClass || "bg-zinc-800 text-zinc-300 border-zinc-700"
+                        )}>
+                          {item.badgeLabel}
+                        </span>
+                        <span className="font-mono text-zinc-500 font-semibold">{item.timeStr}</span>
+                      </div>
+
+                      {item.who && (
+                        <span className="font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                          <User className="w-3 h-3 text-zinc-400" />
+                          {item.who}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[10px] text-zinc-450 dark:text-zinc-500 mt-0.5">{item.subtext}</div>
-                  </div>
-                </div>
-              ))}
 
-              {/* Tasks Passed */}
-              {reportData.qcPassed.map((item, idx) => (
-                <div key={`qp-${idx}`} className="flex gap-3 text-xs border-l-2 border-emerald-500 pl-3 py-1">
-                  <div className="flex-1">
-                    <div className="font-black text-zinc-855 dark:text-white">{item.message}</div>
-                    <div className="text-[10px] text-zinc-450 dark:text-zinc-500 mt-0.5">{item.subtext}</div>
-                  </div>
-                </div>
-              ))}
+                    <div className="font-bold text-zinc-900 dark:text-white mt-0.5">
+                      {item.details}
+                    </div>
 
-              {/* Other updates */}
-              {reportData.generalUpdates.slice(0, 10).map((item, idx) => (
-                <div key={`gu-${idx}`} className="flex gap-3 text-xs border-l-2 border-zinc-200 dark:border-zinc-800 pl-3 py-1">
-                  <div className="flex-1">
-                    <div className="font-black text-zinc-800 dark:text-zinc-350">{item.message}</div>
-                    <div className="text-[10px] text-zinc-450 dark:text-zinc-500 mt-0.5">{item.subtext}</div>
-                  </div>
-                </div>
-              ))}
+                    {item.jobNumber && item.jobNumber !== 'N/A' && item.jobNumber !== '--' && (
+                      <div 
+                        onClick={() => item.jobId && navigate(`/business/${tenantId}/job/${item.jobId}`)}
+                        className="text-[10px] text-amber-500 hover:text-amber-400 font-mono font-bold flex items-center gap-1 cursor-pointer w-fit"
+                      >
+                        <span>JOB #{item.jobNumber} {item.jobTitle ? `• ${item.jobTitle}` : ''}</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </div>
+                    )}
 
-              {reportData.blockersLogged.length + reportData.blockersResolved.length + reportData.bayMoves.length + reportData.qcPassed.length + reportData.generalUpdates.length === 0 && (
-                <div className="p-12 text-center text-zinc-400 dark:text-zinc-500 italic">No shop timeline activity logged today yet.</div>
+                    {item.note && (
+                      <div className="text-[10px] text-zinc-500 dark:text-zinc-400 italic bg-zinc-100 dark:bg-zinc-900 px-2 py-1 rounded border border-zinc-200/50 dark:border-zinc-800/50 mt-1">
+                        "{item.note}"
+                      </div>
+                    )}
+                  </div>
+                ))
               )}
-
             </div>
 
           </div>

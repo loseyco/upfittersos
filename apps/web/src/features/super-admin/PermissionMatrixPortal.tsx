@@ -27,6 +27,8 @@ const CATEGORY_MAP: Record<string, string[]> = {
     'development.view'
   ],
   'Tasks & Timeclock': [
+    'yellow_sheets.view',
+    'yellow_sheets.manage',
     'timeclock.no_review_required',
     'timeclock.approve',
     'timeclock.manage',

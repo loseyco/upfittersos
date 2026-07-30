@@ -32,6 +32,8 @@ export const PERMISSIONS = {
   'timeclock.approve': 'Approve Timecard Changes',
   'timeclock.no_review_required': 'Skip Timeclock Verification (Auto-Approve Edits)',
   'timeclock.offsite': 'Clock In/Out Offsite',
+  'yellow_sheets.view': 'View Yellow Sheets (Labor Payout Report)',
+  'yellow_sheets.manage': 'Edit Yellow Sheets (Adjust Book Hours, Splits & Notes)',
   'reports.view': 'View Reports',
   'performance.view': 'View Leaderboard',
   'tasks.view': 'View Tasks',

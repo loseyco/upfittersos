@@ -95,6 +95,7 @@ import { WiresSpreadsheet } from './WiresSpreadsheet';
 import { TelemetryDashboard } from './TelemetryDashboard';
 import { ProgressDigestV3 } from './ProgressDigestV3';
 import { DailyLogV3 } from './DailyLogV3';
+import { YellowSheets } from './YellowSheets';
 import { WireScanPage } from './WireScanPage';
 import { PageAnalyticsDashboard } from './PageAnalyticsDashboard';
 import { usePageAnalytics } from '../../lib/telemetry/usePageAnalytics';
@@ -122,6 +123,8 @@ export function TenantDashboard() {
     wires_sheet: 'Wires Sheet (v3)',
     progress_digest_v3: 'Progress Digest (v3)',
     daily_log: 'Daily Operations Log',
+    yellowsheets: 'Yellow Sheets',
+    yellowsheet: 'Yellow Sheets',
     page_analytics: 'Page Views & Usage Analytics',
     telemetry_sheet: 'Telemetry & Trends (v3)',
     wire_scan: 'Wire Wall Scanner',
@@ -974,6 +977,12 @@ export function TenantDashboard() {
             {(activeTab === 'daily_log' || activeTab === 'daily_log_v3') && (
               <PermissionGate permissions={['office.view', 'foreman.view', 'development.view']}>
                 <DailyLogV3 tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {(activeTab === 'yellowsheets' || activeTab === 'yellowsheet') && (
+              <PermissionGate permissions={['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'development.view', 'timeclock.manage']}>
+                <YellowSheets tenantId={tenantId!} />
               </PermissionGate>
             )}
 

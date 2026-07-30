@@ -531,11 +531,32 @@ export function PartsMissionControl() {
   const handleUpdateStatus = async (requestId: string, newStatus: RequestStatus) => {
     if (!tenantId) return;
     try {
-      const { updateDoc, doc, addDoc, collection } = await import('firebase/firestore');
-      await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId), {
+      const { updateDoc, doc, addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+      const userName = user?.displayName || user?.email?.split('@')[0] || 'Staff';
+      const userId = user?.uid || null;
+
+      const updateFields: any = {
         status: newStatus,
-        statusChangedAt: serverTimestamp()
-      });
+        statusChangedAt: serverTimestamp(),
+        statusChangedBy: userId,
+        statusChangedByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
+      };
+
+      if (newStatus === 'received') {
+        updateFields.receivedAt = serverTimestamp();
+        updateFields.receivedBy = userName;
+        updateFields.receivedByName = userName;
+        updateFields.receivedByStaffId = userId;
+      } else if (newStatus === 'ordered') {
+        updateFields.orderedAt = serverTimestamp();
+        updateFields.orderedBy = userName;
+        updateFields.orderedByName = userName;
+        updateFields.orderedByStaffId = userId;
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId), updateFields);
       
       const partReq = requests.find(r => r.id === requestId);
       if (partReq) {

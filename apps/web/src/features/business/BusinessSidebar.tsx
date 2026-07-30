@@ -76,6 +76,7 @@ export const ITEMS: NavItem[] = [
 
   // Office Dept (Main Office)
   { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
+  { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'office', permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'] },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'foreman.view'] },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },

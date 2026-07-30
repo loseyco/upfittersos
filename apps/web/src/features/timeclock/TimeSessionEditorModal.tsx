@@ -236,6 +236,18 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
     return `${nameStr}${taskNameStr}: ${startStr} - ${endStr} (${durationStr})${bookTimeStr}`;
   };
 
+  const parseDatetimeLocalInput = (valueStr: string): Date | null => {
+    if (!valueStr) return null;
+    const [datePart, timePart] = valueStr.split('T');
+    if (!datePart || !timePart) return new Date(valueStr);
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = timePart.split(':').map(Number);
+    if (isNaN(year) || isNaN(month) || isNaN(day) || isNaN(hours) || isNaN(minutes)) {
+      return new Date(valueStr);
+    }
+    return new Date(year, month - 1, day, hours, minutes, 0, 0);
+  };
+
   const formatDatetimeLocal = (dateVal: any) => {
     if (!dateVal) return '';
     try {
@@ -421,6 +433,126 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         return;
       }
 
+      // --- SEQUENCE VALIDATION CHECKS ---
+      if (!clockIn) {
+        toast.error("Time Sequence Error: Shift Clock In time is required.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const parsedClockInDate = parseDatetimeLocalInput(clockIn) || new Date(clockIn);
+      const clockInMs = parsedClockInDate.getTime();
+      if (isNaN(clockInMs)) {
+        toast.error("Time Sequence Error: Invalid Clock In date format.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      let clockOutMs: number | null = null;
+      let parsedClockOutDate: Date | null = null;
+      if (clockOut) {
+        parsedClockOutDate = parseDatetimeLocalInput(clockOut) || new Date(clockOut);
+        clockOutMs = parsedClockOutDate.getTime();
+        if (isNaN(clockOutMs)) {
+          toast.error("Time Sequence Error: Invalid Clock Out date format.");
+          setIsSubmitting(false);
+          return;
+        }
+        if (clockInMs >= clockOutMs) {
+          toast.error("Time Sequence Error: Shift Clock Out time must be AFTER Clock In time.");
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
+      // Validate Breaks Sequence
+      for (let i = 0; i < breaks.length; i++) {
+        const b = breaks[i];
+        const bType = b.type === 'lunch' ? 'Lunch Break' : 'Break';
+        
+        if (!b.start) {
+          toast.error(`Time Sequence Error: ${bType} #${i + 1} requires a start time.`);
+          setIsSubmitting(false);
+          return;
+        }
+        
+        const bStartMs = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+        if (isNaN(bStartMs)) {
+          toast.error(`Time Sequence Error: ${bType} #${i + 1} has an invalid start time.`);
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (bStartMs < clockInMs - 60000) { // 1-minute grace buffer
+          toast.error(`Time Sequence Error: ${bType} #${i + 1} cannot start BEFORE shift Clock In time.`);
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (b.end) {
+          const bEndMs = b.end?.toDate ? b.end.toDate().getTime() : new Date(b.end).getTime();
+          if (isNaN(bEndMs)) {
+            toast.error(`Time Sequence Error: ${bType} #${i + 1} has an invalid end time.`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          if (bStartMs >= bEndMs) {
+            toast.error(`Time Sequence Error: ${bType} #${i + 1} end time must be AFTER its start time.`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          if (clockOutMs && bEndMs > clockOutMs + 60000) {
+            toast.error(`Time Sequence Error: ${bType} #${i + 1} cannot end AFTER shift Clock Out time.`);
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
+
+      // Validate Jobs / Tasks Sequence
+      for (let i = 0; i < jobs.length; i++) {
+        const j = jobs[i];
+        const jName = j.taskName || j.name || `Task #${i + 1}`;
+        
+        if (j.start) {
+          const jStartMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+          if (isNaN(jStartMs)) {
+            toast.error(`Time Sequence Error: "${jName}" has an invalid start date.`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          if (j.end) {
+            const jEndMs = j.end?.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime();
+            if (isNaN(jEndMs)) {
+              toast.error(`Time Sequence Error: "${jName}" has an invalid end date.`);
+              setIsSubmitting(false);
+              return;
+            }
+            if (jStartMs >= jEndMs) {
+              toast.error(`Time Sequence Error: "${jName}" end time must be AFTER start time.`);
+              setIsSubmitting(false);
+              return;
+            }
+          }
+        }
+      }
+
+      // Sort breaks & jobs chronologically ascending by start time before saving
+      breaks.sort((a, b) => {
+        const aMs = a.start?.toDate ? a.start.toDate().getTime() : new Date(a.start).getTime();
+        const bMs = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+        return aMs - bMs;
+      });
+
+      jobs.sort((a, b) => {
+        const aMs = a.start?.toDate ? a.start.toDate().getTime() : new Date(a.start).getTime();
+        const bMs = b.start?.toDate ? b.start.toDate().getTime() : new Date(b.start).getTime();
+        return aMs - bMs;
+      });
+
       const normalizeBreak = (b: any) => ({
         type: b.type,
         isPaid: b.isPaid,
@@ -565,7 +697,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         (session.isRemote || false) !== isRemote;
 
       const updates: any = {
-        'clockIn.timestamp': new Date(clockIn),
+        'clockIn.timestamp': parsedClockInDate,
         isRemote,
         notes: notes.trim(),
         staffNote: staffNote.trim(),
@@ -612,7 +744,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
       }
 
       if (clockOut) {
-        updates['clockOut.timestamp'] = new Date(clockOut);
+        updates['clockOut.timestamp'] = parsedClockOutDate;
         updates.status = 'completed';
       } else {
         updates['clockOut.timestamp'] = null;
@@ -729,7 +861,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const updateBreak = (index: number, field: string, value: any) => {
     const newBreaks = [...breaks];
     if (field === 'start' || field === 'end') {
-      newBreaks[index] = { ...newBreaks[index], [field]: value ? new Date(value) : null };
+      newBreaks[index] = { ...newBreaks[index], [field]: value ? (parseDatetimeLocalInput(value) || new Date(value)) : null };
     } else {
       newBreaks[index] = { ...newBreaks[index], [field]: value };
     }
@@ -747,7 +879,7 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
   const updateJob = (index: number, field: string, value: any) => {
     const newJobs = [...jobs];
     if (field === 'start' || field === 'end') {
-      newJobs[index] = { ...newJobs[index], [field]: value ? new Date(value) : null };
+      newJobs[index] = { ...newJobs[index], [field]: value ? (parseDatetimeLocalInput(value) || new Date(value)) : null };
     } else {
       newJobs[index] = { ...newJobs[index], [field]: value };
     }

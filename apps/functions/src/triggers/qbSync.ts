@@ -214,7 +214,9 @@ export const onQbJobWrite = functions.firestore
         jobMappedData.isNewQbSync = false;
         jobMappedData.lastQbSyncedAt = admin.firestore.FieldValue.serverTimestamp();
       } else {
-        // BRAND NEW SYNC: Flag as new QB job needing initial bay/staff assignment
+        // BRAND NEW SYNC: Flag as Draft job needing initial review & task activation
+        jobMappedData.status = 'Draft';
+        jobMappedData.isDraft = true;
         jobMappedData.isNewQbSync = true;
         jobMappedData.lastQbSyncedAt = admin.firestore.FieldValue.serverTimestamp();
       }
@@ -240,6 +242,11 @@ export const onQbJobWrite = functions.firestore
     try {
       await jobDestRef.set(jobMappedData, { merge: true });
       console.log(`Successfully promoted QB Job ${jobId} to native jobs in tenant ${tenantId}`);
+
+      // Auto-extract and populate draft tasks from linked QB Estimate/Invoice if new draft job
+      if (jobMappedData.isDraft) {
+        await populateDraftTasksFromQb(tenantId, jobDestRef, jobId, qbJobNumber);
+      }
 
       // Log alert to activity feed if attention flag was newly raised
       if (needsAttention && !wasAttention) {
@@ -559,3 +566,65 @@ export const onQbTimeTrackingWrite = functions.firestore
 
     return null;
   });
+
+/**
+ * Helper to auto-extract labor service items from linked QB estimate/invoice into draft tasks
+ */
+async function populateDraftTasksFromQb(tenantId: string, jobDestRef: admin.firestore.DocumentReference, qbId: string, qbJobNumber: string | null) {
+  try {
+    const tasksSnap = await jobDestRef.collection('tasks').limit(1).get();
+    if (!tasksSnap.empty) return; // Tasks already exist, don't overwrite
+
+    const db = admin.firestore();
+    const estimatesRef = db.collection('businesses').doc(tenantId).collection('qb_estimates');
+    const invoicesRef = db.collection('businesses').doc(tenantId).collection('qb_invoices');
+
+    let estSnap = await estimatesRef.where('customerRef', '==', qbId).limit(5).get();
+    let invoiceSnap = await invoicesRef.where('customerRef', '==', qbId).limit(5).get();
+
+    const lineItems: any[] = [];
+    estSnap.docs.forEach(doc => {
+      const data = doc.data();
+      const lines = data.EstimateLineRet || [];
+      lines.forEach((l: any) => lineItems.push(l));
+    });
+
+    if (lineItems.length === 0) {
+      invoiceSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const lines = data.InvoiceLineRet || [];
+        lines.forEach((l: any) => lineItems.push(l));
+      });
+    }
+
+    const laborLines = lineItems.filter(line => {
+      if (!line || !line.ItemRef) return false;
+      const itemName = (line.ItemRef.FullName || '').toLowerCase();
+      const desc = (line.Desc || '').toLowerCase();
+      return itemName.startsWith('labor') || itemName.includes('labor') || desc.includes('labor') || desc.includes('install');
+    });
+
+    if (laborLines.length > 0) {
+      const batch = db.batch();
+      laborLines.forEach(line => {
+        const taskRef = jobDestRef.collection('tasks').doc();
+        const title = line.ItemRef?.FullName || line.Desc || 'Labor Task';
+        const description = line.Desc || '';
+        batch.set(taskRef, {
+          title: title,
+          description: description,
+          status: 'pending',
+          isDraft: true,
+          source: 'QuickBooks',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+      await batch.commit();
+      console.log(`Auto-populated ${laborLines.length} draft labor tasks for job ${jobDestRef.id}`);
+    }
+  } catch (err) {
+    console.error(`Failed to populate draft tasks for job ${jobDestRef.id}`, err);
+  }
+}
+

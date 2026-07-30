@@ -178,7 +178,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('Draft');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [editingVin, setEditingVin] = useState<{ [jobId: string]: string }>({});
@@ -492,6 +492,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       let matchesStatus = false;
       if (selectedStatusFilter === 'needs_attention') {
         matchesStatus = needsSetup;
+      } else if (selectedStatusFilter === 'Draft') {
+        matchesStatus = resolvedStatus === 'Draft' || job.isDraft === true;
       } else {
         matchesStatus = selectedStatusFilter === 'all' ||
           (selectedStatusFilter === 'Active' && (resolvedStatus === 'Active' || resolvedStatus === 'Open')) ||
@@ -761,6 +763,25 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       toast.success(`Job status changed to ${newStatus}`);
     } catch (err: any) {
       toast.error(`Failed to update status: ${err.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
+
+  const handleActivateDraftJob = async (jobId: string) => {
+    if (!canManage) return;
+    setIsUpdating(jobId);
+    try {
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, jobId);
+      await updateDoc(jobRef, {
+        status: 'Active',
+        isDraft: false,
+        needsAttention: false,
+        updatedAt: serverTimestamp()
+      });
+      toast.success('Job converted to Active! Techs can now clock in.');
+    } catch (err: any) {
+      toast.error(`Failed to activate draft job: ${err.message}`);
     } finally {
       setIsUpdating(null);
     }
@@ -1292,7 +1313,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     <div 
       ref={containerRef}
       className={cn(
-        "h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 font-sans text-xs select-none",
+        "w-full min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 font-sans text-xs select-none",
         isFullscreen ? "fixed inset-0 z-[9999] p-4 space-y-4 bg-zinc-950 w-screen h-screen overflow-auto" : ""
       )}
     >
@@ -1378,6 +1399,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
               className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white"
             >
               <option value="all">All Job Statuses</option>
+              <option value="Draft">📝 Draft Jobs / Ready to Review</option>
               <option value="Active">Active / Open</option>
               <option value="Blocked">Blocked</option>
               <option value="Ready for QC">Ready for QC</option>
@@ -1407,7 +1429,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       {/* ----------------------------------------------------
           SPREADSHEET GRID VIEW CONTAINER
       ---------------------------------------------------- */}
-      <div className="flex-1 overflow-auto border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 rounded-2xl shadow-sm relative no-scrollbar min-h-[500px]">
+      <div className="w-full overflow-x-auto overflow-y-visible border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 rounded-2xl shadow-sm relative">
         <table className="w-full text-left border-collapse table-fixed">
 
           {/* Header Row */}

@@ -35,12 +35,30 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
 
   // UI/Interactive states
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'blockers' | 'vin' | 'cc' | 'qc' | 'parts' | 'duedate' | 'location' | 'traveler'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'draft' | 'blockers' | 'vin' | 'cc' | 'qc' | 'parts' | 'duedate' | 'location' | 'traveler'>('all');
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [printingJob, setPrintingJob] = useState<any | null>(null);
   const companyCamVal = printingJob ? (printingJob.companyCamId || printingJob.companyCamProjectId || '') : '';
   const [businessName, setBusinessName] = useState('UpFittersOS');
   const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
+
+  const activateDraftJob = async (jobId: string) => {
+    if (!canManage) return;
+    setIsUpdating(jobId);
+    try {
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+        status: 'Active',
+        isDraft: false,
+        needsAttention: false,
+        updatedAt: serverTimestamp()
+      });
+      toast.success("Job activated and ready for shop floor!");
+    } catch (e: any) {
+      toast.error(`Failed to activate job: ${e.message}`);
+    } finally {
+      setIsUpdating(null);
+    }
+  };
 
   // Local editing states for quick actions
   const [tempVin, setTempVin] = useState<Record<string, string>>({});
@@ -367,6 +385,14 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
 
       // Compile alerts list
       const alerts: Array<{ type: string; severity: 'high' | 'medium' | 'low'; label: string; description: string }> = [];
+      if (job.status === 'Draft' || job.isDraft) {
+        alerts.push({
+          type: 'draft',
+          severity: 'high',
+          label: 'Draft Job (Needs Activation)',
+          description: 'Synced from QuickBooks. Review task assignments and convert to active job.'
+        });
+      }
       if (isBlocked) {
         alerts.push({ 
           type: 'blockers', 
