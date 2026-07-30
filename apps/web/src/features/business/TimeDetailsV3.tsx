@@ -601,12 +601,14 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
       const updates: any = {
         clockIn: updatedClockIn,
-        clockOut: updatedClockOut,
         jobs: updatedJobs,
         breaks: updatedBreaks,
         manuallyEdited: true,
         updatedAt: serverTimestamp()
       };
+      if (updatedClockOut !== undefined) {
+        updates.clockOut = updatedClockOut;
+      }
 
       if (canApprove) {
         updates.verificationStatus = 'verified';

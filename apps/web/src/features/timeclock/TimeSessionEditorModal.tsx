@@ -743,11 +743,13 @@ export function TimeSessionEditorModal({ tenantId, session, onClose, onSaved, re
         }
       }
 
-      if (clockOut) {
-        updates['clockOut.timestamp'] = parsedClockOutDate;
+      if (clockOut && parsedClockOutDate) {
+        updates.clockOut = {
+          ...(session.clockOut || {}),
+          timestamp: parsedClockOutDate
+        };
         updates.status = 'completed';
       } else {
-        updates['clockOut.timestamp'] = null;
         updates.status = 'active';
       }
 
