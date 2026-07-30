@@ -725,6 +725,30 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       finalWorkers = [{ id: '', name: completedParsed?.name || jobTechName || 'Technician' }];
     }
 
+    // Collect all actual clock-ins for this task
+    const clockedNames = new Set<string>();
+    const tSegments = getTaskSegments(t, job, taskActualSecondsMap ? taskTimeSegmentsMap : {});
+    tSegments.forEach((seg: any) => {
+      if (seg.userName) clockedNames.add(seg.userName.trim().toLowerCase());
+    });
+    if (Array.isArray(t.timeSessions)) {
+      t.timeSessions.forEach((sess: any) => {
+        const name = sess.staffName || sess.techName || sess.userName;
+        if (name) clockedNames.add(name.trim().toLowerCase());
+      });
+    }
+
+    // RULE: If any staff actually clocked into this task, exclude assigned staff who DID NOT clock into it
+    if (clockedNames.size > 0) {
+      const clockedWorkers = finalWorkers.filter(w => {
+        const wNameLower = (w.name || '').trim().toLowerCase();
+        return Array.from(clockedNames).some(cn => cn === wNameLower || cn.includes(wNameLower) || wNameLower.includes(cn));
+      });
+      if (clockedWorkers.length > 0) {
+        finalWorkers = clockedWorkers;
+      }
+    }
+
     const totalBookHours = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
     
     // Check if customSplit / manualSplit exists on task

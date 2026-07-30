@@ -1260,11 +1260,45 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       if (!compMs || compMs < startOfWeekMs || compMs > endOfWeekMs) return;
 
       if (t.payBasis !== 'hourly') {
-        const assignedStaffCount = t.assignedStaffIds?.length || 1;
-        const splitPercent = t.splitPercent || (100 / assignedStaffCount);
-        const shareRatio = splitPercent / 100;
-        const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-        periodBookMs += taskBookHours * 3600000;
+        const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
+        const staffName = staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}`.trim() : '';
+        
+        // RULE: Check if staff member actually clocked into this task when clock-ins exist
+        const clockedStaffMap = new Map<string, number>();
+        sessions.forEach(s => {
+          const sStaffId = s.userId || s.staffId;
+          const sStaffName = (s.userName || s.staffName || '').trim().toLowerCase();
+          (s.jobs || []).forEach((j: any) => {
+            const matchTaskId = j.taskId && j.taskId === t.id;
+            const matchJobAndName = j.id === t.jobId && (j.taskName || j.name || '').trim().toLowerCase() === (t.title || t.name || '').trim().toLowerCase();
+            if (matchTaskId || matchJobAndName) {
+              const key = sStaffId || sStaffName;
+              if (key) {
+                const startMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+                const endMs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+                const durSec = Math.max(0, (endMs - startMs) / 1000);
+                clockedStaffMap.set(key, (clockedStaffMap.get(key) || 0) + durSec);
+              }
+            }
+          });
+        });
+
+        if (clockedStaffMap.size > 0) {
+          const targetKey = staffId || staffName.toLowerCase();
+          const clockedSec = clockedStaffMap.get(targetKey) || 0;
+          if (clockedSec === 0) return; // EXCLUDE: assigned staff did not clock into this completed task!
+
+          const totalClockedSec = Array.from(clockedStaffMap.values()).reduce((a, b) => a + b, 0);
+          const shareRatio = totalClockedSec > 0 ? (clockedSec / totalClockedSec) : (1 / clockedStaffMap.size);
+          const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+          periodBookMs += taskBookHours * 3600000;
+        } else {
+          const assignedStaffCount = t.assignedStaffIds?.length || 1;
+          const splitPercent = t.splitPercent || (100 / assignedStaffCount);
+          const shareRatio = splitPercent / 100;
+          const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+          periodBookMs += taskBookHours * 3600000;
+        }
       }
     });
 
@@ -2099,10 +2133,43 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                const zone = zones.find(z => z.id === fullJob?.bayId);
                const bayName = zone?.name || fullJob?.zoneName || '';
 
-               const assignedStaffCount = t.assignedStaffIds?.length || 1;
-               const splitPercent = t.splitPercent || (100 / assignedStaffCount);
-               const shareRatio = splitPercent / 100;
-               const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+               const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
+               const staffName = staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}`.trim() : '';
+
+               const clockedStaffMap = new Map<string, number>();
+               sessions.forEach(s => {
+                 const sStaffId = s.userId || s.staffId;
+                 const sStaffName = (s.userName || s.staffName || '').trim().toLowerCase();
+                 (s.jobs || []).forEach((j: any) => {
+                   const matchTaskId = j.taskId && j.taskId === t.id;
+                   const matchJobAndName = j.id === t.jobId && (j.taskName || j.name || '').trim().toLowerCase() === (t.title || t.name || '').trim().toLowerCase();
+                   if (matchTaskId || matchJobAndName) {
+                     const key = sStaffId || sStaffName;
+                     if (key) {
+                       const startMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+                       const endMs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+                       const durSec = Math.max(0, (endMs - startMs) / 1000);
+                       clockedStaffMap.set(key, (clockedStaffMap.get(key) || 0) + durSec);
+                     }
+                   }
+                 });
+               });
+
+               let taskBookHours = 0;
+               if (clockedStaffMap.size > 0) {
+                 const targetKey = staffId || staffName.toLowerCase();
+                 const clockedSec = clockedStaffMap.get(targetKey) || 0;
+                 if (clockedSec === 0) return; // EXCLUDE: assigned staff member did NOT clock into this completed task!
+
+                 const totalClockedSec = Array.from(clockedStaffMap.values()).reduce((a, b) => a + b, 0);
+                 const shareRatio = totalClockedSec > 0 ? (clockedSec / totalClockedSec) : (1 / clockedStaffMap.size);
+                 taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+               } else {
+                 const assignedStaffCount = t.assignedStaffIds?.length || 1;
+                 const splitPercent = t.splitPercent || (100 / assignedStaffCount);
+                 const shareRatio = splitPercent / 100;
+                 taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+               }
 
                if (t.payBasis !== 'hourly') {
                  dayBookMs += taskBookHours * 3600000;
