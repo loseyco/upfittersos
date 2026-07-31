@@ -307,20 +307,43 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     }
 
     const clockedStaffList: any[] = [];
+    let totalTaskClockedMs = 0;
+    let currentStaffClockedMs = 0;
+
     if (foundTask && sessions.length > 0) {
+      const staffMap = new Map<string, { staffId: string; staffName: string; durationMs: number }>();
       sessions.forEach(s => {
+        const sStaffId = s.userId || s.staffId || '';
+        const sStaffName = s.userName || s.staffName || 'Tech';
         (s.jobs || []).forEach((j: any) => {
           if ((j.taskId && j.taskId === foundTask.id) || (j.id === foundTask.jobId && j.taskName === foundTask.title)) {
-            clockedStaffList.push({
-              staffId: s.userId || s.staffId,
-              staffName: s.userName || s.staffName || 'Tech',
-              start: j.start,
-              end: j.end
-            });
+            const startMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
+            const endMs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
+            const durMs = Math.max(0, endMs - startMs);
+            
+            const key = sStaffId || sStaffName;
+            const existing = staffMap.get(key) || { staffId: sStaffId, staffName: sStaffName, durationMs: 0 };
+            existing.durationMs += durMs;
+            staffMap.set(key, existing);
           }
         });
       });
+
+      const currentTargetName = (staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}` : '').trim().toLowerCase();
+      const currentTargetId = staffMember?.id || effectiveUserUid;
+
+      staffMap.forEach(item => {
+        clockedStaffList.push(item);
+        totalTaskClockedMs += item.durationMs;
+        if (item.staffId === currentTargetId || item.staffName.toLowerCase() === currentTargetName) {
+          currentStaffClockedMs += item.durationMs;
+        }
+      });
     }
+
+    const rawBookTime = parseFloat(foundTask?.bookTime || evt?.bookTime || 0) || 0;
+    const shareRatioPct = totalTaskClockedMs > 0 ? (currentStaffClockedMs / totalTaskClockedMs) * 100 : (clockedStaffList.length > 0 ? 0 : 100);
+    const earnedCreditHours = (rawBookTime * shareRatioPct) / 100;
 
     setInspectorData({
       title,
@@ -335,7 +358,11 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         completedByStaffId: foundTask?.completedByStaffId || foundTask?.completedBy || null,
         completedByStaffName: foundTask?.completedByStaffName || null,
         clockedStaffList,
-        bookTimeRaw: foundTask?.bookTime || evt?.bookTime || 0,
+        totalTaskClockedMs,
+        currentStaffClockedMs,
+        shareRatioPct,
+        earnedCreditHours,
+        bookTimeRaw: rawBookTime,
         payBasis: foundTask?.payBasis || evt?.payBasis || 'book_time',
         ...extraCalc
       },
@@ -2830,9 +2857,31 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
             </div>
 
             {/* Audit & Calculation Summary */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-4">
               <div className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
-                <Terminal className="w-4 h-4" /> Credit & Calculation Derivation Audit
+                <Terminal className="w-4 h-4" /> Simple Math & Derivation Formula
+              </div>
+
+              {/* Math Derivation Highlight Box */}
+              <div className="bg-gradient-to-r from-zinc-950 via-zinc-900 to-indigo-950/60 border border-indigo-500/30 p-4 rounded-2xl flex flex-col gap-2 shadow-inner">
+                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">
+                  MATH FORMULA
+                </span>
+                <code className="text-xs font-mono font-bold text-amber-300 bg-black/40 px-3 py-1.5 rounded-xl border border-zinc-800 block">
+                  Earned Credit = Task Book Time × (Tech Clocked Time / Total Task Clocked Time)
+                </code>
+                
+                <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80 mt-1">
+                  <div>
+                    <span className="text-[9px] font-black text-zinc-400 uppercase tracking-widest block">Calculation Function Output</span>
+                    <span className="text-xl font-mono font-black text-emerald-400 block mt-0.5">
+                      +{(inspectorData.calculations?.earnedCreditHours || 0).toFixed(2)}h Book Credit
+                    </span>
+                  </div>
+                  <div className="text-right font-mono text-xs text-indigo-300 bg-zinc-900 px-3 py-1.5 rounded-xl border border-zinc-800">
+                    {(inspectorData.calculations?.bookTimeRaw || 0).toFixed(2)}h × {(inspectorData.calculations?.shareRatioPct || 0).toFixed(1)}% = +{(inspectorData.calculations?.earnedCreditHours || 0).toFixed(2)}h
+                  </div>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
@@ -2849,16 +2898,49 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                 </div>
               </div>
 
-              {/* Diagnostic Explanations */}
+              {/* Staff Clock-In & Split Table */}
+              {inspectorData.calculations?.clockedStaffList && inspectorData.calculations.clockedStaffList.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                    Clocked Staff Split Breakdown ({inspectorData.calculations.clockedStaffList.length} Techs Clocked In)
+                  </span>
+                  <div className="bg-zinc-955 border border-zinc-800 rounded-xl overflow-hidden divide-y divide-zinc-800 text-xs">
+                    {inspectorData.calculations.clockedStaffList.map((st: any, idx: number) => {
+                      const stDurMin = Math.round((st.durationMs || 0) / 60000);
+                      const stPct = inspectorData.calculations.totalTaskClockedMs > 0 
+                        ? ((st.durationMs || 0) / inspectorData.calculations.totalTaskClockedMs) * 100 
+                        : 0;
+                      const stCredit = ((inspectorData.calculations.bookTimeRaw || 0) * stPct) / 100;
+                      const isCurrent = st.staffId === inspectorData.calculations?.currentStaffId || st.staffName?.toLowerCase() === inspectorData.calculations?.currentStaffName?.toLowerCase();
+
+                      return (
+                        <div key={idx} className={`p-2.5 flex items-center justify-between ${isCurrent ? 'bg-indigo-500/10' : ''}`}>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-zinc-200">{st.staffName}</span>
+                            {isCurrent && (
+                              <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Target Tech</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 font-mono text-xs">
+                            <span className="text-zinc-400">{stDurMin} min clocked ({stPct.toFixed(1)}%)</span>
+                            <span className="font-bold text-emerald-400">+{stCredit.toFixed(2)}h Credit</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Simple Rule Summary */}
               <div className="bg-amber-500/[0.05] border border-amber-500/20 rounded-xl p-3 text-xs flex flex-col gap-1.5">
                 <span className="font-bold text-amber-400 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5" /> Attribution & Audit Rules Applied
+                  <Info className="w-3.5 h-3.5" /> Credit Attribution Rules (Simple Summary)
                 </span>
                 <ul className="list-disc list-inside text-zinc-300 space-y-1 text-[11px]">
-                  <li><strong>Completed By Staff:</strong> {inspectorData.calculations?.completedByStaffName || inspectorData.calculations?.completedByStaffId || 'N/A'}</li>
-                  <li><strong>Assigned Staff IDs:</strong> {JSON.stringify(inspectorData.calculations?.assignedStaffIds || [])}</li>
-                  <li><strong>Actual Clock-Ins Recorded:</strong> {inspectorData.calculations?.clockedStaffList?.length || 0} staff member(s)</li>
-                  <li><strong>Rule Verdict:</strong> If staff members actually clocked into this task, credit is split ONLY among clocked staff. Assigned staff who did not clock in are excluded. If no one clocked in, credit goes only to the staff member who marked it completed.</li>
+                  <li><strong>Clocked Techs Rule:</strong> Credit is split proportionally based on actual clocked minutes.</li>
+                  <li><strong>Non-Clocked Assigned Techs:</strong> Excluded (0 credit) if any tech clocked into the task.</li>
+                  <li><strong>No Clock-Ins Fallback:</strong> If zero tech sessions were recorded, 100% credit goes to the staff member who marked it complete.</li>
                 </ul>
               </div>
             </div>
