@@ -9,7 +9,7 @@ import {
   Clock, Play, Square, Coffee, Pizza, 
   ChevronLeft, ChevronRight,
   Wrench, RefreshCw, AlertCircle, Check, X,
-  Loader2, Plus, Calendar
+  Loader2, Plus, Calendar, ShieldAlert, Terminal, Copy, Bug, Info, Layers
 } from 'lucide-react';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useJobClock } from '../timeclock/useJobClock';
@@ -284,6 +284,64 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     note?: string;
     breakIndex?: number;
   } | null>(null);
+
+  // Super Admin Debug Inspector State
+  const [inspectorData, setInspectorData] = useState<{
+    title: string;
+    type: string;
+    evt?: any;
+    taskDoc?: any;
+    sessionDoc?: any;
+    calculations?: any;
+    timestamp?: string;
+  } | null>(null);
+
+  const openInspector = (title: string, type: string, evt?: any, taskDoc?: any, sessionDoc?: any, extraCalc?: any) => {
+    let foundTask = taskDoc;
+    if (!foundTask && evt?.taskId) {
+      foundTask = myAssignedTasks.find(t => t.id === evt.taskId);
+    }
+    let foundSession = sessionDoc;
+    if (!foundSession && evt?.sessionId) {
+      foundSession = sessions.find(s => s.id === evt.sessionId);
+    }
+
+    const clockedStaffList: any[] = [];
+    if (foundTask && sessions.length > 0) {
+      sessions.forEach(s => {
+        (s.jobs || []).forEach((j: any) => {
+          if ((j.taskId && j.taskId === foundTask.id) || (j.id === foundTask.jobId && j.taskName === foundTask.title)) {
+            clockedStaffList.push({
+              staffId: s.userId || s.staffId,
+              staffName: s.userName || s.staffName || 'Tech',
+              start: j.start,
+              end: j.end
+            });
+          }
+        });
+      });
+    }
+
+    setInspectorData({
+      title,
+      type,
+      evt,
+      taskDoc: foundTask,
+      sessionDoc: foundSession,
+      calculations: {
+        currentStaffId: staffMember?.id || effectiveUserUid,
+        currentStaffName: staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}`.trim() : 'Tech',
+        assignedStaffIds: foundTask?.assignedStaffIds || [],
+        completedByStaffId: foundTask?.completedByStaffId || foundTask?.completedBy || null,
+        completedByStaffName: foundTask?.completedByStaffName || null,
+        clockedStaffList,
+        bookTimeRaw: foundTask?.bookTime || evt?.bookTime || 0,
+        payBasis: foundTask?.payBasis || evt?.payBasis || 'book_time',
+        ...extraCalc
+      },
+      timestamp: new Date().toISOString()
+    });
+  };
 
   const myAssignedJobs = useMemo(() => {
     const jobIds = Array.from(new Set(myAssignedTasks.map(t => t.jobId)));
@@ -2032,31 +2090,51 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
         {/* Period Stats summary row */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3 border-t border-zinc-150 dark:border-zinc-805/50">
-          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center">
+          <div 
+            onClick={() => openInspector("Metric Summary: Time Clock (Shift Hours)", "metric_summary", metricsData, undefined, undefined, { metric: 'totalShiftHours', value: metricsData.totalShiftHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+            title="Click to inspect Time Clock calculation"
+          >
             <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">TIME CLOCK</span>
             <span className="text-xs font-mono font-black text-zinc-900 dark:text-white mt-1">
               {metricsData.totalShiftHours.toFixed(2)}h
             </span>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-emerald-500/[0.02] border-emerald-500/10">
+          <div 
+            onClick={() => openInspector("Metric Summary: Total Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalLabor', value: metricsData.totalHourlyHours + metricsData.totalBookHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-emerald-500/[0.02] border-emerald-500/10 cursor-pointer hover:bg-emerald-500/[0.06] transition-colors"
+            title="Click to inspect Total Labor calculation"
+          >
             <span className="text-[8px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-widest leading-none">TOTAL LABOR</span>
             <span className="text-xs font-mono font-black text-emerald-655 dark:text-emerald-400 mt-1">
               {(metricsData.totalHourlyHours + metricsData.totalBookHours).toFixed(2)}h
             </span>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center">
+          <div 
+            onClick={() => openInspector("Metric Summary: Book Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalBookHours', value: metricsData.totalBookHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+            title="Click to inspect Book Labor calculation"
+          >
             <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">BOOK LABOR</span>
             <span className="text-xs font-mono font-black text-indigo-650 dark:text-indigo-400 mt-1">
               {metricsData.totalBookHours.toFixed(2)}h
             </span>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-violet-500/[0.02] border-violet-500/10">
+          <div 
+            onClick={() => openInspector("Metric Summary: Hourly Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalHourlyHours', value: metricsData.totalHourlyHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-violet-500/[0.02] border-violet-500/10 cursor-pointer hover:bg-violet-500/[0.06] transition-colors"
+            title="Click to inspect Hourly Labor calculation"
+          >
             <span className="text-[8px] font-black text-violet-500 uppercase tracking-widest leading-none">HOURLY LABOR</span>
             <span className="text-xs font-mono font-black text-violet-650 dark:text-violet-400 mt-1">
               {metricsData.totalHourlyHours.toFixed(2)}h
             </span>
           </div>
-          <div className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-amber-500/[0.02] border-amber-500/10">
+          <div 
+            onClick={() => openInspector("Metric Summary: Unallocated Time", "metric_summary", metricsData, undefined, undefined, { metric: 'totalUnallocatedHours', value: metricsData.totalUnallocatedHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-amber-500/[0.02] border-amber-500/10 cursor-pointer hover:bg-amber-500/[0.06] transition-colors"
+            title="Click to inspect Unallocated Time calculation"
+          >
             <span className="text-[8px] font-black text-amber-600 dark:text-amber-450 uppercase tracking-widest leading-none">UNALLOCATED</span>
             <span className="text-xs font-mono font-black text-amber-650 dark:text-amber-400 mt-1">
               {metricsData.totalUnallocatedHours.toFixed(2)}h
@@ -2324,7 +2402,13 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                     return (
                       <div 
                         key={evt.id} 
-                        onClick={() => {
+                        onClick={(e) => {
+                          if (e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            openInspector(evt.label || evt.subLabel || 'Timeline Event', evt.type, evt);
+                            return;
+                          }
                           if (evt.type === 'labor') {
                             setEditingSegment({
                               sessionId: evt.sessionId!,
@@ -2366,6 +2450,8 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                               end: evt.timeEnd,
                               breakIndex: evt.breakIndex
                             });
+                          } else if (evt.type === 'task_completed' || evt.type === 'gap') {
+                            openInspector(evt.label || evt.subLabel || 'Task Event', evt.type, evt);
                           }
                         }}
                         className={cn(
@@ -2716,12 +2802,88 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         />
       )}
 
-      {/* Add Missing Shift Modal */}
-      {isAddingMissingShift && (
-        <AddMissingShiftModalInline
-          onClose={() => setIsAddingMissingShift(false)}
-          onSave={handleCreateMissingShift}
-        />
+      {/* SUPER ADMIN DATA INSPECTOR MODAL */}
+      {inspectorData && (
+        <div className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-zinc-950 border border-zinc-700/80 rounded-3xl max-w-3xl w-full p-6 text-white shadow-2xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Bug className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded">SUPER ADMIN INSPECTOR</span>
+                    <span className="text-[10px] font-bold text-zinc-400">Shift+Click Audit Mode</span>
+                  </div>
+                  <h3 className="text-base font-black text-white mt-0.5">{inspectorData.title}</h3>
+                </div>
+              </div>
+              <button 
+                onClick={() => setInspectorData(null)}
+                className="p-2 text-zinc-400 hover:text-white rounded-xl hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Audit & Calculation Summary */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 flex flex-col gap-3">
+              <div className="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                <Terminal className="w-4 h-4" /> Credit & Calculation Derivation Audit
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="bg-zinc-955 p-3 rounded-xl border border-zinc-800">
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Target Staff Member</span>
+                  <span className="font-mono font-bold text-zinc-200 block mt-0.5">{inspectorData.calculations?.currentStaffName || 'N/A'}</span>
+                  <span className="text-[10px] font-mono text-zinc-500">ID: {inspectorData.calculations?.currentStaffId || 'N/A'}</span>
+                </div>
+
+                <div className="bg-zinc-955 p-3 rounded-xl border border-zinc-800">
+                  <span className="text-[10px] font-bold text-zinc-400 block uppercase">Event Type & Pay Basis</span>
+                  <span className="font-mono font-bold text-zinc-200 block mt-0.5">{inspectorData.type?.toUpperCase()} | {inspectorData.calculations?.payBasis?.toUpperCase() || 'N/A'}</span>
+                  <span className="text-[10px] font-mono text-zinc-500">Book Time Raw: {inspectorData.calculations?.bookTimeRaw || 0}h</span>
+                </div>
+              </div>
+
+              {/* Diagnostic Explanations */}
+              <div className="bg-amber-500/[0.05] border border-amber-500/20 rounded-xl p-3 text-xs flex flex-col gap-1.5">
+                <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5" /> Attribution & Audit Rules Applied
+                </span>
+                <ul className="list-disc list-inside text-zinc-300 space-y-1 text-[11px]">
+                  <li><strong>Completed By Staff:</strong> {inspectorData.calculations?.completedByStaffName || inspectorData.calculations?.completedByStaffId || 'N/A'}</li>
+                  <li><strong>Assigned Staff IDs:</strong> {JSON.stringify(inspectorData.calculations?.assignedStaffIds || [])}</li>
+                  <li><strong>Actual Clock-Ins Recorded:</strong> {inspectorData.calculations?.clockedStaffList?.length || 0} staff member(s)</li>
+                  <li><strong>Rule Verdict:</strong> If staff members actually clocked into this task, credit is split ONLY among clocked staff. Assigned staff who did not clock in are excluded. If no one clocked in, credit goes only to the staff member who marked it completed.</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Raw Event Object JSON */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">Raw Inspection Object (JSON)</span>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(inspectorData, null, 2));
+                    toast.success("Debug JSON copied to clipboard!");
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-bold transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copy JSON
+                </button>
+              </div>
+              <pre className="bg-zinc-955 text-emerald-400 p-4 rounded-2xl border border-zinc-800 text-[11px] font-mono overflow-x-auto max-h-60 shadow-inner">
+                {JSON.stringify(inspectorData, null, 2)}
+              </pre>
+            </div>
+
+          </div>
+        </div>
       )}
 
     </div>
