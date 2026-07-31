@@ -25,6 +25,8 @@ import { LogoQRCode } from '../../components/LogoQRCode';
 import { StaffLink } from './StaffPerformance';
 import { TimeAllocationModal } from './TimeAllocationModal';
 import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
+import { CalculationDerivationModal, type CalculationDerivationModalProps } from '../../components/CalculationDerivationModal';
+import { Calculator } from 'lucide-react';
 
 const isGeneralTask = (taskOrTitle?: any) => {
   if (!taskOrTitle) return false;
@@ -280,6 +282,172 @@ export function JobDetailPage({
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Calculation Derivation Modal State
+  const [calculationModalData, setCalculationModalData] = useState<CalculationDerivationModalProps | null>(null);
+
+  const inspectJobProgress = () => {
+    setCalculationModalData({
+      title: "Job Completion Progress (%)",
+      metricValue: `${jobProgress}%`,
+      formula: "Job Progress (%) = (Completed Book Hours / Total Job Book Hours) * 100",
+      mathEquation: totalBookHours > 0 ? `(${completedBookHours.toFixed(2)}h / ${totalBookHours.toFixed(2)}h) * 100 = ${jobProgress}%` : "0%",
+      variables: [
+        {
+          name: "Completed Book Hours",
+          value: `${completedBookHours.toFixed(2)}h`,
+          description: "Sum of book time for tasks marked 'QC' or 'QC Complete' on this job.",
+          sourceDoc: `businesses/${tenantId}/jobs/${jobId}/tasks`
+        },
+        {
+          name: "Total Job Book Hours",
+          value: `${totalBookHours.toFixed(2)}h`,
+          description: "Sum of book time for all non-general labor tasks on this job.",
+          sourceDoc: `businesses/${tenantId}/jobs/${jobId}/tasks`
+        }
+      ],
+      breakdownTable: [
+        { label: "Total Job Tasks", value: totalTasks, subText: `${completedTasks} completed` },
+        { label: "Completed Book Hours", value: `${completedBookHours.toFixed(2)}h` },
+        { label: "Total Allotted Book Hours", value: `${totalBookHours.toFixed(2)}h` }
+      ],
+      auditNotes: [
+        "Only tasks with status 'QC' or 'QC Complete' count towards Completed Book Hours.",
+        "General Labor tasks (e.g. shop prep or unassigned) are excluded from the total book time denominator."
+      ],
+      rawObject: { totalBookHours, completedBookHours, jobProgress, totalTasks, completedTasks },
+      onClose: () => setCalculationModalData(null)
+    });
+  };
+
+  const inspectTaskEfficiency = (task: any) => {
+    const taskLoggedMs = getTaskLoggedMs(task.id);
+    const taskActualHours = taskLoggedMs / 3600000;
+    const rawBookTime = parseFloat(task.bookTime) || 0;
+    const payBasis = task.payBasis || 'book_time';
+    const bookTime = payBasis === 'hourly' ? taskActualHours : rawBookTime;
+
+    const efficiencyPct = taskActualHours > 0 
+      ? Math.round((bookTime / taskActualHours) * 100) 
+      : (isTaskCompleted(task) ? 100 : 0);
+
+    const taskSessions = timeLogs.flatMap(s => (s.jobs || []).filter((j: any) => j.id === jobId && j.taskId === task.id).map((j: any) => ({
+      staffName: s.userName || s.staffName || 'Tech',
+      start: j.start,
+      end: j.end,
+      durationMs: (j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : now) - (j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime())
+    })));
+
+    setCalculationModalData({
+      title: `Task Efficiency: ${task.title || 'Task'}`,
+      metricValue: `${efficiencyPct}%`,
+      formula: "Task Efficiency (%) = (Book Time / Actual Clocked Time) * 100",
+      mathEquation: taskActualHours > 0 ? `(${bookTime.toFixed(2)}h / ${taskActualHours.toFixed(2)}h) * 100 = ${efficiencyPct}%` : 'N/A (No clocked time)',
+      variables: [
+        {
+          name: "Book Time",
+          value: `${bookTime.toFixed(2)}h`,
+          description: `Preset labor estimate hours (Pay Basis: ${payBasis}).`,
+          sourceDoc: `businesses/${tenantId}/jobs/${jobId}/tasks/${task.id}`
+        },
+        {
+          name: "Actual Clocked Time",
+          value: `${taskActualHours.toFixed(2)}h`,
+          description: `Sum of actual time clocked by technicians on this task (${taskSessions.length} clock-in segment(s)).`,
+          sourceDoc: `businesses/${tenantId}/time_sessions`
+        }
+      ],
+      breakdownTable: taskSessions.map(s => ({
+        label: s.staffName,
+        value: `${(s.durationMs / 3600000).toFixed(2)}h`,
+        subText: `Clock-in duration: ${Math.round(s.durationMs / 60000)} minutes`
+      })),
+      auditNotes: [
+        "If Actual Clocked Time is less than Book Time, Efficiency > 100% (High Productivity).",
+        "If Actual Clocked Time exceeds Book Time, Efficiency < 100% (Over Allotted Estimate)."
+      ],
+      rawObject: { task, taskActualHours, bookTime, efficiencyPct, taskSessions },
+      onClose: () => setCalculationModalData(null)
+    });
+  };
+
+  const inspectStaffLabor = (staffStat: any) => {
+    setCalculationModalData({
+      title: `Staff Labor Audit: ${staffStat.name}`,
+      metricValue: `${staffStat.completedHours.toFixed(2)}h / ${staffStat.totalHours.toFixed(2)}h`,
+      formula: "Tech Share = Task Book Time * (Tech Clocked Task Time / Total Clocked Task Time)",
+      mathEquation: `Clocked Shift Time: ${staffStat.clockedHours.toFixed(2)}h | Allotted Book: ${staffStat.totalHours.toFixed(2)}h`,
+      variables: [
+        {
+          name: "Clocked Job Hours",
+          value: `${staffStat.clockedHours.toFixed(2)}h`,
+          description: "Total shift time spent actively clocked into this job.",
+          sourceDoc: `businesses/${tenantId}/time_sessions`
+        },
+        {
+          name: "Completed Book Hours Credit",
+          value: `${staffStat.completedHours.toFixed(2)}h`,
+          description: "Earned book time credit for tasks completed by this technician.",
+          sourceDoc: `businesses/${tenantId}/jobs/${jobId}/tasks`
+        }
+      ],
+      breakdownTable: [
+        { label: "Assigned Tasks", value: staffStat.totalTasks },
+        { label: "Completed Tasks", value: staffStat.completedTasks },
+        { label: "Completed Book Hours", value: `${staffStat.completedHours.toFixed(2)}h` },
+        { label: "Total Allotted Book Hours", value: `${staffStat.totalHours.toFixed(2)}h` },
+        { label: "Actual Clocked Job Hours", value: `${staffStat.clockedHours.toFixed(2)}h` }
+      ],
+      auditNotes: [
+        "If multiple technicians worked on a task, book time credit is split based on actual clocked time ratio.",
+        "Non-clocked assigned technicians receive 0 credit if another tech clocked into the task."
+      ],
+      rawObject: staffStat,
+      onClose: () => setCalculationModalData(null)
+    });
+  };
+
+  const inspectJobEfficiencyStats = () => {
+    const { totalBook, totalActual, efficiency, variance } = jobEfficiencyStats;
+    const effStr = efficiency !== null ? `${efficiency.toFixed(1)}%` : 'N/A';
+    setCalculationModalData({
+      title: `Job Efficiency Audit: #${job?.jobNumber || job?.id || ''}`,
+      metricValue: effStr,
+      formula: "Job Efficiency (%) = (Total Job Book Hours / Total Actual Clocked Hours) * 100",
+      mathEquation: totalActual > 0 ? `(${totalBook.toFixed(2)}h / ${totalActual.toFixed(2)}h) * 100 = ${effStr}` : 'N/A (No clocked time recorded)',
+      variables: [
+        {
+          name: "Total Job Book Hours",
+          value: `${totalBook.toFixed(2)}h`,
+          description: "Sum of labor estimates for non-general tasks on this job.",
+          sourceDoc: `businesses/${tenantId}/jobs/${jobId}/tasks`
+        },
+        {
+          name: "Total Actual Clocked Hours",
+          value: `${totalActual.toFixed(2)}h`,
+          description: "Sum of actual clocked hours logged by all technicians on this job.",
+          sourceDoc: `businesses/${tenantId}/time_sessions`
+        },
+        {
+          name: "Labor Variance",
+          value: `${variance >= 0 ? '+' : ''}${variance.toFixed(2)}h`,
+          description: "Difference between Actual Clocked Hours and Estimated Book Hours.",
+        }
+      ],
+      breakdownTable: [
+        { label: "Estimated Book Hours", value: `${totalBook.toFixed(2)}h` },
+        { label: "Actual Clocked Hours", value: `${totalActual.toFixed(2)}h` },
+        { label: "Labor Hours Variance", value: `${variance >= 0 ? '+' : ''}${variance.toFixed(2)}h`, badge: variance <= 0 ? 'Under Estimate' : 'Over Estimate' },
+        { label: "Job Efficiency Rating", value: effStr, badge: efficiency && efficiency >= 100 ? 'High Productivity' : 'Needs Review' }
+      ],
+      auditNotes: [
+        "Efficiency above 100% indicates tasks were completed faster than allotted book time.",
+        "Accidental task segments or general shop tasks are excluded from the book time total."
+      ],
+      rawObject: { jobEfficiencyStats, tasksCount: tasks.length, timeLogsCount: timeLogs.length },
+      onClose: () => setCalculationModalData(null)
+    });
+  };
 
   // Fetch Job
   useEffect(() => {
@@ -1823,8 +1991,15 @@ export function JobDetailPage({
                 Print QR
               </button>
               <button 
-                onClick={() => navigate(`/business/${tenantId}/job/${jobId}/efficiency`)}
+                onClick={(e) => {
+                  if (e.shiftKey) {
+                    inspectJobEfficiencyStats();
+                  } else {
+                    inspectJobEfficiencyStats();
+                  }
+                }}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-650 hover:from-emerald-600 hover:to-teal-750 text-white rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/20 border border-emerald-500/30 transition-all cursor-pointer"
+                title="Click or Shift+Click to inspect Job Efficiency calculation derivation"
               >
                 <Timer className="w-4 h-4 text-emerald-100" />
                 Job Efficiency
@@ -2067,7 +2242,11 @@ export function JobDetailPage({
                                         : `${group}, Task`}
                                   </h4>
                                   {!isGeneralTask(group) && totalBookHours > 0 && (
-                                    <div className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto">
+                                    <div 
+                                      onClick={inspectJobProgress}
+                                      className="flex items-center justify-between sm:justify-end gap-3 w-full sm:w-auto cursor-pointer hover:opacity-80 transition-opacity"
+                                      title="Click to inspect Job Progress calculation derivation"
+                                    >
                                       <span className="text-[10px] font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded-lg">
                                         {completedHours.toFixed(1)} / {totalBookHours.toFixed(1)}h Completed
                                       </span>
@@ -2244,12 +2423,20 @@ export function JobDetailPage({
                                             
                                             <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
                                               {!isGeneralTask(task) && task.payBasis !== 'hourly' && task.status !== 'QC' && (
-                                                <div className="flex flex-col">
+                                                <div 
+                                                  onClick={(e) => { e.stopPropagation(); inspectTaskEfficiency(task); }}
+                                                  className="flex flex-col cursor-pointer hover:opacity-80 transition-opacity"
+                                                  title="Click to inspect Task Efficiency & Book Time calculation"
+                                                >
                                                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Allotted Time</span>
                                                   <span className="font-mono text-sm font-bold text-zinc-900 dark:text-white">{task.bookTime || 0}h</span>
                                                 </div>
                                               )}
-                                              <div className="flex flex-col">
+                                              <div 
+                                                onClick={(e) => { e.stopPropagation(); inspectTaskEfficiency(task); }}
+                                                className="flex flex-col cursor-pointer hover:opacity-80 transition-opacity"
+                                                title="Click to inspect Task Efficiency & Actual Clocked Time calculation"
+                                              >
                                                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Total Time Worked</span>
                                                 {task.isAccidental ? (
                                                   <div className="flex items-center gap-1.5 font-mono text-sm font-bold text-rose-500">
@@ -2650,7 +2837,11 @@ export function JobDetailPage({
               )}
 
               <div className="pt-4 border-t border-white/10 space-y-4">
-                <div>
+                <div 
+                  onClick={inspectJobProgress}
+                  className="cursor-pointer hover:opacity-90 transition-opacity"
+                  title="Click to inspect Total Job Progress derivation"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Total Job Progress</span>
                     <span className="text-xs font-mono font-bold">
@@ -2679,7 +2870,12 @@ export function JobDetailPage({
                         : staff.totalTasks > 0 && staff.completedTasks === staff.totalTasks ? 100 : 0;
                       
                       return (
-                        <div key={staff.id} className="space-y-1.5 p-3 rounded-2xl bg-white/10 border border-white/10 text-white">
+                        <div 
+                          key={staff.id} 
+                          onClick={() => inspectStaffLabor(staff)}
+                          className="space-y-1.5 p-3 rounded-2xl bg-white/10 border border-white/10 text-white cursor-pointer hover:bg-white/20 transition-all"
+                          title={`Click to inspect labor calculations for ${staff.name}`}
+                        >
                           <div className="flex items-center justify-between text-xs">
                             <span className={cn(
                               "font-bold",
@@ -3556,6 +3752,10 @@ export function JobDetailPage({
             setGeneralClockInWarning(null);
           }}
         />
+      )}
+
+      {calculationModalData && (
+        <CalculationDerivationModal {...calculationModalData} />
       )}
 
       {showReportModal && createPortal(
