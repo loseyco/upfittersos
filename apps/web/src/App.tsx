@@ -12,6 +12,7 @@ import { ParkingMonitorAuthWrapper } from './features/business/ParkingMonitorAut
 import { TimeclockMonitorAuthWrapper } from './features/business/TimeclockMonitorAuthWrapper';
 import { ConferenceRoomMonitorAuthWrapper } from './features/business/ConferenceRoomMonitorAuthWrapper';
 import { UnifiedMonitorAuthWrapper } from './features/business/UnifiedMonitorAuthWrapper';
+import { DailyProgressMonitorAuthWrapper } from './features/business/DailyProgressMonitorAuthWrapper';
 import { TvSetupScreen } from './features/business/TvSetupScreen';
 import { TvPairingApprove } from './features/business/TvPairingApprove';
 import { QRRedirector } from './features/business/QRRedirector';
@@ -50,7 +51,10 @@ function App() {
             <Route path="/parking-tv" element={<ParkingMonitorAuthWrapper />} />
             <Route path="/timeclock-tv" element={<TimeclockMonitorAuthWrapper />} />
             <Route path="/conference-tv" element={<ConferenceRoomMonitorAuthWrapper />} />
+            <Route path="/conference-tv/*" element={<ConferenceRoomMonitorAuthWrapper />} />
+            <Route path="/daily-progress-tv" element={<DailyProgressMonitorAuthWrapper />} />
             <Route path="/monitor-tv" element={<UnifiedMonitorAuthWrapper />} />
+            <Route path="/monitor-tv/*" element={<UnifiedMonitorAuthWrapper />} />
             <Route path="/tv-setup" element={<TvSetupScreen />} />
             <Route path="/pair" element={<TvPairingApprove />} />
             <Route path="/qr" element={<QRRedirector />} />
@@ -65,6 +69,7 @@ function App() {
 
             {/* Tenant Tier */}
             <Route element={<TenantGuard />}>
+               <Route path="/desktop" element={<Navigate to="/business/loseyco/desktop" replace />} />
                <Route path="/business/:tenantId/*" element={<TenantDashboard />} />
                <Route path="/business/:tenantId/profile" element={<UserProfilePage />} />
             </Route>

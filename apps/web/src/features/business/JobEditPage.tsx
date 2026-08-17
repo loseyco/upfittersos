@@ -427,8 +427,16 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
 
       let finalJobId = jobId;
       if (isNew) {
+        const creatorId = user?.uid || '';
+        const creatorName = user?.displayName || user?.email?.split('@')[0] || 'Staff';
         const docRef = await addDoc(collection(db, `businesses/${tenantId}/jobs`), {
           ...payload,
+          createdBy: creatorId || creatorName,
+          createdByStaffId: creatorId,
+          createdByUserId: user?.uid || '',
+          createdByStaffName: creatorName,
+          createdByName: creatorName,
+          source: payload.source || 'Upfitters OS',
           createdAt: serverTimestamp()
         });
         finalJobId = docRef.id;
@@ -1365,6 +1373,8 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
         } else if (field === 'departmentId' && task?.departmentId !== value) {
           const dept = departments.find(d => d.id === value);
           logActivity('task_updated', `Assigned task "${task?.title || 'Unnamed Task'}" to department: ${dept?.name || 'None'}`);
+        } else if (field === 'taskGroup' && task?.taskGroup !== value) {
+          logActivity('task_updated', `Moved task "${task?.title || 'Unnamed Task'}" to category: ${value}`);
         }
         
       } catch (err) {
@@ -1689,6 +1699,13 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                   if (!groupedTasks[cg]) groupedTasks[cg] = [];
                 });
                 
+                const allJobCategories = Array.from(
+                  new Set([
+                    ...jobTasks.map(t => t.taskGroup || 'Uncategorized'),
+                    ...customGroups
+                  ])
+                ).sort((a, b) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b));
+                
                 return Object.entries(groupedTasks).sort(([a], [b]) => isGeneralTask(a) ? -1 : isGeneralTask(b) ? 1 : a.localeCompare(b)).map(([group, tasksData]) => {
                   const tasks = tasksData as any[];
                   return (
@@ -1740,6 +1757,7 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                           <tr className="bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-850 text-[10px] font-black uppercase text-zinc-400 dark:text-zinc-550 tracking-wider">
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 text-center w-[90px]"># / Actions</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[200px]">Task Title</th>
+                            <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[140px]">Category</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[110px]">Department</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[160px]">Techs / Staff</th>
                             <th className="p-2 border-r border-zinc-200 dark:border-zinc-800 w-[100px]">Pay Basis</th>
@@ -1863,6 +1881,25 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
                                       qbItems={qbItems}
                                       id={`task-title-${task.id}`}
                                     />
+                                  )}
+                                </td>
+
+                                {/* 2b. Category */}
+                                <td className="p-1 border-r border-zinc-200 dark:border-zinc-800">
+                                  {isGen ? (
+                                    <span className="px-2 py-1 text-zinc-400 dark:text-zinc-650 font-medium">General</span>
+                                  ) : (
+                                    <select
+                                      value={task.taskGroup || group}
+                                      onChange={e => updateTaskField(task.id, 'taskGroup', e.target.value)}
+                                      className="w-full bg-transparent border-none px-1 py-1 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-semibold text-zinc-700 dark:text-zinc-300 cursor-pointer bg-white dark:bg-zinc-900 truncate"
+                                    >
+                                      {allJobCategories.map(cat => (
+                                        <option key={cat} value={cat} className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white">
+                                          {cat}
+                                        </option>
+                                      ))}
+                                    </select>
                                   )}
                                 </td>
 

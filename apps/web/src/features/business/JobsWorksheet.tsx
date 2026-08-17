@@ -15,6 +15,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { cn } from '../../lib/utils';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { LogoQRCode } from '../../components/LogoQRCode';
+import { openJobPopupWindow } from '../../lib/utils/window';
 
 interface StaffMember {
   id: string;
@@ -184,6 +185,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
   const [editingVin, setEditingVin] = useState<{ [jobId: string]: string }>({});
   const [editingCcId, setEditingCcId] = useState<{ [jobId: string]: string }>({});
   const [activeHeaderFilterDropdown, setActiveHeaderFilterDropdown] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string>('default');
   const [colFilters, setColFilters] = useState<Record<string, string>>({
     priority: 'all',
     location: 'all',
@@ -573,6 +575,41 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
 
       return true;
     }).sort((a, b) => {
+      const getCreatedAtVal = (j: any) => {
+        const date = parseSafeDate(j.createdAt);
+        return date ? date.getTime() : 0;
+      };
+
+      if (sortBy === 'created_desc') {
+        const cA = getCreatedAtVal(a);
+        const cB = getCreatedAtVal(b);
+        if (cA !== cB) return cB - cA; // Newest created first
+      } else if (sortBy === 'created_asc') {
+        const cA = getCreatedAtVal(a);
+        const cB = getCreatedAtVal(b);
+        if (cA !== cB) return cA - cB; // Oldest created first
+      } else if (sortBy === 'due_asc') {
+        const getDueDateVal = (j: any) => {
+          if (!j.expectedFinishTime) return Infinity;
+          const date = j.expectedFinishTime.toDate ? j.expectedFinishTime.toDate() : new Date(j.expectedFinishTime);
+          return isNaN(date.getTime()) ? Infinity : date.getTime();
+        };
+        const dA = getDueDateVal(a);
+        const dB = getDueDateVal(b);
+        if (dA !== dB) return dA - dB;
+      } else if (sortBy === 'priority_desc') {
+        const getPriorityVal = (j: any) => {
+          const p = j.priority;
+          if (!p) return 3;
+          const parsed = parseInt(p.split(' ')[0]);
+          return isNaN(parsed) ? 3 : parsed;
+        };
+        const pA = getPriorityVal(a);
+        const pB = getPriorityVal(b);
+        if (pA !== pB) return pB - pA;
+      }
+
+      // Default sorting:
       // 1. Sort by Priority (descending: 5 - Urgent down to 0 - Not Ready)
       const getPriorityVal = (j: any) => {
         const p = j.priority;
@@ -618,7 +655,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       // 4. Sort by last updated
       return (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0);
     });
-  }, [jobsList, vehiclesList, searchTerm, selectedStatusFilter, tasksMap, colFilters, zonesList, partsRequests]);
+  }, [jobsList, vehiclesList, searchTerm, selectedStatusFilter, tasksMap, colFilters, zonesList, partsRequests, sortBy]);
 
   // Edits Handlers
   const handleDueDateChange = async (jobId: string, newDateStr: string) => {
@@ -753,6 +790,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       };
       if (newStatus === 'Ready for Customer') {
         updateFields.readyForCustomerAt = serverTimestamp();
+        updateFields.readyForCustomerBy = user?.displayName || user?.email;
+        updateFields.readyForCustomerById = user?.uid;
       } else if (['Completed', 'Closed'].includes(newStatus)) {
         updateFields.completedAt = serverTimestamp();
       } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
@@ -768,7 +807,8 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleActivateDraftJob = async (jobId: string) => {
+  /*
+  const _handleActivateDraftJob = async (jobId: string) => {
     if (!canManage) return;
     setIsUpdating(jobId);
     try {
@@ -786,6 +826,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
       setIsUpdating(null);
     }
   };
+  */
 
   // Blocker Management
   const handleAddBlocker = async () => {
@@ -1411,6 +1452,21 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
             </select>
           </div>
 
+          {/* Sort By selector */}
+          <div className="relative w-full sm:w-52">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-500/50 transition dark:text-white font-medium"
+            >
+              <option value="default">Sort: Default Priority</option>
+              <option value="created_desc">Sort: Created Date (Newest First)</option>
+              <option value="created_asc">Sort: Created Date (Oldest First)</option>
+              <option value="due_asc">Sort: Due Date (Earliest First)</option>
+              <option value="priority_desc">Sort: Priority (Highest First)</option>
+            </select>
+          </div>
+
           {/* Legend */}
           <div className="hidden lg:flex items-center gap-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 ml-auto select-none">
             <span>Row Hints:</span>
@@ -1497,10 +1553,10 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                 const completedTasks = nonGeneralTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed').length;
                 const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
 
-                const totalBookTime = nonGeneralTasks.reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
+                const totalBookTime = nonGeneralTasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
                 const remainingBookTime = nonGeneralTasks
                   .filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed')
-                  .reduce((sum, t) => sum + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
+                  .reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
 
                 // Parts aggregation
                 const jobParts = partsRequests.filter(p => p.jobId === job.id);
@@ -1662,7 +1718,7 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             {job.jobNumber ? '#' : 'J'}
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer flex items-center gap-1" onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}>
+                            <span className="truncate text-xs font-black hover:text-indigo-500 cursor-pointer flex items-center gap-1" onClick={() => openJobPopupWindow(`/business/${tenantId}/job/${job.id}`, job.id)}>
                               {job.jobNumber ? `#${job.jobNumber} - ${job.title}` : job.title}
                               {needsSetup && (
                                 <span 
@@ -1685,11 +1741,11 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             </div>
                           </div>
                           <button
-                            onClick={() => navigate(`/business/${tenantId}/job/${job.id}`)}
+                            onClick={() => openJobPopupWindow(`/business/${tenantId}/job/${job.id}`, job.id)}
                             className="p-1 text-zinc-400 hover:text-indigo-500 rounded transition shrink-0 ml-auto"
-                            title="View Job Details"
+                            title="Open Job Popup Window"
                           >
-                            <ExternalLink className="w-3 h-3" />
+                            <ExternalLink className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -2359,9 +2415,13 @@ export function JobsWorksheet({ tenantId }: { tenantId: string }) {
                             const resolvedLocationId = zonesList.find(z => z.currentJobId === job.id)?.id || job.bayId || 'none';
                             const bay = zonesList.find(z => z.id === resolvedLocationId);
                             const bayName = bay ? bay.name : (resolvedLocationId !== 'none' ? resolvedLocationId : 'None');
+                            const isQbJob = !!(job.quickbooksId || job.isNewQbSync || (job.tags && job.tags.includes('QuickBooks')) || job.source === 'QuickBooks' || job.qbListID);
 
                             return (
-                              <div key={job.id} className="p-5 border border-zinc-200 rounded-2xl bg-white shadow-sm space-y-4 print-no-break text-xs text-zinc-800">
+                              <div key={job.id} className={cn(
+                                "p-5 border border-zinc-200 rounded-2xl bg-white shadow-sm space-y-4 print-no-break text-xs text-zinc-800",
+                                isQbJob && "ring-2 ring-emerald-400/50 dark:ring-emerald-500/40"
+                              )}>
                                 {/* Card Header */}
                                 <div className="flex justify-between items-start border-b border-zinc-100 pb-3">
                                   <div>

@@ -11,28 +11,42 @@ export function UnifiedMonitorAuthWrapper() {
   const [tenantId, setTenantId] = useState<string | null>(null);
 
   useEffect(() => {
-    const t = searchParams.get('t');
+    const t = searchParams.get('t') || localStorage.getItem('tv_paired_tenant_id') || 'loseyco';
     const email = searchParams.get('u');
     const password = searchParams.get('p');
+    const monitorId = searchParams.get('m') || searchParams.get('monitorId');
 
-    if (!t || !email || !password) {
-      setError('Missing parameters. URL must include ?t=tenantId&u=email&p=password');
-      return;
+    if (monitorId) {
+      localStorage.setItem('bound_monitor_id', monitorId);
     }
 
     setTenantId(t);
+    localStorage.setItem('tv_paired_tenant_id', t);
 
-    const authenticate = async () => {
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-        setIsAuthenticated(true);
-      } catch (err: any) {
-        console.error('Unified TV login failed:', err);
-        setError(`Authentication failed: ${err.message}`);
-      }
-    };
-
-    authenticate();
+    if (email && password) {
+      signInWithEmailAndPassword(auth, email, password)
+        .then(() => setIsAuthenticated(true))
+        .catch((err: any) => {
+          console.error('Unified TV login failed:', err);
+          setError(`Authentication failed: ${err.message}`);
+        });
+    } else {
+      // Check if already authenticated or wait for Firebase auth to initialize
+      const unsubscribe = auth.onAuthStateChanged((user) => {
+        if (user) {
+          setIsAuthenticated(true);
+        } else {
+          // If monitorId or bound_monitor_id exists, allow public shop view
+          const bound = monitorId || localStorage.getItem('bound_monitor_id');
+          if (bound) {
+            setIsAuthenticated(true);
+          } else {
+            setError('Missing parameters. URL must include ?t=tenantId&u=email&p=password or be paired first.');
+          }
+        }
+      });
+      return () => unsubscribe();
+    }
   }, [searchParams]);
 
   if (error) {

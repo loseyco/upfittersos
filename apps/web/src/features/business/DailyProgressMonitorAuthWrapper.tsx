@@ -2,39 +2,36 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../../lib/firebase/config';
-import { ConferenceRoomMonitor } from './ConferenceRoomMonitor';
+import { DailyProgressMonitor } from './DailyProgressMonitor';
 
-export function ConferenceRoomMonitorAuthWrapper() {
+export function DailyProgressMonitorAuthWrapper() {
   const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [tenantId, setTenantId] = useState<string | null>(null);
-  const [monitorId, setMonitorId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = searchParams.get('t') || localStorage.getItem('tv_paired_tenant_id') || 'loseyco';
     const email = searchParams.get('u');
     const password = searchParams.get('p');
-    const mId = searchParams.get('m') || searchParams.get('monitorId') || localStorage.getItem('bound_monitor_id');
 
     setTenantId(t);
-    setMonitorId(mId);
     localStorage.setItem('tv_paired_tenant_id', t);
-    if (mId) localStorage.setItem('bound_monitor_id', mId);
 
     if (email && password) {
       signInWithEmailAndPassword(auth, email, password)
         .then(() => setIsAuthenticated(true))
         .catch((err: any) => {
-          console.error('Conference TV login failed:', err);
+          console.error('Daily Progress TV login failed:', err);
           setError(`Authentication failed: ${err.message}`);
         });
     } else {
       const unsubscribe = auth.onAuthStateChanged((user) => {
-        if (user || mId) {
+        if (user) {
           setIsAuthenticated(true);
         } else {
-          setError('Missing parameters. URL must include ?t=tenantId&u=email&p=password or ?m=monitorId');
+          // Allow public shop view
+          setIsAuthenticated(true);
         }
       });
       return () => unsubscribe();
@@ -45,7 +42,7 @@ export function ConferenceRoomMonitorAuthWrapper() {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-8 font-sans">
         <div className="bg-red-950/50 border border-red-900 rounded-2xl p-8 max-w-2xl w-full text-center">
-          <h2 className="text-2xl font-black text-red-500 mb-4 tracking-tight">CONFERENCE TV DISPLAY ERROR</h2>
+          <h2 className="text-2xl font-black text-red-500 mb-4 tracking-tight">DAILY PROGRESS TV DISPLAY ERROR</h2>
           <p className="text-red-200 font-semibold">{error}</p>
         </div>
       </div>
@@ -55,11 +52,11 @@ export function ConferenceRoomMonitorAuthWrapper() {
   if (!isAuthenticated || !tenantId) {
     return (
       <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center font-sans">
-        <div className="w-12 h-12 border-4 border-zinc-800 border-t-white rounded-full animate-spin mb-6"></div>
-        <div className="text-xl font-bold tracking-widest uppercase text-zinc-500 animate-pulse">Initializing Conference Board...</div>
+        <div className="w-12 h-12 border-4 border-zinc-800 border-t-indigo-500 rounded-full animate-spin mb-6"></div>
+        <div className="text-xl font-bold tracking-widest uppercase text-zinc-500 animate-pulse">Initializing Daily Progress Digest...</div>
       </div>
     );
   }
 
-  return <ConferenceRoomMonitor tenantId={tenantId} monitorId={monitorId} />;
+  return <DailyProgressMonitor tenantId={tenantId} />;
 }

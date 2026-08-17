@@ -157,16 +157,43 @@ export function TimeClockBar() {
       
       const snap = await getDocs(q);
       if (!snap.empty) {
-        const session = snap.docs[0].data();
-        const sessionId = snap.docs[0].id;
+        const sessionDoc = snap.docs[0];
+        const session = sessionDoc.data();
+        const sessionId = sessionDoc.id;
+
+        // Auto-close stale session if older than 16 hours or from a previous date
+        const clockInTime = session.clockIn?.timestamp?.toMillis ? session.clockIn.timestamp.toMillis() : Date.now();
+        const ageHours = (Date.now() - clockInTime) / (1000 * 60 * 60);
+
+        if (ageHours > 16) {
+          console.warn(`Auto-closing stale time session ${sessionId} (${ageHours.toFixed(1)}h old)`);
+          try {
+            await updateDoc(doc(db, `businesses/${tenantId}/time_sessions`, sessionId), {
+              status: 'completed',
+              autoClockedOut: true,
+              clockOut: {
+                timestamp: serverTimestamp(),
+                lat: null,
+                lng: null,
+                onSite: true,
+                note: 'Auto clocked out due to shift expiration (>16h)'
+              },
+              updatedAt: serverTimestamp()
+            });
+          } catch (e) {
+            console.error("Failed to auto-close stale session:", e);
+          }
+          reset();
+          return;
+        }
         
         let newStatus: ClockStatus = 'clocked_in';
-        let newStartTime = session.clockIn.timestamp?.toMillis() || Date.now();
+        let newStartTime = session.clockIn?.timestamp?.toMillis ? session.clockIn.timestamp.toMillis() : Date.now();
         
-        if (session.status === 'on_break') {
+        if (session.status === 'on_break' && session.breaks && session.breaks.length > 0) {
           const lastBreak = session.breaks[session.breaks.length - 1];
           newStatus = lastBreak.type === 'lunch' ? 'on_lunch' : 'on_break';
-          newStartTime = lastBreak.start?.toMillis() || Date.now();
+          newStartTime = lastBreak.start?.toMillis ? lastBreak.start.toMillis() : Date.now();
         }
         
         setStatus(newStatus, newStartTime, sessionId);
@@ -293,17 +320,37 @@ export function TimeClockBar() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const validateLocation = async (isClockOut = false): Promise<{ lat: number | null; lng: number | null; onSite: boolean; accuracy?: number | null; type?: 'gps' | 'ip' | null } | null> => {
+  const validateLocation = async (isClockOut = false): Promise<{ lat: number | null; lng: number | null; onSite: boolean; accuracy?: number | null; type?: 'gps' | 'ip' | 'fallback' | null } | null> => {
     return new Promise((resolve) => {
       
+      // On Clock Out, NEVER block or fail due to location or permission errors
+      const safeFallback = { lat: null, lng: null, onSite: true, accuracy: null, type: 'fallback' as const };
+
       if (!navigator.geolocation) {
         getIpLocation().then(ipLoc => {
-          resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: 'ip' });
-        });
+          resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: ipLoc.type || 'ip' });
+        }).catch(() => resolve(isClockOut ? safeFallback : null));
         return;
       }
 
+      let isResolved = false;
+      const timeoutMs = isClockOut ? 3000 : 6000;
+
+      const fallbackTimer = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          console.warn("Geolocation timeout in validateLocation. Using IP or safe fallback.");
+          getIpLocation().then(ipLoc => {
+            resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: ipLoc.type || 'ip' });
+          }).catch(() => resolve(isClockOut ? safeFallback : null));
+        }
+      }, timeoutMs);
+
       navigator.geolocation.getCurrentPosition((pos) => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(fallbackTimer);
+
         const { latitude, longitude, accuracy } = pos.coords;
         let onSite = true;
         let allowed = true;
@@ -315,36 +362,46 @@ export function TimeClockBar() {
           );
           onSite = dist <= (settings.siteRadius || 500);
           if (isClockOut) {
-            allowed = dist <= ((settings.siteRadius || 500) * 2);
+            allowed = true; // Always allow clock out regardless of distance
           } else {
             allowed = onSite;
           }
         }
 
-        if (!allowed && !settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
-          const msg = isClockOut 
-            ? "Clocking out off-site (beyond twice the site radius) is not allowed for your account."
-            : "Clocking in off-site is not allowed for your account.";
-          toast.error(msg);
+        if (!allowed && !isClockOut && !settings?.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
+          toast.error("Clocking in off-site is not allowed for your account.");
           resolve(null);
           return;
         }
 
         resolve({ lat: latitude, lng: longitude, onSite, accuracy, type: 'gps' });
       }, (err) => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(fallbackTimer);
         console.warn("Geolocation failed or denied:", err.message);
-        getIpLocation().then(ipLoc => {
-          if (!ipLoc.lat && !ipLoc.lng) {
-            toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
+
+        if (isClockOut) {
+          getIpLocation().then(ipLoc => {
+            resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: ipLoc.type || 'fallback' });
+          }).catch(() => resolve(safeFallback));
+        } else {
+          getIpLocation().then(ipLoc => {
+            if (!ipLoc.lat && !ipLoc.lng) {
+              toast.error("Could not resolve location. Please check location permissions or network connection.");
+              resolve(null);
+            } else {
+              resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: 'ip' });
+            }
+          }).catch(() => {
+            toast.error("Could not resolve location. Please check location permissions.");
             resolve(null);
-          } else {
-            resolve({ lat: ipLoc.lat, lng: ipLoc.lng, onSite: true, accuracy: ipLoc.accuracy, type: 'ip' });
-          }
-        });
+          });
+        }
       }, {
         enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 0
+        timeout: timeoutMs,
+        maximumAge: 5000
       });
     });
   };
@@ -356,7 +413,7 @@ export function TimeClockBar() {
       setIsProcessing(false);
       return;
     }
-    const loc = await validateLocation();
+    const loc = await validateLocation(false);
     if (!loc) {
       setIsProcessing(false);
       return;
@@ -409,11 +466,12 @@ export function TimeClockBar() {
         createdAt: serverTimestamp()
       });
 
-      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy || null }, "Clocked In");
+      updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy || null }, "Clocked In").catch(e => console.warn("Failed staff last location update:", e));
 
       setStatus('clocked_in', Date.now(), docRef.id);
       toast.success("Clocked in successfully");
-    } catch (e) {
+    } catch (e: any) {
+      console.error("Clock in failed:", e);
       toast.error("Failed to clock in");
     } finally {
       setIsProcessing(false);
@@ -423,46 +481,45 @@ export function TimeClockBar() {
   const handleClockOut = async () => {
     if (!activeSessionId) return;
     setIsProcessing(true);
-    const isQrValid = await verifyQrToken();
-    if (!isQrValid) {
-      setIsProcessing(false);
-      return;
-    }
-    const loc = await validateLocation(true);
-    if (!loc) {
-      setIsProcessing(false);
-      return;
-    }
-
     try {
-      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
+      const isQrValid = await verifyQrToken();
+      if (!isQrValid) {
+        setIsProcessing(false);
+        return;
+      }
+
+      const targetSessionId = activeSessionId;
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, targetSessionId);
+
+      // 1. Perform instant Firestore clock-out write (marks shift completed without waiting on GPS)
       const sessionSnap = await getDoc(sessionRef);
-      const sessionData = sessionSnap.data();
+      const sessionData = sessionSnap.exists() ? sessionSnap.data() : {};
 
       // If currently on break, end it first
       const breaks = [...(sessionData?.breaks || [])];
-      const activeBreak = breaks.find(b => !b.end);
+      const activeBreak = breaks.find((b: any) => !b.end);
       if (activeBreak) {
         activeBreak.end = new Date();
       }
 
-      // Also clock out of any active job
+      // Also clock out of all active jobs
       const jobs = [...(sessionData?.jobs || [])];
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
-      }
+      jobs.forEach((j: any) => {
+        if (!j.end) {
+          j.end = new Date();
+        }
+      });
 
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       await updateDoc(sessionRef, {
         clockOut: {
           timestamp: serverTimestamp(),
-          lat: loc.lat,
-          lng: loc.lng,
-          accuracy: loc.accuracy || null,
-          onSite: loc.onSite,
+          lat: null,
+          lng: null,
+          accuracy: null,
+          onSite: true,
           device: isMobile ? 'mobile' : 'pc',
-          type: loc.type || null
+          type: 'instant'
         },
         status: 'completed',
         breaks,
@@ -470,12 +527,38 @@ export function TimeClockBar() {
         updatedAt: serverTimestamp()
       });
 
-      await updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy || null }, "Clocked Out");
-
+      // 2. ONLY ONCE FIRESTORE WRITING IS FULLY CONFIRMED: update local UI state & toast success
       reset();
       toast.success("Clocked out successfully");
-    } catch (e) {
-      toast.error("Failed to clock out");
+
+      // 3. Grab whatever location data we can in the background (max 1.5s fire & forget)
+      (async () => {
+        try {
+          const locPromise = validateLocation(true);
+          const timeoutPromise = new Promise<{ lat: null; lng: null; onSite: true; accuracy: null; type: 'timeout' }>(res => 
+            setTimeout(() => res({ lat: null, lng: null, onSite: true, accuracy: null, type: 'timeout' }), 1500)
+          );
+          const bgLoc = await Promise.race([locPromise, timeoutPromise]);
+          
+          if (bgLoc && (bgLoc.lat !== null || bgLoc.lng !== null)) {
+            await updateDoc(sessionRef, {
+              'clockOut.lat': bgLoc.lat,
+              'clockOut.lng': bgLoc.lng,
+              'clockOut.accuracy': bgLoc.accuracy || null,
+              'clockOut.onSite': bgLoc.onSite,
+              'clockOut.type': bgLoc.type || 'gps'
+            });
+            const safeType: 'gps' | 'ip' | null = bgLoc.type === 'gps' || bgLoc.type === 'ip' ? bgLoc.type : null;
+            updateStaffLastLocation(tenantId!, user?.uid || null, user?.email || null, { lat: bgLoc.lat, lng: bgLoc.lng, accuracy: bgLoc.accuracy ?? null, type: safeType }, "Clocked Out").catch(e => console.warn(e));
+          }
+        } catch (bgErr) {
+          console.warn("Background location capture completed with fallback:", bgErr);
+        }
+      })();
+
+    } catch (e: any) {
+      console.error("Clock out error:", e);
+      toast.error("Failed to clock out: " + (e.message || "Network error"));
     } finally {
       setIsProcessing(false);
     }
@@ -496,18 +579,18 @@ export function TimeClockBar() {
       const breaks = [...(sessionData?.breaks || [])];
       const jobs = [...(sessionData?.jobs || [])];
       
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
       let suspendedJob = null;
-      
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
-        suspendedJob = {
-          id: lastJob.id,
-          name: lastJob.name,
-          taskId: lastJob.taskId || null,
-          taskName: lastJob.taskName || null
-        };
-      }
+      jobs.forEach((j: any) => {
+        if (!j.end) {
+          j.end = new Date();
+          suspendedJob = {
+            id: j.id,
+            name: j.name,
+            taskId: j.taskId || null,
+            taskName: j.taskName || null
+          };
+        }
+      });
       
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();

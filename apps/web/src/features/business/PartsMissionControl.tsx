@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../../lib/auth/store';
 import { 
   collection, addDoc, query, orderBy, onSnapshot, 
-  serverTimestamp, limit 
+  serverTimestamp, limit
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -276,23 +276,62 @@ export function PartsMissionControl() {
   const handleUpdateStatusPackage = async (item: any, newStatus: string) => {
     if (!tenantId) return;
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
+      const { doc, updateDoc, query, collection, where, getDocs } = await import('firebase/firestore');
       const collectionName = item.type === 'shipment' ? 'shipments' : 'parts_requests';
+      
+      const actorId = user?.uid || '';
+      let actorName = user?.displayName || user?.email || 'Parts Dept';
+      let actorStaffId = '';
+
+      if (user?.uid) {
+        const staffSnap = await getDocs(query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('userId', '==', user.uid)
+        ));
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data();
+          actorStaffId = staffSnap.docs[0].id;
+          actorName = `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || actorName;
+        }
+      }
+
+      const now = new Date();
       const updateData: any = {
         status: newStatus,
-        statusChangedAt: serverTimestamp(),
-        statusChangedBy: user?.uid || '',
-        statusChangedByName: user?.displayName || user?.email || 'Parts Dept',
-        updatedBy: user?.uid || '',
-        updatedByName: user?.displayName || user?.email || 'Parts Dept'
+        statusChangedAt: now,
+        statusChangedBy: actorId,
+        statusChangedByName: actorName,
+        updatedBy: actorId,
+        updatedByName: actorName
       };
       
       // Special fields for specific statuses
       if (newStatus === 'delivered' && item.type === 'shipment') {
-        updateData.putAwayAt = serverTimestamp();
+        updateData.putAwayAt = now;
       }
       if (newStatus === 'received' && item.type === 'shipment') {
-        updateData.deliveredAt = serverTimestamp();
+        updateData.deliveredAt = now;
+      }
+
+      if (newStatus === 'ordered') {
+        updateData.orderedAt = now;
+        updateData.orderedBy = actorId;
+        updateData.orderedByName = actorName;
+        updateData.orderedByStaffId = actorStaffId;
+      } else if (newStatus === 'received') {
+        updateData.receivedAt = now;
+        updateData.receivedBy = actorId;
+        updateData.receivedByName = actorName;
+        updateData.receivedByStaffId = actorStaffId;
+      } else if (newStatus === 'delivered') {
+        updateData.deliveredAt = now;
+        updateData.deliveredBy = actorId;
+        updateData.deliveredByName = actorName;
+        updateData.deliveredByStaffId = actorStaffId;
+        updateData.stagedAt = now;
+        updateData.stagedBy = actorId;
+        updateData.stagedByName = actorName;
+        updateData.stagedByStaffId = actorStaffId;
       }
 
       await updateDoc(doc(db, `businesses/${tenantId}/${collectionName}`, item.id), updateData);
@@ -531,29 +570,53 @@ export function PartsMissionControl() {
   const handleUpdateStatus = async (requestId: string, newStatus: RequestStatus) => {
     if (!tenantId) return;
     try {
-      const { updateDoc, doc, addDoc, collection, serverTimestamp } = await import('firebase/firestore');
-      const userName = user?.displayName || user?.email?.split('@')[0] || 'Staff';
-      const userId = user?.uid || null;
+      const { updateDoc, doc, addDoc, collection, query, where, getDocs, serverTimestamp } = await import('firebase/firestore');
+      
+      const actorId = user?.uid || '';
+      let actorName = user?.displayName || user?.email || 'Parts Dept';
+      let actorStaffId = '';
 
+      if (user?.uid) {
+        const staffSnap = await getDocs(query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('userId', '==', user.uid)
+        ));
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data();
+          actorStaffId = staffSnap.docs[0].id;
+          actorName = `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || actorName;
+        }
+      }
+
+      const now = new Date();
       const updateFields: any = {
         status: newStatus,
-        statusChangedAt: serverTimestamp(),
-        statusChangedBy: userId,
-        statusChangedByName: userName,
-        updatedBy: userId,
-        updatedByName: userName
+        statusChangedAt: now,
+        statusChangedBy: actorId,
+        statusChangedByName: actorName,
+        updatedBy: actorId,
+        updatedByName: actorName
       };
 
       if (newStatus === 'received') {
-        updateFields.receivedAt = serverTimestamp();
-        updateFields.receivedBy = userName;
-        updateFields.receivedByName = userName;
-        updateFields.receivedByStaffId = userId;
+        updateFields.receivedAt = now;
+        updateFields.receivedBy = actorId;
+        updateFields.receivedByName = actorName;
+        updateFields.receivedByStaffId = actorStaffId;
       } else if (newStatus === 'ordered') {
-        updateFields.orderedAt = serverTimestamp();
-        updateFields.orderedBy = userName;
-        updateFields.orderedByName = userName;
-        updateFields.orderedByStaffId = userId;
+        updateFields.orderedAt = now;
+        updateFields.orderedBy = actorId;
+        updateFields.orderedByName = actorName;
+        updateFields.orderedByStaffId = actorStaffId;
+      } else if (newStatus === 'fulfilled' || (newStatus as any) === 'delivered') {
+        updateFields.deliveredAt = now;
+        updateFields.deliveredBy = actorId;
+        updateFields.deliveredByName = actorName;
+        updateFields.deliveredByStaffId = actorStaffId;
+        updateFields.stagedAt = now;
+        updateFields.stagedBy = actorId;
+        updateFields.stagedByName = actorName;
+        updateFields.stagedByStaffId = actorStaffId;
       }
 
       await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, requestId), updateFields);
@@ -566,7 +629,7 @@ export function PartsMissionControl() {
           message: `${partReq.partName} was marked as ${newStatus}`,
           timestamp: serverTimestamp(),
           severity: newStatus === 'received' || newStatus === 'fulfilled' ? 'success' : 'info',
-          author: user?.displayName || user?.email?.split('@')[0] || 'System'
+          author: actorName
         });
       }
       

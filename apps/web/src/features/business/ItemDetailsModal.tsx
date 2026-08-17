@@ -5,7 +5,7 @@ import {
   FileText, Loader2, Edit3, Save, Trash2, ImagePlus, ImageIcon, Maximize2, Camera
 } from 'lucide-react';
 import { db, storage } from '../../lib/firebase/config';
-import { doc, onSnapshot, updateDoc, serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, arrayUnion, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuthStore } from '../../lib/auth/store';
 import { toast } from 'sonner';
@@ -141,28 +141,52 @@ export function ItemDetailsModal({ isOpen, onClose, itemId, type, zones = [], on
   const handleUpdateStatus = useCallback(async (newStatus: string) => {
     if (!tenantId || !itemId) return;
     try {
+      const actorId = user?.uid || '';
+      let actorName = user?.displayName || user?.email || 'Parts Dept';
+      let actorStaffId = '';
+
+      if (user?.uid) {
+        const staffSnap = await getDocs(query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('userId', '==', user.uid)
+        ));
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data();
+          actorStaffId = staffSnap.docs[0].id;
+          actorName = `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || actorName;
+        }
+      }
+
+      const now = new Date();
       const updateData: Record<string, unknown> = {
         status: newStatus,
-        statusChangedAt: serverTimestamp(),
-        statusChangedBy: user?.uid || '',
-        statusChangedByName: user?.displayName || user?.email || 'Parts Dept',
-        updatedBy: user?.uid || '',
-        updatedByName: user?.displayName || user?.email || 'Parts Dept'
+        statusChangedAt: now,
+        statusChangedBy: actorId,
+        statusChangedByName: actorName,
+        updatedBy: actorId,
+        updatedByName: actorName
       };
       
-      const userName = user?.displayName || user?.email || 'Parts Dept';
       if (newStatus === 'received') {
-        updateData.receivedAt = serverTimestamp();
-        updateData.receivedBy = userName;
-        updateData.receivedByName = userName;
-        updateData.receivedByStaffId = user?.uid || '';
+        updateData.receivedAt = now;
+        updateData.receivedBy = actorId;
+        updateData.receivedByName = actorName;
+        updateData.receivedByStaffId = actorStaffId;
       } else if (newStatus === 'ordered') {
-        updateData.orderedAt = serverTimestamp();
-        updateData.orderedBy = userName;
-        updateData.orderedByName = userName;
-        updateData.orderedByStaffId = user?.uid || '';
+        updateData.orderedAt = now;
+        updateData.orderedBy = actorId;
+        updateData.orderedByName = actorName;
+        updateData.orderedByStaffId = actorStaffId;
       } else if (newStatus === 'delivered') {
-        updateData.putAwayAt = serverTimestamp();
+        updateData.putAwayAt = now;
+        updateData.deliveredAt = now;
+        updateData.deliveredBy = actorId;
+        updateData.deliveredByName = actorName;
+        updateData.deliveredByStaffId = actorStaffId;
+        updateData.stagedAt = now;
+        updateData.stagedBy = actorId;
+        updateData.stagedByName = actorName;
+        updateData.stagedByStaffId = actorStaffId;
       }
 
       await updateDoc(doc(db, `businesses/${tenantId}/${collectionName}`, itemId), updateData);

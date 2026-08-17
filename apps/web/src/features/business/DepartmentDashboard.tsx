@@ -335,7 +335,7 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
             {sortedJobs.map(job => {
               const jobZone = zones.find(z => z.currentJobId === job.id);
               const tasks = job.graphicsTasks;
-              const completedTasks = tasks.filter((t: any) => t.status === 'completed').length;
+              const completedTasks = tasks.filter((t: any) => ['QC', 'QC Complete', 'completed', 'Completed'].includes(t.status)).length;
               const totalTasks = tasks.length;
               const completionPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
               const vehicle = job.vehicleId ? vehicles.find(v => v.vin === job.vehicleId) : null;
@@ -457,7 +457,7 @@ export function DepartmentDashboard({ tenantId, departmentName, tagFilter }: Dep
                         <div className="max-h-36 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
                           {tasks.map((task: any) => {
                             const isTaskActive = task.status === 'active' || task.status === 'in-progress';
-                            const isTaskCompleted = task.status === 'completed';
+                            const isTaskCompleted = ['QC', 'QC Complete', 'completed', 'Completed'].includes(task.status);
                             
                             return (
                               <div 

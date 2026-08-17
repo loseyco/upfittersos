@@ -7,29 +7,45 @@ import {
 import _QRCode from 'react-qr-code';
 import { useParams } from 'react-router-dom';
 
-type TVMode = 'screensaver' | 'dashboard' | 'morning_meeting' | 'weekly_review' | 'custom_presentation' | 'safety_alert' | 'bay_monitor' | 'parking_monitor' | 'timeclock_station';
+type TVMode = 'screensaver' | 'dashboard' | 'morning_meeting' | 'weekly_review' | 'custom_presentation' | 'safety_alert' | 'bay_monitor' | 'parking_monitor' | 'timeclock_station' | 'daily_progress';
 
 // Import display modes
 import { ConferenceRoomMonitor } from './ConferenceRoomMonitor';
 import { BayMonitor } from './BayMonitor';
 import { ParkingMonitor } from './ParkingMonitor';
 import { TimeclockLoginMonitor } from '../timeclock/TimeclockLoginMonitor';
+import { DailyProgressMonitor } from './DailyProgressMonitor';
 
 const QRCode = (_QRCode as any).default || _QRCode;
 
 export function UnifiedMonitor({ tenantId }: { tenantId: string }) {
+  const searchParams = new URLSearchParams(window.location.search);
   const params = useParams();
   const splat = params['*'] || '';
   const pathParts = splat.split('/').filter(Boolean);
   
-  // 1. Determine if a monitorId is explicitly passed in route splat (e.g., /monitor/:monitorId)
-  // pathParts[0] would be 'monitor', pathParts[1] would be the monitorId
-  const routeMonitorId = pathParts[0] === 'monitor' && pathParts[1] ? pathParts[1] : null;
+  // 1. Determine if a monitorId is passed in URL query param (?m=... or ?monitorId=...) or route splat
+  const queryMonitorId = searchParams.get('m') || searchParams.get('monitorId');
+  const routeMonitorId = (pathParts[0] === 'monitor' && pathParts[1]) 
+    ? pathParts[1] 
+    : (pathParts[0] && pathParts[0] !== 'monitor' ? pathParts[0] : null);
+
+  const explicitMonitorId = queryMonitorId || routeMonitorId;
 
   const [boundMonitorId, setBoundMonitorId] = useState<string | null>(() => {
-    if (routeMonitorId) return routeMonitorId;
+    if (explicitMonitorId) {
+      localStorage.setItem('bound_monitor_id', explicitMonitorId);
+      return explicitMonitorId;
+    }
     return localStorage.getItem('bound_monitor_id');
   });
+
+  useEffect(() => {
+    if (explicitMonitorId && explicitMonitorId !== boundMonitorId) {
+      localStorage.setItem('bound_monitor_id', explicitMonitorId);
+      setBoundMonitorId(explicitMonitorId);
+    }
+  }, [explicitMonitorId, boundMonitorId]);
 
   const [tempSetupId] = useState(() => {
     // Generate a temporary pairing ID: tv_ + 8 characters
@@ -105,19 +121,37 @@ export function UnifiedMonitor({ tenantId }: { tenantId: string }) {
     }
 
     setLoading(true);
-    const unsub = onSnapshot(doc(db, 'businesses', tenantId, 'monitors', boundMonitorId), (snap) => {
-      if (!snap.exists()) {
-        // Document was deleted from the control panel! Unbind.
-        localStorage.removeItem('bound_monitor_id');
-        setBoundMonitorId(null);
-        setMonitorConfig(null);
-      } else {
-        setMonitorConfig(snap.data());
-      }
-      setLoading(false);
-    });
 
-    return () => unsub();
+    // Timeout safety fallback: ensure loading spinner disappears even if network drops
+    const safetyTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 4000);
+
+    const unsub = onSnapshot(
+      doc(db, 'businesses', tenantId, 'monitors', boundMonitorId), 
+      (snap) => {
+        clearTimeout(safetyTimeout);
+        if (!snap.exists()) {
+          // Fallback to default displayMode if doc not created yet
+          setMonitorConfig({ displayMode: 'daily_progress' });
+        } else {
+          setMonitorConfig(snap.data());
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Firestore Monitor Snapshot Error:', err);
+        clearTimeout(safetyTimeout);
+        // Fallback to default displayMode on snapshot error
+        setMonitorConfig({ displayMode: 'daily_progress' });
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      clearTimeout(safetyTimeout);
+      unsub();
+    };
   }, [tenantId, boundMonitorId]);
 
   // Manual reset of TV monitor
@@ -285,6 +319,9 @@ export function UnifiedMonitor({ tenantId }: { tenantId: string }) {
       {/* Render subcomponents based on displayMode */}
       <div className="h-full w-full">
         {(() => {
+          if (displayMode === 'daily_progress') {
+            return <DailyProgressMonitor tenantId={tenantId} />;
+          }
           if (displayMode === 'bay_monitor') {
             return <BayMonitor tenantId={tenantId} />;
           }

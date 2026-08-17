@@ -21,12 +21,19 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
     try {
       const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
       const sessionSnap = await getDoc(sessionRef);
-      if (!sessionSnap.exists()) {
+      if (!sessionSnap.exists() || !sessionSnap.data()) {
         toast.error('Active session not found.');
+        setIsProcessing(false);
         return;
       }
 
-      const sessionData = sessionSnap.data();
+      const sessionData = sessionSnap.data()!;
+      if (sessionData.status === 'completed' || sessionData.clockOut?.timestamp) {
+        toast.error('Your previous shift has ended. Please clock in for the day first.');
+        setIsProcessing(false);
+        return;
+      }
+
       const jobs = [...(sessionData.jobs || [])];
 
       // Check if already clocked into this specific task

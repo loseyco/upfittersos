@@ -4,12 +4,13 @@ import { collection, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firesto
 import { db, auth } from '../../lib/firebase/config';
 import {
   FileSpreadsheet, Clock, User,
-  Search, ChevronDown, ChevronRight, Calendar,
+  Search, ChevronDown, ChevronRight, ChevronLeft, Calendar,
   RotateCcw, FileText, Check, ShieldCheck, Tag, Sliders, Edit3, X, Percent, Plus, Save,
-  History, Building2, ExternalLink
+  History, Building2, ExternalLink, Printer
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { resolvePermissions } from '../../lib/auth/permissions';
+import { SearchableSelect } from './SearchableSelect';
 
 // Yellow Sheets Labor Payout Breakdown - Updated 2026-07-30 T10:01
 interface YellowSheetsProps {
@@ -104,18 +105,26 @@ const formatVehicleInfo = (job: any, vehiclesList: any[] = []): string => {
   return 'N/A';
 };
 
+const getTaskCategoryDisplay = (t: any): string => {
+  if (!t) return '';
+  const cat = t.taskCategory || t.taskGroup || t.category || t.categoryName || t.departmentName || t.department || '';
+  if (cat && typeof cat === 'string' && cat.trim() && cat.toUpperCase() !== 'UNCATEGORIZED') {
+    return cat.trim();
+  }
+  return '';
+};
+
 const calculateTaskActualDuration = (t: any, secondsMap?: Record<string, number>): { totalSec: number; formattedStr: string; actualHours: number } => {
   if (!t) return { totalSec: 0, formattedStr: '0m', actualHours: 0 };
 
   let totalSec = 0;
 
-  if (secondsMap) {
-    const mappedSecByTaskId = t.id ? (secondsMap[t.id] || 0) : 0;
-    const taskNameStr = safeString(t.name || t.title || t.taskTitle, '').toLowerCase().trim();
-    const mappedSecByName = (t.jobId && taskNameStr) ? (secondsMap[`${t.jobId}_${taskNameStr}`] || 0) : 0;
-    totalSec = Math.max(mappedSecByTaskId, mappedSecByName);
+  // 1. Primary: exact task ID match
+  if (secondsMap && t.id && secondsMap[t.id]) {
+    totalSec = secondsMap[t.id];
   }
 
+  // 2. Secondary: inline timeSessions on task
   if (totalSec === 0 && Array.isArray(t.timeSessions) && t.timeSessions.length > 0) {
     t.timeSessions.forEach((s: any) => {
       const dur = parseFloat(s.duration || s.elapsedTime || s.seconds || s.timeSpent || '0');
@@ -125,6 +134,7 @@ const calculateTaskActualDuration = (t: any, secondsMap?: Record<string, number>
     });
   }
 
+  // 3. Tertiary: task document actual time attributes
   if (totalSec === 0) {
     const rawActual = parseFloat(t.actualTime || t.actualHours || t.actualDuration || t.duration || t.totalDuration || t.clockedHours || t.timeSpent || '0');
     if (rawActual > 0) {
@@ -163,21 +173,22 @@ const formatTaskStatusLabel = (t: any, hasTimeOnIt: boolean = false): { label: s
   return { label: 'NOT STARTED', statusCode: 'not_started', isQCComplete: false, isReadyForQC: false, isCompleted: false };
 };
 
-const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string } => {
-  if (!t) return { taskNotes: '', staffNotes: '' };
+const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payrollNotes: string } => {
+  if (!t) return { taskNotes: '', staffNotes: '', payrollNotes: '' };
 
-  let taskNotes = safeString(
-    t.description || t.notes || t.note || t.instructions || t.instruction || 
-    t.specNotes || t.taskNotes || t.details || t.taskDescription || t.text || t.summary, 
+  // Task Specs / Instructions / Customer Requirements
+  const taskNotes = safeString(
+    t.taskNotes || t.instructions || t.instruction || t.specNotes || t.taskDescription || t.details || t.description,
     ''
   );
 
+  // Staff Notes / Tech Completion Remarks / Work Logs
   const staffNotesList: string[] = [];
 
   const directStaffNote = safeString(
-    t.techNote || t.techNotes || t.staffNotes || t.staffNote || 
+    t.staffNotes || t.staffNote || t.techNote || t.techNotes || 
     t.completionNote || t.completionNotes || t.qcNote || t.qcNotes || 
-    t.comment || t.comments || t.workNote || t.workNotes || t.notesText,
+    t.workNote || t.workNotes,
     ''
   );
   if (directStaffNote && directStaffNote !== taskNotes) {
@@ -204,9 +215,13 @@ const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string } => 
     });
   }
 
+  // Payroll Notes
+  const payrollNotes = safeString(t.payrollNotes || t.payrollNote || t.payrollRemarks, '');
+
   return {
     taskNotes,
-    staffNotes: staffNotesList.join('\n')
+    staffNotes: staffNotesList.join('\n'),
+    payrollNotes
   };
 };
 
@@ -251,14 +266,53 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   };
 
   const [dateRange, setDateRange] = useState<{ start: Date | null; end: Date | null }>(getInitialDateRange());
+  const [offsetWeeks, setOffsetWeeks] = useState<number>(-1);
+
+  const getPayPeriodDates = (offset: number) => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMon = now.getDate() - (day === 0 ? 6 : day - 1);
+    const mon = new Date(now.setDate(diffToMon));
+    mon.setHours(0, 0, 0, 0);
+    mon.setDate(mon.getDate() + (offset * 7));
+
+    const sun = new Date(mon);
+    sun.setDate(sun.getDate() + 6);
+    sun.setHours(23, 59, 59, 999);
+
+    return { start: mon, end: sun };
+  };
+
+  const handleStepPayPeriod = (direction: 'prev' | 'next' | 'current') => {
+    let newOffset = offsetWeeks;
+    if (direction === 'prev') newOffset -= 1;
+    else if (direction === 'next') newOffset += 1;
+    else if (direction === 'current') newOffset = 0;
+
+    setOffsetWeeks(newOffset);
+    setDateMode('last_week');
+    setDateRange(getPayPeriodDates(newOffset));
+  };
+
+  const formatPayPeriodRangeText = (start: Date | null, end: Date | null) => {
+    if (!start || !end) return '';
+    const sMonth = start.toLocaleDateString('en-US', { month: 'short' });
+    const sDay = start.getDate();
+    const eMonth = end.toLocaleDateString('en-US', { month: 'short' });
+    const eDay = end.getDate();
+    return `${sMonth} ${sDay} - ${eMonth} ${eDay}`;
+  };
 
   // Filter States
   const [selectedStaffId, setSelectedStaffId] = useState<string>('all');
   const [selectedDept, setSelectedDept] = useState<string>('upfitters');
   const [departmentsList, setDepartmentsList] = useState<any[]>([]);
-  const [statusFilter, setStatusFilter] = useState<'completed_only' | 'all' | 'in_progress' | 'not_started'>('completed_only');
+  const [statusFilter, setStatusFilter] = useState<'completed_only' | 'all' | 'in_progress' | 'not_started'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
+  const [expandedTaskSessions, setExpandedTaskSessions] = useState<Record<string, boolean>>({});
+  const [printJobId, setPrintJobId] = useState<string | null>(null);
+  const [printMode, setPrintMode] = useState<'jobs' | 'staff'>('jobs');
 
   // Multi-Tech Custom Split Adjustment Modal State
   const [editingSplitTask, setEditingSplitTask] = useState<{ task: any; jobId: string } | null>(null);
@@ -274,6 +328,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   const [editingTaskNotes, setEditingTaskNotes] = useState<{ task: any; jobId: string } | null>(null);
   const [editTaskSpecNote, setEditTaskSpecNote] = useState<string>('');
   const [editStaffTechNote, setEditStaffTechNote] = useState<string>('');
+  const [editPayrollNote, setEditPayrollNote] = useState<string>('');
   const [savingTaskNotes, setSavingTaskNotes] = useState<boolean>(false);
 
   // Add Task Modal State
@@ -289,12 +344,19 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [showAuditModal, setShowAuditModal] = useState<boolean>(false);
 
-  // Subscribe to audit logs
+  // Subscribe to audit logs (Filtered to today onwards for production audit trail reset)
   useEffect(() => {
     if (!tenantId) return;
     const unsubAudit = onSnapshot(collection(db, `businesses/${tenantId}/audit_logs`), (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-      const filtered = list.filter(l => l.category === 'yellow_sheets');
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const filtered = list.filter(l => {
+        if (l.category !== 'yellow_sheets') return false;
+        const ts = parseSafeDate(l.timestamp);
+        return ts ? ts >= todayStart : false;
+      });
       filtered.sort((a, b) => (parseSafeDate(b.timestamp)?.getTime() || 0) - (parseSafeDate(a.timestamp)?.getTime() || 0));
       setAuditLogs(filtered);
     });
@@ -404,10 +466,12 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   }, [tenantId]);
 
   // Aggregated actual clocked seconds and detailed start/stop segments per task
-  const { taskActualSecondsMap, taskTimeSegmentsMap } = useMemo(() => {
+  const { taskActualSecondsMap, taskTimeSegmentsMap, taskWorkerActualSecondsMap } = useMemo(() => {
     const secMap: Record<string, number> = {};
+    const workerSecMap: Record<string, number> = {};
     const segMap: Record<string, Array<{
       sessionId: string;
+      staffId: string;
       userName: string;
       start: Date;
       end: Date;
@@ -416,10 +480,34 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       isOpen: boolean;
     }>> = {};
 
+    // Count task title occurrences per job to detect duplicate titles (e.g. multiple "Light Head" tasks)
+    jobs.forEach(j => {
+      const jTasks = Array.isArray(j.tasks) ? j.tasks : (tasksMap[j.id] || []);
+      jTasks.forEach((t: any) => {
+        const tTitle = safeString(t.name || t.title || t.taskTitle, '').toLowerCase().trim();
+        if (tTitle) {
+          const key = `${j.id}_${tTitle}_count`;
+          secMap[key] = (secMap[key] || 0) + 1;
+        }
+      });
+    });
+
     const nowMs = Date.now();
 
     timeSessionsList.forEach(session => {
       const sUser = session.userName || session.staffName || session.userEmail || 'Tech';
+      const staffId = session.staffId || session.userId || '';
+      const sUserNorm = sUser.trim().toLowerCase();
+
+      // Find staff in staff list for robust worker identification
+      const matchingStaffDoc = staff.find(s => 
+        (staffId && (s.id === staffId || s.userId === staffId || s.uid === staffId)) ||
+        (sUserNorm && (
+          (s.name && s.name.trim().toLowerCase() === sUserNorm) ||
+          (`${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === sUserNorm)
+        ))
+      );
+
       const sessionJobs = session.jobs || [];
 
       sessionJobs.forEach((seg: any) => {
@@ -428,10 +516,6 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         if (!startMs) return;
 
         const startDate = new Date(startMs);
-
-        // Filter session start to selected date range if dateRange is set
-        if (dateRange.start && startDate < dateRange.start) return;
-        if (dateRange.end && startDate > dateRange.end) return;
 
         let endMs = nowMs;
         let isOpen = false;
@@ -458,6 +542,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
         const segmentObj = {
           sessionId: session.id,
+          staffId,
           userName: sUser,
           start: startDate,
           end: endDate,
@@ -468,24 +553,38 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
         const keys: string[] = [];
         if (seg.taskId) keys.push(seg.taskId);
-        if (seg.id && (seg.taskName || seg.name)) {
-          const tName = (seg.taskName || seg.name).toLowerCase().trim();
-          keys.push(`${seg.id}_${tName}`);
-        }
+        if (seg.id && !keys.includes(seg.id)) keys.push(seg.id);
+        if (seg.task_id && !keys.includes(seg.task_id)) keys.push(seg.task_id);
 
         keys.forEach(k => {
           secMap[k] = (secMap[k] || 0) + durationSec;
+
+          const workerKeys = new Set<string>();
+          if (staffId) workerKeys.add(staffId);
+          if (sUserNorm) workerKeys.add(sUserNorm);
+          if (matchingStaffDoc) {
+            if (matchingStaffDoc.id) workerKeys.add(matchingStaffDoc.id);
+            if (matchingStaffDoc.userId) workerKeys.add(matchingStaffDoc.userId);
+            if (matchingStaffDoc.uid) workerKeys.add(matchingStaffDoc.uid);
+            const fullName = `${matchingStaffDoc.firstName || ''} ${matchingStaffDoc.lastName || ''}`.trim().toLowerCase();
+            if (fullName) workerKeys.add(fullName);
+          }
+
+          workerKeys.forEach(wk => {
+            workerSecMap[`${k}_${wk}`] = (workerSecMap[`${k}_${wk}`] || 0) + durationSec;
+          });
+
           if (!segMap[k]) segMap[k] = [];
           segMap[k].push(segmentObj);
         });
       });
     });
 
-    return { taskActualSecondsMap: secMap, taskTimeSegmentsMap: segMap };
-  }, [timeSessionsList, dateRange]);
+    return { taskActualSecondsMap: secMap, taskTimeSegmentsMap: segMap, taskWorkerActualSecondsMap: workerSecMap };
+  }, [timeSessionsList, jobs, tasksMap, staff]);
 
   // Helper to extract detailed time segments for a specific task
-  const getTaskSegments = (t: any, job: any, segmentsMap: Record<string, any[]>) => {
+  const getTaskSegments = (t: any, _job: any, segmentsMap: Record<string, any[]>) => {
     const list: any[] = [];
     const addedKeys = new Set<string>();
 
@@ -500,17 +599,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       });
     }
 
-    const tTitle = safeString(t.name || t.title || t.taskTitle, '').toLowerCase().trim();
-    const key = `${t.jobId || job.id}_${tTitle}`;
-    if (tTitle && segmentsMap[key]) {
-      segmentsMap[key].forEach(s => {
-        const k = `${s.sessionId}_${s.start.getTime()}`;
-        if (!addedKeys.has(k)) {
-          addedKeys.add(k);
-          list.push(s);
-        }
-      });
-    }
+
 
     if (Array.isArray(t.timeSessions)) {
       t.timeSessions.forEach((s: any) => {
@@ -525,6 +614,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         if (!addedKeys.has(k)) {
           addedKeys.add(k);
           const isCrossMidnight = sIn.toDateString() !== endD.toDateString();
+          const sessNote = safeString(s.notes || s.note || s.comment || s.completionNote || s.workNote, '');
           list.push({
             sessionId: s.id || 'inline',
             userName: s.userName || s.techName || t.completedBy || 'Tech',
@@ -532,7 +622,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             end: endD,
             durationSec,
             isOvernightOrLong: durationSec > 10 * 3600 || (isCrossMidnight && durationSec > 4 * 3600),
-            isOpen: !sOut
+            isOpen: !sOut,
+            note: sessNote
           });
         }
       });
@@ -1004,12 +1095,13 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         const taskCategory = rawTaskCat.toUpperCase();
         const totalBookHours = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
         const bookHours = selectedStaffId !== 'all' ? activeWorkerSplitHours : totalBookHours;
-        const { taskNotes, staffNotes } = resolveTaskNotes(t);
+        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes } = resolveTaskNotes(t);
+        const payrollNotes = t.payrollNotes || resolvedPayrollNotes || '';
         let efficiencyPct: number | null = null;
         if (completed && actualHours > 0 && bookHours > 0) {
           efficiencyPct = Math.round((bookHours / actualHours) * 100);
         }
-        const completedByNames = workers.map(w => `${w.name} (${w.pct}% • ${w.splitHours.toFixed(1)}h)`).join(', ');
+        const completedByNames = workers.map(w => w.name).join(', ');
         const taskSegments = getTaskSegments(t, job, taskTimeSegmentsMap);
         const hasOvernightSegment = taskSegments.some(s => s.isOvernightOrLong);
 
@@ -1036,11 +1128,12 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           isQCComplete,
           isReadyForQC,
           status: statusLabel,
-          completedAt: compDate,
+          completedAt: parseSafeDate(t.completedAt || t.completedDate),
           completedBy: safeString(completedByNames, 'Technician'),
           closedByManager,
           taskNotes,
           staffNotes,
+          payrollNotes,
           taskSegments,
           hasOvernightSegment,
           rawTask: t
@@ -1051,10 +1144,11 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     return result;
   }, [jobs, tasksMap, staff, vehiclesList, dateRange, statusFilter, selectedStaffId, selectedDept, searchQuery, taskActualSecondsMap]);
 
-  // Grouped Hierarchy: Job -> Task Category -> Tasks
+  // Grouped Hierarchy: Job -> Task Category -> Tasks (Supports screen filtering & full job printout)
   const groupedJobsData = useMemo(() => {
-    const jobMap: Record<string, { job: any; categories: Record<string, any[]> }> = {};
+    const jobMap: Record<string, { job: any; categories: Record<string, any[]>; allJobCategories: Record<string, any[]> }> = {};
 
+    // 1. Map filtered tasks for screen display
     allFilteredTasks.forEach(t => {
       if (!jobMap[t.jobId]) {
         jobMap[t.jobId] = {
@@ -1066,7 +1160,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             vehicleInfo: t.vehicleInfo,
             jobStatus: t.jobStatus
           },
-          categories: {}
+          categories: {},
+          allJobCategories: {}
         };
       }
 
@@ -1078,8 +1173,305 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       jobMap[t.jobId].categories[catName].push(t);
     });
 
+    // 2. Map complete task list per job for printing full Yellow Sheet
+    Object.keys(jobMap).forEach(jId => {
+      const jobObj = jobs.find(j => j.id === jId);
+      if (!jobObj) return;
+
+      const rawTasks = Array.isArray(jobObj.tasks) ? jobObj.tasks : (tasksMap[jId] || []);
+      rawTasks.forEach((t: any, idx: number) => {
+        const completed = isTaskCompleted(t);
+        const { formattedStr: actualDurationStr, actualHours } = calculateTaskActualDuration(t, taskActualSecondsMap);
+        const hasTimeOnIt = actualHours > 0 || (!!actualDurationStr && actualDurationStr !== '0m');
+        const { label: statusLabel, statusCode } = formatTaskStatusLabel(t, hasTimeOnIt);
+        const { workers } = resolveTaskWorkers(t, jobObj);
+        const taskTitle = safeString(t.name || t.title || t.taskTitle, 'Task');
+        const rawTaskCat = safeString(t.taskGroup || t.category || t.categoryName || t.departmentName || t.department, 'UNCATEGORIZED');
+        const taskCategory = rawTaskCat.toUpperCase();
+        const bookHours = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
+        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes } = resolveTaskNotes(t);
+        const payrollNotes = t.payrollNotes || resolvedPayrollNotes || '';
+        const completedByNames = workers.map(w => w.name).join(', ');
+
+        const printTaskObj = {
+          id: t.id || `embedded_${idx}`,
+          jobId: jId,
+          taskTitle,
+          taskCategory,
+          bookHours,
+          actualDurationStr: (actualHours > 0 ? `${actualHours.toFixed(1)}h` : (actualDurationStr && actualDurationStr !== '0m' ? actualDurationStr : '—')),
+          actualHours,
+          completed,
+          statusLabel,
+          statusCode,
+          completedAt: parseSafeDate(t.completedAt || t.completedDate),
+          completedBy: safeString(completedByNames, 'Technician'),
+          taskNotes,
+          staffNotes,
+          payrollNotes
+        };
+
+        if (!jobMap[jId].allJobCategories[taskCategory]) {
+          jobMap[jId].allJobCategories[taskCategory] = [];
+        }
+        jobMap[jId].allJobCategories[taskCategory].push(printTaskObj);
+      });
+    });
+
     return Object.values(jobMap);
-  }, [allFilteredTasks]);
+  }, [allFilteredTasks, jobs, tasksMap, staff, vehiclesList, taskActualSecondsMap]);
+
+  // Grouped Hierarchy: Staff Member -> Tasks (Supports printing individual payout reports)
+  const groupedStaffData = useMemo(() => {
+    const staffMap: Record<string, {
+      staffId: string;
+      staffName: string;
+      tasks: any[];
+      totalBookHours: number;
+      totalActualHours: number;
+    }> = {};
+
+    allFilteredTasks.forEach(task => {
+      // For Staff Payout Sheets, strictly only include tasks completed in the selected timeline/pay period
+      if (!task.completedInPayPeriod) return;
+
+      // Find worker split info
+      if (task.workers && task.workers.length > 0) {
+        task.workers.forEach((w: any) => {
+          // Filter by staff dropdown
+          if (selectedStaffId !== 'all' && w.id !== selectedStaffId) {
+            return;
+          }
+
+          if (!staffMap[w.id]) {
+            staffMap[w.id] = {
+              staffId: w.id,
+              staffName: w.name,
+              tasks: [],
+              totalBookHours: 0,
+              totalActualHours: 0,
+            };
+          }
+
+          const wId = (w.id || '').toLowerCase();
+          const wNameNorm = (w.name || '').trim().toLowerCase();
+          const staffDoc = staff.find(s => 
+            (wId && (s.id.toLowerCase() === wId || (s.userId && s.userId.toLowerCase() === wId))) ||
+            (wNameNorm && (
+              (s.name && s.name.trim().toLowerCase() === wNameNorm) ||
+              (`${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === wNameNorm)
+            ))
+          );
+
+          // Calculate actual hours for this specific worker on this task
+          let workerActualSec = 0;
+
+          if (task.id) {
+            const possibleWorkerKeys = [w.id, wNameNorm];
+            if (staffDoc) {
+              if (staffDoc.id) possibleWorkerKeys.push(staffDoc.id);
+              if (staffDoc.userId) possibleWorkerKeys.push(staffDoc.userId);
+              if (staffDoc.uid) possibleWorkerKeys.push(staffDoc.uid);
+              const fullName = `${staffDoc.firstName || ''} ${staffDoc.lastName || ''}`.trim().toLowerCase();
+              if (fullName) possibleWorkerKeys.push(fullName);
+            }
+
+            for (const wk of possibleWorkerKeys) {
+              if (wk && taskWorkerActualSecondsMap[`${task.id}_${wk}`]) {
+                workerActualSec = taskWorkerActualSecondsMap[`${task.id}_${wk}`];
+                break;
+              }
+            }
+          }
+
+          // Fallback 1: check taskSegments (from getTaskSegments) for matching worker segments
+          if (workerActualSec === 0 && Array.isArray(task.taskSegments) && task.taskSegments.length > 0) {
+            task.taskSegments.forEach((s: any) => {
+              const sStaffId = (s.staffId || s.userId || '').toLowerCase();
+              const sUserNorm = (s.userName || s.staffName || s.techName || '').trim().toLowerCase();
+              let isMatch = false;
+              if (wId && sStaffId && sStaffId === wId) isMatch = true;
+              if (!isMatch && staffDoc) {
+                if (staffDoc.id && sStaffId === staffDoc.id.toLowerCase()) isMatch = true;
+                if (staffDoc.userId && sStaffId === staffDoc.userId.toLowerCase()) isMatch = true;
+              }
+              if (!isMatch && wNameNorm && sUserNorm) {
+                if (sUserNorm === wNameNorm || sUserNorm.includes(wNameNorm) || wNameNorm.includes(sUserNorm)) isMatch = true;
+              }
+              if (isMatch) {
+                workerActualSec += (s.durationSec || 0);
+              }
+            });
+          }
+
+          // Fallback 2: if task has inline timeSessions on rawTask
+          if (workerActualSec === 0 && task.rawTask && Array.isArray(task.rawTask.timeSessions)) {
+            task.rawTask.timeSessions.forEach((s: any) => {
+              const sStaffId = (s.staffId || s.userId || s.techId || '').toLowerCase();
+              const sUserNorm = (s.userName || s.staffName || s.techName || '').trim().toLowerCase();
+              let isMatch = false;
+              if (wId && sStaffId && sStaffId === wId) isMatch = true;
+              if (!isMatch && staffDoc) {
+                if (staffDoc.id && sStaffId === staffDoc.id.toLowerCase()) isMatch = true;
+                if (staffDoc.userId && sStaffId === staffDoc.userId.toLowerCase()) isMatch = true;
+              }
+              if (!isMatch && wNameNorm && sUserNorm) {
+                if (sUserNorm === wNameNorm || sUserNorm.includes(wNameNorm) || wNameNorm.includes(sUserNorm)) isMatch = true;
+              }
+              if (isMatch) {
+                const sIn = parseSafeDate(s.clockIn || s.timestamp || s.startTime || s.start);
+                const sOut = parseSafeDate(s.clockOut || s.endTime || s.end);
+                if (sIn && sOut) {
+                  workerActualSec += Math.max(0, (sOut.getTime() - sIn.getTime()) / 1000);
+                } else {
+                  const dur = parseFloat(s.duration || s.elapsedTime || s.seconds || s.timeSpent || '0');
+                  if (dur > 0) {
+                    workerActualSec += (dur < 300 && s.minutes ? dur * 60 : dur);
+                  }
+                }
+              }
+            });
+          }
+
+          // Fallback 3: If no segment-level match was found, but the task has actual time recorded (e.g. task.actualHours > 0)
+          if (workerActualSec === 0 && task.actualHours > 0) {
+            if (task.workers.length === 1) {
+              workerActualSec = task.actualHours * 3600;
+            } else {
+              workerActualSec = (task.actualHours * 3600 * (w.pct || (100 / task.workers.length))) / 100;
+            }
+          }
+
+          const workerActualHours = workerActualSec / 3600;
+
+          staffMap[w.id].tasks.push({
+            ...task,
+            splitBookHours: w.splitHours,
+            workerActualHours
+          });
+        });
+      } else {
+        // If task has no workers associated, put under 'unassigned' if selectedStaffId is 'all'
+        if (selectedStaffId === 'all') {
+          const unassignedId = 'unassigned';
+          if (!staffMap[unassignedId]) {
+            staffMap[unassignedId] = {
+              staffId: unassignedId,
+              staffName: 'Unassigned',
+              tasks: [],
+              totalBookHours: 0,
+              totalActualHours: 0,
+            };
+          }
+
+          staffMap[unassignedId].tasks.push({
+            ...task,
+            splitBookHours: task.bookHours,
+            workerActualHours: task.actualHours
+          });
+        }
+      }
+    });
+
+    // Sum totals per staff member (Earned Book Time strictly sums tasks completed in the selected pay period)
+    Object.values(staffMap).forEach(group => {
+      group.totalBookHours = group.tasks.reduce((sum, t) => sum + (t.completedInPayPeriod ? (t.splitBookHours || 0) : 0), 0);
+      group.totalActualHours = group.tasks.reduce((sum, t) => sum + (t.workerActualHours || 0), 0);
+
+      // Calculate total shift time on clock for staff member in the pay period
+      const gStaffId = (group.staffId || '').toLowerCase();
+      const gStaffName = (group.staffName || '').trim().toLowerCase();
+      const staffDoc = staff.find(s => 
+        (gStaffId && (s.id.toLowerCase() === gStaffId || (s.userId && s.userId.toLowerCase() === gStaffId))) ||
+        (gStaffName && (
+          (s.name && s.name.trim().toLowerCase() === gStaffName) ||
+          (`${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === gStaffName)
+        ))
+      );
+
+      let shiftSec = 0;
+      timeSessionsList.forEach(session => {
+        const sStaffId = (session.staffId || session.userId || '').toLowerCase();
+        const sUserNorm = (session.userName || session.staffName || session.userEmail || '').trim().toLowerCase();
+
+        let isMatch = false;
+        if (gStaffId && sStaffId && sStaffId === gStaffId) isMatch = true;
+        if (!isMatch && staffDoc) {
+          if (staffDoc.id && sStaffId === staffDoc.id.toLowerCase()) isMatch = true;
+          if (staffDoc.userId && sStaffId === staffDoc.userId.toLowerCase()) isMatch = true;
+        }
+        if (!isMatch && gStaffName && sUserNorm) {
+          if (sUserNorm === gStaffName || sUserNorm.includes(gStaffName) || gStaffName.includes(sUserNorm)) isMatch = true;
+        }
+
+        if (!isMatch) return;
+
+        const cIn = parseSafeDate(session.clockIn?.timestamp || session.clockIn || session.createdAt);
+        if (!cIn) return;
+
+        if (dateRange.start && cIn < dateRange.start) return;
+        if (dateRange.end && cIn > dateRange.end) return;
+
+        const cOutVal = session.clockOut?.timestamp || session.clockOut;
+        const cOut = parseSafeDate(cOutVal) || new Date();
+
+        let dur = Math.max(0, (cOut.getTime() - cIn.getTime()) / 1000);
+
+        if (Array.isArray(session.breaks)) {
+          session.breaks.forEach((b: any) => {
+            if (b.isPaid === false || b.type === 'lunch') {
+              const bStart = parseSafeDate(b.start);
+              const bEnd = parseSafeDate(b.end) || cOut;
+              if (bStart && bEnd) {
+                dur -= Math.max(0, (bEnd.getTime() - bStart.getTime()) / 1000);
+              }
+            }
+          });
+        }
+
+        shiftSec += Math.max(0, dur);
+      });
+
+      (group as any).totalShiftHours = shiftSec / 3600;
+    });
+
+    // Sort by name
+    return Object.values(staffMap).sort((a, b) => a.staffName.localeCompare(b.staffName));
+  }, [allFilteredTasks, selectedStaffId, taskWorkerActualSecondsMap, staff, timeSessionsList, dateRange]);
+
+  // Construct active filters summary label to show on print layouts
+  const activeFiltersSummary = useMemo(() => {
+    const parts: string[] = [];
+    // Only warn about date filtering if status filter is completed_only (since otherwise all tasks are printed)
+    if (statusFilter === 'completed_only' && (dateRange.start || dateRange.end)) {
+      const startStr = dateRange.start ? dateRange.start.toLocaleDateString() : 'Start';
+      const endStr = dateRange.end ? dateRange.end.toLocaleDateString() : 'End';
+      parts.push(`Date: ${startStr} - ${endStr}`);
+    }
+    if (selectedStaffId !== 'all') {
+      const member = staff.find(s => s.id === selectedStaffId);
+      parts.push(`Staff: ${member ? `${member.firstName} ${member.lastName}` : selectedStaffId}`);
+    }
+    if (selectedDept !== 'all') {
+      parts.push(`Dept: ${selectedDept}`);
+    }
+    if (searchQuery.trim()) {
+      parts.push(`Search: "${searchQuery}"`);
+    }
+    if (statusFilter !== 'all') {
+      parts.push(`Status: ${statusFilter.toUpperCase().replace('_', ' ')}`);
+    }
+    return parts.join(' | ');
+  }, [dateRange, selectedStaffId, selectedDept, searchQuery, statusFilter, staff]);
+
+  // Construct active filters summary label for staff payout print layouts (excludes status/staff/dept/date filters)
+  const activeStaffFiltersSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (searchQuery.trim()) {
+      parts.push(`Search: "${searchQuery}"`);
+    }
+    return parts.join(' | ');
+  }, [searchQuery]);
 
   // Helper to determine if a technician belongs to the selected department for top payout cards
   const isTechInSelectedDept = (w: any, targetDept: string, staffList: any[]) => {
@@ -1291,7 +1683,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 description: editTaskSpecNote.trim(),
                 notes: editTaskSpecNote.trim(),
                 techNote: editStaffTechNote.trim(),
-                staffNotes: editStaffTechNote.trim()
+                staffNotes: editStaffTechNote.trim(),
+                payrollNotes: editPayrollNote.trim()
               };
             }
             return t;
@@ -1305,11 +1698,12 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           notes: editTaskSpecNote.trim(),
           techNote: editStaffTechNote.trim(),
           staffNotes: editStaffTechNote.trim(),
+          payrollNotes: editPayrollNote.trim(),
           updatedAt: new Date()
         });
       }
 
-      await recordAuditLog('Task Notes Edited', `Job #${task.jobNumber} (${task.taskTitle}): Updated task instructions & staff completion notes`, jobId, task.jobNumber, task.id);
+      await recordAuditLog('Task Notes Edited', `Job #${task.jobNumber} (${task.taskTitle}): Updated task instructions, staff notes & payroll notes`, jobId, task.jobNumber, task.id);
 
       setEditingTaskNotes(null);
     } catch (e) {
@@ -1366,11 +1760,29 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     }
   };
 
+
+
+  const handlePrint = () => {
+    setPrintMode('jobs');
+    setPrintJobId(null);
+    setTimeout(() => {
+      window.print();
+    }, 50);
+  };
+
+  const handlePrintStaff = () => {
+    setPrintMode('staff');
+    setPrintJobId(null);
+    setTimeout(() => {
+      window.print();
+    }, 50);
+  };
+
   return (
-    <div className="flex-1 flex flex-col p-4 sm:p-6 bg-zinc-950 font-sans text-xs select-none gap-6 overflow-auto min-h-screen text-zinc-100">
+    <div className="flex-1 flex flex-col p-4 sm:p-6 bg-zinc-955 font-sans text-xs select-none gap-6 overflow-auto min-h-screen text-zinc-100 print:p-0 print:bg-white print:text-black print:overflow-visible print:min-h-0">
       
-      {/* Master Yellow Sheets Command Container */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
+      {/* Master Yellow Sheets Command Container (Screen Only) */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl space-y-4 print:hidden">
         
         {/* Row 1: Header Title & Audit Log */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-3">
@@ -1391,8 +1803,28 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             </div>
           </div>
 
-          {/* Audit Log Button */}
+          {/* Header Action Buttons: Print, Export Excel, Audit Log */}
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-lg font-extrabold transition cursor-pointer text-[11px] shadow-md shadow-amber-500/10"
+              title={`Print all ${groupedJobsData.length} currently shown filtered jobs in Excel spreadsheet layout`}
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Filtered Yellow Sheets ({groupedJobsData.length} Jobs)</span>
+            </button>
+
+            <button
+              onClick={handlePrintStaff}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-extrabold transition cursor-pointer text-[11px] shadow-md shadow-indigo-600/10"
+              title={`Print staff payout/labor reports for each technician shown based on active filters`}
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Staff Sheets ({groupedStaffData.length} Staff)</span>
+            </button>
+
+
+
             <button
               onClick={() => setShowAuditModal(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 rounded-lg border border-amber-500/20 font-bold transition cursor-pointer text-[11px]"
@@ -1401,48 +1833,6 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               <History className="w-3.5 h-3.5 text-amber-400" />
               <span>Audit Log ({auditLogs.length})</span>
             </button>
-          </div>
-        </div>
-
-        {/* Row 2: Fixed Operational Metrics Bar (Updates in real time with filters, never jumps!) */}
-        <div className="flex items-center gap-2 font-mono text-[10px] flex-wrap bg-zinc-950/60 p-2.5 rounded-xl border border-zinc-800/80">
-          <div className="flex items-center gap-1.5 text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20" title="Completed labor book hours in the selected date range">
-            <span className="font-black text-white">⚡ {summaryMetrics.totalBookHours}h</span> Book Time (Selected Period)
-          </div>
-          
-          <div className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border transition",
-            summaryMetrics.hasOvernightInPeriod 
-              ? "text-rose-300 bg-rose-950/80 border-rose-500/50 shadow-sm" 
-              : "text-indigo-400 bg-indigo-500/10 border-indigo-500/20"
-          )} title={summaryMetrics.hasOvernightInPeriod ? "Warning: Actual time includes sessions that ran overnight or were left unclosed without clocking out" : "Total actual clocked time spent on completed tasks in range"}>
-            <span className="font-black text-white">⏱️ {summaryMetrics.totalActualHours}h</span> Actual Time Spent
-            {summaryMetrics.hasOvernightInPeriod && (
-              <span className="px-1.5 py-0.2 rounded text-[8px] bg-rose-500/30 text-rose-200 border border-rose-500/50 uppercase font-black">
-                ⚠️ Includes Overnight / Unclosed
-              </span>
-            )}
-          </div>
-
-          <div className={cn(
-            "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono transition",
-            summaryMetrics.overallEfficiency !== null && summaryMetrics.overallEfficiency >= 100 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
-            summaryMetrics.overallEfficiency !== null && summaryMetrics.overallEfficiency >= 80 ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
-            "text-rose-400 bg-rose-500/10 border-rose-500/20"
-          )} title={`Efficiency Formula: ${summaryMetrics.totalBookHours}h Book Time Completed ÷ ${summaryMetrics.totalActualHours}h Actual Time Spent = ${summaryMetrics.overallEfficiency !== null ? summaryMetrics.overallEfficiency : 0}% Labor Efficiency`}>
-            <span className="font-black text-white">📈 {summaryMetrics.overallEfficiency !== null ? `${summaryMetrics.overallEfficiency}%` : 'N/A'}</span> Eff. ({summaryMetrics.totalBookHours}h Book / {summaryMetrics.totalActualHours}h Spent)
-          </div>
-
-          <div className="flex items-center gap-1.5 text-teal-400 bg-teal-500/10 px-2.5 py-1 rounded-lg border border-teal-500/20" title="Completed task count">
-            <span className="font-black text-white">✅ {summaryMetrics.totalCompletedTasks}</span> Tasks Completed
-          </div>
-          
-          <div className="flex items-center gap-1.5 text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg border border-indigo-500/20" title="Total jobs with task activity">
-            <span className="font-black text-white">💼 {summaryMetrics.uniqueJobsCount}</span> Active Jobs
-          </div>
-          
-          <div className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20" title="Unique staff members who completed work">
-            <span className="font-black text-white">👤 {summaryMetrics.uniqueTechs}</span> Techs Paid
           </div>
         </div>
 
@@ -1494,43 +1884,48 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               <button
                 onClick={() => applyDatePreset('all')}
                 className={cn(
-                  "px-2.5 py-1 rounded font-extrabold uppercase transition",
-                  dateMode === 'all' ? "bg-zinc-800 text-zinc-200" : "text-zinc-400 hover:text-zinc-200"
+                  "px-2.5 py-1 rounded font-extrabold uppercase transition cursor-pointer",
+                  dateMode === 'all' ? "bg-purple-500/20 text-purple-300 border border-purple-500/30" : "text-zinc-400 hover:text-zinc-200"
                 )}
               >
                 All Time
               </button>
             </div>
 
-            {/* Custom Date Pickers */}
-            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-mono">
-              <input
-                type="date"
-                value={dateRange.start ? dateRange.start.toISOString().split('T')[0] : ''}
-                onChange={e => {
-                  if (e.target.value) {
-                    setDateMode('custom');
-                    const d = new Date(e.target.value);
-                    d.setHours(0, 0, 0, 0);
-                    setDateRange(prev => ({ ...prev, start: d }));
-                  }
-                }}
-                className="bg-transparent text-white font-bold focus:outline-none cursor-pointer"
-              />
-              <span className="text-zinc-500">to</span>
-              <input
-                type="date"
-                value={dateRange.end ? dateRange.end.toISOString().split('T')[0] : ''}
-                onChange={e => {
-                  if (e.target.value) {
-                    setDateMode('custom');
-                    const d = new Date(e.target.value);
-                    d.setHours(23, 59, 59, 999);
-                    setDateRange(prev => ({ ...prev, end: d }));
-                  }
-                }}
-                className="bg-transparent text-white font-bold focus:outline-none cursor-pointer"
-              />
+            {/* Pay Period Stepper Pill Widget */}
+            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1 shadow-inner">
+              <button
+                onClick={() => handleStepPayPeriod('prev')}
+                className="p-1 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition cursor-pointer"
+                title="Previous Pay Period"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex flex-col items-center px-2 min-w-[120px]">
+                <span className="text-[9px] uppercase font-black tracking-widest text-zinc-500">Pay Period</span>
+                <span className="text-xs font-mono font-bold text-amber-400">
+                  {formatPayPeriodRangeText(dateRange.start, dateRange.end)}
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleStepPayPeriod('next')}
+                className="p-1 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition cursor-pointer"
+                title="Next Pay Period"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              {offsetWeeks !== 0 && (
+                <button
+                  onClick={() => handleStepPayPeriod('current')}
+                  className="ml-1 px-2 py-0.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-[9px] font-mono font-bold rounded uppercase transition cursor-pointer"
+                  title="Jump to current pay period"
+                >
+                  Current
+                </button>
+              )}
             </div>
           </div>
 
@@ -1564,24 +1959,20 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               </select>
             </div>
 
-            {/* Staff Selector */}
-            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1">
-              <User className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-              <select
-                value={selectedStaffId}
-                onChange={e => setSelectedStaffId(e.target.value)}
-                className="bg-transparent text-white text-[11px] font-medium focus:outline-none cursor-pointer pr-1"
-              >
-                <option value="all" className="bg-zinc-900 text-white">All Active Staff / Technicians</option>
-                {activeStaff.map(s => {
-                  const sName = `${s.firstName || s.name || 'Staff'} ${s.lastName || ''}`.trim();
-                  return (
-                    <option key={s.id} value={s.id} className="bg-zinc-900 text-white">
-                      {sName} ({s.role || s.department || 'Tech'})
-                    </option>
-                  );
-                })}
-              </select>
+            {/* Searchable Staff Selector */}
+            <div className="w-[240px]">
+              <SearchableSelect
+                options={[{ id: 'all', name: 'All Active Staff / Technicians', role: '' }, ...activeStaff]}
+                value={selectedStaffId === 'all' ? null : selectedStaffId}
+                onChange={val => setSelectedStaffId(val || 'all')}
+                getLabel={s => s.id === 'all' ? 'All Active Staff / Technicians' : `${s.firstName || s.name || 'Staff'} ${s.lastName || ''}`.trim()}
+                getValue={s => s.id}
+                placeholder="All Active Staff / Technicians"
+                searchPlaceholder="Type to filter staff..."
+                theme="amber"
+                icon={<User className="w-3.5 h-3.5" />}
+                className="w-full text-[11px]"
+              />
             </div>
 
             {/* Clear Staff Filter Button */}
@@ -1596,8 +1987,18 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               </button>
             )}
 
-            {/* Status Filter (Completed Only, In Progress, Not Started, Show All) */}
+            {/* Status Filter (Show All, Completed Only, In Progress, Not Started) */}
             <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5 text-[10px] font-mono flex-wrap">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={cn(
+                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                  statusFilter === 'all' ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-zinc-400 hover:text-zinc-200"
+                )}
+                title="Show all tasks across all statuses"
+              >
+                Show All
+              </button>
               <button
                 onClick={() => setStatusFilter('completed_only')}
                 className={cn(
@@ -1627,16 +2028,6 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 title="Show uncompleted tasks with no time spent"
               >
                 Not Started
-              </button>
-              <button
-                onClick={() => setStatusFilter('all')}
-                className={cn(
-                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
-                  statusFilter === 'all' ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-zinc-400 hover:text-zinc-200"
-                )}
-                title="Show all tasks across all statuses"
-              >
-                Show All
               </button>
             </div>
 
@@ -1676,7 +2067,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
       {/* Per-Tech Payroll Summary Breakdown Cards Row */}
       {techPayrollSummary.length > 0 && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3 print:hidden">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-wrap">
               <User className="w-4 h-4 text-amber-400" />
@@ -1745,14 +2136,14 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main Content Area (Screen Only) */}
       {loading ? (
-        <div className="p-12 text-center bg-zinc-900 border border-zinc-800 rounded-2xl">
+        <div className="p-12 text-center bg-zinc-900 border border-zinc-800 rounded-2xl print:hidden">
           <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-zinc-400 font-mono text-xs">Loading Yellow Sheets Data...</p>
         </div>
       ) : groupedJobsData.length === 0 ? (
-        <div className="p-12 text-center bg-zinc-900 border border-zinc-800 rounded-2xl space-y-3">
+        <div className="p-12 text-center bg-zinc-900 border border-zinc-800 rounded-2xl space-y-3 print:hidden">
           <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center mx-auto">
             <FileSpreadsheet className="w-6 h-6" />
           </div>
@@ -1773,7 +2164,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 print:hidden">
           {/* List Header & Expand/Collapse All Controls */}
           <div className="flex items-center justify-between px-1 pb-1">
             <span className="text-[11px] font-mono text-zinc-400">
@@ -1808,23 +2199,6 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             const jobCompletedTasksCount = jobCompletedTasksList.length;
             const jobCompletedBookSum = jobCompletedTasksList.reduce((s, t) => s + (t.bookHours || 0), 0);
 
-            // Compute overall job efficiency from ALL completed tasks on this job (independent of status filter)
-            const rawJobTasks = tasksMap[job.id] || [];
-            let jobAllCompletedBookSum = 0;
-            let jobAllCompletedActualSum = 0;
-            rawJobTasks.forEach((t: any) => {
-              if (isTaskCompleted(t)) {
-                const tBook = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
-                const { actualHours } = calculateTaskActualDuration(t, taskActualSecondsMap);
-                jobAllCompletedBookSum += tBook;
-                jobAllCompletedActualSum += actualHours;
-              }
-            });
-
-            const jobEfficiencyPct = (jobAllCompletedActualSum > 0 && jobAllCompletedBookSum > 0)
-              ? Math.round((jobAllCompletedBookSum / jobAllCompletedActualSum) * 100)
-              : null;
-
             // Techs who completed work on this job
             const jobTechs = Array.from(new Set(
               Object.values(categories)
@@ -1839,7 +2213,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 {/* Job Card Header */}
                 <div 
                   onClick={() => toggleJobExpanded(job.id)}
-                  className="p-4 bg-zinc-900/90 hover:bg-zinc-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none border-b border-zinc-800/60"
+                  className="p-3.5 bg-zinc-900 hover:bg-zinc-850 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer select-none border-b border-zinc-800"
                 >
                   <div className="flex items-center gap-3">
                     <button className="text-zinc-400 hover:text-white transition">
@@ -1847,65 +2221,42 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                     </button>
 
                     <div>
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        {job.id !== 'unassigned' ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openJobDetails(job.id);
-                            }}
-                            className="px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition flex items-center gap-1 cursor-pointer"
-                            title="Open Job Details Page"
-                          >
-                            <span>JOB #{job.jobNumber}</span>
-                            <ExternalLink className="w-3 h-3 text-amber-400" />
-                          </button>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
-                            JOB #{job.jobNumber}
-                          </span>
-                        )}
-
-                        <h2 className="text-sm font-bold text-white">
-                          {job.customerName}
-                        </h2>
-
-                        {job.vehicleInfo && job.vehicleInfo !== 'N/A' && (
-                          <span className="text-zinc-400 text-xs">— {job.vehicleInfo}</span>
-                        )}
-                        <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-zinc-800 text-zinc-300 border border-zinc-700">
-                          {job.jobStatus}
-                        </span>
-                        {jobEfficiencyPct !== null && (
-                          <span className={cn(
-                            "px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase border flex items-center gap-1",
-                            jobEfficiencyPct >= 100 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                            jobEfficiencyPct >= 80 ? "bg-amber-500/10 text-amber-300 border-amber-500/20" :
-                            "bg-rose-500/10 text-rose-400 border-rose-500/20"
-                          )} title={`Job Efficiency based on completed tasks (${jobAllCompletedBookSum.toFixed(1)}h book / ${jobAllCompletedActualSum.toFixed(1)}h actual)`}>
-                            ⚡ {jobEfficiencyPct}% Eff.
-                          </span>
-                        )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-black uppercase text-amber-400 font-mono">JOB #{job.jobNumber}</span>
+                        <span className="text-sm font-bold text-white">— {job.customerName}</span>
                       </div>
                       
-                      {jobTechs.length > 0 && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 mt-1">
-                          <User className="w-3 h-3 text-zinc-500" />
-                          <span>Tech(s):</span>
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {jobTechs.map((techName, idx) => (
-                              <span key={idx} className="bg-zinc-800 text-zinc-300 px-1.5 py-0.2 rounded text-[9px] font-medium border border-zinc-700">
-                                {techName}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-3 text-[11px] font-mono text-zinc-400 mt-0.5 flex-wrap">
+                        {job.vehicleInfo && job.vehicleInfo !== 'N/A' && (
+                          <span>Vehicle: <strong className="text-zinc-200">{job.vehicleInfo}</strong></span>
+                        )}
+                        <span>Status: <strong className="text-zinc-300 uppercase">{job.jobStatus}</strong></span>
+                        {jobTechs.length > 0 && (
+                          <span>Tech(s): <strong className="text-amber-300">{jobTechs.join(', ')}</strong></span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Job Subtotals & Add Task Button Right Side */}
+                  {/* Job Subtotals & Action Buttons Right Side */}
                   <div className="flex items-center gap-3 font-mono text-xs shrink-0 self-end sm:self-auto">
+                    {/* Print Specific Job Yellow Sheet Button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPrintMode('jobs');
+                        setPrintJobId(job.id);
+                        setTimeout(() => {
+                          window.print();
+                        }, 50);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-[10px] font-mono font-black rounded-lg transition cursor-pointer shadow-sm shadow-amber-500/10"
+                      title={`Print Yellow Sheet specifically for Job #${job.jobNumber}`}
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Print Job Yellow Sheet</span>
+                    </button>
+
                     {job.id !== 'unassigned' && (
                       <button
                         onClick={(e) => {
@@ -1939,7 +2290,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                     )}
 
                     <div className="text-right">
-                      <div className="text-amber-400 font-extrabold">{jobCompletedBookSum.toFixed(1)}h Book Time</div>
+                      <div className="text-amber-400 font-extrabold text-xs">Total Book Time: {jobCompletedBookSum.toFixed(1)}h</div>
                       <div className="text-[10px] text-zinc-500">{jobCompletedTasksCount} / {jobTotalTasks} Tasks Done</div>
                     </div>
                   </div>
@@ -1950,285 +2301,186 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                   <div className="p-4 space-y-5 bg-zinc-950/40">
                     {Object.entries(categories).map(([catName, tasks]) => {
                       const catTotalHours = tasks.reduce((sum, t) => sum + (t.bookHours || 0), 0);
-                      const catCompletedHours = tasks.filter(t => t.completed).reduce((sum, t) => sum + (t.bookHours || 0), 0);
-                      const catCompletedCount = tasks.filter(t => t.completed).length;
 
                       return (
                         <div key={catName} className="space-y-3">
                           {/* Category Header */}
-                          <div className="flex items-center justify-between border-b border-zinc-800/80 pb-1.5">
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-between border-b border-zinc-800 pb-1 font-mono text-[11px] font-bold uppercase text-amber-400">
+                            <div className="flex items-center gap-1.5">
                               <Tag className="w-3.5 h-3.5 text-amber-400" />
-                              <h3 className="text-xs font-black uppercase tracking-wider text-amber-400">
-                                {catName}
-                              </h3>
-                              <span className="text-[10px] font-mono text-zinc-500">({tasks.length} {tasks.length === 1 ? 'task' : 'tasks'})</span>
+                              <span>CATEGORY: {catName}</span>
+                              <span className="text-[10px] text-zinc-500 font-normal">({tasks.length} {tasks.length === 1 ? 'task' : 'tasks'})</span>
                             </div>
-                            <div className="flex items-center gap-2 font-mono text-[10px]">
-                              <span className="font-extrabold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20" title="Completed Book Hours / Total Category Book Hours">
-                                ⚡ {catCompletedHours.toFixed(1)}h / {catTotalHours.toFixed(1)}h Done
-                              </span>
-                              <span className="text-zinc-400 font-bold text-[9px] bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800">
-                                {catCompletedCount} / {tasks.length} Tasks
-                              </span>
-                            </div>
+                            <span>CATEGORY BOOK HOURS: {catTotalHours.toFixed(1)}H</span>
                           </div>
 
-                          {/* Task List under Category */}
-                          <div className="grid grid-cols-1 gap-2.5">
-                            {tasks.map(task => {
-                              const isDone = task.completed || task.isCompleted || task.isQCComplete;
-                              return (
-                                <div 
-                                  key={task.id} 
-                                  className={cn(
-                                    "rounded-xl p-2.5 space-y-2 transition duration-200 border",
-                                    isDone
-                                      ? "bg-zinc-900/90 border-zinc-800 hover:border-zinc-700"
-                                      : "bg-zinc-950/60 border-zinc-800/60"
-                                  )}
-                                >
-                                  {/* Task Title, Book Hours & Status Row */}
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={cn(
-                                        "px-2 py-0.5 rounded text-[9px] font-mono font-extrabold uppercase border flex items-center gap-1",
-                                        task.statusCode === 'completed' || task.completed
-                                          ? "bg-emerald-950/90 text-emerald-300 border-emerald-500/50" 
-                                          : task.statusCode === 'in_progress'
-                                          ? "bg-amber-950/90 text-amber-300 border-amber-500/50"
-                                          : "bg-zinc-800 text-zinc-300 border-zinc-600 font-bold"
-                                      )}>
-                                        {task.statusLabel}
-                                      </span>
-                                      <div className="flex items-center gap-1.5">
-                                        <h4 
-                                          onClick={(e) => {
-                                            if (task.jobId !== 'unassigned' && task.id) {
-                                              e.stopPropagation();
-                                              openTaskDetails(task.jobId, task.id);
-                                            }
-                                          }}
-                                          className={cn(
-                                            "text-xs font-bold text-white flex items-center gap-1",
-                                            task.jobId !== 'unassigned' && task.id ? "hover:text-amber-300 cursor-pointer underline decoration-dotted underline-offset-2" : ""
-                                          )}
-                                          title={task.jobId !== 'unassigned' ? "Click to open Task Details page" : undefined}
-                                        >
-                                          <span>{task.taskTitle}</span>
-                                        </h4>
-                                        {task.jobId !== 'unassigned' && task.id && (
-                                          <button
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              openTaskDetails(task.jobId, task.id);
-                                            }}
-                                            className="p-0.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-amber-300 transition cursor-pointer"
-                                            title="Open Task Details Page"
-                                          >
-                                            <ExternalLink className="w-3 h-3 text-amber-400" />
-                                          </button>
-                                        )}
-                                      </div>
-                                      
-                                      {/* Book Hours Badge & Inline Edit Button */}
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="text-[10px] font-mono font-black text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/40" title="Payout Book Time">
-                                          ⚡ {task.bookHours.toFixed(1)}h Book {selectedStaffId !== 'all' && `(Split of ${task.totalBookHours}h)`}
-                                        </span>
-                                        {canEdit && (
-                                          <button
-                                            onClick={() => {
-                                              setEditingBookTimeTask({ task, jobId: task.jobId, hours: task.totalBookHours || task.bookHours });
-                                              setNewBookHours(task.totalBookHours || task.bookHours || 1.0);
-                                            }}
-                                            className="p-1 hover:bg-amber-500/20 rounded text-amber-400 hover:text-amber-200 transition"
-                                            title="Edit total payout book hours for this task (e.g. increase from 1.0h to 4.0h)"
-                                          >
-                                            <Edit3 className="w-3 h-3" />
-                                          </button>
-                                        )}
+                          {/* Task Table matching exact print structure */}
+                          <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950/80">
+                            <table className="w-full text-left border-collapse font-mono text-xs text-zinc-200">
+                              <thead>
+                                <tr className="bg-zinc-900 text-zinc-400 border-b border-zinc-800 font-extrabold uppercase text-[10px]">
+                                  <th className="p-2.5 w-[22%]">TASK</th>
+                                  <th className="p-2.5 w-[9%] text-right">BOOK HOURS</th>
+                                  <th className="p-2.5 w-[17%]">TECH</th>
+                                  <th className="p-2.5 w-[17.5%]">TASK NOTES</th>
+                                  <th className="p-2.5 w-[17.5%]">STAFF NOTES</th>
+                                  <th className="p-2.5 w-[17%]">PAYROLL NOTES</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-zinc-800/80">
+                                {tasks.map((task, idx) => {
+                                  const isDone = task.completed || task.isCompleted || task.isQCComplete;
+                                  const taskKey = `${task.jobId}_${task.id}`;
+                                  const hasSessions = task.taskSegments && task.taskSegments.length > 0;
 
-                                        {/* Actual Time Spent Badge */}
-                                        {task.actualDurationStr && task.actualDurationStr !== '0m' && (
-                                          <span className={cn(
-                                            "text-[10px] font-mono font-black px-2 py-0.5 rounded border flex items-center gap-1",
-                                            task.hasOvernightSegment
-                                              ? "text-rose-300 bg-rose-950/90 border-rose-500/50 shadow-sm"
-                                              : "text-indigo-300 bg-indigo-950/80 border-indigo-500/40"
-                                          )} title="Actual clocked time spent working on this task across all clock in/out sessions">
-                                            ⏱️ {task.actualDurationStr} Actual
-                                            {task.hasOvernightSegment && (
-                                              <span className="ml-1 px-1 py-0.2 rounded text-[8px] bg-rose-500/30 text-rose-200 border border-rose-500/40 uppercase font-black">
-                                                ⚠️ Overnight
+                                  return (
+                                    <tr key={task.id || idx} className={cn("transition hover:bg-zinc-900/50", isDone ? "bg-zinc-900/60 font-normal" : "bg-zinc-950/20 opacity-50 hover:opacity-100")}>
+                                      <td className="p-2.5 font-bold text-white align-top">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className={cn(
+                                              "px-1.5 py-0.2 rounded text-[8px] font-mono font-black uppercase border",
+                                              task.statusCode === 'completed' || task.completed
+                                                ? "bg-emerald-950 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10" 
+                                                : task.statusCode === 'in_progress'
+                                                ? "bg-amber-950/80 text-amber-400 border-amber-500/30"
+                                                : "bg-zinc-900 text-zinc-500 border-zinc-800"
+                                            )}>
+                                              {task.statusLabel}
+                                            </span>
+                                            <span 
+                                              onClick={(e) => {
+                                                if (task.jobId !== 'unassigned' && task.id) {
+                                                  e.stopPropagation();
+                                                  openTaskDetails(task.jobId, task.id);
+                                                }
+                                              }}
+                                              className={cn("text-xs font-bold", isDone ? "text-white" : "text-zinc-400", task.jobId !== 'unassigned' && task.id ? "hover:text-amber-300 cursor-pointer underline decoration-dotted" : "")}
+                                            >
+                                              {task.taskTitle}
+                                            </span>
+                                            {getTaskCategoryDisplay(task) && (
+                                              <span className="text-[9px] font-mono font-bold text-amber-500/80 uppercase tracking-wider block mt-0.5">
+                                                {getTaskCategoryDisplay(task)}
                                               </span>
                                             )}
-                                          </span>
-                                        )}
+                                          </div>
 
-                                        {/* Task Efficiency Badge */}
-                                        {task.efficiencyPct !== null && (
-                                          <span className={cn(
-                                            "text-[10px] font-mono font-black px-2 py-0.5 rounded border flex items-center gap-1",
-                                            task.efficiencyPct >= 100 ? "bg-emerald-950/90 text-emerald-300 border-emerald-500/50" :
-                                            task.efficiencyPct >= 80 ? "bg-amber-950/90 text-amber-300 border-amber-500/50" :
-                                            "bg-rose-950/90 text-rose-300 border-rose-500/50 shadow-sm"
-                                          )} title={`Task Efficiency: ${task.bookHours.toFixed(1)}h book time / ${task.actualHours.toFixed(1)}h actual clocked time`}>
-                                            📈 {task.efficiencyPct}% Eff.
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* Completion Staff, Multi-Tech Splits, Timestamp & Inline Notes Button */}
-                                    <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-300 shrink-0 flex-wrap">
-                                      <div className="flex items-center gap-1.5 bg-zinc-800/90 px-2 py-0.5 rounded border border-zinc-700/80 text-zinc-200">
-                                        <User className="w-3 h-3 text-indigo-400" />
-                                        {task.workers && task.workers.length > 1 ? (
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="font-semibold text-amber-300" title={`Task split between ${task.workers.length} techs`}>
-                                              Techs ({task.workers.length}): {task.workers.map((w: any) => `${w.name} (${w.pct}% • ${w.splitHours.toFixed(1)}h)`).join(', ')}
-                                            </span>
-                                            {canEdit && (
+                                          {/* Collapsible Clocked Sessions Drawer Button */}
+                                          {hasSessions && (
+                                            <div className="pt-1">
                                               <button
-                                                onClick={() => openSplitModal(task)}
-                                                className="ml-1 p-0.5 hover:bg-zinc-700 rounded text-amber-400 hover:text-amber-200 transition"
-                                                title="Adjust Payout Book Time split (% of Book Time Owed)"
+                                                onClick={() => setExpandedTaskSessions(prev => ({ ...prev, [taskKey]: !prev[taskKey] }))}
+                                                className="text-[9px] font-mono font-bold text-zinc-400 hover:text-amber-300 flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 transition cursor-pointer"
                                               >
-                                                <Sliders className="w-3 h-3" />
+                                                {expandedTaskSessions[taskKey] ? <ChevronDown className="w-3 h-3 text-amber-400" /> : <ChevronRight className="w-3 h-3 text-zinc-400" />}
+                                                <Clock className="w-3 h-3 text-amber-400" />
+                                                <span>Sessions ({task.taskSegments.length})</span>
                                               </button>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <span className="font-semibold">{task.completedBy}</span>
-                                        )}
-                                      </div>
 
-                                      {task.closedByManager && (
-                                        <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-500/40" title={`Task marked complete by manager: ${task.closedByManager}`}>
-                                          Cleared by Mgr: {task.closedByManager}
-                                        </span>
-                                      )}
-
-                                      {task.completedAt && (
-                                        <div className="flex items-center gap-1 text-zinc-400 font-mono text-[10px]">
-                                          <Clock className="w-3 h-3 text-zinc-500" />
-                                          <span>{task.completedAt.toLocaleDateString()} {task.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
-                                        </div>
-                                      )}
-
-                                      {/* Inline + Add Notes button when NO notes exist */}
-                                      {canEdit && !task.taskNotes && !task.staffNotes && (
-                                        <button
-                                          onClick={() => {
-                                            setEditingTaskNotes({ task, jobId: task.jobId });
-                                            setEditTaskSpecNote('');
-                                            setEditStaffTechNote('');
-                                          }}
-                                          className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[10px] font-mono font-bold rounded border border-zinc-700 transition cursor-pointer flex items-center gap-1"
-                                          title="Add task instructions or staff notes"
-                                        >
-                                          <Edit3 className="w-3 h-3 text-amber-400" />
-                                          <span>+ Add Notes</span>
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Task Notes Container - ONLY rendered when notes exist */}
-                                  {(task.taskNotes || task.staffNotes) && (
-                                    <div className="pt-2 border-t border-zinc-800/60 space-y-1.5">
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-mono font-bold uppercase text-amber-400 flex items-center gap-1">
-                                          <FileText className="w-3 h-3" /> Task Specs & Staff Notes:
-                                        </span>
-                                        {canEdit && (
-                                          <button
-                                            onClick={() => {
-                                              setEditingTaskNotes({ task, jobId: task.jobId });
-                                              setEditTaskSpecNote(task.taskNotes || '');
-                                              setEditStaffTechNote(task.staffNotes || '');
-                                            }}
-                                            className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-[10px] font-mono font-bold rounded border border-zinc-700 transition cursor-pointer flex items-center gap-1"
-                                            title="Edit task description or staff tech notes for payroll"
-                                          >
-                                            <Edit3 className="w-3 h-3 text-amber-400" />
-                                            <span>Edit Notes</span>
-                                          </button>
-                                        )}
-                                      </div>
-
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                                        {task.taskNotes && (
-                                          <div className="bg-zinc-900 rounded-lg p-2 border border-zinc-700/80 text-zinc-200 font-medium">
-                                            <span className="text-[9px] font-mono font-bold uppercase text-zinc-400 block mb-0.5">Task Description / Instructions:</span>
-                                            <p className="whitespace-pre-wrap">{task.taskNotes}</p>
-                                          </div>
-                                        )}
-                                        {task.staffNotes && (
-                                          <div className="bg-amber-950/60 rounded-lg p-2 border border-amber-500/30 text-amber-200 font-medium">
-                                            <span className="text-[9px] font-mono font-bold uppercase text-amber-300 block mb-0.5 flex items-center gap-1">
-                                              <FileText className="w-3 h-3 text-amber-400" /> Tech Completion Notes:
-                                            </span>
-                                            <p className="whitespace-pre-wrap font-sans">{task.staffNotes}</p>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Detailed Clocked Start & Stop Sessions Breakdown */}
-                                  {task.taskSegments && task.taskSegments.length > 0 && (
-                                    <div className="pt-2 border-t border-zinc-800/60 font-mono text-[10px] space-y-1.5">
-                                      <div className="flex items-center justify-between flex-wrap gap-2">
-                                        <span className="font-bold text-zinc-300 flex items-center gap-1">
-                                          <Clock className="w-3.5 h-3.5 text-amber-400" />
-                                          Clocked Start & Stop Sessions ({task.taskSegments.length}):
-                                        </span>
-                                        {task.hasOvernightSegment && (
-                                          <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-950/90 text-rose-300 border border-rose-500/50 flex items-center gap-1">
-                                            ⚠️ Overnight / Unclosed Session
-                                          </span>
-                                        )}
-                                      </div>
-
-                                      <div className="space-y-1">
-                                        {task.taskSegments.map((seg: any, idx: number) => {
-                                          const startStr = `${seg.start.toLocaleDateString([], { month: 'numeric', day: 'numeric' })} ${seg.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-                                          const endStr = seg.isOpen 
-                                            ? 'Active / Open' 
-                                            : `${seg.end.toLocaleDateString([], { month: 'numeric', day: 'numeric' })} ${seg.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-                                          const hrs = (seg.durationSec / 3600).toFixed(1);
-
-                                          return (
-                                            <div 
-                                              key={idx} 
-                                              className={cn(
-                                                "flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg border text-[10px] transition",
-                                                seg.isOvernightOrLong 
-                                                  ? "bg-rose-950/70 text-rose-200 border-rose-500/50 font-bold" 
-                                                  : "bg-zinc-950/80 text-zinc-200 border-zinc-800"
+                                              {expandedTaskSessions[taskKey] && (
+                                                <div className="mt-1.5 space-y-1 pl-1 text-[9px] font-mono">
+                                                  {task.taskSegments.map((seg: any, sIdx: number) => {
+                                                    const startStr = `${seg.start.toLocaleDateString([], { month: 'numeric', day: 'numeric' })} ${seg.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+                                                    const endStr = seg.isOpen ? 'Active' : `${seg.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+                                                    const hrs = (seg.durationSec / 3600).toFixed(1);
+                                                    return (
+                                                      <div key={sIdx} className="bg-zinc-900/90 p-1 rounded border border-zinc-800 text-zinc-300">
+                                                        <div className="flex justify-between items-center">
+                                                          <span>{seg.userName}: {startStr} ➔ {endStr}</span>
+                                                          <span className="font-bold text-amber-400">{hrs}h</span>
+                                                        </div>
+                                                        {seg.note && <div className="text-amber-200/80 italic text-[9px]">"{seg.note}"</div>}
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
                                               )}
-                                            >
-                                              <div className="flex items-center gap-1.5 flex-wrap">
-                                                <span className="font-bold text-amber-300">{seg.userName}:</span>
-                                                <span className="text-zinc-200 font-mono">{startStr} ➔ {endStr}</span>
-                                                {seg.isOvernightOrLong && (
-                                                  <span className="px-1.5 py-0.2 rounded text-[8px] bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase font-black">
-                                                    ⚠️ Overnight ({hrs}h)
-                                                  </span>
-                                                )}
-                                              </div>
-                                              <span className="font-black text-amber-300 font-mono shrink-0">{hrs}h</span>
                                             </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                                          )}
+                                        </div>
+                                      </td>
+
+                                      <td className={cn("p-2.5 text-right font-black align-top", isDone ? "text-amber-300" : "text-zinc-500")}>
+                                        <div className="flex items-center justify-end gap-1">
+                                          <span>{task.bookHours?.toFixed(1)}h</span>
+                                          {canEdit && (
+                                            <button
+                                              onClick={() => {
+                                                setEditingBookTimeTask({ task, jobId: task.jobId, hours: task.totalBookHours || task.bookHours });
+                                                setNewBookHours(task.totalBookHours || task.bookHours || 1.0);
+                                              }}
+                                              className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
+                                            >
+                                              <Edit3 className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+
+                                      <td className={cn("p-2.5 font-semibold align-top", isDone ? "text-zinc-200" : "text-zinc-500 font-normal")}>
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          {isDone ? (
+                                            <>
+                                              <span>{task.completedBy || 'Technician'}</span>
+                                              {task.completedAt && (
+                                                <span className="text-[9px] font-mono text-zinc-400 block w-full font-normal">
+                                                  {task.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })} {task.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                                </span>
+                                              )}
+                                              {canEdit && task.workers && task.workers.length > 1 && (
+                                                <button
+                                                  onClick={() => openSplitModal(task)}
+                                                  className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
+                                                  title="Adjust split"
+                                                >
+                                                  <Sliders className="w-3 h-3" />
+                                                </button>
+                                              )}
+                                            </>
+                                          ) : (
+                                            <span className="text-zinc-500 font-mono text-xs">—</span>
+                                          )}
+                                        </div>
+                                      </td>
+
+                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
+                                        {task.taskNotes || '—'}
+                                      </td>
+
+                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
+                                        <div className="space-y-1">
+                                          <span>{task.staffNotes || '—'}</span>
+                                        </div>
+                                      </td>
+
+                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
+                                        <div className="space-y-1">
+                                          <span>{task.payrollNotes || '—'}</span>
+                                          {canEdit && (
+                                            <div>
+                                              <button
+                                                onClick={() => {
+                                                  setEditingTaskNotes({ task, jobId: task.jobId });
+                                                  setEditTaskSpecNote(task.taskNotes || '');
+                                                  setEditStaffTechNote(task.staffNotes || '');
+                                                  setEditPayrollNote(task.payrollNotes || '');
+                                                }}
+                                                className="text-[9px] font-mono text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                                title="Edit Task Specs, Staff Notes & Payroll Notes"
+                                              >
+                                                <Edit3 className="w-2.5 h-2.5" />
+                                                <span>Edit Notes</span>
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
                           </div>
                         </div>
                       );
@@ -2241,6 +2493,240 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           })}
         </div>
       )}
+
+      {/* Modern Excel Printable Container */}
+      <div id="yellow-sheets-print-area" className="hidden print:block font-sans text-[11px] text-black bg-white p-4 space-y-6">
+        {printMode === 'jobs' ? (
+          groupedJobsData
+            .filter(jobData => printJobId === null || jobData.job.id === printJobId)
+            .map((jobData) => {
+            const { job, categories: categoriesToPrint } = jobData;
+            const totalJobBookHours = Object.values(categoriesToPrint).flatMap((tasks: any) => tasks).reduce((sum: number, t: any) => sum + (t.bookHours || 0), 0);
+
+            return (
+              <div key={job.id} className="yellow-sheet-job-card mb-8">
+                {/* 10px Yellow Strip across the top of printed sheets */}
+                <div 
+                  style={{
+                    height: '10px',
+                    backgroundColor: '#eab308',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact'
+                  }}
+                />
+                {/* Job Info Box */}
+                <div className="border-2 border-black p-3 bg-zinc-50 mb-3 flex justify-between items-start">
+                  <div>
+                    <h1 className="text-lg font-black text-black">JOB #{job.jobNumber} — {job.customerName}</h1>
+                    {job.vehicleInfo && job.vehicleInfo !== 'N/A' && (
+                      <p className="text-xs font-bold text-gray-900">Vehicle: {job.vehicleInfo}</p>
+                    )}
+                    <p className="text-[10px] font-mono text-gray-800">Status: {job.jobStatus}</p>
+                    {statusFilter !== 'all' && activeFiltersSummary && (
+                      <p className="text-[9px] font-bold text-red-700 uppercase tracking-wide mt-1">
+                        ⚠️ FILTERED VIEW: {activeFiltersSummary} (Not a full sheet)
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right font-mono text-[11px]">
+                    <p className="text-[10px] text-gray-800 font-bold">YELLOW SHEET REPORT</p>
+                    <p className="text-sm font-black text-black">Total Book Time: {totalJobBookHours.toFixed(1)}h</p>
+                  </div>
+                </div>
+
+                {/* Breakdown by Category */}
+                {Object.entries(categoriesToPrint).map(([catName, catTasks]) => {
+                  const catBookHours = catTasks.reduce((sum, t) => sum + (t.bookHours || 0), 0);
+
+                  return (
+                    <div key={catName} className="space-y-1">
+                      {/* Category Header */}
+                      <div className="bg-zinc-200 border border-black px-2 py-1 flex justify-between items-center font-mono font-bold text-[10px] uppercase text-black">
+                        <span>CATEGORY: {catName}</span>
+                        <span>Category Book Hours: {catBookHours.toFixed(1)}h</span>
+                      </div>
+
+                      {/* Tasks Excel Table */}
+                      <table className="w-full text-left border-collapse border border-black text-[10px] font-mono">
+                        <thead>
+                          <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase">
+                            <th className="border border-black p-1.5 w-[19%]">Task</th>
+                            <th className="border border-black p-1.5 w-[11%]">Time Completed</th>
+                            <th className="border border-black p-1.5 w-[7%] text-right">Book</th>
+                            <th className="border border-black p-1.5 w-[7%] text-right">Time Spent</th>
+                            <th className="border border-black p-1.5 w-[14%]">Tech</th>
+                            <th className="border border-black p-1.5 w-[14%]">Task Notes</th>
+                            <th className="border border-black p-1.5 w-[14%]">Staff Notes</th>
+                            <th className="border border-black p-1.5 w-[14%]">Payroll Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {catTasks.map((t, idx) => {
+                            return (
+                              <tr key={t.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
+                                <td className="border border-black p-1.5 font-bold text-black">
+                                  <div>{t.taskTitle}</div>
+                                  {getTaskCategoryDisplay(t) && (
+                                    <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
+                                      {getTaskCategoryDisplay(t)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="border border-black p-1.5 text-black">
+                                  {t.completed ? (
+                                    t.completedAt ? (
+                                      <span className="font-mono text-[10px] font-medium text-black">
+                                        {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
+                                        {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-gray-400">COMPLETED</span>
+                                    )
+                                  ) : (
+                                    <span className={cn(
+                                      "px-1 py-0.5 rounded text-[10px] font-bold uppercase border",
+                                      t.statusCode === 'in_progress' ? "bg-amber-200 text-amber-950 border-amber-600 font-bold" :
+                                      "bg-gray-200 text-gray-800 border-gray-400"
+                                    )}>
+                                      {t.statusLabel}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="border border-black p-1.5 text-right font-black text-black">{t.bookHours?.toFixed(1)}h</td>
+                                <td className="border border-black p-1.5 text-right text-black font-medium">{t.actualDurationStr || (t.actualHours > 0 ? `${t.actualHours.toFixed(1)}h` : '—')}</td>
+                                <td className="border border-black p-1.5 font-semibold text-black">
+                                  {t.completed ? (
+                                    <p>{t.completedBy || 'Technician'}</p>
+                                  ) : (
+                                    <span className="text-gray-400 font-normal">—</span>
+                                  )}
+                                </td>
+                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
+                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.staffNotes || '—'}</td>
+                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })
+        ) : (
+          groupedStaffData.map((staffData) => {
+            const { staffId, staffName, tasks, totalBookHours, totalActualHours, totalShiftHours } = staffData as any;
+            const taskEfficiency = totalActualHours > 0 ? Math.round((totalBookHours / totalActualHours) * 100) : null;
+            const shiftEfficiency = (totalShiftHours || 0) > 0 ? Math.round((totalBookHours / totalShiftHours) * 100) : null;
+
+            return (
+              <div key={staffId} className="yellow-sheet-job-card mb-8">
+                {/* 10px Yellow Strip across the top of printed sheets */}
+                <div 
+                  style={{
+                    height: '10px',
+                    backgroundColor: '#eab308',
+                    WebkitPrintColorAdjust: 'exact',
+                    printColorAdjust: 'exact'
+                  }}
+                />
+                {/* Staff Info Box */}
+                <div className="border-2 border-black p-3 bg-zinc-50 mb-3 flex justify-between items-start">
+                  <div>
+                    <h1 className="text-lg font-black text-black">LABOR & PAYOUT REPORT — {staffName.toUpperCase()}</h1>
+                    <p className="text-xs font-bold text-gray-900">
+                      Period: {dateRange.start ? dateRange.start.toLocaleDateString() : 'All'} to {dateRange.end ? dateRange.end.toLocaleDateString() : 'All'}
+                    </p>
+                    {activeStaffFiltersSummary && (
+                      <p className="text-[9px] font-bold text-red-700 uppercase tracking-wide mt-1">
+                        ⚠️ FILTER DETAILS: {activeStaffFiltersSummary}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right font-mono text-[11px] leading-tight space-y-0.5">
+                    <p className="text-[10px] text-gray-800 font-bold tracking-wider">STAFF REPORT</p>
+                    <p className="text-xs font-black text-black">Completed Book Time: {totalBookHours.toFixed(1)}h</p>
+                    <p className="text-xs font-bold text-gray-900">
+                      Time Spent on Book Time: {totalActualHours > 0 ? (totalActualHours < 0.1 ? `${Math.max(1, Math.round(totalActualHours * 60))}m` : `${totalActualHours.toFixed(1)}h`) : '0.0h'}
+                      {taskEfficiency !== null ? ` (${taskEfficiency}%)` : ''}
+                    </p>
+                    <p className="text-xs font-bold text-gray-900">
+                      Time on Clock: {(totalShiftHours || 0) > 0 ? ((totalShiftHours || 0) < 0.1 ? `${Math.max(1, Math.round((totalShiftHours || 0) * 60))}m` : `${(totalShiftHours || 0).toFixed(1)}h`) : '0.0h'}
+                      {shiftEfficiency !== null ? ` (${shiftEfficiency}%)` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Tasks Table */}
+                <table className="w-full text-left border-collapse border border-black text-[10px] font-mono">
+                  <thead>
+                    <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase">
+                      <th className="border border-black p-1.5 w-[20%]">Job</th>
+                      <th className="border border-black p-1.5 w-[22%]">Task</th>
+                      <th className="border border-black p-1.5 w-[12%]">Time Completed</th>
+                      <th className="border border-black p-1.5 w-[9%] text-right">Book (Split)</th>
+                      <th className="border border-black p-1.5 w-[9%] text-right">Clocked</th>
+                      <th className="border border-black p-1.5 w-[8%] text-right">Eff %</th>
+                      <th className="border border-black p-1.5 w-[20%]">Payroll Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasks.map((t: any, idx: number) => {
+                      const eff = t.workerActualHours > 0 ? Math.round((t.splitBookHours / t.workerActualHours) * 100) : null;
+                      const jobInfo = `#${t.jobNumber} ${t.customerName}`;
+
+                      return (
+                        <tr key={t.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
+                          <td className="border border-black p-1.5 font-bold text-black truncate max-w-[150px]" title={jobInfo}>{jobInfo}</td>
+                          <td className="border border-black p-1.5 font-bold text-black">
+                            <div>{t.taskTitle}</div>
+                            {getTaskCategoryDisplay(t) && (
+                              <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
+                                {getTaskCategoryDisplay(t)}
+                              </div>
+                            )}
+                          </td>
+                          <td className="border border-black p-1.5 text-black">
+                            {t.completed && t.completedAt ? (
+                              <span className="font-mono text-[10px] font-medium text-black">
+                                {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
+                                {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                              </span>
+                            ) : t.completed ? (
+                              <span className="text-[9px] font-bold text-gray-500">COMPLETED</span>
+                            ) : (
+                              <span className="text-[9px] text-gray-600 uppercase font-bold">{t.statusLabel}</span>
+                            )}
+                          </td>
+                          <td className="border border-black p-1.5 text-right font-black text-black">
+                            {t.splitBookHours?.toFixed(1)}h
+                            {t.workers && t.workers.length > 1 && (
+                              <span className="text-[8px] text-gray-600 block font-normal">
+                                ({t.workers.find((w: any) => w.id === staffId)?.pct}%)
+                              </span>
+                            )}
+                          </td>
+                          <td className="border border-black p-1.5 text-right text-black">
+                            {t.workerActualHours > 0 ? (
+                              t.workerActualHours < 0.1 ? `${Math.max(1, Math.round(t.workerActualHours * 60))}m` : `${t.workerActualHours.toFixed(1)}h`
+                            ) : '—'}
+                          </td>
+                          <td className="border border-black p-1.5 text-right font-bold text-black">
+                            {eff !== null ? `${eff}%` : '—'}
+                          </td>
+                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })
+        )}
+      </div>
 
       {/* Modal 1: Multi-Tech Custom Split Adjustment Modal */}
       {editingSplitTask && (
@@ -2500,13 +2986,25 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
               {/* Tech / Staff Notes */}
               <div className="space-y-1">
-                <label className="text-xs font-bold text-amber-300 block">Tech Completion / Staff Notes (Payroll Remarks):</label>
+                <label className="text-xs font-bold text-amber-300 block">Tech Completion / Staff Notes:</label>
                 <textarea
-                  rows={3}
-                  placeholder="Technician completion notes, work remarks, or payroll review notes..."
+                  rows={2}
+                  placeholder="Technician completion notes or work remarks..."
                   value={editStaffTechNote}
                   onChange={e => setEditStaffTechNote(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 text-white text-xs p-3 rounded-lg focus:outline-none focus:border-amber-500 font-sans"
+                />
+              </div>
+
+              {/* Payroll Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-indigo-300 block">Payroll Notes (Internal Payroll Remarks):</label>
+                <textarea
+                  rows={2}
+                  placeholder="Internal payroll admin notes, payout adjustments, or approval remarks..."
+                  value={editPayrollNote}
+                  onChange={e => setEditPayrollNote(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 text-white text-xs p-3 rounded-lg focus:outline-none focus:border-indigo-500 font-sans"
                 />
               </div>
             </div>
@@ -2744,7 +3242,9 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
             <div className="flex items-center justify-end border-t border-zinc-800 pt-3">
               <button
-                onClick={() => setShowAuditModal(false)}
+                onClick={() => {
+                  setShowAuditModal(false);
+                }}
                 className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs font-bold transition cursor-pointer"
               >
                 Close Audit Trail
@@ -2753,6 +3253,44 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           </div>
         </div>
       )}
+
+      {/* Global CSS for Print Media to ensure clean landscape Excel spreadsheet printing */}
+      <style>{`
+        @media print {
+          @page {
+            size: landscape;
+            margin: 0.4in;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          #yellow-sheets-print-area, #yellow-sheets-print-area * {
+            visibility: visible !important;
+          }
+          #yellow-sheets-print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+            color: black !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .yellow-sheet-job-card {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+          .yellow-sheet-job-card:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+        }
+      `}</style>
+
+
 
     </div>
   );

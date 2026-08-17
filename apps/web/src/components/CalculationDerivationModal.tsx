@@ -1,4 +1,4 @@
-import { Calculator, X, Copy, Terminal, Info, Check, Clock, ShieldAlert, Layers } from 'lucide-react';
+import { Calculator, X, Copy, Terminal, Info, Clock, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 
 export interface CalculationVariable {

@@ -20,7 +20,7 @@ export function MobileBottomNav({ activeTab, setActiveTab, onOpenSidebar }: Mobi
 
   // Determine current active hub
   const activeHub = React.useMemo(() => {
-    if (activeTab === 'job' || activeTab === 'task') return 'facility';
+    if (activeTab === 'job' || activeTab === 'task') return 'upfitters';
     if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
     if (activeTab?.startsWith('safety')) return 'safety';
     if (activeTab?.startsWith('help_')) return 'help';

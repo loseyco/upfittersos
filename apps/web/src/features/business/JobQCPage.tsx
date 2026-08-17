@@ -252,10 +252,18 @@ export function JobQCPage({
     const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
       try {
-        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+        const updateData: any = {
           status: newStatus,
           updatedAt: new Date()
-        });
+        };
+        if (newStatus === 'Ready for Customer') {
+          updateData.readyForCustomerAt = new Date();
+          updateData.readyForCustomerBy = user?.displayName || user?.email;
+          updateData.readyForCustomerById = user?.uid;
+        } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+          updateData.readyForCustomerAt = null;
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), updateData);
         if (isReversion) {
           toast.error(msg);
         } else {

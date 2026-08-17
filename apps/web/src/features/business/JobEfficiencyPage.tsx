@@ -375,31 +375,28 @@ export function JobEfficiencyPage({
     if (bookHours <= 0) return;
 
     const assigned = task.assignedStaff || [];
-    if (assigned.length > 0) {
-      const share = bookHours / assigned.length;
-      assigned.forEach((staff: any) => {
-        const sId = staff.id || staff.uid;
-        // Find by ID or check if technician exists in summary
-        let tRec = techSummaryMap[sId];
-        if (!tRec) {
-          // If no clocked time but assigned and completed, create tech record with 0 actual hours
-          const staffMember = allStaff.find(s => s.id === sId || s.userId === sId);
-          const name = staffMember?.name || staff.name || 'Technician';
-          techSummaryMap[sId] = {
-            uid: sId,
-            name,
-            avatarUrl: staffMember?.avatarUrl || undefined,
-            totalMs: 0,
-            generalMs: 0,
-            hourlyMs: 0,
-            bookTimeMs: 0,
-            completedBookHours: 0,
-            tasksWorked: {},
-            segments: []
-          };
-          tRec = techSummaryMap[sId];
+
+    // Check if any tech actually clocked time on this task
+    let totalTaskClockedMs = 0;
+    const staffClockedMsMap: Record<string, number> = {};
+
+    Object.values(techSummaryMap).forEach((tRec: any) => {
+      if (tRec.tasksWorked && tRec.tasksWorked[task.id]) {
+        const ms = tRec.tasksWorked[task.id].ms || 0;
+        if (ms > 0) {
+          staffClockedMsMap[tRec.uid] = ms;
+          totalTaskClockedMs += ms;
         }
-        tRec.completedBookHours += share;
+      }
+    });
+
+    if (totalTaskClockedMs > 0) {
+      // Labor sessions exist for this task: credit is split STRICTLY by actual clocked time on task!
+      Object.entries(staffClockedMsMap).forEach(([sId, ms]) => {
+        let tRec = techSummaryMap[sId];
+        if (tRec) {
+          tRec.completedBookHours += bookHours * (ms / totalTaskClockedMs);
+        }
       });
     } else {
       // Credited to completedByStaffId or matching name
@@ -417,6 +414,7 @@ export function JobEfficiencyPage({
           techSummaryMap[completedStaffId] = {
             uid: completedStaffId,
             name: staffMember?.name || task.completedByStaffName || task.completedBy || 'Technician',
+            avatarUrl: staffMember?.avatarUrl || undefined,
             totalMs: 0,
             generalMs: 0,
             hourlyMs: 0,
@@ -428,6 +426,30 @@ export function JobEfficiencyPage({
           tRec = techSummaryMap[completedStaffId];
         }
         tRec.completedBookHours += bookHours;
+      } else if (assigned.length > 0) {
+        const share = bookHours / assigned.length;
+        assigned.forEach((staff: any) => {
+          const sId = staff.id || staff.uid;
+          let tRec = techSummaryMap[sId];
+          if (!tRec) {
+            const staffMember = allStaff.find(s => s.id === sId || s.userId === sId);
+            const name = staffMember?.name || staff.name || 'Technician';
+            techSummaryMap[sId] = {
+              uid: sId,
+              name,
+              avatarUrl: staffMember?.avatarUrl || undefined,
+              totalMs: 0,
+              generalMs: 0,
+              hourlyMs: 0,
+              bookTimeMs: 0,
+              completedBookHours: 0,
+              tasksWorked: {},
+              segments: []
+            };
+            tRec = techSummaryMap[sId];
+          }
+          tRec.completedBookHours += share;
+        });
       }
     }
   });

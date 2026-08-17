@@ -4,14 +4,14 @@ import { db } from '../../lib/firebase/config';
 import { 
   Tv, Clock, Activity, Users, TrendingUp, AlertTriangle, 
   Play, Pause, RotateCcw, Plus, Trash, Check, Laptop, Wifi, Sparkles, Sliders,
-  Car, QrCode, Layout, Edit3, MapPin, PlusCircle, X
+  Car, QrCode, Layout, Edit3, MapPin, PlusCircle, X, Copy, Link
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
 
-type TVMode = 'screensaver' | 'dashboard' | 'sales_crm' | 'morning_meeting' | 'weekly_review' | 'custom_presentation' | 'safety_alert' | 'bay_monitor' | 'parking_monitor' | 'timeclock_station';
+type TVMode = 'screensaver' | 'dashboard' | 'sales_crm' | 'morning_meeting' | 'weekly_review' | 'custom_presentation' | 'safety_alert' | 'bay_monitor' | 'parking_monitor' | 'timeclock_station' | 'daily_progress';
 
 interface AgendaItem {
   id: string;
@@ -127,6 +127,13 @@ const MODE_DETAILS: Record<TVMode, { label: string; description: string; icon: R
     icon: TrendingUp,
     color: 'text-indigo-400 border-indigo-500/20',
     bg: 'from-indigo-500/10 to-transparent'
+  },
+  daily_progress: {
+    label: 'Daily Progress Live Report',
+    description: 'Displays real-time daily completed jobs, active bay progress bars, earned book hours, and live blockers.',
+    icon: Activity,
+    color: 'text-emerald-400 border-emerald-500/20',
+    bg: 'from-emerald-500/10 to-transparent'
   }
 };
 
@@ -536,6 +543,18 @@ export function ConferenceControlPanel({ tenantId }: { tenantId: string }) {
                     
                     <div className="flex gap-1 shrink-0 ml-3">
                       <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = `${window.location.origin}/monitor-tv?t=${tenantId}&m=${m.id}`;
+                          navigator.clipboard.writeText(url);
+                          toast.success(`Copied direct fail-safe URL for "${m.name}"! Set this bookmark on the TV to prevent resets.`);
+                        }}
+                        className="p-2 text-zinc-500 hover:text-indigo-400 transition-colors"
+                        title="Copy direct permanent TV URL for Smart TV bookmarking"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteMonitor(m.id, m.name)}
                         className="p-2 text-zinc-650 hover:text-red-400 transition-colors"
                         title="Unbind TV"
@@ -617,6 +636,18 @@ export function ConferenceControlPanel({ tenantId }: { tenantId: string }) {
                         title="Edit monitor info"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const url = `${window.location.origin}/monitor-tv?t=${tenantId}&m=${activeMonitor.id}`;
+                          navigator.clipboard.writeText(url);
+                          toast.success(`Copied direct fail-safe URL for "${activeMonitor.name}"! Set this bookmark on the TV browser to prevent resets.`);
+                        }}
+                        className="px-2 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg text-[10px] font-bold transition flex items-center gap-1.5"
+                        title="Copy direct permanent TV URL for Smart TV browser bookmarking"
+                      >
+                        <Link className="w-3 h-3" />
+                        Copy Permanent TV Link
                       </button>
                     </div>
                     <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider flex items-center gap-1 mt-1">

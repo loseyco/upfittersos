@@ -30,10 +30,19 @@ export function TvSetupScreen() {
   const [pin, setPin] = useState<string>('');
   const [keyPair, setKeyPair] = useState<CryptoKeyPair | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<'generating' | 'waiting' | 'decrypting' | 'authenticating' | 'success'>('generating');
-  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('t') || localStorage.getItem('tv_paired_tenant_id');
+  });
+  const [status, setStatus] = useState<'generating' | 'waiting' | 'decrypting' | 'authenticating' | 'success'>(() => {
+    const savedTenant = new URLSearchParams(window.location.search).get('t') || localStorage.getItem('tv_paired_tenant_id');
+    return savedTenant ? 'success' : 'generating';
+  });
 
   useEffect(() => {
+    // If already restored from localStorage or URL, do not initialize new pairing PIN
+    if (status === 'success' && tenantId) return;
+
     let currentPin = '';
 
     const initialize = async () => {
@@ -67,7 +76,7 @@ export function TvSetupScreen() {
         deleteDoc(doc(db, 'tv_pairings', currentPin)).catch(console.error);
       }
     };
-  }, []);
+  }, [status, tenantId]);
 
   useEffect(() => {
     if (status !== 'waiting' || !pin || !keyPair) return;
@@ -87,6 +96,7 @@ export function TvSetupScreen() {
           setStatus('authenticating');
           await signInWithEmailAndPassword(auth, payload.email, payload.password);
           
+          localStorage.setItem('tv_paired_tenant_id', payload.tenantId);
           setTenantId(payload.tenantId);
           setStatus('success');
 
@@ -105,8 +115,30 @@ export function TvSetupScreen() {
     return () => unsub();
   }, [pin, keyPair, status]);
 
+  const handleUnpair = () => {
+    if (window.confirm("Are you sure you want to unpair this TV display? You will need to enter credentials to pair again.")) {
+      localStorage.removeItem('tv_paired_tenant_id');
+      setTenantId(null);
+      setStatus('generating');
+    }
+  };
+
   if (status === 'success' && tenantId) {
-    return <BayMonitor tenantId={tenantId} />;
+    return (
+      <div className="relative h-full w-full">
+        {/* Subtle Disconnect button overlay */}
+        <div className="fixed top-3 left-3 z-50 opacity-20 hover:opacity-100 transition-opacity">
+          <button 
+            onDoubleClick={handleUnpair}
+            className="px-2 py-1 bg-zinc-950/80 text-[10px] font-mono text-zinc-400 hover:text-red-400 rounded border border-zinc-800"
+            title="Double-click to unpair TV display"
+          >
+            Double click to unpair TV
+          </button>
+        </div>
+        <BayMonitor tenantId={tenantId} />
+      </div>
+    );
   }
 
   const pairUrl = `${window.location.origin}/pair?pin=${pin}`;

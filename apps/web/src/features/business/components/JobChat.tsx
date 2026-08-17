@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../../lib/firebase/config';
 import { useAuthStore } from '../../../lib/auth/store';
-import { Send, User as UserIcon } from 'lucide-react';
+import { Send, User as UserIcon, Trash2 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { toast } from 'sonner';
 
@@ -21,10 +21,11 @@ interface ChatMessage {
 }
 
 export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
-  const { user } = useAuthStore();
+  const { user, isSuperAdmin } = useAuthStore();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -77,9 +78,25 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
     }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!tenantId || !jobId) return;
+    if (!window.confirm('Delete this message?')) return;
+
+    setDeletingId(msgId);
+    try {
+      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/chat_messages`, msgId));
+      toast.success('Message removed');
+    } catch (error: any) {
+      console.error('Error deleting message:', error);
+      toast.error(`Failed to delete message: ${error.message}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const formatTime = (timestamp: any) => {
     if (!timestamp) return '';
-    const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+    const date = typeof timestamp?.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
@@ -97,6 +114,7 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
         ) : (
           messages.map((msg, index) => {
             const isMe = msg.senderId === user?.uid;
+            const canDelete = Boolean(isSuperAdmin);
             const showHeader = index === 0 || messages[index - 1].senderId !== msg.senderId || messages[index - 1].isSystem !== msg.isSystem;
 
             if (msg.isSystem) {
@@ -110,7 +128,7 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
             }
 
             return (
-              <div key={msg.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
+              <div key={msg.id} className={cn("flex flex-col group relative", isMe ? "items-end" : "items-start")}>
                 {showHeader && (
                   <div className={cn(
                     "flex items-center gap-1.5 mb-1 text-[10px] font-black uppercase tracking-widest text-zinc-500",
@@ -120,20 +138,44 @@ export const JobChat: React.FC<JobChatProps> = ({ tenantId, jobId }) => {
                     <span>{msg.senderName}</span>
                   </div>
                 )}
-                <div className={cn(
-                  "max-w-[85%] px-4 py-2.5 rounded-2xl shadow-sm",
-                  isMe 
-                    ? "bg-indigo-600 text-white rounded-br-sm" 
-                    : "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white rounded-bl-sm"
-                )}>
-                  <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.message}</p>
+                <div className="flex items-center gap-1.5 max-w-full">
+                  {isMe && canDelete && (
+                    <button
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      disabled={deletingId === msg.id}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition shrink-0"
+                      title="Delete Message"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  <div className={cn(
+                    "px-4 py-2.5 rounded-2xl shadow-sm max-w-[85vw] sm:max-w-md",
+                    isMe 
+                      ? "bg-indigo-600 text-white rounded-br-sm" 
+                      : "bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-900 dark:text-white rounded-bl-sm"
+                  )}>
+                    <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{msg.message}</p>
+                  </div>
+
+                  {!isMe && canDelete && (
+                    <button
+                      onClick={() => handleDeleteMessage(msg.id)}
+                      disabled={deletingId === msg.id}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition shrink-0"
+                      title="Delete Message"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <span className={cn(
-                  "text-[10px] text-zinc-400 mt-1",
-                  isMe ? "mr-1" : "ml-1"
-                )}>
-                  {formatTime(msg.createdAt)}
-                </span>
+
+                <div className={cn("flex items-center gap-2 mt-1", isMe ? "mr-1" : "ml-1")}>
+                  <span className="text-[10px] text-zinc-400">
+                    {formatTime(msg.createdAt)}
+                  </span>
+                </div>
               </div>
             );
           })

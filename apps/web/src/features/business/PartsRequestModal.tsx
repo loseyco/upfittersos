@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Wrench, Package, Trash2 } from 'lucide-react';
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
 
@@ -33,28 +33,77 @@ export function PartsRequestModal({
     
     setIsSubmitting(true);
     try {
+      const actorId = user?.uid || '';
+      let actorName = user?.displayName || user?.email || 'Staff';
+      let actorStaffId = '';
+
+      if (user?.uid) {
+        const staffSnap = await getDocs(query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('userId', '==', user.uid)
+        ));
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data();
+          actorStaffId = staffSnap.docs[0].id;
+          actorName = `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || actorName;
+        }
+      }
+
+      const now = new Date();
+
       if (part?.id) {
         // Edit flow
-        await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, part.id), {
+        const updateData: any = {
           partName: partName.trim(),
           quantity: parseInt(quantity) || 1,
           status,
-          updatedAt: serverTimestamp(),
-        });
+          updatedAt: now,
+          updatedBy: actorId,
+          updatedByName: actorName
+        };
+
+        if (status !== part.status) {
+          updateData.statusChangedAt = now;
+          updateData.statusChangedBy = actorId;
+          updateData.statusChangedByName = actorName;
+
+          if (status === 'ordered') {
+            updateData.orderedAt = now;
+            updateData.orderedBy = actorId;
+            updateData.orderedByName = actorName;
+            updateData.orderedByStaffId = actorStaffId;
+          } else if (status === 'received') {
+            updateData.receivedAt = now;
+            updateData.receivedBy = actorId;
+            updateData.receivedByName = actorName;
+            updateData.receivedByStaffId = actorStaffId;
+          } else if (status === 'delivered' || status === 'fulfilled') {
+            updateData.deliveredAt = now;
+            updateData.deliveredBy = actorId;
+            updateData.deliveredByName = actorName;
+            updateData.deliveredByStaffId = actorStaffId;
+            updateData.stagedAt = now;
+            updateData.stagedBy = actorId;
+            updateData.stagedByName = actorName;
+            updateData.stagedByStaffId = actorStaffId;
+          }
+        }
+
+        await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, part.id), updateData);
 
         // Log to Job Activity
         await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/activity`), {
           type: 'part_status_changed',
           message: `Updated part "${partName.trim()}" (Status: ${status.toUpperCase()}, Qty: ${quantity})`,
           timestamp: new Date(),
-          staffId: user?.uid,
-          staffName: user?.displayName || user?.email || 'Staff'
+          staffId: actorId,
+          staffName: actorName
         });
 
         toast.success('Part updated successfully');
       } else {
         // Add flow
-        await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), {
+        const addData: any = {
           jobId,
           jobTitle,
           taskId: taskId || null,
@@ -62,19 +111,24 @@ export function PartsRequestModal({
           partName: partName.trim(),
           quantity: parseInt(quantity) || 1,
           status: 'pending',
-          requestedBy: user?.displayName || user?.email || 'Staff',
-          requestedById: user?.uid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+          requestedBy: actorName,
+          requestedById: actorId,
+          requestedByStaffId: actorStaffId,
+          createdAt: now,
+          updatedAt: now,
+          updatedBy: actorId,
+          updatedByName: actorName
+        };
+
+        await addDoc(collection(db, `businesses/${tenantId}/parts_requests`), addData);
 
         // Log to Job Activity
         await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/activity`), {
           type: 'part_requested',
           message: `Requested part: ${partName.trim()} (${quantity})`,
           timestamp: new Date(),
-          staffId: user?.uid,
-          staffName: user?.displayName || user?.email || 'Staff'
+          staffId: actorId,
+          staffName: actorName
         });
 
         toast.success('Part requested successfully');

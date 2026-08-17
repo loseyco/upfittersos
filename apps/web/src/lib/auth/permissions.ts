@@ -1,4 +1,5 @@
 export const PERMISSIONS = {
+  'desktop.view': 'View Upfitters Desktop OS',
   'quickdesk.view': 'View QuickDesk (Classic)',
   'mission_control.view': 'View Mission Control',
   'foreman.view': 'Upfitters Hub (Main Menu)',
@@ -61,6 +62,8 @@ export const PERMISSIONS = {
   'development.view': 'View In-Development Features',
   'safety.view': 'View Safety & OSHA Center',
   'safety.manage': 'Manage Safety & OSHA Compliance',
+  'daily_log.view': 'View Daily Operations Log',
+  'daily_log.manage': 'Manage Daily Operations Log (Edit Times & Delete Entries)',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;

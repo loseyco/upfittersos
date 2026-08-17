@@ -1,0 +1,4786 @@
+{
+  "jobId": "80000AD9-1764960751",
+  "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+  "exportedAt": "2026-08-14T13:56:35.418Z",
+  "jobDetails": {
+    "id": "80000AD9-1764960751",
+    "media": [
+      {
+        "source": "native_upload",
+        "ccId": "native_1784216759168_w4avof",
+        "uploadedBy": "Patrick Losey",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F1HN48x35pi6stdzdzSGF%2Fqc_1784216756717_image.jpg?alt=media&token=c05a9b31-e4c5-4fda-a32f-5e2c2c71ecff"
+      },
+      {
+        "ccId": "native_1784216772420_3rk4q",
+        "source": "native_upload",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F7PcVU8MwBiZGcRoSMw7E%2Fqc_1784216770880_image.jpg?alt=media&token=db8a7758-7405-4b39-b016-91eb8d333145",
+        "uploadedBy": "Patrick Losey"
+      },
+      {
+        "ccId": "native_1784216789219_ti8fa",
+        "source": "native_upload",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FGya6snZLGhpxbHif21yK%2Fqc_1784216787698_image.jpg?alt=media&token=48f7a622-052a-4085-be78-9981b1db7a1c",
+        "uploadedBy": "Patrick Losey"
+      },
+      {
+        "uploadedBy": "Patrick Losey",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FeQWPPXK0U8AdgvCslBZC%2Fqc_1784216804893_image.jpg?alt=media&token=224db284-dd03-49cc-af74-f6f0bbfce5c7",
+        "source": "native_upload",
+        "ccId": "native_1784216806466_uvl1o"
+      },
+      {
+        "source": "native_upload",
+        "ccId": "native_1784216913604_dpop7l",
+        "uploadedBy": "Patrick Losey",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FlPNT6CGBfGZUvcL1KNda%2Fqc_1784216911131_image.jpg?alt=media&token=fec9730c-5937-4cb9-a9f6-2433fc8c4f7e"
+      },
+      {
+        "uploadedBy": "Patrick Losey",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FvYYKO6xxxZ6wV4fgOQy2%2Fqc_1784216952346_image.jpg?alt=media&token=85b8c3e9-eb46-4211-acbe-d8be6cfb452c",
+        "source": "native_upload",
+        "ccId": "native_1784216953452_rw1gw"
+      },
+      {
+        "ccId": "native_1784216972412_0mb9wb",
+        "source": "native_upload",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F14b9PYmsg2mV3WW7TFbx%2Fqc_1784216971260_image.jpg?alt=media&token=096f7f1d-b6da-4e39-9e68-08108de1f084",
+        "uploadedBy": "Patrick Losey"
+      },
+      {
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FLvLxawnWQAhhsswzNkp0%2Fqc_1784226822325_image.jpg?alt=media&token=700f8d0b-8488-42b6-92f7-1b78be12b1c5",
+        "uploadedBy": "Patrick Losey",
+        "ccId": "native_1784226823599_e7cger",
+        "source": "native_upload"
+      },
+      {
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F24vrrzzJ4dPNcPa0Lvae%2F1786636296867_17866362579625929072792490091362.jpg?alt=media&token=0f1b44d5-d0a9-4cc7-a997-54b7f20e391c",
+        "uploadedBy": "Chris Auney",
+        "ccId": "native_1786636303146_ym9sr",
+        "source": "native_upload"
+      },
+      {
+        "ccId": "native_1786636303146_k1t8k",
+        "source": "native_upload",
+        "url": "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F24vrrzzJ4dPNcPa0Lvae%2F1786636300300_17866362811308487749633736711501.jpg?alt=media&token=3bebf3a8-1bcd-4150-b5b2-0e0974879c50",
+        "uploadedBy": "Chris Auney"
+      }
+    ],
+    "vehicleId": "",
+    "jobNumber": "2236427",
+    "SalesTaxCodeRef": {
+      "ListID": "80000001-1322848557",
+      "FullName": "Tax"
+    },
+    "Sublevel": "1",
+    "needsAttention": true,
+    "CompanyName": "Roscoe PD",
+    "scheduledStartDate": "2026-08-24T12:44:00.000Z",
+    "LastName": "Farone",
+    "sublevel": 1,
+    "BillAddressBlock": {
+      "Addr1": "Roscoe PD",
+      "Addr2": "Tom Farone"
+    },
+    "qrStickerId": "103",
+    "addressZip": "",
+    "expectedFinishTime": null,
+    "staffSchedules": {
+      "guD1vlbwo44sSpWaPtnh": {
+        "scheduledEndDate": "2026-09-03T22:14:59.850Z",
+        "scheduledStartDate": "2026-08-24T12:44:59.850Z"
+      }
+    },
+    "nickName": "",
+    "Balance": "0.00",
+    "workPhone": "",
+    "lastWorkedAt": "2026-08-13T20:53:07.589Z",
+    "scheduledEndDate": "2026-09-03T22:14:00.000Z",
+    "AdditionalContactRef": [
+      {
+        "ContactName": "Main Phone",
+        "ContactValue": "815-623-7338"
+      },
+      {
+        "ContactName": "Main Email",
+        "ContactValue": "Corporate_Group_payables@efleets.com"
+      }
+    ],
+    "customerId": "800004BE-1574786319",
+    "quickbooksId": "80000AD9-1764960751",
+    "EditSequence": "1777313410",
+    "ListID": "80000AD9-1764960751",
+    "Phone": "815-623-7338",
+    "createdAt": "2025-12-05T18:52:31Z",
+    "mobilePhone": "815-623-7338",
+    "assignedStaff": [],
+    "customerName": "Roscoe PD",
+    "notes": "Imported via QBWC.",
+    "BillAddress": {
+      "Addr1": "Roscoe PD",
+      "Addr2": "Tom Farone"
+    },
+    "status": "Active",
+    "scheduledArrivalTime": null,
+    "FirstName": "Tom",
+    "TotalBalance": "0.00",
+    "Email": "Corporate_Group_payables@efleets.com",
+    "JobTitle": "Deputy Chief",
+    "addressCity": "",
+    "email": "",
+    "bayId": "zone_1777293102445",
+    "company": "Roscoe PD",
+    "estimatedHours": 70.4,
+    "addressState": "",
+    "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+    "needsAttentionReasons": [
+      "VIN/Vehicle"
+    ],
+    "qbCustomFields": {},
+    "TimeModified": "2026-07-21T12:59:25-06:00",
+    "firstName": "Tom",
+    "currentBaySessionStart": "2026-07-15T18:20:27.043Z",
+    "source": "QuickBooks",
+    "FullName": "Roscoe PD:2236427",
+    "tags": [
+      "QuickBooks"
+    ],
+    "totalParkingTimeSeconds": 595187,
+    "AccountNumber": "427",
+    "companyCamId": "109398361",
+    "TimeCreated": "2025-12-05T12:52:31-06:00",
+    "departmentIds": [
+      "GojhQmZXMBCw24fg3GNB",
+      "xcoR5W6SICkfKvU2J1ol",
+      "3ZjrJUc7Y67kqFMqRZnu"
+    ],
+    "parentRefId": "800004BE-1574786319",
+    "Name": "2236427",
+    "PreferredDeliveryMethod": "Email",
+    "totalBayTimeSeconds": 81862,
+    "JobStatus": "None",
+    "jobName": "2236427",
+    "travelerPrintedAt": "2026-07-21T17:08:42.385Z",
+    "IsActive": "true",
+    "middleName": "",
+    "lastName": "Farone",
+    "vehicle": null,
+    "updatedAt": "2026-08-14T13:40:55.178Z",
+    "ParentRef": {
+      "ListID": "800004BE-1574786319",
+      "FullName": "Roscoe PD"
+    },
+    "addressStreet": "Roscoe PD",
+    "currentParkingSessionStart": null,
+    "priority": "5 - Urgent",
+    "assignedStaffIds": [
+      "guD1vlbwo44sSpWaPtnh",
+      "LE8q8NZggeuG2APgfoL4"
+    ],
+    "ItemSalesTaxRef": {
+      "ListID": "8000421E-1410297370",
+      "FullName": "Municipality"
+    },
+    "title": "RoscoePD 1"
+  },
+  "linkedVehicle": null,
+  "tasks": [
+    {
+      "id": "1HN48x35pi6stdzdzSGF",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC Complete",
+      "completedAt": "2026-07-16T13:56:58.699Z",
+      "qcCompletedBy": "Patrick Losey",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "id": "4c4fa033-b327-4e70-9974-a79df703d633",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "createdAt": "2026-07-16T15:45:57.657Z",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F1HN48x35pi6stdzdzSGF%2Fqc_1784216756717_image.jpg?alt=media&token=c05a9b31-e4c5-4fda-a32f-5e2c2c71ecff"
+          ],
+          "createdByName": "Patrick Losey",
+          "message": "[QC VERIFIED] "
+        }
+      ],
+      "bookTime": 1,
+      "updatedAt": "2026-07-16T15:45:57.657Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 20,
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T15:45:57.657Z",
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "taskGroup": "Front End",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z"
+    },
+    {
+      "id": "229UM4DQeuRFxZBu7pKs",
+      "completedAt": "2026-07-22T14:43:26.436Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "task_notes": [
+        {
+          "id": "32fb3006-e188-40d4-a8fc-7d98013a0a11",
+          "createdAt": "2026-07-22T14:43:26.133Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "message": "rear hatch edge lights"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "sortOrder": 140,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-22T14:43:26.537Z",
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-06-09T18:04:16.751Z"
+    },
+    {
+      "id": "24vrrzzJ4dPNcPa0Lvae",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "completedAt": null,
+      "description": "General clock in to job when no task clock in here",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "updatedAt": "2026-08-14T13:40:49.918Z",
+      "bookTime": 0,
+      "status": "in_progress",
+      "title": "General",
+      "task_notes": [
+        {
+          "id": "56524c19-62db-450c-9ad6-b5c6cb0961c0",
+          "createdAt": "2026-07-29T11:34:37.146Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "images": [],
+          "createdByName": "Adrian Benitez",
+          "message": "closing up the headliner to start with partitions"
+        },
+        {
+          "images": [],
+          "createdByName": "Adrian Benitez",
+          "message": "Fixing dock station",
+          "id": "41ed7afe-d915-46cb-a9a8-462ad246a35d",
+          "createdAt": "2026-08-13T14:46:55.429Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1"
+        },
+        {
+          "id": "af78a251-5ca3-4a7b-864e-354fa747fb49",
+          "createdAt": "2026-08-13T15:51:42.429Z",
+          "createdByUid": "xGxbShhqE7ZNLqBSh8xKjXahJU13",
+          "createdByName": "Chris Auney",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F24vrrzzJ4dPNcPa0Lvae%2F1786636296867_17866362579625929072792490091362.jpg?alt=media&token=0f1b44d5-d0a9-4cc7-a997-54b7f20e391c",
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F24vrrzzJ4dPNcPa0Lvae%2F1786636300300_17866362811308487749633736711501.jpg?alt=media&token=3bebf3a8-1bcd-4150-b5b2-0e0974879c50"
+          ],
+          "message": "Replaced lightbar data RJ45 connector in SA-281."
+        }
+      ],
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:03:28.161Z"
+    },
+    {
+      "id": "3tJSFVhvsAPQCb0liW8C",
+      "bookTime": 5,
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "departmentId": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Camera:In-car",
+      "status": "pending",
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T19:41:44.748Z"
+    },
+    {
+      "id": "5xsY9MeR2TrK04Ol1mbD",
+      "taskGroup": "Uncategorized",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "departmentId": "",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 0,
+      "sortOrder": 440,
+      "payBasis": "book_time",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:QC:Intake Form",
+      "status": "pending"
+    },
+    {
+      "id": "7MA0FqVRkfGPs8YFPM7x",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Roof",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "sortOrder": 120,
+      "departmentId": "",
+      "updatedAt": "2026-07-23T13:06:14.107Z",
+      "bookTime": 1,
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Radio:Antenna",
+      "status": "QC",
+      "completedAt": "2026-07-23T13:06:14.000Z"
+    },
+    {
+      "id": "7PcVU8MwBiZGcRoSMw7E",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T15:46:11.796Z",
+      "sortOrder": 50,
+      "updatedAt": "2026-07-16T15:46:11.796Z",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Front End",
+      "completedAt": "2026-07-15T21:36:19.492Z",
+      "title": "Labor:Electrical Acc.:Speaker",
+      "status": "QC Complete",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "task_notes": [
+        {
+          "id": "5356f91e-0fa5-492a-b919-3ad6e8779df7",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "createdAt": "2026-07-16T15:46:11.796Z",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2F7PcVU8MwBiZGcRoSMw7E%2Fqc_1784216770880_image.jpg?alt=media&token=db8a7758-7405-4b39-b016-91eb8d333145"
+          ],
+          "createdByName": "Patrick Losey",
+          "message": "[QC VERIFIED] "
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "qcCompletedBy": "Patrick Losey"
+    },
+    {
+      "id": "AD00rvJgIeHcM9V9SqCo",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Console",
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "sortOrder": 410,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1.5,
+      "updatedAt": "2026-08-10T15:47:25.876Z",
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "closedByStaffName": "Adrian Benitez",
+      "title": "Labor:Console:Dock",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-08-10T15:47:25.348Z"
+    },
+    {
+      "id": "BQG6KCXS8MplBJS8C8Qv",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "taskGroup": "Console",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "sortOrder": 420,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 0.5,
+      "updatedAt": "2026-08-13T12:33:15.649Z",
+      "payBasis": "book_time",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Console:Tri-lighter",
+      "status": "pending"
+    },
+    {
+      "id": "CGGLpF3JSO5cHsLqheEc",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "updatedAt": "2026-08-13T12:34:12.091Z",
+      "bookTime": 2,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "status": "pending",
+      "title": "Labor:Electrical Acc.:Fuseblock",
+      "payBasis": "book_time",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "createdAt": "2026-06-09T18:06:25.189Z"
+    },
+    {
+      "id": "COaBP2ONPUIPFSzDC1hm",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "departmentId": "",
+      "bookTime": 1,
+      "updatedAt": "2026-08-13T12:34:00.657Z",
+      "payBasis": "book_time",
+      "title": "Labor:Electrical Acc.:Modem",
+      "status": "pending",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "taskGroup": "Interior",
+      "createdAt": "2026-06-09T19:41:51.183Z"
+    },
+    {
+      "id": "EAHwxjtKQnUQ2qoQTExH",
+      "status": "pending",
+      "title": "Labor:Radio:Radar",
+      "payBasis": "book_time",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 2,
+      "departmentId": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "createdAt": "2026-06-09T19:33:47.716Z",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ]
+    },
+    {
+      "id": "F0N2IsGYq8W4LP3o2YJ0",
+      "status": "pending",
+      "title": "Labor:Electrical Acc.:Fuseblock",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "payBasis": "book_time",
+      "sortOrder": 70,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 2,
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Front End"
+    },
+    {
+      "id": "FqBVXhukbS08WbSlEBF4",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "updatedAt": "2026-07-28T12:40:59.642Z",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 130,
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "completedAt": "2026-07-28T12:40:59.371Z",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "completedByStaffName": "Adrian Benitez"
+    },
+    {
+      "id": "GLH79YStxqiLUdVzFgfA",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-07-23T18:47:52.501Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1.5,
+      "updatedAt": "2026-07-23T19:07:18.031Z",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedByStaffName": "Adrian Benitez",
+      "completedAt": "2026-07-23T19:07:17.926Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "canComplete": true,
+      "title": "Labor:Lighting:Flashter",
+      "status": "QC"
+    },
+    {
+      "id": "Gya6snZLGhpxbHif21yK",
+      "completedByStaffName": "Adrian Benitez",
+      "qcCompletedBy": "Patrick Losey",
+      "task_notes": [
+        {
+          "message": "[QC VERIFIED] ",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FGya6snZLGhpxbHif21yK%2Fqc_1784216787698_image.jpg?alt=media&token=48f7a622-052a-4085-be78-9981b1db7a1c"
+          ],
+          "createdByName": "Patrick Losey",
+          "createdAt": "2026-07-16T15:46:28.763Z",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "id": "cd590ef9-d544-4ad2-921f-3a61711c27f4"
+        }
+      ],
+      "title": "Labor::Vehicle:Fascia",
+      "status": "QC Complete",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-16T13:57:00.854Z",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Front End",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "qcCompletedAt": "2026-07-16T15:46:28.763Z",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "bookTime": 2,
+      "updatedAt": "2026-07-16T15:46:28.763Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 80,
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ]
+    },
+    {
+      "id": "KMfrphgb3aELZM7A3ZEZ",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "sortOrder": 230,
+      "bookTime": 1.2,
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "departmentId": "xcoR5W6SICkfKvU2J1ol",
+      "payBasis": "book_time",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "status": "pending",
+      "title": "Labor:Fabrication"
+    },
+    {
+      "id": "LvLxawnWQAhhsswzNkp0",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T18:33:43.065Z",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "sortOrder": 90,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 2.5,
+      "updatedAt": "2026-07-16T18:33:43.065Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Front End",
+      "title": "Labor:Lighting:Mirror",
+      "status": "QC Complete",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-16T17:39:34.121Z",
+      "completedByStaffName": "Adrian Benitez",
+      "qcCompletedBy": "Patrick Losey",
+      "task_notes": [
+        {
+          "id": "4b3bd6bf-5049-4bf9-a81d-35864b318d34",
+          "createdAt": "2026-07-16T18:33:43.065Z",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "createdByName": "Patrick Losey",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FLvLxawnWQAhhsswzNkp0%2Fqc_1784226822325_image.jpg?alt=media&token=700f8d0b-8488-42b6-92f7-1b78be12b1c5"
+          ],
+          "message": "[QC VERIFIED] "
+        }
+      ]
+    },
+    {
+      "id": "OPoybkwI49ESQioV34hI",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 1.5,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 220,
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Vehicle:Rear",
+      "status": "pending"
+    },
+    {
+      "id": "Ps1YpqVHHxn9O0bI4NFs",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "createdAt": "2026-08-05T22:03:56.869Z",
+          "id": "cccf1004-4819-4859-9bd1-9029345998fc",
+          "message": "Struggling to make progress with hole. feel like drill bit is not cutting.",
+          "images": [],
+          "createdByName": "Patrick Losey"
+        },
+        {
+          "message": "",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FPs1YpqVHHxn9O0bI4NFs%2F1786400632083_image.jpg?alt=media&token=9f12a15f-a8dc-49f4-b0d4-7fb7c8acaadf",
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FPs1YpqVHHxn9O0bI4NFs%2F1786400657700_image.jpg?alt=media&token=681aa525-176a-4ccc-9052-67222507d16a"
+          ],
+          "createdByName": "Adrian Benitez",
+          "createdAt": "2026-08-10T22:24:27.418Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "id": "3be8db1d-c189-4520-9893-715ade0a4d28"
+        }
+      ],
+      "closedByStaffName": "Adrian Benitez",
+      "title": "Labor:Spotlight:Install",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-08-10T22:24:27.539Z",
+      "createdAt": "2026-06-09T18:05:20.487Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Front End",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 5,
+      "updatedAt": "2026-08-10T22:24:27.913Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh"
+    },
+    {
+      "id": "PtfrGRIW5g61wRAhWE52",
+      "task_notes": [
+        {
+          "message": "",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FPtfrGRIW5g61wRAhWE52%2F1785772118152_image.jpg?alt=media&token=5dc55756-7aa5-44c3-90b6-e0743281da73"
+          ],
+          "createdByName": "Adrian Benitez",
+          "createdAt": "2026-08-03T15:48:43.692Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "id": "87c61321-8589-42b2-8d87-1992e1873afc"
+        }
+      ],
+      "closedByStaffName": "Adrian Benitez",
+      "completedByStaffName": "Adrian Benitez",
+      "qcFailedBy": "Patrick Losey",
+      "qcFailedAt": "2026-08-06T19:16:16.956Z",
+      "completedAt": "2026-08-03T15:48:43.803Z",
+      "title": "Labor:Console:Console install",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Console",
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "sortOrder": 380,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 3,
+      "updatedAt": "2026-08-10T13:48:09.705Z"
+    },
+    {
+      "id": "R05BOY2bNDPHG3okFNgz",
+      "completedByStaffName": "Adrian Benitez",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "completedAt": "2026-07-28T12:41:01.248Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "sortOrder": 190,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-28T12:41:01.355Z",
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ]
+    },
+    {
+      "id": "Rmgltp4NJSLbGN20iN9l",
+      "completedByStaffName": "Adrian Benitez",
+      "closedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "id": "e2f23579-7bd6-4cef-be7a-8a5da3d5b850",
+          "createdAt": "2026-07-30T17:06:22.624Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FRmgltp4NJSLbGN20iN9l%2F1785431170766_image.jpg?alt=media&token=1abdb6a7-740e-449b-9292-77c3ce920efb"
+          ],
+          "createdByName": "Adrian Benitez",
+          "message": ""
+        }
+      ],
+      "closedBy": "Adrian Benitez",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Cage:Door Panel",
+      "status": "QC",
+      "completedAt": "2026-07-30T17:06:23.020Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Interior",
+      "createdAt": "2026-06-09T19:40:53.723Z",
+      "bookTime": 0.5,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "updatedAt": "2026-08-04T12:18:02.555Z",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh"
+    },
+    {
+      "id": "Vsa61QvTjLY8Wq4MWQmt",
+      "createdAt": "2026-06-09T19:35:48.223Z",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "updatedAt": "2026-08-06T16:03:05.162Z",
+      "bookTime": 1,
+      "departmentId": "",
+      "closedByStaffName": "Adrian Benitez",
+      "completedByStaffName": "Adrian Benitez",
+      "completedAt": "2026-08-06T16:03:04.889Z",
+      "title": "Labor:Cage:Gunlock",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp"
+    },
+    {
+      "id": "WsaztD9iJRmz1cSsvRj5",
+      "closedByStaffId": "LE8q8NZggeuG2APgfoL4",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-08-13T18:40:52.577Z",
+      "sortOrder": 60,
+      "completedBy": "Chris Auney",
+      "completedByStaffId": "LE8q8NZggeuG2APgfoL4",
+      "payBasis": "book_time",
+      "taskGroup": "Console",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "completedAt": "2026-08-13T18:40:52.489Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Controllers:Siren",
+      "status": "QC",
+      "closedByStaffName": "Chris Auney",
+      "task_notes": [
+        {
+          "images": [],
+          "createdByName": "Chris Auney",
+          "message": "Wired and installed BOB for roof light bar",
+          "id": "27a5570c-9d5e-48d2-8171-01e933d2eb14",
+          "createdAt": "2026-08-13T18:40:52.340Z",
+          "createdByUid": "xGxbShhqE7ZNLqBSh8xKjXahJU13"
+        }
+      ],
+      "closedBy": "Chris Auney",
+      "completedByStaffName": "Chris Auney"
+    },
+    {
+      "id": "XBag5NSgJayyKTHD87Br",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "bookTime": 0.5,
+      "updatedAt": "2026-08-13T12:33:18.980Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 430,
+      "payBasis": "book_time",
+      "taskGroup": "Console",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Electrical Acc.:Chargeguard",
+      "status": "pending"
+    },
+    {
+      "id": "YQxFWz1YPgKc0rfY2fVb",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "sortOrder": 150,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-22T14:42:48.907Z",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "task_notes": [
+        {
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "message": "rear hatch light bar",
+          "id": "426e1d34-859a-4629-8eb6-dbb719e7d385",
+          "createdAt": "2026-07-22T14:42:48.697Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "completedAt": "2026-07-22T14:42:48.800Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "status": "QC",
+      "title": "Labor:Lighting:Outer edge"
+    },
+    {
+      "id": "YigFRzjwUbN0uoNjyZPB",
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "sortOrder": 100,
+      "bookTime": 1,
+      "updatedAt": "2026-07-28T14:38:26.869Z",
+      "departmentId": "",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Roof",
+      "title": "Labor:Lighting:Opticom",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-28T14:38:26.769Z",
+      "completedByStaffName": "Adrian Benitez"
+    },
+    {
+      "id": "ZaBGawf45u0pLi4odkmD",
+      "completedByStaffName": "Adrian Benitez",
+      "title": "Labor:Cage:Barrier",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-30T20:46:16.315Z",
+      "createdAt": "2026-06-09T19:37:01.163Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Interior",
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "updatedAt": "2026-07-30T20:46:16.596Z",
+      "bookTime": 2,
+      "departmentId": "",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ]
+    },
+    {
+      "id": "Zc7m7KbmNbcF6Ea7AvHb",
+      "title": "Labor:Controllers:Siren",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-08-13T20:52:37.234Z",
+      "completedByStaffName": "Chris Auney",
+      "task_notes": [
+        {
+          "message": "Wired and installed BOB for rear light bar",
+          "createdByName": "Chris Auney",
+          "images": [],
+          "createdAt": "2026-08-13T20:52:37.117Z",
+          "createdByUid": "xGxbShhqE7ZNLqBSh8xKjXahJU13",
+          "id": "002b2d39-7dfe-4a6c-a573-9d8a9203ca10"
+        }
+      ],
+      "closedBy": "Chris Auney",
+      "closedByStaffName": "Chris Auney",
+      "completedByStaffId": "LE8q8NZggeuG2APgfoL4",
+      "completedBy": "Chris Auney",
+      "payBasis": "book_time",
+      "updatedAt": "2026-08-13T20:52:37.331Z",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 400,
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "closedByStaffId": "LE8q8NZggeuG2APgfoL4",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Console",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ]
+    },
+    {
+      "id": "c9SC37VhOQJpHPhrsZEZ",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "canComplete": true,
+      "status": "pending",
+      "title": "Labor:Controllers:Smart Siren",
+      "assignedStaff": [
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "bookTime": 5.2,
+      "updatedAt": "2026-08-13T12:40:09.307Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "payBasis": "book_time",
+      "assignedStaffIds": [
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "taskGroup": "Console",
+      "createdAt": "2026-08-13T12:40:04.839Z"
+    },
+    {
+      "id": "cq7F0W1kImE3XFmIoZqn",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T19:40:40.099Z",
+      "updatedAt": "2026-07-30T11:30:13.150Z",
+      "departmentId": "3ZjrJUc7Y67kqFMqRZnu",
+      "bookTime": 0.5,
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "id": "377133cc-5bfd-4cb7-a0d1-26f95c056d49",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdAt": "2026-07-30T11:30:12.553Z",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2Fcq7F0W1kImE3XFmIoZqn%2F1785411001580_image.jpg?alt=media&token=247776a3-3719-49a8-9942-6a521baa9db2",
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2Fcq7F0W1kImE3XFmIoZqn%2F1785411008468_image.jpg?alt=media&token=eb3c7df8-0f7f-46b0-be88-a3c3f4d3b5c6"
+          ],
+          "createdByName": "Adrian Benitez",
+          "message": ""
+        }
+      ],
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "status": "QC",
+      "title": "Labor:Cage:Bars Dr",
+      "completedAt": "2026-07-30T11:30:12.933Z"
+    },
+    {
+      "id": "drSmqWbpW6u7JVtXw3Sr",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Uncategorized",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "payBasis": "book_time",
+      "departmentId": "",
+      "bookTime": 0,
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "sortOrder": 450,
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "title": "Labor:Cleaning",
+      "status": "pending",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": ""
+    },
+    {
+      "id": "eQWPPXK0U8AdgvCslBZC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC Complete",
+      "completedAt": "2026-07-16T13:57:03.616Z",
+      "qcCompletedBy": "Patrick Losey",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FeQWPPXK0U8AdgvCslBZC%2Fqc_1784216804893_image.jpg?alt=media&token=224db284-dd03-49cc-af74-f6f0bbfce5c7"
+          ],
+          "createdByName": "Patrick Losey",
+          "message": "[QC VERIFIED] ",
+          "id": "fc2b08c7-17bf-4acd-b2af-555633faabf2",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "createdAt": "2026-07-16T15:46:45.835Z"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-16T15:46:45.835Z",
+      "sortOrder": 40,
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T15:46:45.835Z",
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "taskGroup": "Front End",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z"
+    },
+    {
+      "id": "ecFjbTxhw9VlY2BAHcN2",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-28T12:41:03.260Z",
+      "sortOrder": 180,
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "completedAt": "2026-07-28T12:41:03.174Z",
+      "status": "QC",
+      "title": "Labor:Lighting:Light Head",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedByStaffName": "Adrian Benitez"
+    },
+    {
+      "id": "hEJXvXeYAOKeeUPrVJdF",
+      "title": "Labor",
+      "status": "pending",
+      "canComplete": true,
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "Prep fo Multiplcity Demo",
+      "payBasis": "hourly",
+      "bookTime": 2,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "createdAt": "2026-07-07T22:17:47.597Z",
+      "taskGroup": "Uncategorized",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ]
+    },
+    {
+      "id": "izViMc0Pcy7KVCIXMUqf",
+      "sortOrder": 200,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-28T12:41:05.515Z",
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Rear",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "status": "QC",
+      "title": "Labor:Lighting:Light Head",
+      "completedAt": "2026-07-28T12:41:05.430Z",
+      "completedByStaffName": "Adrian Benitez"
+    },
+    {
+      "id": "jYPTx8cuDo51WVRNUXlj",
+      "completedAt": "2026-08-04T15:31:35.505Z",
+      "title": "Labor:Cage:Partitions",
+      "status": "QC",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "completedByStaffName": "Adrian Benitez",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "payBasis": "book_time",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "updatedAt": "2026-08-04T15:31:35.889Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 3,
+      "createdAt": "2026-06-09T19:36:29.902Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Interior"
+    },
+    {
+      "id": "jZBddXv180dzQkfRo18s",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Cage:Door Panel",
+      "status": "QC",
+      "completedAt": "2026-07-30T11:46:36.178Z",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "id": "5bc2ccfa-2f57-4997-bbdd-442226c609ba",
+          "createdAt": "2026-07-30T11:46:35.768Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdByName": "Adrian Benitez",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FjZBddXv180dzQkfRo18s%2F1785411982585_image.jpg?alt=media&token=595f3191-65ce-45d4-8c83-f36c725f1737"
+          ],
+          "message": ""
+        }
+      ],
+      "departmentId": "",
+      "updatedAt": "2026-07-30T11:46:36.393Z",
+      "bookTime": 0.5,
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T19:41:02.169Z"
+    },
+    {
+      "id": "jcIz0WkPZhLS7RaCBrqW",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "status": "pending",
+      "title": "labor:Radio:Multi-Antenna",
+      "payBasis": "book_time",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 1.5,
+      "departmentId": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "createdAt": "2026-06-09T19:32:59.128Z",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ]
+    },
+    {
+      "id": "lPNT6CGBfGZUvcL1KNda",
+      "taskGroup": "Front End",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-16T15:48:32.849Z",
+      "sortOrder": 30,
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T15:48:32.849Z",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "task_notes": [
+        {
+          "createdAt": "2026-07-16T15:48:32.849Z",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "id": "436d43d1-ebb9-488b-8606-f15ea8e025c7",
+          "message": "[QC VERIFIED] ",
+          "createdByName": "Patrick Losey",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FlPNT6CGBfGZUvcL1KNda%2Fqc_1784216911131_image.jpg?alt=media&token=fec9730c-5937-4cb9-a9f6-2433fc8c4f7e"
+          ]
+        }
+      ],
+      "qcCompletedBy": "Patrick Losey",
+      "completedByStaffName": "Adrian Benitez",
+      "completedAt": "2026-07-16T13:57:05.463Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC Complete"
+    },
+    {
+      "id": "lTEWF9SauQ85zvaDP2m6",
+      "task_notes": [
+        {
+          "createdAt": "2026-07-15T19:54:16.543Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "id": "14b5a986-faa8-4812-b801-ded867eb74c7",
+          "message": "running wires for front end.",
+          "images": [],
+          "createdByName": "Adrian Benitez"
+        },
+        {
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "message": "running the over head harness",
+          "id": "1ce32b4e-7418-4fa5-aa37-74f6cf678a80",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdAt": "2026-07-22T11:13:43.094Z"
+        },
+        {
+          "id": "97b048a0-4e73-44d7-b392-1ae2938888c4",
+          "createdAt": "2026-07-29T17:50:47.325Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "message": "running cat 5 wires for camera system"
+        }
+      ],
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "canComplete": true,
+      "status": "pending",
+      "title": "Labor:Wring",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Uncategorized",
+      "createdAt": "2026-07-15T19:52:52.350Z",
+      "updatedAt": "2026-07-29T17:50:47.325Z",
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 2,
+      "payBasis": "hourly",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        }
+      ]
+    },
+    {
+      "id": "mBgf6o45jvmdZNXqh142",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "updatedAt": "2026-08-04T18:50:15.631Z",
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-08-04T12:17:49.484Z",
+      "completedAt": "2026-08-04T18:50:15.520Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Cage:Seat",
+      "status": "QC",
+      "canComplete": true,
+      "closedByStaffName": "Adrian Benitez",
+      "closedBy": "Adrian Benitez",
+      "completedByStaffName": "Adrian Benitez"
+    },
+    {
+      "id": "mUkAGZg9iDyzyh8oF7M3",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "images": [],
+          "createdByName": "Adrian Benitez",
+          "message": "Finished early just forgot to punch out",
+          "id": "e34b8089-9ae6-4255-bad2-90d5a0850fa4",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdAt": "2026-08-04T20:42:55.269Z"
+        }
+      ],
+      "closedByStaffName": "Adrian Benitez",
+      "title": "Labor:Cage:OS Buckle",
+      "status": "QC",
+      "canComplete": true,
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-08-04T20:42:55.386Z",
+      "createdAt": "2026-08-04T12:18:07.540Z",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "updatedAt": "2026-08-04T20:42:55.788Z",
+      "bookTime": 1.5,
+      "departmentId": "",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "closedByStaffId": "guD1vlbwo44sSpWaPtnh"
+    },
+    {
+      "id": "mZ0xBallCM1wBwPuKXaG",
+      "completedByStaffName": "Adrian Benitez",
+      "title": "Labor:Lighting:Lightbar",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-28T14:38:20.041Z",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Roof",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time",
+      "departmentId": "",
+      "bookTime": 2.5,
+      "updatedAt": "2026-07-28T14:38:20.297Z",
+      "sortOrder": 110,
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ]
+    },
+    {
+      "id": "qOtZJmnvzjn5s1DryfEY",
+      "assignedStaff": [
+        {
+          "name": "Adrian Benitez",
+          "id": "guD1vlbwo44sSpWaPtnh"
+        },
+        {
+          "id": "LE8q8NZggeuG2APgfoL4",
+          "name": "Chris Auney"
+        }
+      ],
+      "updatedAt": "2026-08-13T12:33:44.427Z",
+      "bookTime": 1,
+      "departmentId": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "title": "Labor:Electrical Acc.:Printer",
+      "status": "pending",
+      "payBasis": "book_time",
+      "taskGroup": "Interior",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh",
+        "LE8q8NZggeuG2APgfoL4"
+      ],
+      "createdAt": "2026-06-09T19:35:25.155Z"
+    },
+    {
+      "id": "t4x4gTZe2K7ta235tSpy",
+      "task_notes": [
+        {
+          "message": "rear tail light elux",
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "createdAt": "2026-07-22T14:45:33.840Z",
+          "id": "5335b931-2ed8-4615-9ffd-fef001ec018e"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "completedAt": "2026-07-22T14:45:34.120Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-22T14:45:34.203Z",
+      "sortOrder": 160,
+      "completedBy": "Adrian Benitez",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "payBasis": "book_time"
+    },
+    {
+      "id": "tHZaO3wovmUyNToRCpqn",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "updatedAt": "2026-07-22T14:45:13.666Z",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "sortOrder": 210,
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "completedAt": "2026-07-22T14:45:13.572Z",
+      "completedByStaffName": "Adrian Benitez",
+      "task_notes": [
+        {
+          "createdAt": "2026-07-22T14:45:13.103Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+          "id": "6fea0240-2dba-4e30-91ea-c598744c30f0",
+          "message": "rear tail lights elux",
+          "createdByName": "Adrian Benitez",
+          "images": []
+        }
+      ]
+    },
+    {
+      "id": "vYYKO6xxxZ6wV4fgOQy2",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "payBasis": "book_time",
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "qcCompletedAt": "2026-07-16T15:49:12.991Z",
+      "sortOrder": 10,
+      "updatedAt": "2026-07-16T15:49:12.991Z",
+      "bookTime": 1,
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "createdAt": "2026-06-09T18:04:16.751Z",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Front End",
+      "completedAt": "2026-07-16T13:57:36.168Z",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC Complete",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "task_notes": [
+        {
+          "createdAt": "2026-07-16T15:49:12.991Z",
+          "createdByUid": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+          "id": "a21faa2b-f33e-451b-a3ec-2fe017e32d86",
+          "message": "[QC VERIFIED] ",
+          "images": [
+            "https://firebasestorage.googleapis.com/v0/b/saegroup-c6487.firebasestorage.app/o/businesses%2F7jlg4IA2G6lvDJ0S5Vbp%2Ftasks%2FvYYKO6xxxZ6wV4fgOQy2%2Fqc_1784216952346_image.jpg?alt=media&token=85b8c3e9-eb46-4211-acbe-d8be6cfb452c"
+          ],
+          "createdByName": "Patrick Losey"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "qcCompletedBy": "Patrick Losey"
+    },
+    {
+      "id": "yRFBfzZlwVJxloBfcQtV",
+      "completedAt": "2026-07-22T14:43:02.389Z",
+      "description": "",
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "title": "Labor:Lighting:Light Head",
+      "status": "QC",
+      "task_notes": [
+        {
+          "createdByName": "Adrian Benitez",
+          "images": [],
+          "message": "rear hatch edge lights",
+          "id": "6286546c-0fe5-4708-9318-e38e67645e41",
+          "createdAt": "2026-07-22T14:43:02.276Z",
+          "createdByUid": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1"
+        }
+      ],
+      "completedByStaffName": "Adrian Benitez",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "departmentId": "GojhQmZXMBCw24fg3GNB",
+      "bookTime": 1,
+      "updatedAt": "2026-07-22T14:43:02.476Z",
+      "sortOrder": 170,
+      "completedByStaffId": "guD1vlbwo44sSpWaPtnh",
+      "completedBy": "Adrian Benitez",
+      "payBasis": "book_time",
+      "taskGroup": "Rear",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "createdAt": "2026-06-09T18:04:16.751Z"
+    },
+    {
+      "id": "zRQKAJOhiTPytFFXT7xn",
+      "assignedStaff": [
+        {
+          "id": "guD1vlbwo44sSpWaPtnh",
+          "name": "Adrian Benitez"
+        }
+      ],
+      "tenantId": "7jlg4IA2G6lvDJ0S5Vbp",
+      "description": "",
+      "updatedAt": "2026-07-14T17:02:29.039Z",
+      "bookTime": 1,
+      "departmentId": "",
+      "payBasis": "book_time",
+      "title": "In-car-Pre-wire",
+      "status": "pending",
+      "assignedStaffIds": [
+        "guD1vlbwo44sSpWaPtnh"
+      ],
+      "taskGroup": "Interior",
+      "createdAt": "2026-06-09T19:33:39.459Z"
+    }
+  ],
+  "historyLogs": [],
+  "takeoffs": [],
+  "partsRequests": [
+    {
+      "id": "1UnGQXvylbxgjXPDuTmh",
+      "taskId": null,
+      "jobId": "80000AD9-1764960751",
+      "createdAt": "2026-07-15T19:44:55.337Z",
+      "updatedAt": "2026-07-15T20:27:17.331Z",
+      "requestedBy": "Patrick Losey",
+      "partName": "3\" lights Front or Brackets for 4\" Lights in Grill",
+      "taskTitle": null,
+      "requestedById": "t6u4VkkNYQhwJ2hP0sLUEh3bloR2",
+      "jobTitle": "Roscoe #1",
+      "status": "delivered",
+      "statusChangedAt": "2026-07-15T20:27:17.331Z",
+      "quantity": 2
+    }
+  ],
+  "timeSessions": [
+    {
+      "id": "39LeLLwTAurwEsu3bSET",
+      "breaks": [
+        {
+          "suspendedJob": null,
+          "endLng": -88.27687213199864,
+          "start": "2026-08-13T17:23:34.661Z",
+          "startLng": -88.27684385021712,
+          "end": "2026-08-13T18:09:25.711Z",
+          "isPaid": false,
+          "startLat": 42.3439687289696,
+          "type": "lunch",
+          "endLat": 42.344000272581695,
+          "endDevice": "pc",
+          "startDevice": "pc"
+        }
+      ],
+      "jobs": [
+        {
+          "endLat": 42.34397634068179,
+          "startLat": 42.343959776748584,
+          "payBasis": "hourly",
+          "end": "2026-08-13T12:30:54.688Z",
+          "taskName": "Worked on Eric's gray Chevy. Installed GPS tracker.\nAlso went over what needs to be saved on Roscoe strip with Adrian.",
+          "name": "Unassigned Task",
+          "startLng": -88.27684256296125,
+          "taskId": "unassigned_1786621340199",
+          "bookTime": 0,
+          "id": "unassigned",
+          "start": "2026-08-13T11:42:20.402Z",
+          "endLng": -88.27687835033251
+        },
+        {
+          "endLng": -88.2767772,
+          "start": "2026-08-13T12:42:04.107Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 5.2,
+          "taskId": "c9SC37VhOQJpHPhrsZEZ",
+          "startLng": -88.27692236615188,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Controllers:Smart Siren",
+          "end": "2026-08-13T15:43:01.686Z",
+          "startLat": 42.34403453873498,
+          "payBasis": "book_time",
+          "endLat": 42.3440411
+        },
+        {
+          "taskName": "General",
+          "end": "2026-08-13T15:51:51.978Z",
+          "name": "RoscoePD 1",
+          "taskId": "24vrrzzJ4dPNcPa0Lvae",
+          "startLng": -88.2767793,
+          "bookTime": 0,
+          "endLat": 42.3440618,
+          "startLat": 42.3440423,
+          "payBasis": "book_time",
+          "endLng": -88.2767829,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T15:43:09.638Z"
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T15:51:57.840Z",
+          "endLng": -88.27684385021712,
+          "endLat": 42.3439687289696,
+          "startLat": 42.3440608,
+          "payBasis": "book_time",
+          "taskName": "Labor:Controllers:Smart Siren",
+          "end": "2026-08-13T17:23:31.475Z",
+          "name": "RoscoePD 1",
+          "startLng": -88.2767903,
+          "taskId": "c9SC37VhOQJpHPhrsZEZ",
+          "bookTime": 5.2
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T18:09:36.795Z",
+          "endLng": -88.27689120783782,
+          "endLat": 42.34400113687983,
+          "startLat": 42.34398552037073,
+          "payBasis": "book_time",
+          "end": "2026-08-13T18:40:57.078Z",
+          "taskName": "Labor:Controllers:Siren",
+          "name": "RoscoePD 1",
+          "taskId": "WsaztD9iJRmz1cSsvRj5",
+          "startLng": -88.27685136557288,
+          "bookTime": 1
+        },
+        {
+          "endLng": -88.27691006701316,
+          "start": "2026-08-13T18:40:59.794Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 1,
+          "startLng": -88.27689120783782,
+          "taskId": "Zc7m7KbmNbcF6Ea7AvHb",
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Controllers:Siren",
+          "end": "2026-08-13T20:52:42.032Z",
+          "startLat": 42.34400113687983,
+          "payBasis": "book_time",
+          "endLat": 42.34404032476058
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T20:53:08.366Z",
+          "endLng": -88.27685991020795,
+          "endLat": 42.343977345571055,
+          "startLat": 42.34403010325239,
+          "payBasis": "book_time",
+          "end": "2026-08-13T22:10:04.146Z",
+          "taskName": "Labor:Controllers:Smart Siren",
+          "name": "RoscoePD 1",
+          "taskId": "c9SC37VhOQJpHPhrsZEZ",
+          "startLng": -88.27688783057161,
+          "bookTime": 5.2
+        }
+      ],
+      "staffName": "Chris Auney",
+      "status": "completed",
+      "jobIds": [
+        "unassigned",
+        "80000AD9-1764960751"
+      ],
+      "updatedAt": "2026-08-13T22:10:04.894Z",
+      "clockOut": {
+        "timestamp": "2026-08-13T22:10:04.894Z",
+        "lng": -88.27685991020795,
+        "device": "pc",
+        "type": "gps",
+        "onSite": true,
+        "accuracy": 71,
+        "lat": 42.343977345571055
+      },
+      "userId": "xGxbShhqE7ZNLqBSh8xKjXahJU13",
+      "createdAt": "2026-08-13T11:42:17.403Z",
+      "userName": "Chris Auney",
+      "isRemote": false,
+      "clockIn": {
+        "onSite": true,
+        "lat": 42.343959776748584,
+        "accuracy": 71,
+        "device": "pc",
+        "type": "gps",
+        "timestamp": "2026-08-13T11:42:17.403Z",
+        "lng": -88.27684256296125
+      }
+    },
+    {
+      "id": "4t5ridD1MVmkJ8NAAkKf",
+      "createdAt": "2026-07-29T11:07:52.324Z",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "payType": "hourly",
+      "breaks": [
+        {
+          "startLat": 42.344040145099086,
+          "isPaid": false,
+          "type": "lunch",
+          "endLat": 42.34401742397362,
+          "endDevice": "mobile",
+          "startDevice": "mobile",
+          "startLng": -88.27689982962927,
+          "end": "2026-07-29T17:44:30.604Z",
+          "start": "2026-07-29T17:14:26.236Z",
+          "suspendedJob": null,
+          "endLng": -88.27694479565261
+        }
+      ],
+      "staffName": "Adrian Benitez",
+      "isRemote": false,
+      "clockOut": {
+        "accuracy": 15000,
+        "lat": 41.885,
+        "onSite": true,
+        "type": "ip",
+        "device": "pc",
+        "lng": -87.7845,
+        "timestamp": "2026-07-29T21:04:49.541Z"
+      },
+      "updatedAt": "2026-07-29T21:04:49.541Z",
+      "status": "completed",
+      "jobIds": [
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751",
+        "80000AD7-1764949516"
+      ],
+      "jobs": [
+        {
+          "endLng": -87.7845,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-29T11:08:43.819Z",
+          "end": "2026-07-29T11:26:56.297Z",
+          "taskName": "Labor:Lighting:Flashter",
+          "name": "RoscoePD 3",
+          "startLng": -87.7845,
+          "taskId": "FzExRUotRbSpzxURUuex",
+          "bookTime": 1.5,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-29T11:34:04.081Z",
+          "name": "RoscoePD 1",
+          "taskName": "General",
+          "end": "2026-07-29T12:32:51.351Z",
+          "bookTime": 0,
+          "taskId": "24vrrzzJ4dPNcPa0Lvae",
+          "startLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-29T12:33:48.164Z",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "name": "RoscoePD 2",
+          "taskName": "General",
+          "end": "2026-07-29T12:45:09.329Z",
+          "bookTime": 0,
+          "taskId": "IzCFgzyGNVO19NJOcD9h",
+          "startLng": -87.7845
+        },
+        {
+          "end": "2026-07-29T13:02:55.929Z",
+          "taskName": "General",
+          "name": "RoscoePD 2",
+          "taskId": "IzCFgzyGNVO19NJOcD9h",
+          "startLng": -87.7845,
+          "bookTime": 0,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-29T12:46:02.800Z"
+        },
+        {
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "IzCFgzyGNVO19NJOcD9h",
+          "bookTime": 0,
+          "end": "2026-07-29T13:56:27.702Z",
+          "taskName": "General",
+          "name": "RoscoePD 2",
+          "start": "2026-07-29T13:22:50.436Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845
+        },
+        {
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-07-29T14:44:30.884Z",
+          "bookTime": 3,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "startLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-29T13:56:41.195Z"
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-29T14:44:39.924Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 3,
+          "taskId": "PtfrGRIW5g61wRAhWE52",
+          "startLng": -87.7845,
+          "name": "RoscoePD 1",
+          "end": "2026-07-29T15:21:21.408Z",
+          "taskName": "Labor:Console:Console install",
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "bookTime": 0,
+          "startLng": -87.7845,
+          "taskId": "IzCFgzyGNVO19NJOcD9h",
+          "name": "RoscoePD 2",
+          "end": "2026-07-29T17:09:14.398Z",
+          "taskName": "General",
+          "start": "2026-07-29T16:40:18.079Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845
+        },
+        {
+          "bookTime": 2,
+          "taskId": "lTEWF9SauQ85zvaDP2m6",
+          "startLng": -87.7845,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Wring",
+          "end": "2026-07-29T18:54:30.214Z",
+          "payBasis": "hourly",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "endLng": -87.7845,
+          "start": "2026-07-29T17:50:34.433Z",
+          "id": "80000AD9-1764960751"
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-29T18:58:36.683Z",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "taskName": "General",
+          "end": "2026-07-29T19:29:48.366Z",
+          "name": "RoscoePD 2",
+          "taskId": "IzCFgzyGNVO19NJOcD9h",
+          "startLng": -87.7845,
+          "bookTime": 0
+        },
+        {
+          "start": "2026-07-29T19:30:05.696Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -87.7845,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "7G97b5iZVdzl5gtYUDCp",
+          "bookTime": 0,
+          "taskName": "General",
+          "end": "2026-07-29T20:16:39.792Z",
+          "name": "RoscoePD 3"
+        }
+      ],
+      "clockIn": {
+        "lng": -87.7845,
+        "timestamp": "2026-07-29T11:07:52.324Z",
+        "accuracy": 15000,
+        "lat": 41.885,
+        "onSite": true,
+        "device": "pc"
+      },
+      "userName": "Adrian Benitez"
+    },
+    {
+      "id": "9SBxl8OasNd7vSzI29rv",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "lng": -87.620606,
+        "timestamp": "2026-08-06T11:16:00.522Z",
+        "accuracy": 15000,
+        "lat": 41.875772,
+        "onSite": true,
+        "type": "ip",
+        "device": "pc"
+      },
+      "isRemote": false,
+      "jobIds": [
+        "80000AD9-1764960751",
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD7-1764949516"
+      ],
+      "status": "completed",
+      "staffName": "Adrian Benitez",
+      "breaks": [
+        {
+          "endDevice": "mobile",
+          "startDevice": "pc",
+          "endLat": 42.3440353902133,
+          "type": "lunch",
+          "startLat": 41.875772,
+          "isPaid": false,
+          "end": "2026-08-06T16:37:56.986Z",
+          "startLng": -87.620606,
+          "start": "2026-08-06T16:05:32.775Z",
+          "endLng": -88.27689775948234,
+          "suspendedJob": null
+        }
+      ],
+      "jobs": [
+        {
+          "endLng": -87.620606,
+          "start": "2026-08-06T11:17:17.323Z",
+          "id": "80000AD9-1764960751",
+          "taskId": "Vsa61QvTjLY8Wq4MWQmt",
+          "startLng": -87.620606,
+          "bookTime": 1,
+          "end": "2026-08-06T11:31:21.992Z",
+          "taskName": "Labor:Cage:Gunlock",
+          "name": "RoscoePD 1",
+          "startLat": 41.875772,
+          "payBasis": "book_time",
+          "endLat": 41.875772
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.875772,
+          "endLat": 41.875772,
+          "startLng": -87.620606,
+          "taskId": "Ps1YpqVHHxn9O0bI4NFs",
+          "bookTime": 5,
+          "end": "2026-08-06T13:26:52.198Z",
+          "taskName": "Labor:Spotlight:Install",
+          "name": "RoscoePD 1",
+          "start": "2026-08-06T11:31:40.520Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -87.620606
+        },
+        {
+          "start": "2026-08-06T13:27:13.103Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689775948234,
+          "payBasis": "book_time",
+          "startLat": 41.875772,
+          "endLat": 42.3440353902133,
+          "bookTime": 1,
+          "taskId": "Vsa61QvTjLY8Wq4MWQmt",
+          "startLng": -87.620606,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Cage:Gunlock",
+          "end": "2026-08-06T14:37:43.784Z"
+        },
+        {
+          "endLng": -88.27689775948234,
+          "start": "2026-08-06T14:37:52.483Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "taskId": "Ia8QNG4gpssYUTMCHJtS",
+          "startLng": -88.27689775948234,
+          "bookTime": 1,
+          "taskName": "Labor:Cage:Gunlock",
+          "end": "2026-08-06T15:20:08.464Z",
+          "name": "RoscoePD 3",
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 42.3440353902133
+        },
+        {
+          "endLng": -87.620606,
+          "start": "2026-08-06T15:33:21.510Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "bookTime": 1,
+          "startLng": -88.27689775948234,
+          "taskId": "Ia8QNG4gpssYUTMCHJtS",
+          "name": "RoscoePD 3",
+          "end": "2026-08-06T16:02:47.948Z",
+          "taskName": "Labor:Cage:Gunlock",
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 41.875772
+        },
+        {
+          "taskName": "Labor:Cage:Gunlock",
+          "end": "2026-08-06T16:03:01.869Z",
+          "name": "RoscoePD 1",
+          "startLng": -87.620606,
+          "taskId": "Vsa61QvTjLY8Wq4MWQmt",
+          "bookTime": 1,
+          "endLat": 41.875772,
+          "startLat": 41.875772,
+          "payBasis": "book_time",
+          "endLng": -87.620606,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-06T16:03:00.070Z"
+        },
+        {
+          "endLng": -87.620606,
+          "start": "2026-08-06T16:04:59.976Z",
+          "id": "80000AD7-1764949516",
+          "bookTime": 1,
+          "startLng": -87.620606,
+          "taskId": "XVyEVKZrBfzLArpylEyt",
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Cage:Gunlock",
+          "end": "2026-08-06T16:05:31.128Z",
+          "payBasis": "book_time",
+          "startLat": 41.875772,
+          "endLat": 41.875772
+        },
+        {
+          "end": "2026-08-06T16:45:28.475Z",
+          "taskName": "Labor:Cage:Gunlock",
+          "name": "RoscoePD 2",
+          "taskId": "XVyEVKZrBfzLArpylEyt",
+          "startLng": -88.27684652531308,
+          "bookTime": 1,
+          "endLat": 42.3440353902133,
+          "startLat": 42.34403805655363,
+          "payBasis": "book_time",
+          "endLng": -88.27689775948234,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-06T16:38:36.059Z"
+        },
+        {
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "name": "RoscoePD 3",
+          "end": "2026-08-06T17:41:14.729Z",
+          "taskName": "Labor:Console:Dock",
+          "bookTime": 1.5,
+          "taskId": "NKgR0QnWbtUL8nnoeUWD",
+          "startLng": -88.27689775948234,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-08-06T16:46:03.890Z",
+          "endLng": -88.27689775948234
+        },
+        {
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Console:Dock",
+          "end": "2026-08-06T18:55:42.792Z",
+          "bookTime": 1.5,
+          "startLng": -88.27689775948234,
+          "taskId": "B1IFoyumAsaDyTtbNUgB",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLng": -88.27689775948234,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-06T17:41:20.480Z"
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 42.34398446716797,
+          "taskId": "NKgR0QnWbtUL8nnoeUWD",
+          "startLng": -88.27689775948234,
+          "bookTime": 1.5,
+          "taskName": "Labor:Console:Dock",
+          "end": "2026-08-06T19:50:07.214Z",
+          "name": "RoscoePD 3",
+          "start": "2026-08-06T19:27:51.952Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -88.27687643540786
+        },
+        {
+          "name": "RoscoePD 2",
+          "end": "2026-08-06T20:28:52.360Z",
+          "taskName": "Labor:Console:Console install",
+          "bookTime": 3,
+          "startLng": -88.27689775948234,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLng": -88.27689775948234,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-06T19:50:21.066Z"
+        },
+        {
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "name": "RoscoePD 3",
+          "taskName": "Labor:Console:Dock",
+          "end": "2026-08-06T21:22:34.296Z",
+          "bookTime": 1.5,
+          "startLng": -88.27689775948234,
+          "taskId": "NKgR0QnWbtUL8nnoeUWD",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-08-06T20:32:03.501Z",
+          "endLng": -88.27689775948234
+        }
+      ],
+      "createdAt": "2026-08-06T11:16:00.522Z",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "updatedAt": "2026-08-06T22:02:18.650Z",
+      "clockOut": {
+        "lng": -88.27689775948234,
+        "timestamp": "2026-08-06T22:02:18.650Z",
+        "device": "mobile",
+        "lat": 42.3440353902133,
+        "accuracy": 12.799299593176912,
+        "onSite": true
+      }
+    },
+    {
+      "id": "BOfgf61s5pvtmcK9upSu",
+      "isRemote": false,
+      "clockIn": {
+        "lng": -87.65005,
+        "timestamp": "2026-07-30T11:05:24.638Z",
+        "type": "ip",
+        "device": "mobile",
+        "lat": 41.85003,
+        "accuracy": 15000,
+        "onSite": true
+      },
+      "userName": "Adrian Benitez",
+      "createdAt": "2026-07-30T11:05:24.638Z",
+      "clockOut": {
+        "accuracy": 15.024328432460543,
+        "lat": 42.34379892044528,
+        "onSite": true,
+        "device": "mobile",
+        "lng": -88.27674991061248,
+        "timestamp": "2026-07-30T22:25:55.788Z"
+      },
+      "updatedAt": "2026-07-30T22:25:55.788Z",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "status": "completed",
+      "jobIds": [
+        "80000AD9-1764960751",
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U"
+      ],
+      "jobs": [
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-30T11:06:16.625Z",
+          "endLng": -88.27689737953762,
+          "endLat": 42.34403524836332,
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "end": "2026-07-30T11:09:10.053Z",
+          "taskName": "Labor:Cage:Bars Dr",
+          "name": "RoscoePD 1",
+          "startLng": -88.27689737953762,
+          "taskId": "cq7F0W1kImE3XFmIoZqn",
+          "bookTime": 0.5
+        },
+        {
+          "endLat": 42.34403524836332,
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:Bars Dr",
+          "end": "2026-07-30T11:30:13.459Z",
+          "name": "RoscoePD 1",
+          "startLng": -88.27689737953762,
+          "taskId": "cq7F0W1kImE3XFmIoZqn",
+          "bookTime": 0.5,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-30T11:25:05.452Z",
+          "endLng": -88.27689737953762
+        },
+        {
+          "start": "2026-07-30T11:34:45.693Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689737953762,
+          "payBasis": "book_time",
+          "startLat": 42.34403524836332,
+          "endLat": 42.34403524836332,
+          "bookTime": 0.5,
+          "taskId": "jZBddXv180dzQkfRo18s",
+          "startLng": -88.27689737953762,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Cage:Door Panel",
+          "end": "2026-07-30T11:46:36.801Z"
+        },
+        {
+          "endLng": -88.27689737953762,
+          "start": "2026-07-30T11:51:29.270Z",
+          "id": "80000AD7-1764949516",
+          "startLng": -88.27689737953762,
+          "taskId": "AI4h9wb5j6PSWCmvsHUA",
+          "bookTime": 0.5,
+          "taskName": "Labor:Cage:Bars Dr",
+          "end": "2026-07-30T11:57:21.719Z",
+          "name": "RoscoePD 2",
+          "payBasis": "book_time",
+          "startLat": 42.34403524836332,
+          "endLat": 42.34403524836332
+        },
+        {
+          "endLng": -88.27689737953762,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-30T12:10:10.401Z",
+          "name": "RoscoePD 2",
+          "end": "2026-07-30T12:17:39.805Z",
+          "taskName": "Labor:Cage:Door Panel",
+          "bookTime": 0.5,
+          "taskId": "GktK1ApWLtXKO8XWM0mo",
+          "startLng": -88.27689737953762,
+          "endLat": 42.34403524836332,
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time"
+        },
+        {
+          "endLng": -88.27689737953762,
+          "start": "2026-07-30T13:30:46.391Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "startLng": -88.27689737953762,
+          "taskId": "AKdbAd3wbz7XSnI7bHFX",
+          "bookTime": 0.5,
+          "taskName": "Labor:Cage:Bars Dr",
+          "end": "2026-07-30T13:38:19.101Z",
+          "name": "RoscoePD 3",
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "endLat": 42.34403524836332
+        },
+        {
+          "endLat": 42.34403524836332,
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "name": "RoscoePD 3",
+          "end": "2026-07-30T13:46:31.675Z",
+          "taskName": "Labor:Cage:Door Panel",
+          "bookTime": 0.5,
+          "taskId": "LrHV7XuTtDmzARNFcRKI",
+          "startLng": -88.27689737953762,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-30T13:39:18.942Z",
+          "endLng": -88.27689737953762
+        },
+        {
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-30T13:50:08.493Z",
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:Door Panel",
+          "end": "2026-07-30T14:02:08.493Z",
+          "name": "RoscoePD 3",
+          "taskId": "feHt5AedDlYZ1E8NlQaB",
+          "bookTime": 0.5
+        },
+        {
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "endLat": 42.34403524836332,
+          "startLng": -88.27689737953762,
+          "taskId": "7zD3gkVhBzVM87nJjrry",
+          "bookTime": 2,
+          "end": "2026-07-30T17:03:52.485Z",
+          "taskName": "Labor:Cage:Barrier",
+          "name": "RoscoePD 3",
+          "start": "2026-07-30T14:21:03.971Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -88.27689737953762
+        },
+        {
+          "start": "2026-07-30T16:54:22.890Z",
+          "payBasis": "book_time",
+          "id": "80000AD9-1764960751",
+          "taskId": "Rmgltp4NJSLbGN20iN9l",
+          "bookTime": 0.5,
+          "taskName": "Labor:Cage:Door Panel",
+          "end": "2026-07-30T17:06:22.890Z",
+          "name": "RoscoePD 1"
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "payBasis": "book_time",
+          "start": "2026-07-30T16:55:09.572Z",
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Cage:Door Panel",
+          "end": "2026-07-30T17:07:09.572Z",
+          "bookTime": 0.5,
+          "taskId": "VuDsTMMkDIGUR50yXivc"
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "HsNtoI0OEzTTZEodp3is",
+          "bookTime": 2,
+          "end": "2026-07-30T18:49:30.757Z",
+          "taskName": "Labor:Cage:Barrier",
+          "name": "RoscoePD 2",
+          "start": "2026-07-30T17:50:29.917Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845
+        },
+        {
+          "taskName": "Labor:Cage:Barrier",
+          "end": "2026-07-30T18:49:32.208Z",
+          "name": "RoscoePD 1",
+          "startLng": -87.7845,
+          "taskId": "ZaBGawf45u0pLi4odkmD",
+          "bookTime": 2,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-30T17:50:43.387Z"
+        },
+        {
+          "start": "2026-07-30T19:06:29.107Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -87.7845,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "ZaBGawf45u0pLi4odkmD",
+          "bookTime": 2,
+          "end": "2026-07-30T20:46:35.758Z",
+          "taskName": "Labor:Cage:Barrier",
+          "name": "RoscoePD 1"
+        },
+        {
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "name": "RoscoePD 2",
+          "end": "2026-07-30T20:46:34.842Z",
+          "taskName": "Labor:Cage:Barrier",
+          "bookTime": 2,
+          "taskId": "HsNtoI0OEzTTZEodp3is",
+          "startLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-30T19:06:36.988Z",
+          "endLng": -87.7845
+        },
+        {
+          "bookTime": 3,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "startLng": -88.27689737953762,
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-07-30T21:40:26.109Z",
+          "startLat": 42.34403524836332,
+          "payBasis": "book_time",
+          "endLat": 42.34403524836332,
+          "endLng": -88.27689737953762,
+          "start": "2026-07-30T21:12:58.390Z",
+          "id": "80000AD7-1764949516"
+        }
+      ],
+      "breaks": [],
+      "staffName": "Adrian Benitez"
+    },
+    {
+      "id": "E2n9lPwpp9RPNTjLVk1F",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "timestamp": "2026-07-16T10:56:17.297Z",
+        "lng": null,
+        "onSite": false,
+        "accuracy": null,
+        "lat": null
+      },
+      "jobs": [
+        {
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-16T12:05:53.401Z",
+          "bookTime": 1,
+          "taskId": "1HN48x35pi6stdzdzSGF",
+          "startLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-16T11:36:34.480Z",
+          "endLng": -87.7845
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-16T12:06:14.399Z",
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-16T12:39:25.187Z",
+          "bookTime": 1,
+          "taskId": "eQWPPXK0U8AdgvCslBZC",
+          "startLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-16T12:39:33.931Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 1,
+          "taskId": "lPNT6CGBfGZUvcL1KNda",
+          "startLng": -87.7845,
+          "name": "Roscoe #1",
+          "end": "2026-07-16T13:22:55.758Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-16T13:23:06.945Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 2,
+          "startLng": -87.7845,
+          "taskId": "Gya6snZLGhpxbHif21yK",
+          "name": "Roscoe #1",
+          "end": "2026-07-16T13:56:48.887Z",
+          "taskName": "Labor::Vehicle:Fascia",
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "payBasis": "book_time",
+          "start": "2026-07-16T13:24:36.047Z",
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-16T13:57:36.047Z",
+          "bookTime": 1,
+          "taskId": "vYYKO6xxxZ6wV4fgOQy2"
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-16T15:22:39.959Z",
+          "id": "80000AD9-1764960751",
+          "startLng": -87.7845,
+          "taskId": "LvLxawnWQAhhsswzNkp0",
+          "bookTime": 2.5,
+          "taskName": "Labor:Lighting:Mirror",
+          "end": "2026-07-16T17:32:44.874Z",
+          "name": "Roscoe #1",
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885
+        },
+        {
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "name": "Roscoe #2",
+          "taskName": "Labor:Lighting:Mirror",
+          "end": "2026-07-16T19:38:09.263Z",
+          "bookTime": 2.5,
+          "startLng": -87.7845,
+          "taskId": "AGXvUUC4N9R9JBdhJL79",
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-16T18:26:20.329Z",
+          "endLng": -87.7845
+        },
+        {
+          "start": "2026-07-16T19:55:59.198Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "bookTime": 2.5,
+          "startLng": -87.7845,
+          "taskId": "AGXvUUC4N9R9JBdhJL79",
+          "name": "Roscoe #2",
+          "end": "2026-07-16T20:12:01.543Z",
+          "taskName": "Labor:Lighting:Mirror"
+        },
+        {
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "end": "2026-07-16T20:52:23.631Z",
+          "taskName": "Labor::Vehicle:Fascia",
+          "name": "Roscoe #2",
+          "taskId": "gFM6wbJtoNNoYSGSaH0Y",
+          "startLng": -87.7845,
+          "bookTime": 2,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-16T20:37:54.331Z",
+          "endLng": -87.7845
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-16T20:53:36.369Z",
+          "name": "Roscoe #2",
+          "taskName": "Labor:Electrical Acc.:Speaker",
+          "end": "2026-07-16T20:55:46.545Z",
+          "bookTime": 1,
+          "startLng": -87.7845,
+          "taskId": "keKjuOvBLYtTIQaxVlDd",
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885
+        },
+        {
+          "start": "2026-07-16T21:08:50.437Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "5qbJDLOoYCGueJgyt5qo",
+          "bookTime": 1,
+          "end": "2026-07-16T21:23:24.025Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "name": "Roscoe #2"
+        }
+      ],
+      "jobIds": [
+        "80000AD9-1764960751",
+        "80000AD7-1764949516"
+      ],
+      "status": "completed",
+      "clockOut": {
+        "timestamp": "2026-07-16T22:38:32.266Z",
+        "lng": null,
+        "onSite": false,
+        "accuracy": null,
+        "lat": null
+      },
+      "updatedAt": "2026-07-16T22:38:32.266Z",
+      "isRemote": true,
+      "breaks": [
+        {
+          "endLng": -87.7845,
+          "suspendedJob": null,
+          "start": "2026-07-16T17:49:59.803Z",
+          "end": "2026-07-16T18:20:48.619Z",
+          "startLng": -87.7845,
+          "endLat": 41.885,
+          "type": "lunch",
+          "startLat": 41.885,
+          "isPaid": false
+        }
+      ],
+      "staffName": "Adrian Benitez",
+      "payType": "hourly",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "createdAt": "2026-07-16T10:56:17.297Z"
+    },
+    {
+      "id": "M3Du8tGQlbmGuUazrCXq",
+      "updatedAt": "2026-08-13T22:16:38.112Z",
+      "clockOut": {
+        "timestamp": "2026-08-13T22:16:38.112Z",
+        "lng": -87.65005,
+        "onSite": true,
+        "accuracy": 15000,
+        "lat": 41.85003,
+        "device": "mobile",
+        "type": "ip"
+      },
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "createdAt": "2026-08-13T11:20:08.602Z",
+      "staffName": "Adrian Benitez",
+      "breaks": [],
+      "jobs": [
+        {
+          "end": "2026-08-13T13:53:34.130Z",
+          "taskName": "Labor:Strip:Patrol",
+          "name": "Strip",
+          "taskId": "zVZgb0r9y8eJzyO7gbgx",
+          "startLng": -88.27689775948234,
+          "bookTime": 7.2,
+          "endLat": 42.34393393136733,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "endLng": -88.27683071926917,
+          "id": "B7YK2fVCMGR9lm6fGOq8",
+          "start": "2026-08-13T11:20:45.242Z"
+        },
+        {
+          "id": "B7YK2fVCMGR9lm6fGOq8",
+          "start": "2026-08-13T14:16:27.082Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "end": "2026-08-13T14:40:22.097Z",
+          "taskName": "Labor:Strip:Patrol",
+          "name": "Strip",
+          "taskId": "zVZgb0r9y8eJzyO7gbgx",
+          "startLng": -88.27689775948234,
+          "bookTime": 7.2
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 42.3440353902133,
+          "startLng": -88.27689775948234,
+          "taskId": "24vrrzzJ4dPNcPa0Lvae",
+          "bookTime": 0,
+          "end": "2026-08-13T14:57:21.896Z",
+          "taskName": "General",
+          "name": "RoscoePD 1",
+          "start": "2026-08-13T14:46:41.565Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689775948234
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 42.3440353902133,
+          "bookTime": 5,
+          "startLng": -88.27689775948234,
+          "taskId": "3tJSFVhvsAPQCb0liW8C",
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Camera:In-car",
+          "end": "2026-08-13T16:30:17.626Z",
+          "start": "2026-08-13T14:58:17.367Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689775948234
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T16:30:29.756Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "name": "RoscoePD 1",
+          "end": "2026-08-13T17:31:04.454Z",
+          "taskName": "Labor:Electrical Acc.:Printer",
+          "bookTime": 1,
+          "taskId": "qOtZJmnvzjn5s1DryfEY",
+          "startLng": -88.27689775948234
+        },
+        {
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Radio:Radar",
+          "end": "2026-08-13T17:50:32.205Z",
+          "bookTime": 2,
+          "taskId": "EAHwxjtKQnUQ2qoQTExH",
+          "startLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLng": -88.27689775948234,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T17:42:50.921Z"
+        },
+        {
+          "payBasis": "hourly",
+          "startLat": 42.3440353902133,
+          "endLat": 42.3440353902133,
+          "startLng": -88.27689775948234,
+          "taskId": "lTEWF9SauQ85zvaDP2m6",
+          "bookTime": 2,
+          "end": "2026-08-13T18:34:43.640Z",
+          "taskName": "Labor:Wring",
+          "name": "RoscoePD 1",
+          "start": "2026-08-13T17:50:50.701Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689775948234
+        },
+        {
+          "endLng": -88.27689775948234,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-13T18:34:47.987Z",
+          "end": "2026-08-13T20:54:11.577Z",
+          "taskName": "Labor:Radio:Radar",
+          "name": "RoscoePD 1",
+          "taskId": "EAHwxjtKQnUQ2qoQTExH",
+          "startLng": -88.27689775948234,
+          "bookTime": 2,
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time"
+        }
+      ],
+      "jobIds": [
+        "B7YK2fVCMGR9lm6fGOq8",
+        "80000AD9-1764960751"
+      ],
+      "status": "completed",
+      "isRemote": false,
+      "clockIn": {
+        "timestamp": "2026-08-13T11:20:08.602Z",
+        "lng": -87.65005,
+        "device": "mobile",
+        "type": "ip",
+        "onSite": true,
+        "accuracy": 15000,
+        "lat": 41.85003
+      },
+      "userName": "Adrian Benitez"
+    },
+    {
+      "id": "RSqE0DPUgq9GTNsM8i6w",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "payType": "hourly",
+      "createdAt": "2026-07-27T11:32:05.367Z",
+      "staffName": "Adrian Benitez",
+      "breaks": [
+        {
+          "endLat": 41.885,
+          "type": "lunch",
+          "startLat": 41.885,
+          "isPaid": false,
+          "end": "2026-07-27T17:47:30.503Z",
+          "startLng": -87.7845,
+          "start": "2026-07-27T17:10:11.811Z",
+          "endLng": -87.7845,
+          "suspendedJob": null
+        }
+      ],
+      "isRemote": true,
+      "updatedAt": "2026-07-27T21:05:52.560Z",
+      "clockOut": {
+        "timestamp": "2026-07-27T21:05:52.560Z",
+        "lng": null,
+        "onSite": false,
+        "accuracy": null,
+        "lat": null
+      },
+      "jobs": [
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "2toy80DL6tnENpCkQtig",
+          "bookTime": 1,
+          "end": "2026-07-27T12:33:43.844Z",
+          "taskName": "Labor:Lighting:Outer edge",
+          "name": "Roscoe #3",
+          "start": "2026-07-27T11:49:16.526Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -87.7845
+        },
+        {
+          "bookTime": 1,
+          "startLng": -87.7845,
+          "taskId": "hTDZ913rWZOokrE7XvcT",
+          "name": "Roscoe #3",
+          "end": "2026-07-27T13:06:36.447Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "endLng": -87.7845,
+          "start": "2026-07-27T12:50:08.970Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U"
+        },
+        {
+          "payBasis": "book_time",
+          "start": "2026-07-27T12:51:47.298Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "bookTime": 1,
+          "taskId": "iaS3jqWiOqNoh2m12scz",
+          "name": "Roscoe #3",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-27T13:06:47.298Z"
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "xV6HBx9WzRQvsFSaYgcj",
+          "bookTime": 1,
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-27T13:21:01.413Z",
+          "name": "Roscoe #3",
+          "start": "2026-07-27T13:06:55.524Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -87.7845
+        },
+        {
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "end": "2026-07-27T13:20:59.648Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "name": "Roscoe #3",
+          "taskId": "m32Kkt2LkiU7bT07jOe8",
+          "startLng": -87.7845,
+          "bookTime": 1,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-27T13:06:56.879Z",
+          "endLng": -87.7845
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-27T14:42:12.134Z",
+          "end": "2026-07-27T14:56:13.644Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "name": "Roscoe #2",
+          "taskId": "HFDAbMbGnoOfTgkwbNJn",
+          "startLng": -87.7845,
+          "bookTime": 1,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "startLng": -87.7845,
+          "taskId": "J19RzdAodppRnL0x0PeI",
+          "bookTime": 1,
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-27T15:15:11.258Z",
+          "name": "Roscoe #2",
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "endLng": -87.7845,
+          "start": "2026-07-27T14:56:22.522Z",
+          "id": "80000AD7-1764949516"
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "gFqfDUJjyX3t1KwrKMFw",
+          "bookTime": 1,
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-27T15:27:40.294Z",
+          "name": "Roscoe #2",
+          "start": "2026-07-27T15:15:16.565Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-27T15:15:17.898Z",
+          "end": "2026-07-27T15:27:42.271Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "name": "Roscoe #2",
+          "taskId": "tkRfJR9GMuozRBfSFfWx",
+          "startLng": -87.7845,
+          "bookTime": 1,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "startLng": -87.7845,
+          "taskId": "HFDAbMbGnoOfTgkwbNJn",
+          "bookTime": 1,
+          "end": "2026-07-27T15:34:28.851Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "name": "Roscoe #2",
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "endLng": -87.7845,
+          "start": "2026-07-27T15:27:48.294Z",
+          "id": "80000AD7-1764949516"
+        },
+        {
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "bookTime": 1,
+          "taskId": "J19RzdAodppRnL0x0PeI",
+          "startLng": -87.7845,
+          "name": "Roscoe #2",
+          "end": "2026-07-27T15:34:30.588Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "start": "2026-07-27T15:27:50.448Z",
+          "id": "80000AD7-1764949516",
+          "endLng": -87.7845
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-27T16:42:57.428Z",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "taskName": "Labor:Radio:Antenna",
+          "end": "2026-07-27T16:59:01.742Z",
+          "name": "Roscoe #2",
+          "taskId": "7XB6RvCw4RiBSMMgLyrv",
+          "startLng": -87.7845,
+          "bookTime": 1
+        },
+        {
+          "end": "2026-07-27T17:10:09.532Z",
+          "taskName": "Labor:Radio:Antenna",
+          "name": "Roscoe #3",
+          "startLng": -87.7845,
+          "taskId": "HKmzxgXboeDE0x42vJ0i",
+          "bookTime": 1,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLng": -87.7845,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-27T16:59:11.912Z"
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-27T17:57:12.684Z",
+          "end": "2026-07-27T17:58:35.104Z",
+          "taskName": "Labor:Radio:Antenna",
+          "name": "Roscoe #2",
+          "startLng": -87.7845,
+          "taskId": "7XB6RvCw4RiBSMMgLyrv",
+          "bookTime": 1,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-27T18:00:57.504Z",
+          "id": "80000AD9-1764960751",
+          "bookTime": 1,
+          "taskId": "FqBVXhukbS08WbSlEBF4",
+          "startLng": -87.7845,
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-27T18:52:07.215Z",
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885
+        },
+        {
+          "start": "2026-07-27T20:03:13.470Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -87.7845,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "mZ0xBallCM1wBwPuKXaG",
+          "bookTime": 2.5,
+          "taskName": "Labor:Lighting:Lightbar",
+          "end": "2026-07-27T20:54:58.098Z",
+          "name": "Roscoe #1"
+        }
+      ],
+      "jobIds": [
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD7-1764949516",
+        "80000AD9-1764960751"
+      ],
+      "status": "completed",
+      "clockIn": {
+        "timestamp": "2026-07-27T11:32:05.367Z",
+        "lng": null,
+        "onSite": false,
+        "lat": null,
+        "accuracy": null
+      },
+      "userName": "Adrian Benitez"
+    },
+    {
+      "id": "SfjVuFg3d0N0MsCQnYJO",
+      "isRemote": true,
+      "staffName": "Adrian Benitez",
+      "breaks": [
+        {
+          "startLng": -87.7845,
+          "end": "2026-07-28T18:03:39.149Z",
+          "isPaid": false,
+          "startLat": 41.885,
+          "type": "lunch",
+          "endLat": 41.885,
+          "suspendedJob": null,
+          "endLng": -87.7845,
+          "start": "2026-07-28T17:30:02.866Z"
+        }
+      ],
+      "createdAt": "2026-07-28T10:56:43.734Z",
+      "payType": "hourly",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "timestamp": "2026-07-28T10:56:43.734Z",
+        "lng": null,
+        "onSite": false,
+        "lat": null,
+        "accuracy": null
+      },
+      "status": "completed",
+      "jobIds": [
+        "80000AD9-1764960751",
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U"
+      ],
+      "jobs": [
+        {
+          "end": "2026-07-28T12:23:25.026Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "name": "Roscoe #1",
+          "startLng": -87.7845,
+          "taskId": "mZ0xBallCM1wBwPuKXaG",
+          "bookTime": 2.5,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-28T10:57:02.167Z"
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-28T13:09:56.664Z",
+          "name": "Roscoe #2",
+          "end": "2026-07-28T13:44:25.002Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "bookTime": 2.5,
+          "startLng": -87.7845,
+          "taskId": "Dn2IIIrDXAkdWB5FLnP4",
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "taskId": "YigFRzjwUbN0uoNjyZPB",
+          "startLng": -87.7845,
+          "bookTime": 1,
+          "end": "2026-07-28T14:23:56.066Z",
+          "taskName": "Labor:Lighting:Opticom",
+          "name": "Roscoe #1",
+          "start": "2026-07-28T13:44:40.378Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -87.7845
+        },
+        {
+          "endLng": -87.7845,
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-28T14:23:49.486Z",
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Lightbar",
+          "end": "2026-07-28T14:38:20.585Z",
+          "bookTime": 2.5,
+          "startLng": -87.7845,
+          "taskId": "mZ0xBallCM1wBwPuKXaG",
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "end": "2026-07-28T15:20:23.758Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "name": "Roscoe #2",
+          "taskId": "Dn2IIIrDXAkdWB5FLnP4",
+          "startLng": -87.7845,
+          "bookTime": 2.5,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLng": -87.7845,
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-28T14:39:53.251Z"
+        },
+        {
+          "endLng": -87.7845,
+          "start": "2026-07-28T15:39:57.427Z",
+          "id": "80000AD7-1764949516",
+          "taskId": "Dn2IIIrDXAkdWB5FLnP4",
+          "startLng": -87.7845,
+          "bookTime": 2.5,
+          "end": "2026-07-28T16:01:32.352Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "name": "Roscoe #2",
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLat": 41.885
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-28T16:12:16.973Z",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "end": "2026-07-28T17:26:12.731Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "name": "Roscoe #2",
+          "startLng": -87.7845,
+          "taskId": "Dn2IIIrDXAkdWB5FLnP4",
+          "bookTime": 2.5
+        },
+        {
+          "start": "2026-07-28T16:56:21.120Z",
+          "payBasis": "book_time",
+          "id": "80000AD7-1764949516",
+          "taskId": "AyO32Sz1PrdrOAnn6a2T",
+          "bookTime": 1,
+          "end": "2026-07-28T17:26:21.120Z",
+          "taskName": "Labor:Lighting:Opticom",
+          "name": "Roscoe #2"
+        },
+        {
+          "start": "2026-07-28T18:04:59.054Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLng": -87.7845,
+          "payBasis": "book_time",
+          "startLat": 41.885,
+          "endLat": 41.885,
+          "bookTime": 2.5,
+          "taskId": "VzFcxt9uFdfkUjwG8EFn",
+          "startLng": -87.7845,
+          "name": "Roscoe #3",
+          "taskName": "Labor:Lighting:Lightbar",
+          "end": "2026-07-28T18:31:51.529Z"
+        },
+        {
+          "name": "6889427",
+          "taskName": "Labor:Lighting:Opticom",
+          "end": "2026-07-28T18:45:28.064Z",
+          "bookTime": 1,
+          "taskId": "4fFBztTWpcZU76CEiigc",
+          "startLng": -87.7845,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time",
+          "endLng": -87.7845,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-28T18:31:54.843Z"
+        },
+        {
+          "endLng": -87.7845,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-28T19:21:43.936Z",
+          "taskName": "Labor:Lighting:Lightbar",
+          "end": "2026-07-28T21:36:17.880Z",
+          "name": "6889427",
+          "startLng": -87.7845,
+          "taskId": "VzFcxt9uFdfkUjwG8EFn",
+          "bookTime": 2.5,
+          "endLat": 41.885,
+          "startLat": 41.885,
+          "payBasis": "book_time"
+        }
+      ],
+      "clockOut": {
+        "timestamp": "2026-07-28T22:13:03.920Z",
+        "lng": -87.7845,
+        "onSite": true,
+        "lat": 41.885,
+        "accuracy": 15000,
+        "device": "pc"
+      },
+      "updatedAt": "2026-07-28T22:13:03.920Z"
+    },
+    {
+      "id": "U2ptY8DWKhYtbAqYAKzw",
+      "clockIn": {
+        "timestamp": "2026-08-04T11:16:32.819Z",
+        "lng": -87.65005,
+        "onSite": true,
+        "lat": 41.85003,
+        "accuracy": 15000,
+        "device": "mobile",
+        "type": "ip"
+      },
+      "isRemote": false,
+      "userName": "Adrian Benitez",
+      "createdAt": "2026-08-04T11:16:32.819Z",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "updatedAt": "2026-08-04T21:04:00.607Z",
+      "clockOut": {
+        "timestamp": "2026-08-04T21:04:00.607Z",
+        "lng": -88.27689641439333,
+        "onSite": true,
+        "lat": 42.34403511776911,
+        "accuracy": 12.799299593176912,
+        "device": "mobile",
+        "type": "gps"
+      },
+      "status": "completed",
+      "jobIds": [
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751"
+      ],
+      "jobs": [
+        {
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Cage:Partitions",
+          "end": "2026-08-04T13:13:21.548Z",
+          "bookTime": 3,
+          "startLng": -88.27689641439333,
+          "taskId": "AJ62KStswkLYfkEi3oaT",
+          "endLat": 41.875772,
+          "startLat": 42.34403511776911,
+          "payBasis": "book_time",
+          "endLng": -87.620606,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-04T11:37:08.259Z"
+        },
+        {
+          "endLng": -88.27689641439333,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-04T14:29:04.475Z",
+          "name": "RoscoePD 2",
+          "end": "2026-08-04T15:08:40.303Z",
+          "taskName": "Labor:Cage:Partitions",
+          "bookTime": 3,
+          "startLng": -88.27689641439333,
+          "taskId": "AJ62KStswkLYfkEi3oaT",
+          "endLat": 42.34403511776911,
+          "payBasis": "book_time",
+          "startLat": 42.34403511776911
+        },
+        {
+          "bookTime": 3,
+          "taskId": "wjxdFKRAC4kzDyXCWZmc",
+          "startLng": -88.27689641439333,
+          "name": "RoscoePD 3",
+          "end": "2026-08-04T15:08:41.155Z",
+          "taskName": "Labor:Cage:Partitions",
+          "startLat": 42.34403511776911,
+          "payBasis": "book_time",
+          "endLat": 42.34403511776911,
+          "endLng": -88.27689641439333,
+          "start": "2026-08-04T14:29:17.140Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U"
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-04T15:31:55.991Z",
+          "endLng": -88.27689641439333,
+          "endLat": 42.34403511776911,
+          "payBasis": "book_time",
+          "startLat": 42.34403511776911,
+          "end": "2026-08-04T16:32:17.854Z",
+          "taskName": "Labor:Vehicle:Rear",
+          "name": "RoscoePD 1",
+          "startLng": -88.27689641439333,
+          "taskId": "OPoybkwI49ESQioV34hI",
+          "bookTime": 1.5
+        },
+        {
+          "start": "2026-08-04T18:02:09.597Z",
+          "id": "80000AD9-1764960751",
+          "endLng": -88.27689641439333,
+          "startLat": 42.343995436463544,
+          "payBasis": "book_time",
+          "endLat": 42.34403511776911,
+          "bookTime": 1,
+          "startLng": -88.27689136796629,
+          "taskId": "mBgf6o45jvmdZNXqh142",
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Cage:Seat",
+          "end": "2026-08-04T18:50:05.679Z"
+        },
+        {
+          "taskId": "mUkAGZg9iDyzyh8oF7M3",
+          "startLng": -88.27689641439333,
+          "bookTime": 1.5,
+          "end": "2026-08-04T20:42:33.992Z",
+          "taskName": "Labor:Cage:OS Buckle",
+          "name": "RoscoePD 1",
+          "payBasis": "book_time",
+          "startLat": 42.34403511776911,
+          "endLat": 42.34403511776911,
+          "endLng": -88.27689641439333,
+          "start": "2026-08-04T18:57:49.944Z",
+          "id": "80000AD9-1764960751"
+        }
+      ],
+      "breaks": [
+        {
+          "start": "2026-08-04T17:16:31.760Z",
+          "suspendedJob": null,
+          "endLng": -88.27689641439333,
+          "type": "lunch",
+          "startLat": 42.343847902568875,
+          "isPaid": false,
+          "startDevice": "mobile",
+          "endDevice": "mobile",
+          "endLat": 42.34403511776911,
+          "startLng": -88.27709874787648,
+          "end": "2026-08-04T17:51:07.605Z"
+        }
+      ],
+      "staffName": "Adrian Benitez"
+    },
+    {
+      "id": "aMCg9VFqIfjgEaFnEmfw",
+      "jobs": [
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-03T11:51:44.610Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-08-03T12:02:03.436Z",
+          "name": "RoscoePD 2",
+          "startLng": -88.27689775948234,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "bookTime": 3
+        },
+        {
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-03T12:17:46.414Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.344026167126835,
+          "end": "2026-08-03T13:19:10.312Z",
+          "taskName": "Labor:Console:Console install",
+          "name": "RoscoePD 2",
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "startLng": -88.27693025705217,
+          "bookTime": 3
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-03T13:19:26.641Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-08-03T13:50:30.010Z",
+          "bookTime": 3,
+          "taskId": "PtfrGRIW5g61wRAhWE52",
+          "startLng": -88.27689775948234
+        },
+        {
+          "startLng": -88.27689775948234,
+          "taskId": "axxm4NNjy7NURXBfFwiH",
+          "bookTime": 3,
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-08-03T14:49:41.499Z",
+          "name": "RoscoePD 3",
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "endLat": 42.3440353902133,
+          "endLng": -88.27689775948234,
+          "start": "2026-08-03T13:50:47.157Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U"
+        },
+        {
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-08-03T15:48:27.952Z",
+          "name": "RoscoePD 1",
+          "startLng": -88.27689775948234,
+          "taskId": "PtfrGRIW5g61wRAhWE52",
+          "bookTime": 3,
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "endLng": -88.27689775948234,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-03T15:16:15.035Z"
+        },
+        {
+          "endLng": -88.27689775948234,
+          "start": "2026-08-03T16:29:32.672Z",
+          "id": "80000AD9-1764960751",
+          "startLng": -88.27689775948234,
+          "taskId": "jYPTx8cuDo51WVRNUXlj",
+          "bookTime": 3,
+          "end": "2026-08-03T17:14:55.399Z",
+          "taskName": "Labor:Cage:Partitions",
+          "name": "RoscoePD 1",
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "endLat": 42.3440353902133
+        },
+        {
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "end": "2026-08-03T20:08:50.154Z",
+          "taskName": "Labor:Cage:Partitions",
+          "name": "RoscoePD 1",
+          "taskId": "jYPTx8cuDo51WVRNUXlj",
+          "startLng": -88.27689775948234,
+          "bookTime": 3,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-03T18:04:30.223Z",
+          "endLng": -88.27689775948234
+        }
+      ],
+      "breaks": [
+        {
+          "type": "lunch",
+          "startLat": 42.3440353902133,
+          "isPaid": false,
+          "endDevice": "mobile",
+          "startDevice": "mobile",
+          "endLat": 42.34388951792174,
+          "startLng": -88.27689775948234,
+          "end": "2026-08-03T17:52:33.800Z",
+          "start": "2026-08-03T17:15:53.810Z",
+          "suspendedJob": null,
+          "endLng": -88.27683640797085
+        }
+      ],
+      "staffName": "Adrian Benitez",
+      "jobIds": [
+        "80000AD7-1764949516",
+        "80000AD9-1764960751",
+        "ACxx0uZM5tDD69UfQQ3U"
+      ],
+      "status": "completed",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "updatedAt": "2026-08-04T17:02:14.965Z",
+      "clockOut": {
+        "timestamp": "2026-08-03T21:24:26.711Z",
+        "lng": -88.27689775948234,
+        "device": "mobile",
+        "type": "gps",
+        "onSite": true,
+        "accuracy": 12.636935953261755,
+        "lat": 42.3440353902133
+      },
+      "createdAt": "2026-08-03T11:25:04.163Z",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "lat": 41.85003,
+        "accuracy": 15000,
+        "onSite": true,
+        "type": "ip",
+        "device": "mobile",
+        "lng": -87.65005,
+        "timestamp": "2026-08-03T11:25:04.163Z"
+      },
+      "isRemote": false
+    },
+    {
+      "id": "bTXf2sRuFFFHvVJF6L35",
+      "isRemote": false,
+      "clockIn": {
+        "lat": 41.85003,
+        "accuracy": 15000,
+        "onSite": true,
+        "type": "ip",
+        "device": "mobile",
+        "lng": -87.65005,
+        "timestamp": "2026-08-10T11:24:44.377Z"
+      },
+      "userName": "Adrian Benitez",
+      "clockOut": {
+        "timestamp": "2026-08-10T22:29:16.161Z",
+        "lng": -88.27689775948234,
+        "device": "mobile",
+        "onSite": true,
+        "accuracy": 12.912679957334259,
+        "lat": 42.3440353902133
+      },
+      "updatedAt": "2026-08-10T22:29:16.161Z",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "createdAt": "2026-08-10T11:24:44.377Z",
+      "jobs": [
+        {
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "name": "RoscoePD 2",
+          "end": "2026-08-10T12:35:06.425Z",
+          "taskName": "Labor:Console:Console install",
+          "bookTime": 3,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "startLng": -88.27689775948234,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-10T11:42:25.526Z",
+          "endLng": -88.27689775948234
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-10T12:56:27.110Z",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "startLat": 42.3440353902133,
+          "name": "RoscoePD 1",
+          "taskName": "Labor:Console:Console install",
+          "end": "2026-08-10T13:48:03.275Z",
+          "bookTime": 3,
+          "taskId": "PtfrGRIW5g61wRAhWE52",
+          "startLng": -88.27689775948234
+        },
+        {
+          "endLng": -88.27689775948234,
+          "id": "80000AD7-1764949516",
+          "start": "2026-08-10T13:59:57.377Z",
+          "end": "2026-08-10T14:22:46.249Z",
+          "taskName": "Labor:Console:Console install",
+          "name": "RoscoePD 2",
+          "startLng": -88.2768963987432,
+          "taskId": "yH2BXmd0EbunxNAgOub3",
+          "bookTime": 3,
+          "endLat": 42.3440353902133,
+          "startLat": 42.34398553870811,
+          "payBasis": "book_time"
+        },
+        {
+          "taskName": "Labor:Console:Dock",
+          "end": "2026-08-10T15:47:22.260Z",
+          "name": "RoscoePD 1",
+          "taskId": "AD00rvJgIeHcM9V9SqCo",
+          "startLng": -88.27689775948234,
+          "bookTime": 1.5,
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "endLng": -88.27689775948234,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-10T14:31:59.084Z"
+        },
+        {
+          "endLng": -88.27689775948234,
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-10T15:58:43.060Z",
+          "name": "RoscoePD 1",
+          "end": "2026-08-10T22:23:16.055Z",
+          "taskName": "Labor:Spotlight:Install",
+          "bookTime": 5,
+          "taskId": "Ps1YpqVHHxn9O0bI4NFs",
+          "startLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "startLat": 42.3440353902133,
+          "payBasis": "book_time"
+        }
+      ],
+      "breaks": [],
+      "staffName": "Adrian Benitez",
+      "jobIds": [
+        "80000AD7-1764949516",
+        "80000AD9-1764960751"
+      ],
+      "status": "completed"
+    },
+    {
+      "id": "lSy2FdXUO1m9qYkZRnbz",
+      "createdAt": "2026-07-23T10:59:25.541Z",
+      "updatedAt": "2026-07-23T21:36:48.482Z",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "timestamp": "2026-07-23T10:59:25.541Z",
+        "lng": null,
+        "onSite": false,
+        "lat": null,
+        "accuracy": null
+      },
+      "clockOut": {
+        "accuracy": null,
+        "lat": null,
+        "onSite": false,
+        "lng": null,
+        "timestamp": "2026-07-23T21:36:48.482Z"
+      },
+      "breaks": [
+        {
+          "start": "2026-07-23T17:47:27.070Z",
+          "end": "2026-07-23T18:18:56.909Z",
+          "startLng": -87.7845,
+          "type": "lunch",
+          "startLat": 41.885,
+          "isPaid": false,
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "suspendedJob": null
+        }
+      ],
+      "jobIds": [
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751",
+        "80000AD7-1764949516"
+      ],
+      "isRemote": true,
+      "payType": "hourly",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "status": "completed",
+      "staffName": "Adrian Benitez",
+      "jobs": [
+        {
+          "start": "2026-07-23T10:59:38.469Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "end": "2026-07-23T11:34:23.516Z",
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "PPAaepbLMMxpC8yZh985",
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "bookTime": 2.5,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "taskName": "Labor:Lighting:Mirror"
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-23T12:36:13.635Z",
+          "name": "Roscoe #1",
+          "end": "2026-07-23T13:06:13.635Z",
+          "bookTime": 1,
+          "taskName": "Labor:Radio:Antenna",
+          "taskId": "7MA0FqVRkfGPs8YFPM7x",
+          "payBasis": "book_time"
+        },
+        {
+          "startLat": 41.885,
+          "taskId": "52pnTEDyhoDZu0Vz9PDI",
+          "startLng": -87.7845,
+          "start": "2026-07-23T14:35:57.841Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-07-23T15:08:32.827Z",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Light Head",
+          "endLng": -87.7845,
+          "name": "Roscoe #2",
+          "bookTime": 1
+        },
+        {
+          "end": "2026-07-23T15:15:41.099Z",
+          "start": "2026-07-23T15:08:37.877Z",
+          "id": "80000AD7-1764949516",
+          "startLng": -87.7845,
+          "taskId": "9BLf2TzgLabWHe4FK0z1",
+          "startLat": 41.885,
+          "bookTime": 1,
+          "endLng": -87.7845,
+          "name": "Roscoe #2",
+          "taskName": "Labor:Lighting:Light Head",
+          "endLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "taskName": "Labor:Lighting:Light Head",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "bookTime": 1,
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "startLng": -87.7845,
+          "taskId": "GPyYcJCSIUCANNyeCOC5",
+          "startLat": 41.885,
+          "end": "2026-07-23T15:27:25.081Z",
+          "start": "2026-07-23T15:15:58.384Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U"
+        },
+        {
+          "startLat": 41.885,
+          "taskId": "IVkXpDN7ENqaK1DlBBYi",
+          "startLng": -87.7845,
+          "start": "2026-07-23T15:27:30.793Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "end": "2026-07-23T15:37:54.217Z",
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "taskName": "Labor:Lighting:Light Head",
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "bookTime": 1
+        },
+        {
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "nEwglIGCyUR0cnFNx8yJ",
+          "end": "2026-07-23T19:06:42.466Z",
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-23T18:49:27.347Z",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Flashter",
+          "bookTime": 1.5,
+          "endLng": -87.7845,
+          "name": "Roscoe #2"
+        },
+        {
+          "taskId": "GLH79YStxqiLUdVzFgfA",
+          "taskName": "Labor:Lighting:Flashter",
+          "payBasis": "book_time",
+          "end": "2026-07-23T19:07:17.834Z",
+          "bookTime": 1.5,
+          "start": "2026-07-23T18:52:17.834Z",
+          "id": "80000AD9-1764960751",
+          "name": "Roscoe #1"
+        },
+        {
+          "taskName": "Labor:Lighting:Light Head",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "bookTime": 1,
+          "taskId": "IyZDN8UjhhdgIblF4gy5",
+          "startLng": -87.7845,
+          "startLat": 41.885,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-23T19:24:26.975Z",
+          "end": "2026-07-23T19:37:38.381Z"
+        },
+        {
+          "end": "2026-07-23T19:38:19.116Z",
+          "bookTime": 1,
+          "name": "Roscoe #3",
+          "start": "2026-07-23T19:23:19.116Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "payBasis": "book_time",
+          "taskId": "S7BpMZjQtuU32lURFir8",
+          "taskName": "Labor:Lighting:Light Head"
+        },
+        {
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Light Head",
+          "endLng": -87.7845,
+          "name": "Roscoe #2",
+          "bookTime": 1,
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "F1VK6J3m2kOhkILohdFD",
+          "start": "2026-07-23T19:42:52.323Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-07-23T19:51:10.501Z"
+        },
+        {
+          "name": "Roscoe #2",
+          "endLng": -87.7845,
+          "bookTime": 1,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Light Head",
+          "start": "2026-07-23T19:42:53.895Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-07-23T19:51:12.616Z",
+          "startLat": 41.885,
+          "taskId": "FYnUJq6UuYUvgyzDiQw6",
+          "startLng": -87.7845
+        },
+        {
+          "bookTime": 1,
+          "name": "Roscoe #2",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "taskName": "Labor:Lighting:Outer edge",
+          "end": "2026-07-23T20:26:25.493Z",
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-23T19:56:20.820Z",
+          "startLat": 41.885,
+          "taskId": "wRM3yVpeH04CWPsRtVbc",
+          "startLng": -87.7845
+        }
+      ]
+    },
+    {
+      "id": "mAqBiDgP2655pPaFP285",
+      "clockOut": {
+        "accuracy": null,
+        "onSite": false,
+        "lat": null,
+        "lng": null,
+        "timestamp": "2026-07-22T17:35:17.365Z"
+      },
+      "clockIn": {
+        "accuracy": null,
+        "onSite": false,
+        "lat": null,
+        "lng": null,
+        "timestamp": "2026-07-22T11:12:33.974Z"
+      },
+      "breaks": [],
+      "updatedAt": "2026-07-22T17:35:17.365Z",
+      "userName": "Adrian Benitez",
+      "createdAt": "2026-07-22T11:12:33.974Z",
+      "staffName": "Adrian Benitez",
+      "jobs": [
+        {
+          "payBasis": "hourly",
+          "endLat": 41.885,
+          "taskName": "Labor:Wring",
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "bookTime": 2,
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "lTEWF9SauQ85zvaDP2m6",
+          "start": "2026-07-22T11:13:25.005Z",
+          "id": "80000AD9-1764960751",
+          "end": "2026-07-22T13:32:24.312Z"
+        },
+        {
+          "bookTime": 1,
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Outer edge",
+          "end": "2026-07-22T14:33:52.363Z",
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-22T13:34:00.483Z",
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "YQxFWz1YPgKc0rfY2fVb"
+        },
+        {
+          "bookTime": 1,
+          "end": "2026-07-22T14:43:26.346Z",
+          "name": "Roscoe #1",
+          "start": "2026-07-22T14:25:26.346Z",
+          "id": "80000AD9-1764960751",
+          "payBasis": "book_time",
+          "taskName": "Labor:Lighting:Light Head",
+          "taskId": "229UM4DQeuRFxZBu7pKs"
+        },
+        {
+          "payBasis": "book_time",
+          "taskId": "tHZaO3wovmUyNToRCpqn",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-22T14:45:13.467Z",
+          "bookTime": 1,
+          "name": "Roscoe #1",
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-22T14:30:13.467Z"
+        },
+        {
+          "bookTime": 1,
+          "end": "2026-07-22T14:45:34.022Z",
+          "start": "2026-07-22T14:30:34.022Z",
+          "id": "80000AD9-1764960751",
+          "name": "Roscoe #1",
+          "taskName": "Labor:Lighting:Light Head",
+          "taskId": "t4x4gTZe2K7ta235tSpy",
+          "payBasis": "book_time"
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-22T16:23:43.711Z",
+          "end": "2026-07-22T16:37:33.927Z",
+          "taskId": "izViMc0Pcy7KVCIXMUqf",
+          "startLng": -87.7845,
+          "startLat": 41.885,
+          "name": "Roscoe #1",
+          "endLng": -87.7845,
+          "bookTime": 1,
+          "taskName": "Labor:Lighting:Light Head",
+          "endLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-22T16:37:39.679Z",
+          "end": "2026-07-22T16:55:03.244Z",
+          "startLng": -87.7845,
+          "taskId": "ecFjbTxhw9VlY2BAHcN2",
+          "startLat": 41.885,
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "bookTime": 1,
+          "taskName": "Labor:Lighting:Light Head",
+          "payBasis": "book_time",
+          "endLat": 41.885
+        },
+        {
+          "end": "2026-07-22T17:32:44.472Z",
+          "start": "2026-07-22T17:09:25.687Z",
+          "id": "80000AD9-1764960751",
+          "startLat": 41.885,
+          "taskId": "R05BOY2bNDPHG3okFNgz",
+          "startLng": -87.7845,
+          "bookTime": 1,
+          "name": "Roscoe #1",
+          "endLng": -87.7845,
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "taskName": "Labor:Lighting:Light Head"
+        }
+      ],
+      "status": "completed",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "payType": "hourly",
+      "isRemote": true,
+      "jobIds": [
+        "80000AD9-1764960751"
+      ]
+    },
+    {
+      "id": "toKtk6keAJHODEjZXDfc",
+      "updatedAt": "2026-08-05T23:25:59.995Z",
+      "userName": "Adrian Benitez",
+      "createdAt": "2026-08-05T11:05:06.603Z",
+      "clockIn": {
+        "device": "mobile",
+        "lng": -88.27689775948234,
+        "onSite": true,
+        "lat": 42.3440353902133,
+        "accuracy": 12.799299593176912,
+        "type": "gps",
+        "timestamp": "2026-08-05T11:05:06.603Z"
+      },
+      "breaks": [
+        {
+          "startDevice": "mobile",
+          "endLng": -88.27689775948234,
+          "endLat": 42.3440353902133,
+          "suspendedJob": null,
+          "start": "2026-08-05T16:37:23.200Z",
+          "end": "2026-08-05T17:09:47.652Z",
+          "startLng": -88.27702319257732,
+          "type": "lunch",
+          "startLat": 42.34383028935859,
+          "endDevice": "mobile",
+          "isPaid": false
+        }
+      ],
+      "clockOut": {
+        "timestamp": "2026-08-05T23:25:59.995Z",
+        "type": "gps",
+        "lng": -88.27751775405402,
+        "device": "mobile",
+        "accuracy": 62.08872214298203,
+        "onSite": true,
+        "lat": 42.343732691994845
+      },
+      "status": "completed",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "payType": "hourly",
+      "isRemote": false,
+      "jobIds": [
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751"
+      ],
+      "staffName": "Adrian Benitez",
+      "jobs": [
+        {
+          "start": "2026-08-05T11:08:48.683Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-08-05T11:48:54.321Z",
+          "startLng": -88.27689775948234,
+          "taskId": "VTwExMohY4MvgEc95zKO",
+          "startLat": 42.3440353902133,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 2",
+          "bookTime": 1.5,
+          "taskName": "Labor:Cage:OS Buckle",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time"
+        },
+        {
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:Seat",
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 3",
+          "bookTime": 1,
+          "startLat": 42.3440353902133,
+          "startLng": -88.27689775948234,
+          "taskId": "toWT0QyCaLGW7QvNrZlk",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-08-05T11:49:18.097Z",
+          "end": "2026-08-05T11:54:27.491Z"
+        },
+        {
+          "startLat": 42.3440353902133,
+          "taskId": "eJ1KrRZpEZKtNNWNRkll",
+          "startLng": -88.27689775948234,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-08-05T11:54:22.596Z",
+          "end": "2026-08-05T12:36:54.006Z",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Vehicle:Rear",
+          "name": "RoscoePD 3",
+          "endLng": -88.27689775948234,
+          "bookTime": 1.5
+        },
+        {
+          "startLng": -88.27689775948234,
+          "taskId": "zqw366knEvGPr6ROEMzG",
+          "startLat": 42.3440353902133,
+          "start": "2026-08-05T12:47:41.576Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-08-05T13:15:21.476Z",
+          "taskName": "Labor:Vehicle:Rear",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "name": "RoscoePD 2",
+          "endLng": -88.27689775948234,
+          "bookTime": 1.5
+        },
+        {
+          "bookTime": 1.5,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 2",
+          "taskName": "Labor:Cage:OS Buckle",
+          "payBasis": "book_time",
+          "endLat": 42.3440353902133,
+          "end": "2026-08-05T13:32:32.749Z",
+          "start": "2026-08-05T13:30:02.861Z",
+          "id": "80000AD7-1764949516",
+          "startLng": -88.27689775948234,
+          "taskId": "VTwExMohY4MvgEc95zKO",
+          "startLat": 42.3440353902133
+        },
+        {
+          "taskName": "Labor:Camge:Seat",
+          "payBasis": "book_time",
+          "endLat": 42.3440353902133,
+          "bookTime": 1,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 2",
+          "taskId": "ho03QcKkeijpW11j3XEr",
+          "startLng": -88.27689775948234,
+          "startLat": 42.3440353902133,
+          "end": "2026-08-05T14:04:16.197Z",
+          "start": "2026-08-05T13:48:15.785Z",
+          "id": "80000AD7-1764949516"
+        },
+        {
+          "end": "2026-08-05T14:55:45.565Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-08-05T14:04:29.655Z",
+          "startLng": -88.27689775948234,
+          "taskId": "toWT0QyCaLGW7QvNrZlk",
+          "startLat": 42.3440353902133,
+          "bookTime": 1,
+          "name": "RoscoePD 3",
+          "endLng": -88.27689775948234,
+          "taskName": "Labor:Cage:Seat",
+          "payBasis": "book_time",
+          "endLat": 42.3440353902133
+        },
+        {
+          "start": "2026-08-05T14:56:05.091Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-08-05T15:09:54.766Z",
+          "startLat": 42.3440353902133,
+          "startLng": -88.27689775948234,
+          "taskId": "ho03QcKkeijpW11j3XEr",
+          "endLng": -87.620606,
+          "name": "RoscoePD 2",
+          "bookTime": 1,
+          "payBasis": "book_time",
+          "endLat": 41.875772,
+          "taskName": "Labor:Camge:Seat"
+        },
+        {
+          "payBasis": "book_time",
+          "endLat": null,
+          "taskName": "Labor:Cage:OS Buckle",
+          "bookTime": 1.5,
+          "endLng": null,
+          "name": "RoscoePD 2",
+          "startLat": 41.875772,
+          "taskId": "VTwExMohY4MvgEc95zKO",
+          "startLng": -87.620606,
+          "end": "2026-08-05T15:41:26.041Z",
+          "start": "2026-08-05T15:10:14.740Z",
+          "id": "80000AD7-1764949516"
+        },
+        {
+          "startLat": 41.875772,
+          "startLng": -87.620606,
+          "taskId": "S58lBkLwkAC95nzFT3bE",
+          "end": "2026-08-05T16:35:28.696Z",
+          "start": "2026-08-05T15:10:26.996Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:OS Buckle",
+          "bookTime": 1.5,
+          "name": "RoscoePD 3",
+          "endLng": -88.27689775948234
+        },
+        {
+          "end": "2026-08-05T17:42:36.057Z",
+          "start": "2026-08-05T17:30:22.340Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "startLat": 42.3440353902133,
+          "taskId": "S58lBkLwkAC95nzFT3bE",
+          "startLng": -88.27689775948234,
+          "bookTime": 1.5,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 3",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:OS Buckle"
+        },
+        {
+          "startLat": 42.3440353902133,
+          "startLng": -88.27689775948234,
+          "taskId": "Vsa61QvTjLY8Wq4MWQmt",
+          "end": "2026-08-05T18:17:43.975Z",
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-05T18:08:53.747Z",
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Cage:Gunlock",
+          "bookTime": 1,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 1"
+        },
+        {
+          "start": "2026-08-05T19:01:04.985Z",
+          "id": "80000AD9-1764960751",
+          "end": "2026-08-05T19:21:27.537Z",
+          "startLat": 42.3440353902133,
+          "taskId": "AD00rvJgIeHcM9V9SqCo",
+          "startLng": -88.27689775948234,
+          "endLng": -88.27689775948234,
+          "name": "RoscoePD 1",
+          "bookTime": 1.5,
+          "endLat": 42.3440353902133,
+          "payBasis": "book_time",
+          "taskName": "Labor:Console:Dock"
+        },
+        {
+          "startLng": -88.27689775948234,
+          "taskId": "Ps1YpqVHHxn9O0bI4NFs",
+          "startLat": 42.3440353902133,
+          "end": "2026-08-05T21:54:09.851Z",
+          "id": "80000AD9-1764960751",
+          "start": "2026-08-05T19:22:33.395Z",
+          "taskName": "Labor:Spotlight:Install",
+          "payBasis": "book_time",
+          "endLat": 42.34396444195908,
+          "bookTime": 5,
+          "endLng": -88.27683947942835,
+          "name": "RoscoePD 1"
+        }
+      ]
+    },
+    {
+      "id": "vh7CBXUsKxy7rZjkFhMX",
+      "jobIds": [
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751"
+      ],
+      "isRemote": true,
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "payType": "hourly",
+      "status": "completed",
+      "staffName": "Adrian Benitez",
+      "jobs": [
+        {
+          "endLng": -87.7845,
+          "name": "Roscoe #2",
+          "bookTime": 1,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Electrical Acc.:Speaker",
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-21T10:38:38.238Z",
+          "end": "2026-07-21T11:28:05.261Z",
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "keKjuOvBLYtTIQaxVlDd"
+        },
+        {
+          "taskName": "Labor::Vehicle:Fascia",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "name": "Roscoe #2",
+          "endLng": -87.7845,
+          "bookTime": 2,
+          "startLng": -87.7845,
+          "taskId": "gFM6wbJtoNNoYSGSaH0Y",
+          "startLat": 41.885,
+          "start": "2026-07-21T12:23:16.447Z",
+          "id": "80000AD7-1764949516",
+          "end": "2026-07-21T12:52:14.279Z"
+        },
+        {
+          "taskName": "Labor:Lighting:Light Head",
+          "taskId": "spBJS08wnnYsRVCOrOud",
+          "payBasis": "book_time",
+          "end": "2026-07-21T12:53:00.631Z",
+          "bookTime": 1,
+          "start": "2026-07-21T12:38:00.631Z",
+          "id": "80000AD7-1764949516",
+          "name": "Roscoe #2"
+        },
+        {
+          "taskName": "Labor::Vehicle:Fascia",
+          "payBasis": "book_time",
+          "endLat": null,
+          "bookTime": 2,
+          "endLng": null,
+          "name": "Roscoe #3",
+          "startLng": null,
+          "taskId": "pKFZjihBS7sSx6gPC20T",
+          "startLat": null,
+          "end": "2026-07-21T13:08:09.252Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-21T12:56:44.677Z"
+        },
+        {
+          "end": "2026-07-21T14:05:06.158Z",
+          "start": "2026-07-21T13:48:20.797Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "startLng": null,
+          "taskId": "1JO8Vlp5pg6ZKwjj8Dmr",
+          "startLat": null,
+          "bookTime": 1,
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "taskName": "Labor:Lighting:Light Head",
+          "payBasis": "book_time",
+          "endLat": 41.885
+        },
+        {
+          "payBasis": "book_time",
+          "taskId": "5AkKjAp49ugpXlOUD0CB",
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-21T14:05:24.036Z",
+          "bookTime": 1,
+          "name": "Roscoe #3",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-21T13:50:24.036Z"
+        },
+        {
+          "end": "2026-07-21T14:34:56.679Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-21T14:15:55.417Z",
+          "startLng": -87.7845,
+          "taskId": "2eeSmJWfuk3rDrmzoru4",
+          "startLat": 41.885,
+          "bookTime": 1,
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "taskName": "Labor:Electrical Acc.:Speaker",
+          "endLat": 41.885,
+          "payBasis": "book_time"
+        },
+        {
+          "taskId": "sbH7DLBet9R1BhlXDGOl",
+          "startLng": -87.7845,
+          "startLat": 41.885,
+          "start": "2026-07-21T15:32:13.680Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "end": "2026-07-21T16:04:58.187Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "bookTime": 1
+        },
+        {
+          "startLng": -87.7845,
+          "taskId": "w1GK8xWWa6EGR9UysVno",
+          "startLat": 41.885,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-21T16:24:45.045Z",
+          "end": "2026-07-21T16:53:13.262Z",
+          "taskName": "Labor:Lighting:Light Head",
+          "endLat": 41.885,
+          "payBasis": "book_time",
+          "endLng": -87.7845,
+          "name": "Roscoe #3",
+          "bookTime": 1
+        },
+        {
+          "bookTime": 1,
+          "name": "Roscoe #1",
+          "endLng": -87.7845,
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Lighting:Light Head",
+          "end": "2026-07-21T21:14:04.274Z",
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-21T20:51:34.197Z",
+          "startLat": 41.885,
+          "taskId": "yRFBfzZlwVJxloBfcQtV",
+          "startLng": -87.7845
+        }
+      ],
+      "createdAt": "2026-07-21T10:37:55.560Z",
+      "updatedAt": "2026-07-21T22:15:57.188Z",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "timestamp": "2026-07-21T10:37:55.560Z",
+        "accuracy": null,
+        "lat": null,
+        "onSite": false,
+        "lng": null
+      },
+      "clockOut": {
+        "onSite": false,
+        "lat": null,
+        "accuracy": null,
+        "lng": null,
+        "timestamp": "2026-07-21T22:15:57.188Z"
+      },
+      "breaks": [
+        {
+          "endLat": 41.885,
+          "suspendedJob": null,
+          "endLng": -87.7845,
+          "type": "lunch",
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "isPaid": false,
+          "start": "2026-07-21T17:51:30.260Z",
+          "end": "2026-07-21T18:23:49.213Z"
+        }
+      ]
+    },
+    {
+      "id": "xssaHEopNvFw73OVYcME",
+      "payType": "hourly",
+      "userId": "3xYvYIOXGVNyaHxfUYXh0LjyRlx1",
+      "status": "completed",
+      "jobIds": [
+        "80000AD7-1764949516",
+        "ACxx0uZM5tDD69UfQQ3U",
+        "80000AD9-1764960751"
+      ],
+      "isRemote": true,
+      "staffName": "Adrian Benitez",
+      "jobs": [
+        {
+          "name": "Roscoe #1",
+          "id": "80000AD7-1764949516",
+          "start": "2026-07-15T12:05:11.457Z",
+          "bookTime": 2,
+          "end": "2026-07-15T13:05:11.457Z",
+          "payBasis": "book_time",
+          "taskName": "Labor:Strip:Detective",
+          "taskId": "6nejIKtWgSYO5M55j3p9"
+        },
+        {
+          "name": "Roscoe #3",
+          "endLng": -87.7845,
+          "bookTime": 2,
+          "payBasis": "hourly",
+          "endLat": 41.885,
+          "taskName": "Labor:Stip",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-15T13:38:33.566Z",
+          "end": "2026-07-15T13:56:14.287Z",
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "mZcPMaVJvtTRLrwBKQ51"
+        },
+        {
+          "end": "2026-07-15T14:32:13.122Z",
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-15T14:09:55.097Z",
+          "startLng": -87.7845,
+          "taskId": "mZcPMaVJvtTRLrwBKQ51",
+          "startLat": 41.885,
+          "bookTime": 2,
+          "name": "Roscoe #3",
+          "endLng": -87.7845,
+          "taskName": "Labor:Stip",
+          "payBasis": "hourly",
+          "endLat": 41.885
+        },
+        {
+          "name": "Roscoe #3",
+          "endLng": -87.7845,
+          "bookTime": 2,
+          "taskName": "Labor:Stip",
+          "payBasis": "hourly",
+          "endLat": 41.885,
+          "id": "ACxx0uZM5tDD69UfQQ3U",
+          "start": "2026-07-15T14:34:57.593Z",
+          "end": "2026-07-15T15:10:11.548Z",
+          "startLng": -87.7845,
+          "taskId": "mZcPMaVJvtTRLrwBKQ51",
+          "startLat": 41.885
+        },
+        {
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "bookTime": 2,
+          "taskName": "Labor::Vehicle:Fascia",
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "start": "2026-07-15T16:46:03.386Z",
+          "id": "80000AD9-1764960751",
+          "end": "2026-07-15T17:02:13.078Z",
+          "startLng": -87.7845,
+          "taskId": "Gya6snZLGhpxbHif21yK",
+          "startLat": 41.885
+        },
+        {
+          "payBasis": "book_time",
+          "endLat": 41.885,
+          "taskName": "Labor:Electrical Acc.:Speaker",
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "bookTime": 1,
+          "startLat": 41.885,
+          "startLng": -87.7845,
+          "taskId": "7PcVU8MwBiZGcRoSMw7E",
+          "id": "80000AD9-1764960751",
+          "start": "2026-07-15T18:34:11.908Z",
+          "end": "2026-07-15T19:08:56.321Z"
+        },
+        {
+          "startLng": -87.7845,
+          "taskId": "lTEWF9SauQ85zvaDP2m6",
+          "startLat": 41.885,
+          "start": "2026-07-15T19:53:54.975Z",
+          "id": "80000AD9-1764960751",
+          "end": "2026-07-15T20:56:35.616Z",
+          "taskName": "Labor:Wring",
+          "endLat": 41.885,
+          "payBasis": "hourly",
+          "endLng": -87.7845,
+          "name": "Roscoe #1",
+          "bookTime": 2
+        }
+      ],
+      "createdAt": "2026-07-15T10:18:03.679Z",
+      "updatedAt": "2026-07-15T21:36:35.927Z",
+      "userName": "Adrian Benitez",
+      "clockIn": {
+        "lng": null,
+        "accuracy": null,
+        "lat": null,
+        "onSite": false,
+        "timestamp": "2026-07-15T10:18:03.679Z"
+      },
+      "clockOut": {
+        "timestamp": "2026-07-15T21:36:35.927Z",
+        "onSite": false,
+        "lat": null,
+        "accuracy": null,
+        "lng": null
+      },
+      "breaks": [
+        {
+          "start": "2026-07-15T17:30:03.372Z",
+          "end": "2026-07-15T18:09:17.194Z",
+          "startLng": -87.7845,
+          "type": "lunch",
+          "startLat": 41.885,
+          "isPaid": false,
+          "endLng": -87.7845,
+          "suspendedJob": null,
+          "endLat": 41.885
+        }
+      ]
+    }
+  ]
+}

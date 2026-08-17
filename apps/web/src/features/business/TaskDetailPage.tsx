@@ -882,7 +882,7 @@ export function TaskDetailPage({
     const statusLower = (currentStatus || '').toLowerCase();
     if (statusLower === 'pending' || statusLower === 'in_progress' || statusLower === 'blocked' || statusLower === 'rework') {
       nextStatus = 'QC'; 
-    } else if (statusLower === 'qc') {
+    } else if (statusLower === 'qc' || statusLower === 'completed') {
       if (action === 'fail') {
         nextStatus = 'Rework';
       } else {
@@ -918,15 +918,43 @@ export function TaskDetailPage({
         if (!task?.completedAt) {
           updateData.completedAt = new Date().toISOString();
         }
-        updateData.completedBy = user?.displayName || user?.email;
-        updateData.completedByStaffId = staffMember?.id || effectiveUserId;
-        updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        updateData.closedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+
+        if (!task?.completedByStaffId) {
+          const assignedTech = Array.isArray(task?.assignedStaff) && task.assignedStaff.length > 0 ? task.assignedStaff[0] : null;
+          if (assignedTech?.id) {
+            updateData.completedByStaffId = assignedTech.id;
+            updateData.completedByStaffName = assignedTech.name || 'Technician';
+            updateData.completedBy = assignedTech.name || 'Technician';
+          } else if (task?.assignedTechId) {
+            updateData.completedByStaffId = task.assignedTechId;
+            updateData.completedByStaffName = task.assignedTechName || 'Technician';
+            updateData.completedBy = task.assignedTechName || 'Technician';
+          } else {
+            updateData.completedBy = user?.displayName || user?.email;
+            updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+            updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+          }
+        }
       } else if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email;
         if (!task?.completedByStaffId) {
-          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
-          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+          const assignedTech = Array.isArray(task?.assignedStaff) && task.assignedStaff.length > 0 ? task.assignedStaff[0] : null;
+          if (assignedTech?.id) {
+            updateData.completedByStaffId = assignedTech.id;
+            updateData.completedByStaffName = assignedTech.name || 'Technician';
+            updateData.completedBy = assignedTech.name || 'Technician';
+          } else if (task?.assignedTechId) {
+            updateData.completedByStaffId = task.assignedTechId;
+            updateData.completedByStaffName = task.assignedTechName || 'Technician';
+            updateData.completedBy = task.assignedTechName || 'Technician';
+          } else {
+            updateData.completedBy = user?.displayName || user?.email;
+            updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+            updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+          }
         }
       } else if (nextStatus === 'Rework') {
         updateData.qcFailedAt = new Date().toISOString();
@@ -1094,12 +1122,12 @@ export function TaskDetailPage({
               <span className={cn(
                 "px-2 py-1 rounded text-xs font-black uppercase tracking-tighter",
                 task.status === 'QC' ? "bg-amber-500/10 text-amber-600" :
-                task.status === 'QC Complete' ? "bg-emerald-500/10 text-emerald-600" :
+                task.status === 'QC Complete' || task.status === 'completed' || task.status === 'Completed' ? "bg-emerald-500/10 text-emerald-600" :
                 task.status === 'Blocked' ? "bg-rose-500/10 text-rose-600" :
                 task.status === 'Rework' || task.isRework ? "bg-rose-500/10 text-rose-600 border border-rose-500/20" :
                 "bg-indigo-500/10 text-indigo-600"
               )}>
-                {task.status || 'Pending'}
+                {task.status === 'QC' ? 'Awaiting QC' : (task.status || 'Pending')}
               </span>
               {(() => {
                 const bookHours = parseFloat(task.bookTime) || 0;

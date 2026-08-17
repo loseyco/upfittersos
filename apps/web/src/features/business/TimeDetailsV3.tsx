@@ -9,7 +9,7 @@ import {
   Clock, Play, Square, Coffee, Pizza, 
   ChevronLeft, ChevronRight,
   Wrench, RefreshCw, AlertCircle, Check, X,
-  Loader2, Plus, Calendar, ShieldAlert, Terminal, Copy, Bug, Info, Layers
+  Loader2, Plus, Calendar, Terminal, Copy, Bug, Info
 } from 'lucide-react';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { useJobClock } from '../timeclock/useJobClock';
@@ -139,8 +139,8 @@ const calculateSessionGaps = (ses: any, currentTime: number) => {
         je = currentTime;
       }
     }
-    if (je) {
-      occupied.push({ start: js, end: je });
+    if (je && je > js && js <= sEndMs) {
+      occupied.push({ start: Math.max(js, sStartMs), end: Math.min(je, sEndMs) });
     }
   });
 
@@ -251,6 +251,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   const [isClockProcessing, setIsClockProcessing] = useState(false);
   const [editingGapKey, setEditingGapKey] = useState<string | null>(null);
   const [isAddingMissingShift, setIsAddingMissingShift] = useState(false);
+
 
   const saveGapNote = async (sessionId: string, gapStart: number, noteText: string) => {
     if (!tenantId || !sessionId) return;
@@ -1169,6 +1170,59 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     };
   }, [tenantId, effectiveUserUid, staffMember?.id]);
 
+  // Data re-attribution for Job #2445887470 task credit to Patrick Losey
+  useEffect(() => {
+    if (!tenantId) return;
+    const reattributeJob2445887470 = async () => {
+      try {
+        const staffSnap = await getDocs(collection(db, `businesses/${tenantId}/staff`));
+        const patrickDoc = staffSnap.docs.find(dDoc => {
+          const d = dDoc.data();
+          const fullName = `${d.firstName || d.name || ''} ${d.lastName || ''}`.toLowerCase();
+          return fullName.includes('patrick') || fullName.includes('losey');
+        });
+
+        const patrickId = patrickDoc ? patrickDoc.id : (staffMember?.id || effectiveUserUid);
+        const patrickData = patrickDoc ? patrickDoc.data() : null;
+        const patrickName = patrickData ? `${patrickData.firstName || patrickData.name || 'Patrick'} ${patrickData.lastName || 'Losey'}`.trim() : 'Patrick Losey';
+
+        const qTasks = query(
+          collectionGroup(db, 'tasks'),
+          where('tenantId', '==', tenantId)
+        );
+        const snap = await getDocs(qTasks);
+        snap.docs.forEach(async (d) => {
+          const data = d.data();
+          const path = d.ref.path;
+          const isTargetJob = path.includes('2445887470') || data.jobNumber === '2445887470' || data.jobTitle?.includes('2445887470') || data.name?.includes('INTOXALOCK') || data.title?.includes('INTOXALOCK');
+          if (isTargetJob) {
+            const compId = (data.completedByStaffId || '').toLowerCase();
+            const compName = (data.completedByStaffName || data.completedBy || '').toLowerCase();
+            const assignedIds = Array.isArray(data.assignedStaffIds) ? data.assignedStaffIds : [];
+
+            if (compId !== patrickId.toLowerCase() || !compName.includes('patrick') || assignedIds.some((id: string) => id !== patrickId)) {
+              await updateDoc(d.ref, {
+                completedByStaffId: patrickId,
+                completedByStaffName: patrickName,
+                completedBy: patrickName,
+                assignedTo: patrickId,
+                assignedTechId: patrickId,
+                assignedTechName: patrickName,
+                assignedStaffIds: [patrickId],
+                assignedStaff: [{ id: patrickId, userId: patrickId, name: patrickName, displayName: patrickName }],
+                status: data.status || 'QC'
+              });
+              console.log("Reassigned Job #2445887470 task completion & assignment completely to Patrick Losey:", patrickId, patrickName);
+            }
+          }
+        });
+      } catch (err) {
+        console.warn("Reattribute job 2445887470 warning:", err);
+      }
+    };
+    reattributeJob2445887470();
+  }, [tenantId, effectiveUserUid, staffMember?.id]);
+
   // Calculate Pay Period Dates based on Business payroll setting
   const payrollDetails = useMemo(() => {
     const today = new Date();
@@ -1317,10 +1371,10 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         periodUnallocatedMs += (gap.end - gap.start);
       });
 
-      // Sum hourly & unallocated task clocked time
+      // Sum task clocked time (TIME ON TASK)
       (session.jobs || []).forEach((j: any) => {
         const isUnassigned = j.id === 'unassigned' || j.taskId === 'unassigned' || (j.name || '').toLowerCase().includes('unassigned');
-        if (j.payBasis === 'hourly' || isUnassigned) {
+        if (!isUnassigned) {
           const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
           const end = j.end 
             ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) 
@@ -1344,46 +1398,21 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       const compMs = getCompletedDateMs(t);
       if (!compMs || compMs < startOfWeekMs || compMs > endOfWeekMs) return;
 
-      if (t.payBasis !== 'hourly') {
-        const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
-        const staffName = staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}`.trim() : '';
-        
-        // RULE: Check if staff member actually clocked into this task when clock-ins exist
-        const clockedStaffMap = new Map<string, number>();
-        sessions.forEach(s => {
-          const sStaffId = s.userId || s.staffId;
-          const sStaffName = (s.userName || s.staffName || '').trim().toLowerCase();
-          (s.jobs || []).forEach((j: any) => {
-            const matchTaskId = j.taskId && j.taskId === t.id;
-            const matchJobAndName = j.id === t.jobId && (j.taskName || j.name || '').trim().toLowerCase() === (t.title || t.name || '').trim().toLowerCase();
-            if (matchTaskId || matchJobAndName) {
-              const key = sStaffId || sStaffName;
-              if (key) {
-                const startMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-                const endMs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-                const durSec = Math.max(0, (endMs - startMs) / 1000);
-                clockedStaffMap.set(key, (clockedStaffMap.get(key) || 0) + durSec);
-              }
-            }
-          });
-        });
+      const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
+      const sName = (staffMember?.name || staffMember?.displayName || '').trim().toLowerCase();
+      
+      const isCompleter = (t.completedByStaffId && (t.completedByStaffId === staffId || t.completedByStaffId === staffMember?.userId)) ||
+                        (t.completedByStaffName && t.completedByStaffName.trim().toLowerCase() === sName);
 
-        if (clockedStaffMap.size > 0) {
-          const targetKey = staffId || staffName.toLowerCase();
-          const clockedSec = clockedStaffMap.get(targetKey) || 0;
-          if (clockedSec === 0) return; // EXCLUDE: assigned staff did not clock into this completed task!
+      const isAssigned = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.includes(staffId)) ||
+                        (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffId || st.id === staffMember?.userId));
 
-          const totalClockedSec = Array.from(clockedStaffMap.values()).reduce((a, b) => a + b, 0);
-          const shareRatio = totalClockedSec > 0 ? (clockedSec / totalClockedSec) : (1 / clockedStaffMap.size);
-          const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-          periodBookMs += taskBookHours * 3600000;
-        } else {
-          const assignedStaffCount = t.assignedStaffIds?.length || 1;
-          const splitPercent = t.splitPercent || (100 / assignedStaffCount);
-          const shareRatio = splitPercent / 100;
-          const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-          periodBookMs += taskBookHours * 3600000;
-        }
+      if (isCompleter || isAssigned) {
+        const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
+        const splitPercent = t.splitPercent || (100 / assignedCount);
+        const shareRatio = (isCompleter && !isAssigned) ? 1 : (splitPercent / 100);
+        const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+        periodBookMs += taskBookHours * 3600000;
       }
     });
 
@@ -1399,6 +1428,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   const buildSessionTimeline = (ses: any) => {
     const list: TimelineEvent[] = [];
     const sStartMs = getMs(ses.clockIn?.timestamp);
+    const sEndMs = ses.clockOut?.timestamp ? getMs(ses.clockOut.timestamp) : currentTime;
 
     const getDistanceLabel = (locLat: any, locLng: any) => {
       if (locLat === undefined || locLng === undefined || locLat === null || locLng === null) return '';
@@ -1486,6 +1516,11 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         } else if (ses.status === 'active' && !j.end) {
           jobEndMs = currentTime;
         }
+      }
+      
+      // GUARD: Ignore corrupted job segments that start after session clock out or end before start
+      if (jobStartMs >= sEndMs || (jobEndMs && jobEndMs < jobStartMs)) {
+        return;
       }
       
       const fullJob = allJobs.find(job => job.id === j.id);
@@ -2116,43 +2151,33 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         )}
 
         {/* Period Stats summary row */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-3 border-t border-zinc-150 dark:border-zinc-805/50">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-zinc-150 dark:border-zinc-805/50">
           <div 
-            onClick={() => openInspector("Metric Summary: Time Clock (Shift Hours)", "metric_summary", metricsData, undefined, undefined, { metric: 'totalShiftHours', value: metricsData.totalShiftHours })}
+            onClick={() => openInspector("Metric Summary: Clocked In Time", "metric_summary", metricsData, undefined, undefined, { metric: 'totalShiftHours', value: metricsData.totalShiftHours })}
             className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
-            title="Click to inspect Time Clock calculation"
+            title="Click to inspect Clocked In Time (Total Shift Hours)"
           >
-            <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">TIME CLOCK</span>
+            <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">CLOCKED IN TIME</span>
             <span className="text-xs font-mono font-black text-zinc-900 dark:text-white mt-1">
               {metricsData.totalShiftHours.toFixed(2)}h
             </span>
           </div>
           <div 
-            onClick={() => openInspector("Metric Summary: Total Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalLabor', value: metricsData.totalHourlyHours + metricsData.totalBookHours })}
-            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-emerald-500/[0.02] border-emerald-500/10 cursor-pointer hover:bg-emerald-500/[0.06] transition-colors"
-            title="Click to inspect Total Labor calculation"
+            onClick={() => openInspector("Metric Summary: Book Time Completed", "metric_summary", metricsData, undefined, undefined, { metric: 'totalBookHours', value: metricsData.totalBookHours })}
+            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-indigo-500/[0.02] border-indigo-500/10 cursor-pointer hover:bg-indigo-500/[0.06] transition-colors"
+            title="Click to inspect Book Time Completed"
           >
-            <span className="text-[8px] font-black text-emerald-600 dark:text-emerald-450 uppercase tracking-widest leading-none">TOTAL LABOR</span>
-            <span className="text-xs font-mono font-black text-emerald-655 dark:text-emerald-400 mt-1">
-              {(metricsData.totalHourlyHours + metricsData.totalBookHours).toFixed(2)}h
-            </span>
-          </div>
-          <div 
-            onClick={() => openInspector("Metric Summary: Book Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalBookHours', value: metricsData.totalBookHours })}
-            className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
-            title="Click to inspect Book Labor calculation"
-          >
-            <span className="text-[8px] font-black text-zinc-450 dark:text-zinc-500 uppercase tracking-widest leading-none">BOOK LABOR</span>
+            <span className="text-[8px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest leading-none">BOOK TIME COMPLETED</span>
             <span className="text-xs font-mono font-black text-indigo-650 dark:text-indigo-400 mt-1">
               {metricsData.totalBookHours.toFixed(2)}h
             </span>
           </div>
           <div 
-            onClick={() => openInspector("Metric Summary: Hourly Labor", "metric_summary", metricsData, undefined, undefined, { metric: 'totalHourlyHours', value: metricsData.totalHourlyHours })}
+            onClick={() => openInspector("Metric Summary: Time On Task", "metric_summary", metricsData, undefined, undefined, { metric: 'totalHourlyHours', value: metricsData.totalHourlyHours })}
             className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-violet-500/[0.02] border-violet-500/10 cursor-pointer hover:bg-violet-500/[0.06] transition-colors"
-            title="Click to inspect Hourly Labor calculation"
+            title="Click to inspect Time On Task"
           >
-            <span className="text-[8px] font-black text-violet-500 uppercase tracking-widest leading-none">HOURLY LABOR</span>
+            <span className="text-[8px] font-black text-violet-500 uppercase tracking-widest leading-none">TIME ON TASK</span>
             <span className="text-xs font-mono font-black text-violet-650 dark:text-violet-400 mt-1">
               {metricsData.totalHourlyHours.toFixed(2)}h
             </span>
@@ -2162,7 +2187,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
             className="bg-zinc-50 dark:bg-zinc-955 p-2 rounded-2xl border border-zinc-200/40 dark:border-zinc-800/80 flex flex-col items-center text-center bg-amber-500/[0.02] border-amber-500/10 cursor-pointer hover:bg-amber-500/[0.06] transition-colors"
             title="Click to inspect Unallocated Time calculation"
           >
-            <span className="text-[8px] font-black text-amber-600 dark:text-amber-450 uppercase tracking-widest leading-none">UNALLOCATED</span>
+            <span className="text-[8px] font-black text-amber-600 dark:text-amber-450 uppercase tracking-widest leading-none">UNALLOCATED TIME</span>
             <span className="text-xs font-mono font-black text-amber-650 dark:text-amber-400 mt-1">
               {metricsData.totalUnallocatedHours.toFixed(2)}h
             </span>
@@ -2199,10 +2224,10 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
               const breakMs = calculateBreaksMs(session);
               dayShiftMs += (totalMs - breakMs);
 
-              // Hourly Labor: sum clocked task durations
+              // Sum clocked task durations (TIME ON TASK)
               (session.jobs || []).forEach((j: any) => {
                 const isUnassigned = j.id === 'unassigned' || j.taskId === 'unassigned' || (j.name || '').toLowerCase().includes('unassigned');
-                if (j.payBasis === 'hourly' || isUnassigned) {
+                if (!isUnassigned) {
                   const start = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
                   const end = j.end 
                     ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) 
@@ -2238,47 +2263,68 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                const zone = zones.find(z => z.id === fullJob?.bayId);
                const bayName = zone?.name || fullJob?.zoneName || '';
 
-               const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
-               const staffName = staffMember ? `${staffMember.firstName || staffMember.name || ''} ${staffMember.lastName || ''}`.trim() : '';
+                const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
+                const sName = (staffMember?.name || staffMember?.displayName || '').trim().toLowerCase();
 
-               const clockedStaffMap = new Map<string, number>();
-               sessions.forEach(s => {
-                 const sStaffId = s.userId || s.staffId;
-                 const sStaffName = (s.userName || s.staffName || '').trim().toLowerCase();
-                 (s.jobs || []).forEach((j: any) => {
-                   const matchTaskId = j.taskId && j.taskId === t.id;
-                   const matchJobAndName = j.id === t.jobId && (j.taskName || j.name || '').trim().toLowerCase() === (t.title || t.name || '').trim().toLowerCase();
-                   if (matchTaskId || matchJobAndName) {
-                     const key = sStaffId || sStaffName;
-                     if (key) {
-                       const startMs = j.start?.toDate ? j.start.toDate().getTime() : new Date(j.start).getTime();
-                       const endMs = j.end ? (j.end.toDate ? j.end.toDate().getTime() : new Date(j.end).getTime()) : Date.now();
-                       const durSec = Math.max(0, (endMs - startMs) / 1000);
-                       clockedStaffMap.set(key, (clockedStaffMap.get(key) || 0) + durSec);
-                     }
+                const isCompleter = (t.completedByStaffId && (t.completedByStaffId === staffId || t.completedByStaffId === staffMember?.userId)) ||
+                                  (t.completedByStaffName && t.completedByStaffName.trim().toLowerCase() === sName);
+
+                const isAssigned = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.includes(staffId)) ||
+                                  (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffId || st.id === staffMember?.userId));
+
+                 // Calculate actual logged labor milliseconds for current staff vs all staff on this task
+                 let totalTaskClockedMs = 0;
+                 let currentStaffTaskClockedMs = 0;
+
+                 if (Array.isArray(sessions)) {
+                   sessions.forEach((session: any) => {
+                     const isCurrentTech = session.userId === staffId || session.userId === staffMember?.userId || session.userId === staffMember?.id;
+                     (session.jobs || []).forEach((jTask: any) => {
+                       if (jTask.taskId === t.id || jTask.id === t.id) {
+                         const start = jTask.start?.toDate ? jTask.start.toDate().getTime() : new Date(jTask.start).getTime();
+                         let endMs = Date.now();
+                         if (jTask.end) {
+                           endMs = jTask.end.toDate ? jTask.end.toDate().getTime() : new Date(jTask.end).getTime();
+                         } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+                           const clockOutVal = session.clockOut?.timestamp;
+                           if (clockOutVal) {
+                             endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+                           } else {
+                             const updatedVal = session.updatedAt || session.createdAt;
+                             endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+                           }
+                         }
+                         const dur = Math.max(0, endMs - start);
+                         totalTaskClockedMs += dur;
+                         if (isCurrentTech) {
+                           currentStaffTaskClockedMs += dur;
+                         }
+                       }
+                     });
+                   });
+                 }
+
+                 let shareRatio = 0;
+                 if (totalTaskClockedMs > 0) {
+                   // Labor sessions exist for this task: credit is split strictly by actual clocked time!
+                   // If current staff clocked 0 mins on this task, shareRatio is 0!
+                   shareRatio = currentStaffTaskClockedMs / totalTaskClockedMs;
+                 } else {
+                   // No clocked labor sessions recorded for this task:
+                   if (isCompleter) {
+                     shareRatio = 1;
+                   } else if (isAssigned && !t.completedByStaffId && !t.completedByStaffName) {
+                     const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
+                     const splitPercent = t.splitPercent || (100 / assignedCount);
+                     shareRatio = splitPercent / 100;
                    }
-                 });
-               });
+                 }
 
-               let taskBookHours = 0;
-               if (clockedStaffMap.size > 0) {
-                 const targetKey = staffId || staffName.toLowerCase();
-                 const clockedSec = clockedStaffMap.get(targetKey) || 0;
-                 if (clockedSec === 0) return; // EXCLUDE: assigned staff member did NOT clock into this completed task!
+                 if (shareRatio <= 0) return;
 
-                 const totalClockedSec = Array.from(clockedStaffMap.values()).reduce((a, b) => a + b, 0);
-                 const shareRatio = totalClockedSec > 0 ? (clockedSec / totalClockedSec) : (1 / clockedStaffMap.size);
-                 taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-               } else {
-                 const assignedStaffCount = t.assignedStaffIds?.length || 1;
-                 const splitPercent = t.splitPercent || (100 / assignedStaffCount);
-                 const shareRatio = splitPercent / 100;
-                 taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-               }
+                 const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
 
-               if (t.payBasis !== 'hourly') {
-                 dayBookMs += taskBookHours * 3600000;
-               }
+                dayBookMs += taskBookHours * 3600000;
 
                combinedTimeline.push({
                  id: `completed-task-${t.id}`,
@@ -2322,11 +2368,11 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                   </div>
                   <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold text-zinc-400 dark:text-zinc-550 uppercase leading-none mt-1">
                     <span>
-                      HOURLY WORKED: <span className="font-mono text-zinc-805 dark:text-zinc-300">{(dayHourlyMs / 3600000).toFixed(2)}h</span>
+                      TIME ON TASK: <span className="font-mono text-zinc-805 dark:text-zinc-300">{(dayHourlyMs / 3600000).toFixed(2)}h</span>
                     </span>
                     <span className="text-zinc-300 dark:text-zinc-750">|</span>
                     <span>
-                      BOOK WORKED: <span className="font-mono text-zinc-805 dark:text-zinc-300">{(dayBookMs / 3600000).toFixed(2)}h</span>
+                      BOOK TIME COMPLETED: <span className="font-mono text-zinc-805 dark:text-zinc-300">{(dayBookMs / 3600000).toFixed(2)}h</span>
                     </span>
                     <span className="text-zinc-300 dark:text-zinc-750">|</span>
                     <span className="text-amber-600 dark:text-amber-450">
@@ -2968,6 +3014,13 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
+      {isAddingMissingShift && (
+        <AddMissingShiftModalInline
+          onClose={() => setIsAddingMissingShift(false)}
+          onSave={handleCreateMissingShift}
+        />
+      )}
+
     </div>
   );
 }
@@ -3346,7 +3399,6 @@ function AddMissingShiftModalInline({ onClose, onSave }: AddMissingShiftModalPro
         className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 animate-in zoom-in-95 duration-200 flex flex-col"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-emerald-500/10 rounded-xl">
@@ -3367,7 +3419,6 @@ function AddMissingShiftModalInline({ onClose, onSave }: AddMissingShiftModalPro
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-5 flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Shift Date</label>
@@ -3421,7 +3472,6 @@ function AddMissingShiftModalInline({ onClose, onSave }: AddMissingShiftModalPro
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-955 flex items-center justify-end gap-2.5">
           <button
             onClick={onClose}

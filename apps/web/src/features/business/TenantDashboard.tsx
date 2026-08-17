@@ -48,6 +48,7 @@ import { StaffProfilePage } from './StaffProfilePage';
 import { OrgChartPage } from './OrgChartPage';
 import { ReportsManager } from './ReportsManager';
 import { AuditManager } from './AuditManager';
+import { PayrollAuditWorksheet } from './PayrollAuditWorksheet';
 import { StaffPerformance } from './StaffPerformance';
 import { JobsManager } from './JobsManager';
 import { CustomersManager } from './CustomersManager';
@@ -63,6 +64,7 @@ import { QuickBooksSyncPage } from './QuickBooksSyncPage';
 import { QuickBooksAudit } from './QuickBooksAudit';
 import { QBJobDetailsPlaceholder } from './QBJobDetailsPlaceholder';
 import { JobDetailPage } from './JobDetailPage';
+import { JobDetailPageV3 } from './JobDetailPageV3';
 import { JobEfficiencyPage } from './JobEfficiencyPage';
 import { JobEditPage } from './JobEditPage';
 import { JobQCPage } from './JobQCPage';
@@ -101,6 +103,7 @@ import { PageAnalyticsDashboard } from './PageAnalyticsDashboard';
 import { usePageAnalytics } from '../../lib/telemetry/usePageAnalytics';
 import { SafetyManager } from './safety/SafetyManager';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
+import { UpfittersDesktopOS } from '../desktop/UpfittersDesktopOS';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -116,7 +119,7 @@ export function TenantDashboard() {
     overview_classic: 'My Jobs & Todos (Classic)',
     locations: 'Staff Locations',
     staff_sheet: 'Staff Sheet (v3)',
-    time_sheet: 'Time Logs Sheet (v3)',
+    time_sheet: 'Time Clock Sheet',
     vehicles_sheet: 'Vehicles Sheet (v3)',
     jobs_sheet: 'Jobs Sheet (v3)',
     tasks_sheet: 'Tasks Sheet (v3)',
@@ -499,6 +502,10 @@ export function TenantDashboard() {
               </PermissionGate>
             )}
 
+            {activeTab === 'desktop' && (
+              <UpfittersDesktopOS tenantId={tenantId!} />
+            )}
+
             {activeTab === 'quickdesk' && (
               <PermissionGate permission="quickdesk.view">
                 <QuickDesk tenantId={tenantId!} />
@@ -691,6 +698,10 @@ export function TenantDashboard() {
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
               <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+            )}
+
+            {activeTab === 'jobv3' && (
+              <JobDetailPageV3 tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
             )}
 
             {activeTab === 'job' && pathParts[2] === 'efficiency' && (
@@ -927,7 +938,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'conference_control' && (
-              <PermissionGate permission="development.view">
+              <PermissionGate permissions={['facility.view', 'development.view']}>
                 <ConferenceControlPanel tenantId={tenantId!} />
               </PermissionGate>
             )}
@@ -939,7 +950,7 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'time_sheet' && (
-              <PermissionGate permission="development.view">
+              <PermissionGate permissions={['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view']}>
                 <TimeclockSpreadsheet tenantId={tenantId!} />
               </PermissionGate>
             )}
@@ -983,6 +994,12 @@ export function TenantDashboard() {
             {(activeTab === 'yellowsheets' || activeTab === 'yellowsheet') && (
               <PermissionGate permissions={['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'development.view', 'timeclock.manage']}>
                 <YellowSheets tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'payroll_audit_worksheet' && (
+              <PermissionGate permissions={['yellow_sheets.view', 'office.view', 'foreman.view', 'development.view', 'reports.view']}>
+                <PayrollAuditWorksheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 

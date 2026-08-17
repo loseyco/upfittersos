@@ -121,11 +121,18 @@ function resolveCollectionPath(target) {
 /**
  * List/fetch documents from a collection with optional limit & page token
  */
-async function fetchCollectionDocs(collectionPath, limit = 50) {
-  const url = `${BASE_URL}/${collectionPath}?pageSize=${Math.min(limit, 300)}`;
-  const res = await makeRequest(url);
-  const docs = res.documents || [];
-  return docs.map(parseDoc);
+async function fetchCollectionDocs(collectionPath, limit = 0) {
+  let allDocs = [];
+  let pageToken = '';
+  do {
+    const url = `${BASE_URL}/${collectionPath}?pageSize=300${pageToken ? '&pageToken=' + pageToken : ''}`;
+    const res = await makeRequest(url);
+    const docs = (res.documents || []).map(parseDoc);
+    allDocs = allDocs.concat(docs);
+    pageToken = res.nextPageToken || '';
+    if (limit > 0 && allDocs.length >= limit) break;
+  } while (pageToken);
+  return limit > 0 ? allDocs.slice(0, limit) : allDocs;
 }
 
 /**

@@ -10,7 +10,10 @@ export interface GeoLocation {
 
 export async function getIpLocation(): Promise<GeoLocation> {
   try {
-    const res = await fetch('https://ipapi.co/json/');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) throw new Error(`ipapi.co returned status ${res.status}`);
     const data = await res.json();
     if (typeof data.latitude === 'number' && typeof data.longitude === 'number') {
@@ -24,7 +27,10 @@ export async function getIpLocation(): Promise<GeoLocation> {
   } catch (err) {
     console.warn("Failed to resolve IP location from ipapi.co fallback:", err);
     try {
-      const res = await fetch('https://freeipapi.com/api/json');
+      const controller2 = new AbortController();
+      const timer2 = setTimeout(() => controller2.abort(), 1500);
+      const res = await fetch('https://freeipapi.com/api/json', { signal: controller2.signal });
+      clearTimeout(timer2);
       if (!res.ok) throw new Error(`freeipapi.com returned status ${res.status}`);
       const data = await res.json();
       if (typeof data.latitude === 'number' && typeof data.longitude === 'number') {

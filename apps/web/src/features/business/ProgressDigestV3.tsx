@@ -245,7 +245,6 @@ export function ProgressDigestV3({ tenantId }: ProgressDigestV3Props) {
           const isCompletedByStaff = Boolean(
             (t.completedByStaffId && (t.completedByStaffId === st.id || t.completedByStaffId === st.userId)) ||
             (t.completedBy && (t.completedBy === st.id || t.completedBy === st.userId || t.completedBy === st.email)) ||
-            (t.assignedTo && (t.assignedTo === st.id || t.assignedTo === st.userId)) ||
             (t.completedByStaffName && stNameLower.includes(t.completedByStaffName.toLowerCase().trim())) ||
             (t.completedBy && typeof t.completedBy === 'string' && stNameLower.includes(t.completedBy.toLowerCase().trim()))
           );

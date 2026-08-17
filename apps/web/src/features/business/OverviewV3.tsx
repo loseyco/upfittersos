@@ -28,7 +28,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
   const isTaskCompleted = (status?: string) => {
     if (!status) return false;
-    return ['completed', 'QC', 'QC Complete'].includes(status);
+    return ['completed', 'Completed', 'QC', 'QC Complete'].includes(status);
   };
 
   // States
@@ -825,7 +825,7 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
             title: whatDidYouDo || 'Unassigned Task',
             description: whatDidYouDo || '',
             notes: whatDidYouDo || '',
-            status: 'completed',
+            status: 'QC',
             completedAt: new Date(),
             assignedStaff: staffObj,
             assignedStaffIds: staffMember?.id ? [staffMember.id] : [],
@@ -1006,14 +1006,39 @@ export function OverviewV3({ tenantId }: { tenantId: string }) {
 
   const handleToggleTaskStatus = async (taskId: string, jobId: string, currentStatus: string) => {
     try {
-      const newStatus = isTaskCompleted(currentStatus) ? 'pending' : 'completed';
+      const isDone = isTaskCompleted(currentStatus);
+      const newStatus = isDone ? 'pending' : 'QC';
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId);
-      await updateDoc(taskRef, {
+      const updateData: any = {
         status: newStatus,
-        completedAt: newStatus === 'completed' ? new Date().toISOString() : null,
         updatedAt: serverTimestamp()
-      });
-      toast.success(`Task marked as ${newStatus}`);
+      };
+      if (newStatus === 'QC') {
+        updateData.completedAt = new Date().toISOString();
+        updateData.closedByStaffId = staffMember?.id || effectiveUserId;
+        updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+
+        // Credit assigned technician if present, else acting user
+        const targetTask = myTasks.find((t: any) => t.id === taskId);
+        const assignedTech = Array.isArray(targetTask?.assignedStaff) && targetTask.assignedStaff.length > 0 ? targetTask.assignedStaff[0] : null;
+        if (assignedTech?.id) {
+          updateData.completedByStaffId = assignedTech.id;
+          updateData.completedByStaffName = assignedTech.name || 'Technician';
+          updateData.completedBy = assignedTech.name || 'Technician';
+        } else if (targetTask?.assignedTechId) {
+          updateData.completedByStaffId = targetTask.assignedTechId;
+          updateData.completedByStaffName = targetTask.assignedTechName || 'Technician';
+          updateData.completedBy = targetTask.assignedTechName || 'Technician';
+        } else {
+          updateData.completedBy = user?.displayName || user?.email;
+          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
+          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+        }
+      } else {
+        updateData.completedAt = null;
+      }
+      await updateDoc(taskRef, updateData);
+      toast.success(newStatus === 'QC' ? 'Task submitted for QC' : 'Task status reverted to pending');
     } catch (err) {
       toast.error("Failed to update task status");
     }

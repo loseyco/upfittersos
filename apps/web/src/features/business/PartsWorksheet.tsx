@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  collection, query, orderBy, doc, getDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, onSnapshot 
+  collection, query, orderBy, doc, getDoc, updateDoc, addDoc, deleteDoc, serverTimestamp, onSnapshot, where, getDocs
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -230,11 +230,55 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
       const prevSnap = await getDoc(reqRef);
       const prevData = prevSnap.data() as PartsRequest;
 
-      await updateDoc(reqRef, {
+      const actorId = user?.uid || 'system';
+      let actorName = user?.displayName || user?.email || 'Staff';
+      let actorStaffId = '';
+
+      if (user?.uid) {
+        const staffSnap = await getDocs(query(
+          collection(db, `businesses/${tenantId}/staff`),
+          where('userId', '==', user.uid)
+        ));
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data();
+          actorStaffId = staffSnap.docs[0].id;
+          actorName = `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || actorName;
+        }
+      }
+
+      const now = new Date();
+      const updateData: any = {
         status: newStatus,
-        statusChangedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
+        statusChangedAt: now,
+        statusChangedBy: actorId,
+        statusChangedByName: actorName,
+        updatedAt: now,
+        updatedBy: actorId,
+        updatedByName: actorName
+      };
+
+      if (newStatus === 'ordered') {
+        updateData.orderedAt = now;
+        updateData.orderedBy = actorId;
+        updateData.orderedByName = actorName;
+        updateData.orderedByStaffId = actorStaffId;
+      } else if (newStatus === 'received') {
+        updateData.receivedAt = now;
+        updateData.receivedBy = actorId;
+        updateData.receivedByName = actorName;
+        updateData.receivedByStaffId = actorStaffId;
+      } else if (newStatus === 'delivered') {
+        updateData.deliveredAt = now;
+        updateData.deliveredBy = actorId;
+        updateData.deliveredByName = actorName;
+        updateData.deliveredByStaffId = actorStaffId;
+        updateData.stagedAt = now;
+        updateData.stagedBy = actorId;
+        updateData.stagedByName = actorName;
+        updateData.stagedByStaffId = actorStaffId;
+      }
+
+      await updateDoc(reqRef, updateData);
 
       // Log to job activity
       if (prevData?.jobId) {
@@ -242,8 +286,8 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
           type: 'part_status_changed',
           message: `Part "${prevData.partName}" marked as ${newStatus.toUpperCase()}`,
           timestamp: new Date(),
-          staffId: user?.uid || 'system',
-          staffName: user?.displayName || user?.email || 'Staff'
+          staffId: actorId,
+          staffName: actorName
         });
       }
 
@@ -254,7 +298,7 @@ export function PartsWorksheet({ tenantId }: { tenantId: string }) {
         message: `Part "${prevData?.partName}" marked as ${newStatus.toUpperCase()}`,
         timestamp: serverTimestamp(),
         severity: newStatus === 'received' || newStatus === 'fulfilled' || newStatus === 'delivered' || newStatus === 'inventoried' ? 'success' : 'info',
-        author: user?.displayName || user?.email?.split('@')[0] || 'System'
+        author: actorName
       });
 
       toast.success(`Status updated to ${newStatus}`);

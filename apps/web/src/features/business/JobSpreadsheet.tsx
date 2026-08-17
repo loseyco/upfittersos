@@ -8,7 +8,7 @@ import {
 import { cn } from '../../lib/utils';
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, 
-  onSnapshot, serverTimestamp, getDocs, getDoc, query, where, limit
+  onSnapshot, serverTimestamp, getDocs, getDoc, query, limit
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { toast } from 'sonner';
@@ -53,9 +53,9 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [searchQuery, setSearchQuery] = useState('');
-  const [loadAllHistory, setLoadAllHistory] = useState(false);
+  const [loadAllHistory, setLoadAllHistory] = useState(true);
   const [showCompleted, setShowCompleted] = useState(false);
-  const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(false);
+  const [onlyInBayOrSpot, setOnlyInBayOrSpot] = useState(true);
   const [showNewQbOnly, setShowNewQbOnly] = useState(false);
   const [zones, setZones] = useState<any[]>([]);
 
@@ -132,6 +132,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
       }
     });
   }, [tenantId]);
+  const [sortBy, setSortBy] = useState<string>('default');
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({
     status: [],
     priority: [],
@@ -335,14 +336,15 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     { key: 'details', label: 'Details & Card', letter: 'G', type: 'custom' },
     { key: 'status', label: 'Status', letter: 'H', type: 'status-select' },
     { key: 'vehicleId', label: 'Vehicle VIN', letter: 'I', type: 'vehicle-select' },
-    { key: 'scheduledStartDate', label: 'Start Date', letter: 'J', type: 'datetime-local' },
-    { key: 'scheduledEndDate', label: 'End Date', letter: 'K', type: 'datetime-local' },
-    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'L', type: 'datetime-local' },
-    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'M', type: 'datetime-local' },
-    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'N', type: 'datetime-local' },
-    { key: 'completedAt', label: 'Completed At', letter: 'O', type: 'datetime-local' },
-    { key: 'companyCamId', label: 'Company Cam ID', letter: 'P', type: 'text' },
-    { key: 'notes', label: 'Notes', letter: 'Q', type: 'text' }
+    { key: 'createdAt', label: 'Created Date', letter: 'J', type: 'datetime-local' },
+    { key: 'scheduledStartDate', label: 'Start Date', letter: 'K', type: 'datetime-local' },
+    { key: 'scheduledEndDate', label: 'End Date', letter: 'L', type: 'datetime-local' },
+    { key: 'scheduledArrivalTime', label: 'Arrival Time', letter: 'M', type: 'datetime-local' },
+    { key: 'expectedFinishTime', label: 'Expected Finish', letter: 'N', type: 'datetime-local' },
+    { key: 'readyForCustomerAt', label: 'Ready for Cust At', letter: 'O', type: 'datetime-local' },
+    { key: 'completedAt', label: 'Completed At', letter: 'P', type: 'datetime-local' },
+    { key: 'companyCamId', label: 'Company Cam ID', letter: 'Q', type: 'text' },
+    { key: 'notes', label: 'Notes', letter: 'R', type: 'text' }
   ], []);
 
   // Filter jobs
@@ -507,7 +509,48 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
       return { type: zone.type || 'other', name: zone.name || '', order };
     };
 
+    const getCreatedAtMs = (job: Job) => {
+      const val = (job as any).createdAt || (job as any).TimeCreated || (job as any).created_at;
+      if (!val) return 0;
+      if (typeof val.toDate === 'function') {
+        try { return val.toDate().getTime(); } catch (e) {}
+      }
+      if (typeof val.seconds === 'number') {
+        return val.seconds * 1000;
+      }
+      if (val instanceof Date) return val.getTime();
+      const d = new Date(val);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+
     list.sort((a, b) => {
+      if (sortBy === 'created_desc') {
+        const cA = getCreatedAtMs(a);
+        const cB = getCreatedAtMs(b);
+        if (cA !== cB) return cB - cA;
+        const numA = parseInt(a.jobNumber || '0') || 0;
+        const numB = parseInt(b.jobNumber || '0') || 0;
+        return numB - numA;
+      }
+      if (sortBy === 'created_asc') {
+        const cA = getCreatedAtMs(a);
+        const cB = getCreatedAtMs(b);
+        if (cA !== cB) return cA - cB;
+        const numA = parseInt(a.jobNumber || '0') || 0;
+        const numB = parseInt(b.jobNumber || '0') || 0;
+        return numA - numB;
+      }
+      if (sortBy === 'job_number_desc') {
+        const numA = parseInt(a.jobNumber || '0') || 0;
+        const numB = parseInt(b.jobNumber || '0') || 0;
+        return numB - numA;
+      }
+      if (sortBy === 'priority_desc') {
+        const weightA = getPriorityWeight(a.priority || '');
+        const weightB = getPriorityWeight(b.priority || '');
+        if (weightA !== weightB) return weightB - weightA;
+      }
+
       // 1. Priority (higher weight first: weight 4 comes before weight 1)
       const weightA = getPriorityWeight(a.priority || '');
       const weightB = getPriorityWeight(b.priority || '');
@@ -535,7 +578,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     });
 
     return list;
-  }, [jobs, searchQuery, showArchived, colFilters, showCompleted, loadAllHistory, completedTimestamps, onlyInBayOrSpot, zones]);
+  }, [jobs, searchQuery, showArchived, colFilters, showCompleted, loadAllHistory, completedTimestamps, onlyInBayOrSpot, zones, sortBy]);
 
   const activeFiltersSummary = useMemo(() => {
     const list: string[] = [];
@@ -648,6 +691,11 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     if (colKey === 'isArchived') {
       return row.isArchived ? 'true' : 'false';
     }
+    if (colKey === 'createdAt') {
+      const val = (row as any).createdAt || (row as any).TimeCreated || (row as any).created_at;
+      return formatFirestoreTimestamp(val);
+    }
+
     const isTimestampField = [
       'scheduledStartDate', 'scheduledEndDate', 'scheduledArrivalTime', 
       'expectedFinishTime', 'readyForCustomerAt', 'completedAt'
@@ -1175,6 +1223,83 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
     );
   };
 
+  const renderCreatedDateHeaderFilter = () => {
+    const isSortedDesc = sortBy === 'created_desc';
+    const isSortedAsc = sortBy === 'created_asc';
+    const isActive = isSortedDesc || isSortedAsc;
+
+    return (
+      <div className="inline-block ml-1 relative group no-print">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setActiveHeaderFilterDropdown(activeHeaderFilterDropdown === 'createdAt' ? null : 'createdAt');
+          }}
+          className={cn(
+            "p-0.5 hover:bg-zinc-800 rounded-md transition-colors cursor-pointer inline-flex items-center align-middle",
+            isActive ? "text-indigo-400 font-bold" : "text-zinc-500 hover:text-zinc-400"
+          )}
+          title="Sort by Created Date"
+        >
+          <ChevronDown className="w-3 h-3" />
+        </button>
+        {activeHeaderFilterDropdown === 'createdAt' && (
+          <>
+            <div 
+              className="fixed inset-0 z-40" 
+              onClick={() => setActiveHeaderFilterDropdown(null)} 
+            />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-zinc-900 border border-zinc-850 rounded-xl shadow-2xl p-1.5 z-50 min-w-[190px] animate-in fade-in duration-150 text-left font-sans normal-case text-xs font-semibold text-zinc-300">
+              <div className="px-2 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                Sort Options
+              </div>
+              <button
+                onClick={() => {
+                  setSortBy('created_desc');
+                  setActiveHeaderFilterDropdown(null);
+                }}
+                className={cn(
+                  "w-full px-2 py-1.5 text-left rounded-lg transition-colors flex items-center justify-between hover:bg-zinc-850",
+                  isSortedDesc ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-zinc-300"
+                )}
+              >
+                <span>📅 Sort Newest to Oldest</span>
+                {isSortedDesc && <span className="text-indigo-400 font-bold">✓</span>}
+              </button>
+              <button
+                onClick={() => {
+                  setSortBy('created_asc');
+                  setActiveHeaderFilterDropdown(null);
+                }}
+                className={cn(
+                  "w-full px-2 py-1.5 text-left rounded-lg transition-colors flex items-center justify-between hover:bg-zinc-850",
+                  isSortedAsc ? "bg-indigo-500/10 text-indigo-400 font-bold" : "text-zinc-300"
+                )}
+              >
+                <span>📅 Sort Oldest to Newest</span>
+                {isSortedAsc && <span className="text-indigo-400 font-bold">✓</span>}
+              </button>
+              {isActive && (
+                <>
+                  <div className="h-[1px] bg-zinc-800 my-1" />
+                  <button
+                    onClick={() => {
+                      setSortBy('default');
+                      setActiveHeaderFilterDropdown(null);
+                    }}
+                    className="w-full px-2 py-1.5 text-left rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-850 transition-colors"
+                  >
+                    Clear Sort (Reset Default)
+                  </button>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   const cellCoordinateString = useMemo(() => {
     if (!selectedCell) return '';
     const col = COLUMNS.find(c => c.key === selectedCell.colKey);
@@ -1272,13 +1397,28 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                   className="w-full pl-9 pr-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white placeholder-zinc-500 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
                 />
               </div>
+
+              {/* Sort By Selector */}
+              <div className="relative shrink-0">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none font-bold cursor-pointer"
+                >
+                  <option value="default">Sort: Priority & Location</option>
+                  <option value="created_desc">Sort: Created Date (Newest First)</option>
+                  <option value="created_asc">Sort: Created Date (Oldest First)</option>
+                  <option value="job_number_desc">Sort: Job # (Highest)</option>
+                  <option value="priority_desc">Sort: Priority (Highest)</option>
+                </select>
+              </div>
               <button
                 onClick={() => setLoadAllHistory(!loadAllHistory)}
                 className={cn(
                   "px-3 py-2 border rounded-xl text-xs font-bold transition-all cursor-pointer select-none shrink-0",
                   loadAllHistory 
-                    ? "bg-indigo-500/10 border-indigo-500 text-indigo-400" 
-                    : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-850"
+                    ? "bg-zinc-900 border-zinc-300 text-white" 
+                    : "bg-indigo-500/10 border-indigo-500 text-indigo-400"
                 )}
                 title={loadAllHistory ? "Showing all historical jobs" : "Showing jobs from the last 365 days only"}
               >
@@ -1431,6 +1571,7 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
             <col className="w-[180px]" />
             <col className="w-[180px]" />
             <col className="w-[180px]" />
+            <col className="w-[180px]" />
             <col className="w-[140px]" />
             <col className="w-[280px]" />
           </colgroup>
@@ -1492,12 +1633,35 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                     { value: 'printed', label: 'Printed Only' },
                     { value: 'not_printed', label: 'Not Printed Only' }
                   ]);
+                } else if (col.key === 'createdAt') {
+                  filterElement = renderCreatedDateHeaderFilter();
                 }
 
+                const isCreatedCol = col.key === 'createdAt';
+
                 return (
-                  <th key={col.key} className="border-r border-zinc-850 text-left px-3 text-[11px] font-black uppercase tracking-wider text-zinc-400 bg-zinc-900/60 align-middle relative">
+                  <th 
+                    key={col.key} 
+                    onClick={() => {
+                      if (isCreatedCol) {
+                        setSortBy(prev => prev === 'created_desc' ? 'created_asc' : 'created_desc');
+                      }
+                    }}
+                    className={cn(
+                      "border-r border-zinc-850 text-left px-3 text-[11px] font-black uppercase tracking-wider text-zinc-400 bg-zinc-900/60 align-middle relative select-none",
+                      isCreatedCol && "cursor-pointer hover:bg-zinc-850 hover:text-white transition-colors"
+                    )}
+                    title={isCreatedCol ? "Click to sort by Created Date" : undefined}
+                  >
                     <div className="flex items-center justify-between gap-1">
-                      <span>{col.label}</span>
+                      <span className="flex items-center gap-1.5">
+                        {col.label}
+                        {isCreatedCol && sortBy.startsWith('created_') && (
+                          <span className="text-[10px] text-indigo-400 font-black">
+                            {sortBy === 'created_desc' ? '↓' : '↑'}
+                          </span>
+                        )}
+                      </span>
                       {filterElement}
                     </div>
                   </th>
@@ -1591,8 +1755,10 @@ export function JobSpreadsheet({ tenantId }: { tenantId: string }) {
                             {/* Link to Job Details */}
                             <a
                               href={`/business/${tenantId}/job/${row.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="inline-flex items-center gap-1 text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 text-[10px]"
-                              title="Go to Job Details"
+                              title="Open Job Details in new window"
                             >
                               <span>Open</span>
                               <ExternalLink className="w-3 h-3" />

@@ -329,16 +329,7 @@ service cloud.firestore {
       }
       match /jobs/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();
-        match /tasks/{taskId} {
-          allow read, write: if isTenant(tenantId) || isSuperAdmin();
-        }
-        match /chat_messages/{messageId} {
-          allow read, write: if isTenant(tenantId) || isSuperAdmin();
-        }
-        match /activity/{activityId} {
-          allow read, write: if isTenant(tenantId) || isSuperAdmin();
-        }
-        match /takeoffs/{takeoffId} {
+        match /{document=**} {
           allow read, write: if isTenant(tenantId) || isSuperAdmin();
         }
       }
@@ -360,6 +351,12 @@ service cloud.firestore {
       match /audit_logs/{docId} {
         allow read: if isTenant(tenantId) || isSuperAdmin();
         allow create: if request.auth != null;
+      }
+      match /deleted_daily_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
+      }
+      match /edited_daily_logs/{docId} {
+        allow read, write: if isTenant(tenantId) || isSuperAdmin();
       }
       match /tasks/{docId} {
         allow read, write: if isTenant(tenantId) || isSuperAdmin();

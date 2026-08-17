@@ -128,6 +128,15 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
     description: 'Full-featured interactive spreadsheet for viewing, filtering, editing, and managing all shop jobs.'
   },
   {
+    id: 'time_sheet',
+    title: 'Time Clock Sheet (Spreadsheet)',
+    hub: 'office',
+    permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view'],
+    route: 'time_sheet',
+    altAccessPaths: ['Main Office Submenu', 'Time Clock Page Header Action'],
+    description: 'Master Excel-style spreadsheet displaying all time clock sessions, job labor entries, tasks, and breaks with staff, date range, job, and task search.'
+  },
+  {
     id: 'live_timeclock',
     title: 'Live Timeclock Monitor',
     hub: 'office',
@@ -322,6 +331,16 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
   },
 
   // In Development Pages
+  {
+    id: 'payroll_audit_worksheet',
+    title: 'Timeclock & Payout Audit Worksheet',
+    hub: 'super_admin',
+    groupLabel: 'Data & QuickBooks Sync',
+    permission: 'sync.view',
+    route: 'payroll_audit_worksheet',
+    altAccessPaths: ['Super Admin Hub -> Timeclock & Payout Audit'],
+    description: 'Audit worksheet providing 1:1 cross-referencing across timeclock punches, Job Yellow Sheets, Staff Payout Reports, and Operations Log feeds with zero fallback data.'
+  },
   {
     id: 'page_catalog',
     title: 'App Pages & Access Directory',

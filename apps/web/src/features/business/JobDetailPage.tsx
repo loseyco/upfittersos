@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
+import { setPreferredJobViewVersion } from '../../lib/utils/window';
 import { assignQCStaffToTask, assignQCStaffToJob } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
 import { JobChat } from './components/JobChat';
@@ -26,7 +27,7 @@ import { StaffLink } from './StaffPerformance';
 import { TimeAllocationModal } from './TimeAllocationModal';
 import { GeneralClockInWarningModal } from './GeneralClockInWarningModal';
 import { CalculationDerivationModal, type CalculationDerivationModalProps } from '../../components/CalculationDerivationModal';
-import { Calculator } from 'lucide-react';
+
 
 const isGeneralTask = (taskOrTitle?: any) => {
   if (!taskOrTitle) return false;
@@ -329,7 +330,7 @@ export function JobDetailPage({
 
     const efficiencyPct = taskActualHours > 0 
       ? Math.round((bookTime / taskActualHours) * 100) 
-      : (isTaskCompleted(task) ? 100 : 0);
+      : ((task.status === 'completed' || task.completed) ? 100 : 0);
 
     const taskSessions = timeLogs.flatMap(s => (s.jobs || []).filter((j: any) => j.id === jobId && j.taskId === task.id).map((j: any) => ({
       staffName: s.userName || s.staffName || 'Tech',
@@ -1188,7 +1189,7 @@ export function JobDetailPage({
     const statusLower = (currentStatus || '').toLowerCase();
     if (statusLower === 'pending' || statusLower === 'in_progress' || statusLower === 'rework') {
       nextStatus = 'QC'; // Mark complete -> Needs QC
-    } else if (statusLower === 'qc') {
+    } else if (statusLower === 'qc' || statusLower === 'completed') {
       if (action === 'fail') {
         nextStatus = 'Rework';
       } else {
@@ -1230,21 +1231,24 @@ export function JobDetailPage({
         updateData.closedBy = user?.displayName || user?.email;
         updateData.closedByStaffId = staffMember?.id || effectiveUserId;
         updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
-        if (!task?.completedByStaffId && !task?.assignedTo) {
-          updateData.completedBy = user?.displayName || user?.email;
-          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
-          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
-        }
+        
+        const completingId = staffMember?.id || effectiveUserId;
+        const completingName = staffMember?.name || user?.displayName || user?.email || 'Technician';
+        updateData.completedBy = completingName;
+        updateData.completedByStaffId = completingId;
+        updateData.completedByStaffName = completingName;
       } else if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email;
         updateData.closedBy = user?.displayName || user?.email;
         updateData.closedByStaffId = staffMember?.id || effectiveUserId;
         updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
-        if (!task?.completedByStaffId && !task?.assignedTo) {
-          updateData.completedByStaffId = staffMember?.id || effectiveUserId;
-          updateData.completedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
-        }
+        
+        const completingId = staffMember?.id || effectiveUserId;
+        const completingName = staffMember?.name || user?.displayName || user?.email || 'Technician';
+        updateData.completedBy = completingName;
+        updateData.completedByStaffId = completingId;
+        updateData.completedByStaffName = completingName;
       } else if (nextStatus === 'Rework') {
         updateData.qcFailedAt = new Date().toISOString();
         updateData.qcFailedBy = user?.displayName || user?.email;
@@ -1406,10 +1410,43 @@ export function JobDetailPage({
   
   const handlePartStatusChange = async (partId: string, nextStatus: string) => {
     try {
-      await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, partId), {
+      const actorId = effectiveUserId || user?.uid || '';
+      const actorName = staffMember?.name || user?.displayName || user?.email || 'Staff';
+      const actorStaffId = staffMember?.id || '';
+      const now = new Date();
+
+      const updateData: any = {
         status: nextStatus,
-        updatedAt: new Date()
-      });
+        updatedAt: now,
+        updatedBy: actorId,
+        updatedByName: actorName,
+        statusChangedBy: actorId,
+        statusChangedByName: actorName,
+        statusChangedAt: now
+      };
+
+      if (nextStatus === 'ordered') {
+        updateData.orderedAt = now;
+        updateData.orderedBy = actorId;
+        updateData.orderedByName = actorName;
+        updateData.orderedByStaffId = actorStaffId;
+      } else if (nextStatus === 'received') {
+        updateData.receivedAt = now;
+        updateData.receivedBy = actorId;
+        updateData.receivedByName = actorName;
+        updateData.receivedByStaffId = actorStaffId;
+      } else if (nextStatus === 'delivered') {
+        updateData.deliveredAt = now;
+        updateData.deliveredBy = actorId;
+        updateData.deliveredByName = actorName;
+        updateData.deliveredByStaffId = actorStaffId;
+        updateData.stagedAt = now;
+        updateData.stagedBy = actorId;
+        updateData.stagedByName = actorName;
+        updateData.stagedByStaffId = actorStaffId;
+      }
+
+      await updateDoc(doc(db, `businesses/${tenantId}/parts_requests`, partId), updateData);
       
       const part = parts.find(p => p.id === partId);
       await logActivity('part_status_changed', `Marked part ${part?.partName || ''} as ${nextStatus.toUpperCase()}`);
@@ -1534,10 +1571,18 @@ export function JobDetailPage({
     const updateJobStatus = async (newStatus: string, msg: string, isReversion = false) => {
       if (job.status === newStatus) return;
       try {
-        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+        const updateData: any = {
           status: newStatus,
           updatedAt: new Date()
-        });
+        };
+        if (newStatus === 'Ready for Customer') {
+          updateData.readyForCustomerAt = new Date();
+          updateData.readyForCustomerBy = user?.displayName || user?.email;
+          updateData.readyForCustomerById = effectiveUserUid;
+        } else if (['Active', 'Open', 'Ready for QC'].includes(newStatus)) {
+          updateData.readyForCustomerAt = null;
+        }
+        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), updateData);
         if (isReversion) {
           toast.error(msg);
         } else {
@@ -1624,10 +1669,10 @@ export function JobDetailPage({
   const visibleTasks = tasks;
 
   const nonGeneralTasks = visibleTasks.filter(t => !isGeneralTask(t));
-  const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
+  const totalBookHours = nonGeneralTasks.reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
   const completedBookHours = nonGeneralTasks
-    .filter(t => t.status === 'QC' || t.status === 'QC Complete')
-    .reduce((acc, t) => acc + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0)), 0);
+    .filter(t => t.status === 'QC' || t.status === 'QC Complete' || t.status === 'completed')
+    .reduce((acc, t) => acc + (parseFloat(t.bookTime) || 0), 0);
   
   const jobProgress = totalBookHours > 0 
     ? Math.round((completedBookHours / totalBookHours) * 100) 
@@ -1635,7 +1680,7 @@ export function JobDetailPage({
 
   // Total and Per-Staff Allotted Tasks Calculations
   const totalTasks = visibleTasks.length;
-  const completedTasks = visibleTasks.filter(t => t.status === 'QC' || t.status === 'QC Complete').length;
+  const completedTasks = visibleTasks.filter(t => ['QC', 'QC Complete', 'completed', 'Completed'].includes(t.status)).length;
 
   const staffStats = (() => {
     const statsMap: Record<string, {
@@ -1649,7 +1694,7 @@ export function JobDetailPage({
     }> = {};
 
     visibleTasks.forEach(task => {
-      const isCompleted = task.status === 'QC' || task.status === 'QC Complete';
+      const isCompleted = ['QC', 'QC Complete', 'completed', 'Completed'].includes(task.status);
       const taskActualHours = task.actualTime !== undefined && task.actualTime > 0 
         ? task.actualTime 
         : (getTaskLoggedMs(task.id) / 3600000);
@@ -1812,7 +1857,7 @@ export function JobDetailPage({
     const deptHours: Record<string, number> = {};
     incompleteTasks.forEach(t => {
       const d = t.departmentId || 'unassigned';
-      deptHours[d] = (deptHours[d] || 0) + (t.payBasis === 'hourly' ? 0 : (parseFloat(t.bookTime) || 0));
+      deptHours[d] = (deptHours[d] || 0) + (parseFloat(t.bookTime) || 0);
     });
 
     const totalHours = Object.values(deptHours).reduce((sum, h) => sum + h, 0);
@@ -1860,7 +1905,21 @@ export function JobDetailPage({
     );
   }
 
-  const scheduledBay = zones.find(z => z.id === job.bayId || z.name === job.bayId)?.name || job.bayId || 'Not Set';
+  const matchedBayZone = zones.find(z => 
+    z.id === job.bayId || 
+    z.currentJobId === job.id || 
+    z.name === job.bayId || 
+    z.id === job.parkingSpot || 
+    z.name === job.parkingSpot || 
+    z.name === job.location
+  );
+  const scheduledBay = matchedBayZone 
+    ? matchedBayZone.name 
+    : (job.parkingSpot && !job.parkingSpot.startsWith('zone_') 
+      ? job.parkingSpot 
+      : (job.bayId && !job.bayId.startsWith('zone_') 
+        ? `Bay ${job.bayId}` 
+        : 'Not Set'));
 
   const etaComparison = (() => {
     if (!dynamicETA || !job.scheduledEndDate) return null;
@@ -1921,8 +1980,20 @@ export function JobDetailPage({
             <ArrowLeft className="w-5 h-5 text-zinc-500" />
           </button>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-3xl sm:text-4xl font-black text-zinc-900 dark:text-white tracking-tight">{job.jobNumber ? `#${job.jobNumber} - ` : ''}{job.title}</h1>
+              <button
+                onClick={() => {
+                  setPreferredJobViewVersion('v3');
+                  toast.success('Saved preference: Opening jobs in V3 view by default');
+                  navigate(`/business/${tenantId}/jobv3/${job.id}`, { replace: true });
+                }}
+                className="h-8 px-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                title="Switch to Job Detail V3 and save preference"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Switch to Job Detail V3</span>
+              </button>
             </div>
             <p className="text-base sm:text-lg font-semibold text-zinc-500 mt-1 flex flex-wrap items-center gap-1.5">
               <span>{job.customerName || 'Walk-in Customer'}</span>
@@ -4193,7 +4264,7 @@ export function JobDetailPage({
                                 {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
                                   <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
-                                    Completed by: {(!t.assignedStaff || t.assignedStaff.length === 0) ? (
+                                    Completed by: {t.completedByStaffName || t.completedBy || ((!t.assignedStaff || t.assignedStaff.length === 0) ? (
                                       'Unassigned'
                                     ) : (
                                       t.assignedStaff.map((s: any, idx: number) => (
@@ -4202,7 +4273,7 @@ export function JobDetailPage({
                                           {s.name || s.displayName || 'Technician'}
                                         </span>
                                       ))
-                                    )}
+                                    ))}
                                   </span>
                                   <span className="text-zinc-300">•</span>
                                   <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
@@ -4242,7 +4313,7 @@ export function JobDetailPage({
                                 {t.description && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description}</p>}
                                 <div className="flex flex-wrap items-center gap-2 mt-1">
                                   <span className="text-[9px] font-bold text-emerald-650 uppercase tracking-widest">
-                                    Completed by: {(!t.assignedStaff || t.assignedStaff.length === 0) ? (
+                                    Completed by: {t.completedByStaffName || t.completedBy || ((!t.assignedStaff || t.assignedStaff.length === 0) ? (
                                       'Unassigned'
                                     ) : (
                                       t.assignedStaff.map((s: any, idx: number) => (
@@ -4251,7 +4322,7 @@ export function JobDetailPage({
                                           {s.name || s.displayName || 'Technician'}
                                         </span>
                                       ))
-                                    )}
+                                    ))}
                                   </span>
                                   {qcByName && (
                                     <>

@@ -4,7 +4,7 @@ import {
   Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
-  GraduationCap, LogIn, Pizza, BookOpen, BarChart3,
+  GraduationCap, LogIn, Pizza, BookOpen, BarChart3, Sliders, Smartphone,
   Code, Table
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
@@ -75,16 +75,17 @@ export const ITEMS: NavItem[] = [
   { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
 
   // Office Dept (Main Office)
-  { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
-  { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'office', permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'] },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'foreman.view'] },
-  { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'office', permission: 'jobs.view' },
+  { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
+  { id: 'time_sheet', label: 'Time Clock Log', icon: FileSpreadsheet, hub: 'office', permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view'] },
+  { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'office', permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'] },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
   { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'office', permission: 'staff.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
 
   // Facility & Comm (TV Monitors)
+  { id: 'conference_control', label: 'TV Monitor Control Hub', icon: Sliders, hub: 'facility', permission: 'facility.view' },
   { id: 'bay_monitor', label: 'Bay Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'parking_monitor', label: 'Parking Key Monitor (TV)', icon: Layout, hub: 'facility', permission: 'facility.view' },
   { id: 'conference_monitor', label: 'Conference Room (TV)', icon: Monitor, hub: 'facility', permission: 'facility.view' },
@@ -106,6 +107,7 @@ export const ITEMS: NavItem[] = [
   { id: 'departments', label: 'Department Configuration', icon: Building2, hub: 'settings', groupLabel: 'Staff & Security', permission: 'staff.manage' },
 
   // Super Admin Hub (Super Admin Only)
+  { id: 'desktop', label: 'Upfitters Desktop OS', icon: Monitor, hub: 'super_admin', groupLabel: 'Super Admin Tools' },
   { id: 'staff', label: 'Staff Manager & Profiles', icon: UserCog, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'staff.view' },
   { id: 'departments', label: 'Department Configuration', icon: Building2, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'staff.manage' },
   { id: 'permission_matrix', label: 'Permission Matrix & Overrides', icon: ShieldCheck, hub: 'super_admin', groupLabel: 'Security & Permissions', permission: 'permission_matrix.view' },
@@ -114,6 +116,7 @@ export const ITEMS: NavItem[] = [
   { id: 'page_catalog', label: 'App Pages & Access Directory', icon: Code, hub: 'super_admin', groupLabel: 'Development & Backlog', permission: 'development.view' },
   { id: 'qb_sync_status', label: 'Live Sync Monitor', icon: Activity, hub: 'super_admin', groupLabel: 'Data & QuickBooks Sync', permission: 'sync.view' },
   { id: 'qb_health_audit', label: 'Data Health Audit', icon: ShieldCheck, hub: 'super_admin', groupLabel: 'Data & QuickBooks Sync', permission: 'sync.view' },
+  { id: 'payroll_audit_worksheet', label: 'Timeclock & Payout Audit', icon: ShieldCheck, hub: 'super_admin', groupLabel: 'Data & QuickBooks Sync', permission: 'sync.view' },
   { id: 'qb_customers', label: 'QB Customers Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
   { id: 'qb_jobs', label: 'QB Jobs Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
   { id: 'qb_items', label: 'QB Items Raw', icon: RefreshCw, hub: 'super_admin', groupLabel: 'QuickBooks Raw Tables', permission: 'sync.view' },
@@ -127,6 +130,7 @@ export const ITEMS: NavItem[] = [
 
   // SOP Hub (In Development)
   { id: 'sop_overview', label: 'SOP Workflows', icon: BookOpen, hub: 'development', groupLabel: 'SOP Center' },
+  { id: 'job_v3_demo', label: 'Job Details V3 (Apple PWA)', icon: Smartphone, hub: 'development', groupLabel: 'In Development Prototypes', permission: 'development.view' },
 ];
 
 export type HubType = {
@@ -189,7 +193,7 @@ export function BusinessSidebar({
 
   // Track the selected Hub (Tier 1)
   const [activeHub, setActiveHub] = useState<HubType['id']>(() => {
-    if (activeTab === 'job' || activeTab === 'task') return 'facility';
+    if (activeTab === 'job' || activeTab === 'task') return 'upfitters';
     if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
     if (activeTab?.startsWith('safety')) return 'safety';
     if (activeTab?.startsWith('help_')) return 'help';
@@ -201,7 +205,7 @@ export function BusinessSidebar({
   // Keep Tier 1 active hub synchronized when activeTab changes
   useEffect(() => {
     setActiveHub(current => {
-      if (activeTab === 'job' || activeTab === 'task') return 'facility';
+      if (activeTab === 'job' || activeTab === 'task') return 'upfitters';
       if (activeTab === 'prospect' || activeTab === 'lead') return 'sales';
       if (activeTab?.startsWith('safety')) return 'safety';
       if (activeTab?.startsWith('help_')) return 'help';

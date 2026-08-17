@@ -42,7 +42,8 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
   const [businessName, setBusinessName] = useState('UpFittersOS');
   const [businessLogo, setBusinessLogo] = useState<string | undefined>(undefined);
 
-  const activateDraftJob = async (jobId: string) => {
+  /*
+  const _activateDraftJob = async (jobId: string) => {
     if (!canManage) return;
     setIsUpdating(jobId);
     try {
@@ -59,6 +60,7 @@ export function ForemanTodoList({ tenantId }: ForemanTodoListProps) {
       setIsUpdating(null);
     }
   };
+  */
 
   // Local editing states for quick actions
   const [tempVin, setTempVin] = useState<Record<string, string>>({});

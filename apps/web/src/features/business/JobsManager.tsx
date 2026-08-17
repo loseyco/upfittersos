@@ -464,6 +464,9 @@ function AddJobModal({ tenantId, vehicles, onClose, onSuccess }: { tenantId: str
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         createdBy: useAuthStore.getState().user?.uid || 'system',
+        createdByStaffId: useAuthStore.getState().user?.uid || 'system',
+        createdByUserId: useAuthStore.getState().user?.uid || 'system',
+        createdByStaffName: useAuthStore.getState().user?.displayName || useAuthStore.getState().user?.email?.split('@')[0] || 'Staff',
         createdByName: useAuthStore.getState().user?.displayName || useAuthStore.getState().user?.email?.split('@')[0] || null,
         createdByEmail: useAuthStore.getState().user?.email || null,
         tags: ['Native']
