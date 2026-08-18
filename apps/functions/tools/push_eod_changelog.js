@@ -11,20 +11,21 @@ async function pushChangelog() {
     try {
         console.log("Pushing End-of-Day Changelog via Admin SDK...");
         await db.collection('changelogs').add({
-            version: 'v0.1.10-beta',
+            version: 'v0.1.11-beta',
             date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            title: 'Purchase Orders, Facility Mapping & Quoting Upgrades',
-            description: 'Major feature additions to the estimating workflow, interactive facility map navigation, logistics coordination, and comprehensive staff tracking elements.',
+            title: 'Job Details V3 Printout, Task Assignment Clock-In Gating & Dedicated History Hub',
+            description: 'Comprehensive enhancements to the Job Details V3 interface, technician assignment verification, automated task clock-outs, active bay duration tracking, and full chronological timeline audit logs.',
             features: [
-                'Introduced complete Purchase Order tracking workflow with dynamic delivery receiving integration.',
-                'Overhauled the Estimate Builder into an optimized 2-column layout for smoother part cost editing and profit tracking.',
-                'Deployed granular Facility Area Profiles allowing interactive real-time map occupancy reporting and deep-linking.',
-                'Completed native CompanyCam integration facilitating user-uploaded images and instantaneous optimistic syncs within job profiles.',
-                'Updated the TimeClock app to report transparent Pay Period statistics alongside comprehensive staff department routing.',
-                'Built new wholesale cost matrices and conditional line-item discounts enhancing robust financial planning for all projects.'
+                'Added print-ready Job Details Sheet matching classic shop traveler specifications.',
+                'Enforced active staff roster filtering across multi-staff task assignment pickers with selected staff pinned to top.',
+                'Restricted task clock-in and task completion actions to assigned technicians with automated clock-out on completion.',
+                'Integrated continuous bay telemetry calculation preserving uninterrupted shop floor durations across job edits.',
+                'Launched top-level dedicated Job History & Audit Log tab and overview timeline card streaming real-time actions.',
+                'Standardized operator attribution across all job/task mutations for consistent Daily Operations Log reporting.'
             ],
             fixes: [
-                'Resolved compilation boundaries generated during complex CSS structure modifications of core interfaces.'
+                'Resolved bay occupancy timer reset anomaly on job document updates.',
+                'Fixed auto-clock-out cascades when starting lunch, break, or ending shift.'
             ],
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
