@@ -43,6 +43,11 @@ export function openJobPopupWindow(
     }
   }
 
+  // Ensure popup query param is present for minimized sidebar in standalone windows
+  if (!finalUrl.includes('popup=')) {
+    finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'popup=1';
+  }
+
   const windowName = jobId 
     ? `UpfittersOS_Job_${jobId.replace(/[^a-zA-Z0-9_]/g, '_')}` 
     : `UpfittersOS_Job_${Date.now()}`;

@@ -81,6 +81,7 @@ import { BayWorksheet } from './BayWorksheet';
 import { PartsWorksheet } from './PartsWorksheet';
 import { ProgressDigest } from './ProgressDigest';
 import { WeeklyMeetingNotes } from './WeeklyMeetingNotes';
+import { TuesdayMeetingReport } from './TuesdayMeetingReport';
 import { ForemanTodoList } from './ForemanTodoList';
 import { TutorialModal } from '../tutorials/TutorialModal';
 import { HelpCenter } from '../tutorials/HelpCenter';
@@ -805,6 +806,12 @@ export function TenantDashboard() {
             {activeTab === 'weekly_meeting' && (
               <PermissionGate permissions={["office.view", "foreman.view"]}>
                 <WeeklyMeetingNotes tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'tuesday_meeting_report' && (
+              <PermissionGate permissions={["jobs.view", "foreman.view", "office.view"]}>
+                <TuesdayMeetingReport tenantId={tenantId!} />
               </PermissionGate>
             )}
 

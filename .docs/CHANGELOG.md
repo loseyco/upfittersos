@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.0.15] - 2026-08-18
+- **Unified Native Date & Time Picker for Shift Adjustments**:
+  - Upgraded Shift Clock In, Shift Clock Out, and labor segment adjustments in `TimeDetailsV3.tsx` with native Date/Time Pickers (`<input type="datetime-local">`).
+  - Allows staff to adjust both target date (e.g. yesterday) and exact clock-out timestamp with full calendar/clock pickers and validation against future timestamps.
+- **Tuesday Weekly Operations Meeting Report ("The Good, The Bad, The Needs")**:
+  - Added dedicated Tuesday Meeting Report component (`TuesdayMeetingReport.tsx`) accessible directly under the Upfitters department menu.
+  - Strict Monday–Sunday date range calculation evaluating the previous calendar week's completed vehicles, earned book hours, first-time QC pass rate, and technician throughput leaderboard.
+  - Interactive triage for QC kickback inspection logs, blocked vehicles/bottlenecks, critical parts awaiting arrival, and facility/tooling needs.
+  - Live Firestore sync under `businesses/{tenantId}/tuesday_reports/week_YYYY_MM_DD` and print-ready layout for shop meetings.
+- **Standalone Popup Window UX Optimization**:
+  - Standalone popups and job window popups now automatically initialize with the sidebar submenu minimized/collapsed for maximum workspace readability.
+
 ## [v0.0.14] - 2026-08-17
 - **Super Admin Time Editing on Daily Operations Log**:
   - Added interactive timestamp editing on the Daily Operations Log for Super Admins and managers with `daily_log.manage` permission.

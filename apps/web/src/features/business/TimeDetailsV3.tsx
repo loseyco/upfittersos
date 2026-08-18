@@ -502,15 +502,19 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
     }
   };
 
-  const handleSaveSegmentEdit = async (timeInStr: string, timeOutStr: string, noteStr: string) => {
+  const handleSaveSegmentEdit = async (
+    startDateTimeStr: string,
+    endDateTimeStr: string,
+    noteStr: string
+  ) => {
     if (!editingSegment) return;
 
     try {
       const session = sessions.find(s => s.id === editingSegment.sessionId);
       if (!session) return;
 
-      const newStart = parseLocalTimeInput(timeInStr, editingSegment.start);
-      const newEnd = parseLocalTimeInput(timeOutStr, editingSegment.end || Date.now());
+      const newStart = new Date(startDateTimeStr);
+      const newEnd = new Date(endDateTimeStr || startDateTimeStr);
 
       const nowMs = Date.now();
       if (newStart.getTime() > nowMs + 60000) {
@@ -3044,27 +3048,30 @@ interface SmallSegmentEditModalProps {
   sessionJobs?: any[];
   sessionBreaks?: any[];
   onClose: () => void;
-  onSave: (timeIn: string, timeOut: string, note: string) => Promise<void>;
+  onSave: (startDateTimeStr: string, endDateTimeStr: string, note: string) => Promise<void>;
   onDelete?: () => void;
 }
 
 function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionClockOut, sessionJobs, sessionBreaks, onClose, onSave, onDelete }: SmallSegmentEditModalProps) {
-  const toLocalTimeString24h = (ms: number) => {
+  const toLocalDateTimeString = (ms: number) => {
     const d = new Date(ms);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
     const hrs = String(d.getHours()).padStart(2, '0');
     const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${hrs}:${mins}`;
+    return `${year}-${month}-${day}T${hrs}:${mins}`;
   };
 
-  const [timeIn, setTimeIn] = useState(toLocalTimeString24h(editingSegment.start));
-  const [timeOut, setTimeOut] = useState(toLocalTimeString24h(editingSegment.end || editingSegment.start));
+  const [startDateTime, setStartDateTime] = useState(toLocalDateTimeString(editingSegment.start));
+  const [endDateTime, setEndDateTime] = useState(toLocalDateTimeString(editingSegment.end || editingSegment.start));
   const [note, setNote] = useState(editingSegment.note || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const liveValidationWarning = useMemo(() => {
-    if (!timeIn) return null;
-    const newStart = parseLocalTimeInput(timeIn, editingSegment.start);
-    const newEnd = parseLocalTimeInput(timeOut || timeIn, editingSegment.end || editingSegment.start);
+    if (!startDateTime) return "Please enter a valid date and time";
+    const newStart = new Date(startDateTime);
+    const newEnd = new Date(endDateTime || startDateTime);
 
     const nowMs = Date.now();
     if (newStart.getTime() > nowMs + 60000) {
@@ -3215,13 +3222,13 @@ function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionCl
     }
 
     return null;
-  }, [timeIn, timeOut, editingSegment, sessionJobs, sessionBreaks]);
+  }, [startDateTime, endDateTime, editingSegment, sessionJobs, sessionBreaks, sessionClockIn, sessionClockOut]);
 
   const handleSave = async () => {
     if (liveValidationWarning) return;
     setIsSaving(true);
     try {
-      await onSave(timeIn, timeOut, note);
+      await onSave(startDateTime, endDateTime, note);
     } finally {
       setIsSaving(false);
     }
@@ -3253,7 +3260,7 @@ function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionCl
           </div>
           <button 
             onClick={onClose} 
-            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-450 dark:text-zinc-500 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-450 dark:text-zinc-500 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -3261,29 +3268,54 @@ function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionCl
 
         {/* Body */}
         <div className="p-5 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          {editingSegment.type === 'shift_end' ? (
             <div className="flex flex-col gap-1.5">
-              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Start Time</label>
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Clock Out Date & Time</label>
               <input
-                type="time"
-                value={timeIn}
-                onChange={(e) => setTimeIn(e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                type="datetime-local"
+                value={startDateTime}
+                onChange={(e) => {
+                  setStartDateTime(e.target.value);
+                  setEndDateTime(e.target.value);
+                }}
+                className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]"
               />
             </div>
-
-            {editingSegment.type !== 'shift_start' && editingSegment.type !== 'shift_end' && (
+          ) : editingSegment.type === 'shift_start' ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Clock In Date & Time</label>
+              <input
+                type="datetime-local"
+                value={startDateTime}
+                onChange={(e) => {
+                  setStartDateTime(e.target.value);
+                  setEndDateTime(e.target.value);
+                }}
+                className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]"
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Stop Time</label>
+                <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Start Date & Time</label>
                 <input
-                  type="time"
-                  value={timeOut}
-                  onChange={(e) => setTimeOut(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-955 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  type="datetime-local"
+                  value={startDateTime}
+                  onChange={(e) => setStartDateTime(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]"
                 />
               </div>
-            )}
-          </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[9px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">Stop Date & Time</label>
+                <input
+                  type="datetime-local"
+                  value={endDateTime}
+                  onChange={(e) => setEndDateTime(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-250 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 [color-scheme:dark]"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Live Validation Warning Notice */}
           {liveValidationWarning && (
@@ -3325,7 +3357,7 @@ function SmallSegmentEditModalInline({ editingSegment, sessionClockIn, sessionCl
             <button
               onClick={onClose}
               disabled={isSaving}
-              className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+              className="px-4 py-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
             >
               Cancel
             </button>

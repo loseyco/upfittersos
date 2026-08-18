@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Home, Users, Briefcase, Layers, Map,
-  Layout, MessageSquare, Megaphone, Calendar, RefreshCw, X, Settings, UserCog, Car, Package,
+  Layout, MessageSquare, Megaphone, Calendar, CalendarDays, RefreshCw, X, Settings, UserCog, Car, Package,
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
   GraduationCap, LogIn, Pizza, BookOpen, BarChart3, Sliders, Smartphone,
@@ -39,6 +39,7 @@ export const ITEMS: NavItem[] = [
   { id: 'upfitters', label: 'Overview', icon: ClipboardList, hub: 'upfitters', permission: 'foreman.view' },
   { id: 'jobs_worksheet', label: 'Jobs Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'jobs.view' },
   { id: 'bay_worksheet', label: 'Bay Worksheet', icon: FileSpreadsheet, hub: 'upfitters', permission: 'bay_worksheet.view' },
+  { id: 'tuesday_meeting_report', label: 'Tuesday Meeting Report', icon: CalendarDays, hub: 'upfitters', permissions: ['foreman.view', 'jobs.view', 'office.view'] },
 
   // Safety Dept (In Development)
   { id: 'safety', label: 'Safety Overview', icon: ShieldCheck, hub: 'development', groupLabel: 'Safety & OSHA', permission: 'safety.view' },
@@ -185,8 +186,23 @@ export function BusinessSidebar({
     enabled: !!tenantId && tenantId !== 'GLOBAL'
   });
 
-  // Sidebar Pinned (expanded) state
+  // Sidebar Pinned (expanded) state - starts minimized in standalone/popup windows
   const [isPinned, setIsPinned] = useState<boolean>(() => {
+    const isStandaloneWindow = typeof window !== 'undefined' && (
+      window.name?.startsWith('UpfittersOS_') ||
+      Boolean(window.opener) ||
+      window.location.search.includes('popup=') ||
+      window.location.search.includes('standalone=') ||
+      window.location.search.includes('sidebar=collapsed') ||
+      window.location.pathname.includes('/job/') ||
+      window.location.pathname.includes('/jobv3/') ||
+      window.location.pathname.includes('/task/')
+    );
+
+    if (isStandaloneWindow) {
+      return false; // Start with submenu shrunk / minimized in standalone windows
+    }
+
     const saved = localStorage.getItem('upfitters_sidebar_pinned');
     return saved !== null ? saved === 'true' : true;
   });
