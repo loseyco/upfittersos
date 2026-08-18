@@ -8,9 +8,22 @@ interface TaskTitleAutocompleteProps {
   onChange: (value: string) => void;
   qbItems: any[];
   id?: string;
+  placeholder?: string;
+  onPressEnter?: () => void;
+  className?: string;
+  inputClassName?: string;
 }
 
-export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitleAutocompleteProps) {
+export function TaskTitleAutocomplete({ 
+  value, 
+  onChange, 
+  qbItems, 
+  id, 
+  placeholder = "Task Title...", 
+  onPressEnter,
+  className,
+  inputClassName
+}: TaskTitleAutocompleteProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -90,7 +103,7 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
   }, [isOpen, value, qbItems]);
 
   const filtered = (qbItems || [])
-    .map(item => item?.FullName || item?.Name || '')
+    .map(item => item?.FullName || item?.Name || item?.title || '')
     .filter((name, idx, self) => name && self.indexOf(name) === idx) // Unique list of names
     .filter(name => name.toLowerCase().includes((value || '').toLowerCase()));
 
@@ -98,15 +111,18 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
     onChange(val);
     setIsOpen(false);
     setActiveIndex(-1);
-    inputRef.current?.blur();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!isOpen) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onPressEnter?.();
+      }
       return;
     }
 
-    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) {
+    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
       e.stopPropagation();
     }
 
@@ -123,15 +139,19 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
         e.preventDefault();
         if (activeIndex >= 0 && activeIndex < filtered.length) {
           handleSelect(filtered[activeIndex]);
-        } else if (filtered.length > 0) {
+          setTimeout(() => onPressEnter?.(), 50);
+        } else if (filtered.length > 0 && activeIndex === 0) {
           handleSelect(filtered[0]);
+          setTimeout(() => onPressEnter?.(), 50);
+        } else {
+          setIsOpen(false);
+          onPressEnter?.();
         }
         break;
       case 'Escape':
         e.preventDefault();
         setIsOpen(false);
         setActiveIndex(-1);
-        inputRef.current?.blur();
         break;
       case 'Tab':
         if (activeIndex >= 0 && activeIndex < filtered.length) {
@@ -146,14 +166,14 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
   };
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className={cn("relative w-full", className)}>
       <div className="relative flex items-center w-full">
         <input
           ref={inputRef}
           id={id}
           type="text"
           value={value}
-          placeholder="Task Title..."
+          placeholder={placeholder}
           onFocus={() => {
             setIsOpen(true);
             setActiveIndex(-1);
@@ -164,10 +184,14 @@ export function TaskTitleAutocomplete({ value, onChange, qbItems, id }: TaskTitl
             setActiveIndex(0);
           }}
           onKeyDown={handleKeyDown}
-          className="w-full bg-transparent border-none pl-1 pr-5 py-1 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-semibold text-zinc-900 dark:text-white"
+          className={cn(
+            "w-full bg-transparent border-none pl-1 pr-5 py-1 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-semibold text-zinc-900 dark:text-white",
+            inputClassName
+          )}
         />
         <ChevronDown 
           className="w-3.5 h-3.5 text-zinc-450 dark:text-zinc-600 absolute right-1 cursor-pointer pointer-events-none" 
+          onClick={() => setIsOpen(prev => !prev)}
         />
       </div>
 

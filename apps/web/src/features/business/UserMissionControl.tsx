@@ -1168,54 +1168,15 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       }
 
       const jobs = [...(sessionData?.jobs || [])];
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
-      }
+      jobs.forEach((j: any) => {
+        if (!j.end) {
+          j.end = new Date();
+        }
+      });
 
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation(7000, false);
-      if (!loc.lat && !loc.lng) {
-        toast.error("Could not resolve location. Please ensure you have an active network connection or allow location permissions.");
-        setIsClockProcessing(false);
-        return;
-      }
       let onSite = true;
-
-      // Fetch business settings
-      let settings: any = null;
-      try {
-        const settingsSnap = await getDoc(doc(db, 'businesses', tenantId));
-        if (settingsSnap.exists()) {
-          settings = settingsSnap.data();
-        }
-      } catch (err) {
-        console.warn("Could not load business settings", err);
-      }
-
-      let allowedClockOut = true;
-      if (loc.lat !== null && loc.lng !== null) {
-        if (loc.type === 'ip') {
-          onSite = true;
-          allowedClockOut = true;
-        } else if (settings?.siteLat && settings?.siteLng) {
-          const dist = calculateDistance(
-            loc.lat, loc.lng,
-            parseFloat(settings.siteLat), parseFloat(settings.siteLng)
-          );
-          onSite = dist <= (settings.siteRadius || 500);
-          allowedClockOut = dist <= ((settings.siteRadius || 500) * 2);
-        }
-      } else {
-        onSite = false;
-        allowedClockOut = false;
-      }
-
-      if (!allowedClockOut && settings && !settings.allowOffsiteClockIn && !permissions['timeclock.offsite']) {
-        toast.error("Clocking out off-site (beyond twice the site radius) is not allowed for your account.");
-        setIsClockProcessing(false);
-        return;
-      }
 
       await updateDoc(sessionRef, {
         clockOut: {
@@ -1255,18 +1216,18 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
       const breaks = [...(sessionData?.breaks || [])];
       const jobs = [...(sessionData?.jobs || [])];
       
-      const lastJob = jobs.length > 0 ? jobs[jobs.length - 1] : null;
       let suspendedJob = null;
-      
-      if (lastJob && !lastJob.end) {
-        lastJob.end = new Date();
-        suspendedJob = {
-          id: lastJob.id,
-          name: lastJob.name,
-          taskId: lastJob.taskId || null,
-          taskName: lastJob.taskName || null
-        };
-      }
+      jobs.forEach((j: any) => {
+        if (!j.end) {
+          j.end = new Date();
+          suspendedJob = {
+            id: j.id,
+            name: j.name,
+            taskId: j.taskId || null,
+            taskName: j.taskName || null
+          };
+        }
+      });
       
       const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
       const loc = await getCurrentLocation();

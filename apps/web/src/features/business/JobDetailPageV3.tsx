@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  doc, onSnapshot, collection, query, where, updateDoc, addDoc, serverTimestamp, getDocs, limit 
+  doc, onSnapshot, collection, query, where, updateDoc, addDoc, setDoc, deleteDoc, serverTimestamp, getDocs, limit, orderBy 
 } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase/config';
 import { 
@@ -12,7 +12,9 @@ import {
   ChevronRight, ChevronDown, Plus, Layers,
   Printer, Upload, MessageSquare, Timer,
   RefreshCw, ZoomIn, TrendingDown, TrendingUp, Activity, Search,
-  CheckCircle2, Warehouse, LayoutDashboard, ClipboardCheck
+  CheckCircle2, Warehouse, LayoutDashboard, ClipboardCheck,
+  Pencil, Trash2, Play, Square, CornerDownLeft,
+  Wrench, Clock, FileText, Users
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
@@ -21,6 +23,19 @@ import { toast } from 'sonner';
 import { JobChat } from './components/JobChat';
 import { PartsRequestModal } from './PartsRequestModal';
 import { LogoQRCode } from '../../components/LogoQRCode';
+import { TaskTitleAutocomplete } from './TaskTitleAutocomplete';
+import { useJobClock } from '../timeclock/useJobClock';
+import { SearchableStaffMultiPicker } from './components/SearchableStaffMultiPicker';
+
+const getConditionPrintColor = (condition: string) => {
+  switch(condition) {
+    case 'Good': return 'text-emerald-700 bg-emerald-50 border-emerald-200';
+    case 'Broken': return 'text-rose-700 bg-rose-50 border-rose-200';
+    case 'Missing Parts': return 'text-amber-700 bg-amber-50 border-amber-200';
+    case 'Needs Repair': return 'text-orange-700 bg-orange-50 border-orange-200';
+    default: return 'text-zinc-700 bg-zinc-50 border-zinc-200';
+  }
+};
 
 // Safe Date Formatting Helper - Prevents "Invalid Date"
 function formatDateSafe(val: any, includeTime: boolean = false): string {
@@ -125,12 +140,14 @@ export function JobDetailPageV3({
   const jobId = pathParts[1] || '';
 
   const navigate = useNavigate();
-  const { user, impersonatedStaff } = useAuthStore();
+  const { user, impersonatedStaff, isSuperAdmin, permissions } = useAuthStore();
   const effectiveUserId = impersonatedStaff?.id || user?.uid || '';
+  const canManageTasks = isSuperAdmin || permissions['tasks.manage'] || permissions['jobs.manage'] || permissions['foreman.view'] || permissions['office.view'];
+  const { clockIntoJob, clockOutOfJob, isProcessing: isClockingJob } = useJobClock(tenantId);
 
   // Tab State
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'tasks' | 'staff' | 'timelog' | 'telemetry' | 'photos' | 'takeoffs' | 'parts' | 'chat'
+    'overview' | 'tasks' | 'photos' | 'parts' | 'staff' | 'history' | 'chat' | 'takeoffs' | 'timelog' | 'telemetry'
   >('overview');
   const [taskSubTab, setTaskSubTab] = useState<'tasks' | 'takeoffs'>('tasks');
   const [staffSubTab, setStaffSubTab] = useState<'roster' | 'timelog' | 'telemetry'>('roster');
@@ -138,6 +155,9 @@ export function JobDetailPageV3({
   // Core Firestore Subscriptions State
   const [job, setJob] = useState<any>(null);
   const [allStaff, setAllStaff] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [taskDefaults, setTaskDefaults] = useState<Record<string, number>>({});
+  const [qbItems, setQbItems] = useState<any[]>([]);
   const [vehicle, setVehicle] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [takeoffs, setTakeoffs] = useState<any[]>([]);
@@ -147,6 +167,47 @@ export function JobDetailPageV3({
   const [zones, setZones] = useState<any[]>([]);
   const [nativePhotos, setNativePhotos] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Clean Logged-in Staff Attribution
+  const currentStaffMember = useMemo(() => {
+    return allStaff.find(s => 
+      s.id === effectiveUserId || 
+      s.userId === effectiveUserId || 
+      s.uid === effectiveUserId || 
+      (user?.email && s.email && s.email.toLowerCase() === user.email.toLowerCase())
+    );
+  }, [allStaff, effectiveUserId, user?.email]);
+
+  const effectiveStaffName = useMemo(() => {
+    if (impersonatedStaff?.name) return impersonatedStaff.name;
+    if (currentStaffMember) {
+      const combined = `${currentStaffMember.firstName || ''} ${currentStaffMember.lastName || ''}`.trim();
+      return combined || currentStaffMember.displayName || currentStaffMember.name || currentStaffMember.fullName || (user?.displayName || user?.email?.split('@')[0] || 'Staff');
+    }
+    return user?.displayName || user?.email?.split('@')[0] || 'Staff';
+  }, [currentStaffMember, impersonatedStaff, user]);
+
+  const effectiveStaffId = currentStaffMember?.id || effectiveUserId;
+
+  // Quick Task Creation State (with automatic defaults & multi-staff memory)
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDesc, setNewTaskDesc] = useState('');
+  const [newTaskBookTime, setNewTaskBookTime] = useState<string | number>('');
+  const [newTaskDeptId, setNewTaskDeptId] = useState<string>('');
+  const [newTaskStaffIds, setNewTaskStaffIds] = useState<string[]>([]);
+  const [lastDepartmentId, setLastDepartmentId] = useState<string>('');
+  const [lastAssignedStaffIds, setLastAssignedStaffIds] = useState<string[]>([]);
+  const [isAddingTask, setIsAddingTask] = useState(false);
+
+  // Task Edit Modal State
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [editTaskTitle, setEditTaskTitle] = useState('');
+  const [editTaskDesc, setEditTaskDesc] = useState('');
+  const [editTaskBookTime, setEditTaskBookTime] = useState<string | number>('');
+  const [editTaskDeptId, setEditTaskDeptId] = useState('');
+  const [editTaskStaffIds, setEditTaskStaffIds] = useState<string[]>([]);
+  const [isSavingTaskEdit, setIsSavingTaskEdit] = useState(false);
+  const [clockingTaskState, setClockingTaskState] = useState<{ id: string; action: 'in' | 'out' } | null>(null);
 
   // CompanyCam Photos State
   const [companyCamPhotos, setCompanyCamPhotos] = useState<any[]>([]);
@@ -173,8 +234,12 @@ export function JobDetailPageV3({
   const [selectedTaskForPart, setSelectedTaskForPart] = useState<any>(null);
 
   // Print Modals
+  const [showReportModal, setShowReportModal] = useState(false);
   const [isPrintTravelerOpen, setIsPrintTravelerOpen] = useState(false);
   const [isEtaTrendModalOpen, setIsEtaTrendModalOpen] = useState(false);
+  const [businessName, setBusinessName] = useState<string>('Business');
+  const [businessLogo, setBusinessLogo] = useState<string>('');
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
 
   // Comprehensive Job Edit Modal State
   const [isJobEditOpen, setIsJobEditOpen] = useState(false);
@@ -300,21 +365,81 @@ export function JobDetailPageV3({
     return () => unsub();
   }, [tenantId, jobId, setDynamicTitle]);
 
-  // 2. Subscribe to Business Staff Roster & Zones
+  // 2. Subscribe to Business Staff Roster, Departments & Zones
   useEffect(() => {
     if (!tenantId) return;
-    const staffRef = collection(db, `businesses/${tenantId}/staff`);
+    const staffRef = collection(db, 'businesses', tenantId, 'staff');
     const unsubStaff = onSnapshot(staffRef, (snap) => {
-      setAllStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const activeStaff = snap.docs
+        .map(d => {
+          const data = d.data();
+          const name = `${data.firstName || ''} ${data.lastName || ''}`.trim() || data.displayName || data.name || data.fullName;
+          return { id: d.id, ...data, name };
+        })
+        .filter((s: any) => 
+          !s.isArchived && 
+          !s.fireDate && 
+          !s.isDeviceAccount && 
+          s.status !== 'inactive' && 
+          s.status !== 'archived' && 
+          s.status !== 'fired' && 
+          s.status !== 'terminated' &&
+          s.active !== false
+        );
+      setAllStaff(activeStaff);
     }, (err) => console.warn("Staff listener suppressed:", err));
+
+    const unsubDepts = onSnapshot(collection(db, `businesses/${tenantId}/departments`), (snap) => {
+      const depts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setDepartments(depts);
+      // Auto-default department to "Upfitters"
+      const upfitterDept = depts.find((d: any) => {
+        const name = (d.name || d.title || d.id || '').toLowerCase();
+        return name === 'upfitters' || name === 'upfitting' || name.includes('upfit');
+      });
+      if (upfitterDept) {
+        setLastDepartmentId(prev => prev || upfitterDept.id);
+        setNewTaskDeptId(prev => prev || upfitterDept.id);
+      } else if (depts.length > 0) {
+        setLastDepartmentId(prev => prev || depts[0].id);
+        setNewTaskDeptId(prev => prev || depts[0].id);
+      }
+    }, (err) => console.warn("Departments listener suppressed:", err));
 
     const unsubZones = onSnapshot(collection(db, `businesses/${tenantId}/zones`), (snap) => {
       setZones(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => console.warn("Zones listener suppressed:", err));
 
+    const unsubDefaults = onSnapshot(collection(db, `businesses/${tenantId}/task_defaults`), (snap) => {
+      const defs: Record<string, number> = {};
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if (data.title && typeof data.bookTime === 'number') {
+          defs[data.title] = data.bookTime;
+        }
+      });
+      setTaskDefaults(defs);
+    }, (err) => console.warn("Task defaults listener suppressed:", err));
+
+    Promise.all([
+      getDocs(collection(db, `businesses/${tenantId}/qb_items`)),
+      getDocs(collection(db, `businesses/${tenantId}/native_tasks`))
+    ]).then(([qbSnap, nativeSnap]) => {
+      const qb = qbSnap.docs.map(d => ({ id: d.id, ...d.data(), _source: 'QuickBooks' }));
+      const native = nativeSnap.docs.map(d => ({ id: d.id, ...d.data(), _source: 'Native' }));
+      const serviceItems = qb.filter((item: any) => 
+        item.Type === 'Service' || 
+        item.ItemType === 'Service' ||
+        !item.Type
+      );
+      setQbItems([...serviceItems, ...native]);
+    }).catch(err => console.warn("Task items load suppressed:", err));
+
     return () => {
       unsubStaff();
+      unsubDepts();
       unsubZones();
+      unsubDefaults();
     };
   }, [tenantId]);
 
@@ -329,6 +454,32 @@ export function JobDetailPageV3({
     }, (err) => console.warn("All jobs listener suppressed:", err));
     return () => unsub();
   }, [tenantId]);
+
+  // Subscribe to Business details for print headers
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsub = onSnapshot(doc(db, 'businesses', tenantId), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.name) setBusinessName(data.name);
+        if (data.logoUrl) setBusinessLogo(data.logoUrl);
+      }
+    }, (err) => console.warn("Business doc listener suppressed:", err));
+    return () => unsub();
+  }, [tenantId]);
+
+  // Subscribe to Chat Messages for Job Details Print Sheet
+  useEffect(() => {
+    if (!tenantId || !jobId) return;
+    const q = query(
+      collection(db, `businesses/${tenantId}/jobs/${jobId}/chat_messages`),
+      orderBy('createdAt', 'asc')
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setChatMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }, (err) => console.warn("Chat messages listener suppressed:", err));
+    return () => unsub();
+  }, [tenantId, jobId]);
 
   // Subscribe to Customers Directory (Native & QuickBooks)
   useEffect(() => {
@@ -1051,6 +1202,7 @@ export function JobDetailPageV3({
 
     const nowMs = Date.now();
     const isCurrentlyInBay = (job?.bayId && job.bayId !== 'none') || 
+                             job?.status === 'In Bay' ||
                              matchedZone?.type === 'bay' || 
                              (typeof job?.location === 'string' && job.location.toLowerCase().includes('bay')) ||
                              (typeof job?.parkingSpot === 'string' && job.parkingSpot.toLowerCase().includes('bay'));
@@ -1062,12 +1214,62 @@ export function JobDetailPageV3({
     );
 
     if (isCurrentlyInBay) {
-      const activeBayStartMs = parseTimestampMs(job?.inBaySince || job?.bayAssignedAt || job?.lastMovedAt || job?.lastStatusChangedAt || job?.updatedAt || job?.createdAt);
+      // Find move to bay in history logs if inBaySince is not stored on doc
+      let bayMoveLogMs = 0;
+      if (Array.isArray(historyLogs) && historyLogs.length > 0) {
+        const bayMoveLogs = historyLogs.filter((l: any) => {
+          const text = ((l.title || '') + ' ' + (l.description || '') + ' ' + (l.toLocation || '') + ' ' + (l.toStatus || '') + ' ' + (l.to || '')).toLowerCase();
+          return text.includes('bay') || (l.type === 'location_change' && text.includes('bay')) || (l.type === 'status_change' && text.includes('in bay'));
+        });
+        if (bayMoveLogs.length > 0) {
+          const sorted = [...bayMoveLogs].sort((a, b) => parseTimestampMs(a.createdAt || a.timestamp) - parseTimestampMs(b.createdAt || b.timestamp));
+          bayMoveLogMs = parseTimestampMs(sorted[0].createdAt || sorted[0].timestamp);
+        }
+      }
+
+      // DO NOT fallback to job?.updatedAt because updatedAt gets refreshed on every edit/action!
+      const activeBayStartMs = parseTimestampMs(
+        job?.inBaySince || 
+        job?.bayAssignedAt || 
+        (bayMoveLogMs > 0 ? bayMoveLogMs : null) || 
+        job?.lastStatusChangedAt || 
+        job?.lastMovedAt || 
+        job?.startDate || 
+        job?.scheduledStartDate || 
+        job?.scheduledDate || 
+        job?.date || 
+        job?.createdAt || 
+        job?.TimeCreated
+      );
       if (activeBayStartMs > 0 && nowMs > activeBayStartMs) {
         baySeconds += Math.floor((nowMs - activeBayStartMs) / 1000);
       }
     } else if (isCurrentlyInLot) {
-      const activeLotStartMs = parseTimestampMs(job?.inLotSince || job?.parkingAssignedAt || job?.lastMovedAt || job?.lastStatusChangedAt || job?.updatedAt || job?.createdAt);
+      let lotMoveLogMs = 0;
+      if (Array.isArray(historyLogs) && historyLogs.length > 0) {
+        const lotMoveLogs = historyLogs.filter((l: any) => {
+          const text = ((l.title || '') + ' ' + (l.description || '') + ' ' + (l.toLocation || '') + ' ' + (l.to || '')).toLowerCase();
+          return text.includes('yard') || text.includes('lot') || text.includes('parking') || l.type === 'location_change';
+        });
+        if (lotMoveLogs.length > 0) {
+          const sorted = [...lotMoveLogs].sort((a, b) => parseTimestampMs(a.createdAt || a.timestamp) - parseTimestampMs(b.createdAt || b.timestamp));
+          lotMoveLogMs = parseTimestampMs(sorted[0].createdAt || sorted[0].timestamp);
+        }
+      }
+
+      const activeLotStartMs = parseTimestampMs(
+        job?.inLotSince || 
+        job?.parkingAssignedAt || 
+        (lotMoveLogMs > 0 ? lotMoveLogMs : null) || 
+        job?.lastStatusChangedAt || 
+        job?.lastMovedAt || 
+        job?.startDate || 
+        job?.scheduledStartDate || 
+        job?.scheduledDate || 
+        job?.date || 
+        job?.createdAt || 
+        job?.TimeCreated
+      );
       if (activeLotStartMs > 0 && nowMs > activeLotStartMs) {
         parkingSeconds += Math.floor((nowMs - activeLotStartMs) / 1000);
       }
@@ -1077,7 +1279,7 @@ export function JobDetailPageV3({
       bayTimeHours: (baySeconds / 3600).toFixed(1),
       parkingTimeHours: (parkingSeconds / 3600).toFixed(1)
     };
-  }, [job, matchedZone]);
+  }, [job, matchedZone, historyLogs]);
 
   // Filtered Reference Photos
   const filteredRefPhotos = useMemo(() => {
@@ -2007,7 +2209,9 @@ export function JobDetailPageV3({
       await updateDoc(takeoffRef, {
         checked: nextChecked,
         checkedAt: nextChecked ? serverTimestamp() : null,
-        checkedBy: nextChecked ? (user?.displayName || user?.email || 'Inspector') : null
+        checkedBy: nextChecked ? effectiveStaffName : null,
+        checkedByStaffId: nextChecked ? effectiveStaffId : null,
+        checkedByStaffName: nextChecked ? effectiveStaffName : null
       });
       toast.success(`Checklist item updated`);
     } catch (err: any) {
@@ -2015,11 +2219,20 @@ export function JobDetailPageV3({
     }
   };
 
-  // Task Status Toggle for Mobile Upfitters
+  // Task Status Toggle for Mobile Upfitters (Enforces assignment & auto clock-out)
   const handleToggleTaskStatus = async (task: any) => {
     if (!tenantId || !jobId || !task.id) return;
+
+    // Only allow marking complete if assigned or manager
+    const isAssigned = isUserAssignedToTask(task);
+    if (!isAssigned && !canManageTasks) {
+      toast.error("You must be assigned to this task to mark it completed.");
+      return;
+    }
+
     const currentStatus = task.status || 'pending';
-    const nextStatus = currentStatus === 'completed' || currentStatus === 'QC Complete' ? 'in_progress' : 'completed';
+    const isNowCompleted = currentStatus === 'completed' || currentStatus === 'QC Complete' || currentStatus === 'QC';
+    const nextStatus = isNowCompleted ? 'in_progress' : 'completed';
 
     try {
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, task.id);
@@ -2027,12 +2240,371 @@ export function JobDetailPageV3({
         status: nextStatus,
         updatedAt: serverTimestamp(),
         completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
-        completedBy: user?.displayName || user?.email || 'Upfitter'
+        completedBy: effectiveStaffName,
+        completedByStaffId: effectiveStaffId,
+        completedByStaffName: effectiveStaffName
       });
+
+      // Write to history audit log
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'task_status',
+        action: nextStatus === 'completed' ? 'task_completed' : 'task_in_progress',
+        title: `Task ${nextStatus === 'completed' ? 'Completed' : 'Moved In Progress'}`,
+        details: `${task.title || task.name || 'Task'} marked as ${nextStatus === 'completed' ? 'Completed' : 'In Progress'}`,
+        description: `${task.title || task.name || 'Task'} marked as ${nextStatus === 'completed' ? 'Completed' : 'In Progress'}`,
+        taskId: task.id,
+        user: effectiveStaffName,
+        userName: effectiveStaffName,
+        userId: effectiveStaffId,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      // Automatically clock out of task if currently clocked into it when marking complete
+      if (nextStatus === 'completed' && isUserClockedIntoTask(task.id)) {
+        try {
+          await clockOutOfJob(jobId, task.id);
+        } catch (clockErr) {
+          console.warn("Auto clock-out on task completion error:", clockErr);
+        }
+      }
 
       toast.success(`Task marked as ${nextStatus === 'completed' ? 'Completed' : 'In Progress'}`);
     } catch (err: any) {
       toast.error(`Failed to update task: ${err.message}`);
+    }
+  };
+
+  // Auto Book-Time Lookup on Task Title Change
+  const handleTaskTitleChange = (val: string) => {
+    setNewTaskTitle(val);
+    if (!val) return;
+    const trimmed = val.trim();
+    const isDiagRepair = trimmed.toLowerCase() === 'labor:diagnose/repair';
+    if (taskDefaults[trimmed] !== undefined) {
+      setNewTaskBookTime(taskDefaults[trimmed]);
+    } else if (isDiagRepair) {
+      setNewTaskBookTime(1.0);
+    } else {
+      const matchedItem = qbItems.find(item => 
+        (item.FullName || item.Name || item.title || '').toLowerCase() === trimmed.toLowerCase()
+      );
+      if (matchedItem && (matchedItem.bookTime || matchedItem.rate || matchedItem.hours)) {
+        setNewTaskBookTime(matchedItem.bookTime || matchedItem.rate || matchedItem.hours || 0);
+      }
+    }
+  };
+
+  // Rapid Task Creation (Enter-key friendly, carries forward multi-staff & dept)
+  const handleCreateTask = async (overrideCategory?: string) => {
+    if (!canManageTasks) {
+      toast.error("You do not have permission to add tasks.");
+      return;
+    }
+    const title = newTaskTitle.trim();
+    if (!title) {
+      toast.error("Please enter a task title.");
+      return;
+    }
+
+    setIsAddingTask(true);
+    try {
+      const isDiagRepair = title.toLowerCase() === 'labor:diagnose/repair';
+      const defaultHours = isDiagRepair ? 1 : 0;
+      const parsedBookTime = Number(newTaskBookTime) || defaultHours;
+      const targetCategory = overrideCategory || (selectedTaskCategory !== 'all' ? selectedTaskCategory : 'General Labor');
+
+      const staffIdsToUse = newTaskStaffIds.length > 0 ? newTaskStaffIds : lastAssignedStaffIds;
+      const assignedStaffMembers: any[] = [];
+      staffIdsToUse.forEach(staffId => {
+        const found = allStaff.find(s => s.id === staffId || s.userId === staffId);
+        if (found) {
+          const name = `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name || found.displayName || 'Technician';
+          assignedStaffMembers.push({ id: found.id, name });
+        }
+      });
+
+      const maxOrder = tasks.reduce((max, t) => typeof t.order === 'number' && t.order > max ? t.order : max, 0);
+
+      const taskData = {
+        title,
+        name: title,
+        description: newTaskDesc.trim() || '',
+        bookTime: parsedBookTime,
+        payBasis: 'book_time',
+        status: 'pending',
+        taskGroup: targetCategory,
+        departmentId: newTaskDeptId || lastDepartmentId || '',
+        assignedStaff: assignedStaffMembers,
+        assignedStaffIds: assignedStaffMembers.map(s => s.id),
+        assignedToName: assignedStaffMembers.map(s => s.name).join(', '),
+        order: maxOrder + 10,
+        tenantId,
+        jobId,
+        createdAt: serverTimestamp(),
+        createdBy: effectiveStaffName,
+        createdByStaffId: effectiveStaffId,
+        createdByStaffName: effectiveStaffName,
+        updatedAt: serverTimestamp()
+      };
+
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/tasks`), taskData);
+
+      // Save task default if new
+      if (parsedBookTime > 0) {
+        const docId = encodeURIComponent(title);
+        setDoc(doc(db, `businesses/${tenantId}/task_defaults`, docId), {
+          title,
+          bookTime: parsedBookTime,
+          updatedAt: serverTimestamp()
+        }, { merge: true }).catch(() => {});
+      }
+
+      // Activity audit log
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'task_added',
+        action: 'task_added',
+        title: `Added task "${title}"`,
+        details: `Added task "${title}" (${parsedBookTime}h) to ${targetCategory}`,
+        description: `Added task "${title}" (${parsedBookTime}h) to ${targetCategory}`,
+        user: effectiveStaffName,
+        userName: effectiveStaffName,
+        userId: effectiveStaffId,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      // Update job total estimatedHours
+      const updatedTotalBook = tasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0) + parsedBookTime;
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}`), {
+        estimatedHours: updatedTotalBook,
+        bookedHours: updatedTotalBook,
+        updatedAt: serverTimestamp()
+      }).catch(() => {});
+
+      // Remember last department and multi-staff
+      if (newTaskDeptId) setLastDepartmentId(newTaskDeptId);
+      if (newTaskStaffIds.length > 0) setLastAssignedStaffIds(newTaskStaffIds);
+
+      // Reset fields while preserving department & tech memory
+      setNewTaskTitle('');
+      setNewTaskDesc('');
+      setNewTaskBookTime('');
+      toast.success(`✓ Task added: ${title}`);
+
+      // Auto re-focus title input
+      setTimeout(() => {
+        const el = document.getElementById('new-task-title-input');
+        el?.focus();
+      }, 50);
+    } catch (err: any) {
+      console.error("Error adding task:", err);
+      toast.error("Failed to add task: " + err.message);
+    } finally {
+      setIsAddingTask(false);
+    }
+  };
+
+  // Delete Task with confirmation
+  const handleDeleteTask = async (taskId: string, taskTitle: string) => {
+    if (!canManageTasks) return;
+    if (!confirm(`Are you sure you want to delete "${taskTitle}"?`)) return;
+
+    try {
+      await deleteDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, taskId));
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'task_deleted',
+        action: 'task_deleted',
+        title: `Deleted task "${taskTitle}"`,
+        details: `Deleted task "${taskTitle}"`,
+        description: `Deleted task "${taskTitle}"`,
+        user: effectiveStaffName,
+        userName: effectiveStaffName,
+        userId: effectiveStaffId,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+      toast.success(`Deleted task "${taskTitle}"`);
+    } catch (err: any) {
+      console.error("Error deleting task:", err);
+      toast.error("Failed to delete task.");
+    }
+  };
+
+  // Open Edit Task Modal
+  const handleOpenEditTask = (task: any) => {
+    setEditingTask(task);
+    setEditTaskTitle(task.title || task.name || '');
+    setEditTaskDesc(task.description || task.notes || '');
+    setEditTaskBookTime(task.bookTime || 0);
+    setEditTaskDeptId(task.departmentId || '');
+    const existingStaffIds: string[] = task.assignedStaffIds || (task.assignedStaff || []).map((s: any) => s.id || s.uid) || [];
+    setEditTaskStaffIds(existingStaffIds);
+  };
+
+  // Save Task Edit
+  const handleSaveEditedTask = async () => {
+    if (!editingTask || !canManageTasks) return;
+    setIsSavingTaskEdit(true);
+    try {
+      const parsedBookTime = Number(editTaskBookTime) || 0;
+      const assignedStaffMembers: any[] = [];
+      editTaskStaffIds.forEach(staffId => {
+        const found = allStaff.find(s => s.id === staffId || s.userId === staffId);
+        if (found) {
+          const name = `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name || found.displayName || 'Technician';
+          assignedStaffMembers.push({ id: found.id, name });
+        }
+      });
+
+      await updateDoc(doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, editingTask.id), {
+        title: editTaskTitle.trim() || editingTask.title,
+        name: editTaskTitle.trim() || editingTask.title,
+        description: editTaskDesc.trim(),
+        bookTime: parsedBookTime,
+        departmentId: editTaskDeptId || '',
+        assignedStaff: assignedStaffMembers,
+        assignedStaffIds: assignedStaffMembers.map(s => s.id),
+        assignedToName: assignedStaffMembers.map(s => s.name).join(', '),
+        updatedBy: effectiveStaffName,
+        updatedByStaffId: effectiveStaffId,
+        updatedByStaffName: effectiveStaffName,
+        updatedAt: serverTimestamp()
+      });
+
+      // Write to history audit log
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'task_updated',
+        action: 'task_updated',
+        title: `Updated task "${editTaskTitle.trim() || editingTask.title}"`,
+        details: `Updated task details & assigned staff: ${assignedStaffMembers.map(s => s.name).join(', ') || 'Unassigned'}`,
+        description: `Updated task details & assigned staff: ${assignedStaffMembers.map(s => s.name).join(', ') || 'Unassigned'}`,
+        taskId: editingTask.id,
+        user: effectiveStaffName,
+        userName: effectiveStaffName,
+        userId: effectiveStaffId,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      toast.success("Task updated!");
+      setEditingTask(null);
+    } catch (err: any) {
+      console.error("Error saving task edit:", err);
+      toast.error("Failed to update task.");
+    } finally {
+      setIsSavingTaskEdit(false);
+    }
+  };
+
+  // Calculate actual clocked milliseconds per task across all sessions
+  const getTaskClockedMs = (taskId: string) => {
+    let totalMs = 0;
+    timeSessions.forEach((session: any) => {
+      if (session.jobs && Array.isArray(session.jobs)) {
+        session.jobs.forEach((j: any) => {
+          if (j.id === jobId && j.taskId === taskId) {
+            const startMs = parseTimestampMs(j.start);
+            const endMs = j.end ? parseTimestampMs(j.end) : Date.now();
+            if (startMs > 0) {
+              totalMs += Math.max(0, endMs - startMs);
+            }
+          }
+        });
+      }
+    });
+    return totalMs;
+  };
+
+  // Check if current user is actively clocked into this task
+  const isUserClockedIntoTask = (taskId: string) => {
+    return timeSessions.some((s: any) => {
+      const matchesUser = s.userId === effectiveUserId || s.staffId === effectiveUserId;
+      if (!matchesUser) return false;
+      const isActive = ['active', 'on_break'].includes(s.status) && !s.clockOut;
+      if (!isActive || !s.jobs) return false;
+      return s.jobs.some((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+    });
+  };
+
+  // Get list of technicians currently clocked into this task
+  const getClockedInStaffForTask = (taskId: string) => {
+    const activeStaff: any[] = [];
+    timeSessions.forEach((s: any) => {
+      if (['active', 'on_break'].includes(s.status) && !s.clockOut && s.jobs) {
+        const matchingJob = s.jobs.find((j: any) => !j.end && j.id === jobId && j.taskId === taskId);
+        if (matchingJob) {
+          activeStaff.push({
+            name: s.userName || s.staffName || 'Technician',
+            start: matchingJob.start
+          });
+        }
+      }
+    });
+    return activeStaff;
+  };
+
+  // Helper to check if current logged-in user / technician is assigned to a specific task
+  const isUserAssignedToTask = (task: any) => {
+    if (!task) return false;
+    
+    // Find current user's staff record
+    const currentStaffMember = allStaff.find(s => 
+      s.id === effectiveUserId || 
+      s.userId === effectiveUserId || 
+      s.uid === effectiveUserId || 
+      (user?.email && s.email && s.email.toLowerCase() === user.email.toLowerCase())
+    );
+
+    const validUserIds = [
+      effectiveUserId, 
+      user?.uid, 
+      currentStaffMember?.id, 
+      currentStaffMember?.userId, 
+      currentStaffMember?.uid
+    ].filter(Boolean);
+
+    const assignedIds: string[] = [
+      ...(task.assignedStaffIds || []),
+      ...(task.assignedStaff || []).map((s: any) => s.id || s.uid || s.userId)
+    ].filter(Boolean);
+
+    if (assignedIds.length === 0) {
+      return false;
+    }
+
+    return assignedIds.some(id => validUserIds.includes(id));
+  };
+
+  // Clock In to Task with immediate loading spinner (enforces assignment requirement)
+  const handleTaskClockIn = async (task: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (clockingTaskState) return;
+
+    if (!isUserAssignedToTask(task)) {
+      toast.error("You must be assigned to this task before you can clock in.");
+      return;
+    }
+
+    setClockingTaskState({ id: task.id, action: 'in' });
+    try {
+      await clockIntoJob(jobId, job?.title || 'Job', task.id, task.title || task.name);
+    } catch (err: any) {
+      console.error("Task clock-in error:", err);
+      toast.error("Failed to clock in: " + (err.message || 'Unknown error'));
+    } finally {
+      setClockingTaskState(null);
+    }
+  };
+
+  // Clock Out of Task with immediate loading spinner
+  const handleTaskClockOut = async (task: any, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (clockingTaskState) return;
+    setClockingTaskState({ id: task.id, action: 'out' });
+    try {
+      await clockOutOfJob(jobId, task.id);
+    } catch (err: any) {
+      console.error("Task clock-out error:", err);
+      toast.error("Failed to clock out: " + (err.message || 'Unknown error'));
+    } finally {
+      setClockingTaskState(null);
     }
   };
 
@@ -2048,6 +2620,132 @@ export function JobDetailPageV3({
 
     return { total, completed, inProgress, totalBookHours, completedBookHours };
   }, [tasks]);
+
+  // QC Notes derivation for report
+  const qcNotes = useMemo(() => {
+    return tasks.flatMap((task: any) => 
+      (task.task_notes || [])
+        .filter((note: any) => (note.message || '').startsWith('[QC '))
+        .map((note: any) => {
+          const isPass = (note.message || '').startsWith('[QC VERIFIED]');
+          const cleanMessage = (note.message || '')
+            .replace('[QC VERIFIED]', '')
+            .replace('[QC FAILED]', '')
+            .trim();
+          return {
+            id: note.id || `${task.id}_${note.createdAt}`,
+            taskId: task.id,
+            taskTitle: task.title || task.name,
+            isPass,
+            message: cleanMessage,
+            images: note.images || [],
+            createdAt: note.createdAt,
+            createdByName: note.createdByName || note.userName || 'Inspector'
+          };
+        })
+    ).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [tasks]);
+
+  const qcPhotoNotes = useMemo(() => qcNotes.filter((qc: any) => qc.images && qc.images.length > 0), [qcNotes]);
+
+  // Staff Workload Allocation Stats for report
+  const staffStats = useMemo(() => {
+    const statsMap: Record<string, {
+      name: string;
+      id: string;
+      totalHours: number;
+      completedHours: number;
+      totalTasks: number;
+      completedTasks: number;
+      clockedHours: number;
+    }> = {};
+
+    tasks.forEach(task => {
+      const isCompleted = ['QC', 'QC Complete', 'completed', 'Completed'].includes(task.status);
+      const actualMs = getTaskClockedMs(task.id);
+      const taskActualHours = actualMs / 3600000;
+      const bookTime = task.payBasis === 'hourly' ? taskActualHours : (parseFloat(task.bookTime) || 0);
+
+      const assignedStaff = (task.assignedStaff && task.assignedStaff.length > 0)
+        ? task.assignedStaff
+        : (task.assignedStaffIds || []).map((sid: string) => {
+            const found = allStaff.find(s => s.id === sid || s.userId === sid);
+            return { id: sid, name: found ? `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name : 'Technician' };
+          });
+
+      if (assignedStaff.length === 0) {
+        const staffId = 'unassigned';
+        const staffName = 'Unassigned';
+        if (!statsMap[staffId]) {
+          statsMap[staffId] = {
+            name: staffName,
+            id: staffId,
+            totalHours: 0,
+            completedHours: 0,
+            totalTasks: 0,
+            completedTasks: 0,
+            clockedHours: 0
+          };
+        }
+        statsMap[staffId].totalHours += bookTime;
+        statsMap[staffId].totalTasks += 1;
+        statsMap[staffId].clockedHours += taskActualHours;
+        if (isCompleted) {
+          statsMap[staffId].completedHours += bookTime;
+          statsMap[staffId].completedTasks += 1;
+        }
+      } else {
+        const portionBook = bookTime / assignedStaff.length;
+        const portionClocked = taskActualHours / assignedStaff.length;
+
+        assignedStaff.forEach((staff: any) => {
+          const staffId = staff.id || staff.uid;
+          const staffName = staff.name || staff.displayName || 'Technician';
+
+          if (!statsMap[staffId]) {
+            statsMap[staffId] = {
+              name: staffName,
+              id: staffId,
+              totalHours: 0,
+              completedHours: 0,
+              totalTasks: 0,
+              completedTasks: 0,
+              clockedHours: 0
+            };
+          }
+
+          statsMap[staffId].totalHours += portionBook;
+          statsMap[staffId].totalTasks += 1;
+          statsMap[staffId].clockedHours += portionClocked;
+          if (isCompleted) {
+            statsMap[staffId].completedHours += portionBook;
+            statsMap[staffId].completedTasks += 1;
+          }
+        });
+      }
+    });
+
+    return Object.values(statsMap);
+  }, [tasks, timeSessions, allStaff]);
+
+  // Overall Job Efficiency Stats for report
+  const jobEfficiencyStats = useMemo(() => {
+    const totalBook = tasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0);
+    let totalActualMs = 0;
+    tasks.forEach(t => {
+      totalActualMs += getTaskClockedMs(t.id);
+    });
+    const totalActual = totalActualMs / 3600000;
+    const variance = totalActual - totalBook;
+    const efficiency = totalActual > 0 ? (totalBook / totalActual) * 100 : (totalBook > 0 ? 100 : 0);
+
+    return { totalBook, totalActual, variance, efficiency };
+  }, [tasks, timeSessions]);
+
+  const totalBookHours = useMemo(() => tasks.reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0), [tasks]);
+  const completedBookHours = useMemo(() => tasks.filter(t => ['completed', 'QC Complete', 'QC'].includes(t.status)).reduce((sum, t) => sum + (parseFloat(t.bookTime) || 0), 0), [tasks]);
+  const jobProgress = useMemo(() => totalBookHours > 0 ? Math.min(100, Math.round((completedBookHours / totalBookHours) * 100)) : (tasks.length > 0 ? Math.round((tasks.filter(t => ['completed', 'QC Complete', 'QC'].includes(t.status)).length / tasks.length) * 100) : 0), [totalBookHours, completedBookHours, tasks]);
+  const formatJobDate = (dateVal: any) => dateVal ? formatDateSafe(dateVal) : 'N/A';
 
   if (loading) {
     return (
@@ -2127,6 +2825,16 @@ export function JobDetailPageV3({
 
             <div className="flex items-center gap-2 flex-shrink-0">
               
+              {/* Quick Action: Print Job Details Sheet */}
+              <button
+                onClick={() => setShowReportModal(true)}
+                className="h-11 px-3 bg-indigo-600/20 border border-indigo-500/40 hover:bg-indigo-600/30 text-indigo-200 text-xs font-bold rounded-2xl flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm"
+                title="Preview and Print Comprehensive Job Details Sheet"
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">Details Sheet</span>
+              </button>
+
               {/* Quick Action: Print Traveler */}
               <button
                 onClick={() => setIsPrintTravelerOpen(true)}
@@ -2249,6 +2957,7 @@ export function JobDetailPageV3({
             { id: 'photos', label: `Photos (${nativePhotos.length + companyCamPhotos.length})`, icon: Camera },
             { id: 'parts', label: `Parts (${partsRequests.length})`, icon: Package },
             { id: 'staff', label: `Staff & Time (${staffRoster.length})`, icon: Timer },
+            { id: 'history', label: `History (${rawUnifiedTimeline.length})`, icon: Activity },
             { id: 'chat', label: 'Team Chat', icon: MessageSquare }
           ].map((tab) => {
             const Icon = tab.icon;
@@ -2509,6 +3218,59 @@ export function JobDetailPageV3({
                 </div>
               )}
             </div>
+
+            {/* Job Timeline & Recent History Preview Card */}
+            <div className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800/80 space-y-3">
+              <div className="flex items-center justify-between border-b border-zinc-800/60 pb-2.5">
+                <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5 text-indigo-400" />
+                  Recent Job History & Activity ({rawUnifiedTimeline.length})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                >
+                  <span>View Full Log</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+
+              {rawUnifiedTimeline.length === 0 ? (
+                <div className="p-4 text-center text-zinc-500 italic text-xs">
+                  No activity recorded yet.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {rawUnifiedTimeline.slice(0, 5).map((evt) => (
+                    <div
+                      key={evt.id}
+                      className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/70 flex items-start gap-3 text-xs"
+                    >
+                      <div className="text-sm mt-0.5 shrink-0">{evt.iconSymbol || '📜'}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-bold text-zinc-100 truncate">{evt.title}</h4>
+                          <span className="text-[10px] text-zinc-500 font-mono shrink-0">
+                            {formatDateSafe(evt.timestamp, true)}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-zinc-400 mt-0.5 line-clamp-1">{evt.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {rawUnifiedTimeline.length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('history')}
+                      className="w-full py-2 text-center text-xs font-bold text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/5 rounded-xl border border-dashed border-indigo-500/20 transition cursor-pointer"
+                    >
+                      View all {rawUnifiedTimeline.length} history events ➔
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -2574,9 +3336,117 @@ export function JobDetailPageV3({
 
             {taskSubTab === 'tasks' ? (
               <div className="space-y-4">
+                {/* Rapid Task Creation Bar (For Authorized Staff) */}
+                {canManageTasks && (
+                  <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-lg space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                        <Plus className="w-3.5 h-3.5" />
+                        Quick Add Task to Job
+                      </span>
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        Auto Book Time • Tab + Enter to Add
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                      {/* Title Autocomplete */}
+                      <div className="sm:col-span-3 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1 flex items-center">
+                        <TaskTitleAutocomplete
+                          id="new-task-title-input"
+                          value={newTaskTitle}
+                          onChange={handleTaskTitleChange}
+                          qbItems={qbItems}
+                          placeholder="Task title (e.g. Sirens, Harness)..."
+                          onPressEnter={() => handleCreateTask()}
+                          className="w-full"
+                          inputClassName="text-xs text-white placeholder-zinc-500 font-medium"
+                        />
+                      </div>
+
+                      {/* Notes / Description */}
+                      <div className="sm:col-span-3 bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1 flex items-center">
+                        <input
+                          type="text"
+                          value={newTaskDesc}
+                          onChange={(e) => setNewTaskDesc(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTask(); }}
+                          placeholder="Notes / instructions..."
+                          className="w-full bg-transparent border-none outline-none text-xs text-zinc-200 placeholder-zinc-500 font-medium"
+                        />
+                      </div>
+
+                      {/* Book Time (hrs) */}
+                      <div className="sm:col-span-1 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1 flex items-center">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={newTaskBookTime}
+                          onChange={(e) => setNewTaskBookTime(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateTask(); }}
+                          placeholder="0.0h"
+                          className="w-full bg-transparent border-none outline-none text-xs text-indigo-400 font-mono font-bold placeholder-zinc-600"
+                        />
+                      </div>
+
+                      {/* Department Select */}
+                      <div className="sm:col-span-2 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1 flex items-center">
+                        <select
+                          value={newTaskDeptId || lastDepartmentId}
+                          onChange={(e) => {
+                            setNewTaskDeptId(e.target.value);
+                            setLastDepartmentId(e.target.value);
+                          }}
+                          className="w-full bg-transparent border-none outline-none text-xs text-zinc-300 font-medium cursor-pointer"
+                        >
+                          {departments.map((dept) => (
+                            <option key={dept.id} value={dept.id} className="bg-zinc-900 text-zinc-200">
+                              {dept.name || dept.title || dept.id}
+                            </option>
+                          ))}
+                          {departments.length === 0 && (
+                            <option value="upfitters" className="bg-zinc-900 text-zinc-200">Upfitters</option>
+                          )}
+                        </select>
+                      </div>
+
+                      {/* Multi-Staff Searchable Picker */}
+                      <div className="sm:col-span-3">
+                        <SearchableStaffMultiPicker
+                          allStaff={allStaff}
+                          selectedStaffIds={newTaskStaffIds.length > 0 ? newTaskStaffIds : lastAssignedStaffIds}
+                          onChange={(ids) => {
+                            setNewTaskStaffIds(ids);
+                            setLastAssignedStaffIds(ids);
+                          }}
+                          placeholder="Search & assign tech(s)..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-zinc-500">
+                        Category: <strong className="text-zinc-400">{selectedTaskCategory === 'all' ? 'General Labor' : selectedTaskCategory}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateTask()}
+                        disabled={isAddingTask}
+                        className="h-8 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-1.5 active:scale-95 shadow-md shadow-indigo-600/20 disabled:opacity-50 cursor-pointer"
+                      >
+                        {isAddingTask ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CornerDownLeft className="w-3.5 h-3.5" />}
+                        <span>Add Task (↵)</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Grouped Accordions */}
                 {filteredTaskGroups.length === 0 ? (
-                  <div className="p-8 text-center text-zinc-500 italic">No tasks found for this category.</div>
+                  <div className="p-8 text-center text-zinc-500 italic bg-zinc-900/40 rounded-2xl border border-zinc-800">
+                    No tasks found for this category.
+                  </div>
                 ) : (
                   filteredTaskGroups.map((group) => {
                     const isCollapsed = !!collapsedCategories[group.categoryName];
@@ -2613,72 +3483,258 @@ export function JobDetailPageV3({
                             {group.tasks.map((task) => {
                               const isCompleted = ['completed', 'QC Complete', 'QC'].includes(task.status);
                               const isInProgress = task.status === 'in_progress';
+                              const isClockedIn = isUserClockedIntoTask(task.id);
+                              const actualMs = getTaskClockedMs(task.id);
+                              const actualHours = (actualMs / (1000 * 60 * 60)).toFixed(1);
+                              const bookHours = parseFloat(task.bookTime) || 0;
+                              const isOverrun = bookHours > 0 && (actualMs / 3600000) > bookHours;
+                              const activeTechs = getClockedInStaffForTask(task.id);
+                              const deptName = departments.find(d => d.id === task.departmentId)?.name || task.departmentName;
+                              
+                              // Multi-staff list
+                              const assignedStaffList: any[] = (task.assignedStaff && task.assignedStaff.length > 0)
+                                ? task.assignedStaff
+                                : (task.assignedStaffIds || []).map((sid: string) => {
+                                    const found = allStaff.find(s => s.id === sid || s.userId === sid);
+                                    return { id: sid, name: found ? `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name : 'Tech' };
+                                  });
+
+                              const taskNotes = task.description || task.notes;
 
                               return (
                                 <div
                                   key={task.id}
                                   className={cn(
-                                    "p-3 rounded-xl transition flex items-center justify-between gap-3 group",
-                                    isCompleted ? "bg-zinc-950/40 opacity-75" : isInProgress ? "bg-indigo-500/5 border border-indigo-500/20" : "bg-zinc-950/60"
+                                    "p-3 rounded-xl transition flex flex-col md:flex-row md:items-center justify-between gap-3 group",
+                                    isCompleted 
+                                      ? "bg-zinc-950/40 opacity-75" 
+                                      : isClockedIn 
+                                      ? "bg-rose-500/10 border border-rose-500/30" 
+                                      : isInProgress 
+                                      ? "bg-indigo-500/5 border border-indigo-500/20" 
+                                      : "bg-zinc-950/60 border border-zinc-850"
                                   )}
                                 >
-                                  {/* Left: Interactive Checkbox */}
-                                  <button
-                                    onClick={() => handleToggleTaskStatus(task)}
-                                    className={cn(
-                                      "w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 active:scale-90",
-                                      isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-900 border border-zinc-700 text-transparent hover:border-zinc-500"
-                                    )}
-                                  >
-                                    <Check className="w-4 h-4" />
-                                  </button>
-
-                                  {/* Center: Title & Metadata */}
-                                  <div
-                                    onClick={() => setSelectedTask(task)}
-                                    className="flex-1 min-w-0 cursor-pointer"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <h4 className={cn("text-xs font-bold truncate", isCompleted ? "line-through text-zinc-400" : "text-zinc-100")}>
-                                        {task.title || task.name}
-                                      </h4>
-                                      {isInProgress && (
-                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-400 font-bold uppercase shrink-0 animate-pulse">
-                                          In Progress
-                                        </span>
+                                  {/* Left Section: Checkbox & Main Info */}
+                                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                                    {/* Interactive Checkbox */}
+                                    <button
+                                      onClick={() => handleToggleTaskStatus(task)}
+                                      className={cn(
+                                        "w-8 h-8 rounded-lg flex items-center justify-center transition shrink-0 active:scale-90 mt-0.5 cursor-pointer",
+                                        isCompleted ? "bg-emerald-500 text-white" : "bg-zinc-900 border border-zinc-700 text-transparent hover:border-zinc-500"
                                       )}
-                                    </div>
-                                    <div className="flex items-center gap-3 mt-1 text-[10px] text-zinc-400">
-                                      <span className="font-mono text-indigo-400 font-semibold">{task.bookTime || 0}h Book</span>
-                                      {task.assignedToName && <span>Assigned: {task.assignedToName}</span>}
-                                      {(() => {
-                                        const key = (task.title || task.name || '').trim().toLowerCase();
-                                        const photoCount = taskRefPhotoCounts[key] || task.historicalPhotoCount || 0;
-                                        return photoCount > 0 ? (
-                                          <span className="text-violet-400 flex items-center gap-1 font-semibold">
-                                            <Camera className="w-3 h-3" />
-                                            {photoCount} SOP Photos
+                                    >
+                                      <Check className="w-4 h-4" />
+                                    </button>
+
+                                    {/* Title, Notes & Badges */}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <h4 
+                                          onClick={() => setSelectedTask(task)}
+                                          className={cn("text-xs font-bold cursor-pointer hover:text-indigo-400 transition", isCompleted ? "line-through text-zinc-400" : "text-zinc-100")}
+                                        >
+                                          {task.title || task.name}
+                                        </h4>
+                                        {isInProgress && !isClockedIn && (
+                                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-400 font-bold uppercase shrink-0 animate-pulse">
+                                            In Progress
                                           </span>
-                                        ) : null;
-                                      })()}
+                                        )}
+                                        {isClockedIn && (
+                                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-black uppercase shrink-0 animate-pulse flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                            You are Clocked In
+                                          </span>
+                                        )}
+                                        {activeTechs.length > 0 && !isClockedIn && (
+                                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center gap-1 animate-pulse shrink-0">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                            {activeTechs.map(t => t.name).join(', ')} Clocked In
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Task Notes / Description */}
+                                      {taskNotes && (
+                                        <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed line-clamp-2">
+                                          {taskNotes}
+                                        </p>
+                                      )}
+
+                                      {/* Metadata Badges */}
+                                      <div className="flex items-center gap-2 mt-1.5 text-[10px] text-zinc-400 flex-wrap">
+                                        {/* Book Hours */}
+                                        <span className="font-mono text-indigo-400 font-bold bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                                          {task.bookTime || 0}h Book
+                                        </span>
+
+                                        {/* Actual Clocked Hours */}
+                                        <span className={cn(
+                                          "font-mono font-bold px-1.5 py-0.5 rounded",
+                                          isOverrun ? "bg-rose-500/20 text-rose-300" : actualMs > 0 ? "bg-emerald-500/20 text-emerald-300" : "bg-zinc-900 text-zinc-500"
+                                        )}>
+                                          {actualHours}h Actual
+                                        </span>
+
+                                        {/* Department Badge */}
+                                        {deptName && (
+                                          <span className="bg-zinc-900 border border-zinc-800 text-zinc-300 px-2 py-0.5 rounded font-medium">
+                                            🏢 {deptName}
+                                          </span>
+                                        )}
+
+                                        {/* Assigned Staff Badges */}
+                                        {assignedStaffList.length > 0 ? (
+                                          assignedStaffList.map((st: any) => (
+                                            <span 
+                                              key={st.id} 
+                                              onClick={() => canManageTasks && handleOpenEditTask(task)}
+                                              className={cn(
+                                                "bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 px-2 py-0.5 rounded font-medium text-[10px] flex items-center gap-1",
+                                                canManageTasks && "cursor-pointer hover:bg-indigo-500/20 hover:border-indigo-500/50 hover:text-white transition"
+                                              )}
+                                              title={canManageTasks ? "Click to edit assigned staff" : undefined}
+                                            >
+                                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
+                                              {st.name}
+                                            </span>
+                                          ))
+                                        ) : (
+                                          <span 
+                                            onClick={() => canManageTasks && handleOpenEditTask(task)}
+                                            className={cn(
+                                              "text-zinc-500 text-[10px] italic px-1.5 py-0.5 rounded",
+                                              canManageTasks && "cursor-pointer hover:bg-zinc-800 hover:text-indigo-400 border border-dashed border-zinc-800 transition"
+                                            )}
+                                            title={canManageTasks ? "Click to assign staff" : undefined}
+                                          >
+                                            {canManageTasks ? "+ Assign Tech" : "Unassigned"}
+                                          </span>
+                                        )}
+
+                                        {/* SOP Reference Photos */}
+                                        {(() => {
+                                          const key = (task.title || task.name || '').trim().toLowerCase();
+                                          const photoCount = taskRefPhotoCounts[key] || task.historicalPhotoCount || 0;
+                                          return photoCount > 0 ? (
+                                            <span 
+                                              onClick={() => setSelectedTask(task)}
+                                              className="text-violet-400 hover:text-violet-300 flex items-center gap-1 font-semibold cursor-pointer bg-violet-500/10 px-1.5 py-0.5 rounded"
+                                            >
+                                              <Camera className="w-3 h-3" />
+                                              {photoCount} SOP Photos
+                                            </span>
+                                          ) : null;
+                                        })()}
+                                      </div>
                                     </div>
                                   </div>
 
-                                  {/* Right: Quick Action Pill */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  {/* Right Section: Action Controls */}
+                                  <div className="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                                    {/* Clock In / Out Button with Precise Action Spinner */}
+                                    {(() => {
+                                      const isClockingThis = clockingTaskState?.id === task.id;
+                                      const isClockingIn = isClockingThis && clockingTaskState?.action === 'in';
+                                      const isClockingOut = isClockingThis && clockingTaskState?.action === 'out';
+
+                                      if (isClockingIn) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            disabled
+                                            className="h-8 px-3 rounded-xl bg-indigo-600/80 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-indigo-600/20 opacity-90 cursor-wait"
+                                          >
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                            <span>Clocking In...</span>
+                                          </button>
+                                        );
+                                      }
+
+                                      if (isClockingOut) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            disabled
+                                            className="h-8 px-3 rounded-xl bg-rose-500/80 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-rose-500/20 opacity-90 cursor-wait"
+                                          >
+                                            <RefreshCw className="w-3 h-3 animate-spin" />
+                                            <span>Clocking Out...</span>
+                                          </button>
+                                        );
+                                      }
+
+                                      if (isClockedIn) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => handleTaskClockOut(task, e)}
+                                            disabled={isClockingJob}
+                                            className="h-8 px-3 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-rose-500/20 active:scale-95 transition cursor-pointer"
+                                          >
+                                            <Square className="w-3 h-3 fill-current" />
+                                            <span>Clock Out</span>
+                                          </button>
+                                        );
+                                      }
+
+                                      if (!isCompleted && (isUserAssignedToTask(task) || isClockedIn)) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => handleTaskClockIn(task, e)}
+                                            disabled={isClockingJob}
+                                            className="h-8 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-indigo-600/20 active:scale-95 transition cursor-pointer"
+                                          >
+                                            <Play className="w-3 h-3 fill-current" />
+                                            <span>Clock In</span>
+                                          </button>
+                                        );
+                                      }
+
+                                      return null;
+                                    })()}
+
+                                    {/* Request Part */}
                                     <button
                                       onClick={() => {
                                         setSelectedTaskForPart(task);
                                         setIsPartRequestOpen(true);
                                       }}
-                                      className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-400 transition"
+                                      className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-amber-400 transition cursor-pointer"
                                       title="Request part for this task"
                                     >
                                       <Package className="w-3.5 h-3.5" />
                                     </button>
+
+                                    {/* Edit Task (Authorized Staff) */}
+                                    {canManageTasks && (
+                                      <button
+                                        onClick={() => handleOpenEditTask(task)}
+                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
+                                        title="Edit task details & book hours"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+
+                                    {/* Delete Task (Authorized Staff) */}
+                                    {canManageTasks && (
+                                      <button
+                                        onClick={() => handleDeleteTask(task.id, task.title || task.name)}
+                                        className="p-2 rounded-xl bg-zinc-900 hover:bg-rose-950/50 text-zinc-400 hover:text-rose-400 transition cursor-pointer"
+                                        title="Delete task"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+
+                                    {/* Open Task Drawer & Reference Photos */}
                                     <button
                                       onClick={() => setSelectedTask(task)}
-                                      className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+                                      className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer"
                                       title="View task details and SOP reference photos"
                                     >
                                       <ChevronRight className="w-3.5 h-3.5" />
@@ -3196,6 +4252,72 @@ export function JobDetailPageV3({
           </div>
         )}
 
+        {/* ------------------------------------------------------------------------- */}
+        {/* TAB 10: DEDICATED JOB HISTORY & TIMELINE AUDIT LOG                        */}
+        {/* ------------------------------------------------------------------------- */}
+        {activeTab === 'history' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-zinc-100 flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-indigo-400" />
+                  Job Timeline & Audit History
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Complete chronological history of task completions, labor intervals, moves, blockers, and QC actions.
+                </p>
+              </div>
+              <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/25 px-3 py-1.5 rounded-xl">
+                {rawUnifiedTimeline.length} Total Events
+              </span>
+            </div>
+
+            {rawUnifiedTimeline.length === 0 ? (
+              <div className="p-10 rounded-3xl bg-zinc-900/40 border border-zinc-800 text-center space-y-2">
+                <FileText className="w-8 h-8 text-zinc-600 mx-auto" />
+                <div className="text-xs text-zinc-400 font-medium">No history events recorded for this job yet.</div>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {rawUnifiedTimeline.map((evt) => (
+                  <div 
+                    key={evt.id} 
+                    className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 transition flex items-start gap-3.5 group shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition">
+                      {evt.iconSymbol || '📜'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h4 className="text-xs font-bold text-zinc-100 truncate">{evt.title}</h4>
+                          {evt.category && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 font-semibold uppercase shrink-0">
+                              {evt.category}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-zinc-500 font-mono shrink-0">
+                          {formatDateSafe(evt.timestamp, true)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
+                        {evt.description}
+                      </p>
+                      {evt.user && (
+                        <div className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1">
+                          <span>Recorded by:</span>
+                          <span className="font-semibold text-zinc-300">{evt.user}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
 
       {/* ========================================================================= */}
@@ -3222,38 +4344,150 @@ export function JobDetailPageV3({
             {/* Drawer Body (Scrollable) */}
             <div className="p-4 flex-1 overflow-y-auto space-y-5">
               
-              {/* Task Status Toggle & Book Hours */}
-              <div className="p-3.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Book Time</span>
-                  <div className="text-lg font-black text-white">{selectedTask.bookTime || '0.0'}h</div>
+              {/* Task Status Toggle, Clocking & Book Hours */}
+              <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase">Book vs Actual</span>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-xl font-black text-white">{selectedTask.bookTime || '0.0'}h</span>
+                      <span className="text-xs text-zinc-400 font-mono">
+                        ({(getTaskClockedMs(selectedTask.id) / 3600000).toFixed(1)}h logged)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Complete Button */}
+                  <button
+                    onClick={() => handleToggleTaskStatus(selectedTask)}
+                    className={cn(
+                      "h-10 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition cursor-pointer",
+                      ['completed', 'QC Complete'].includes(selectedTask.status)
+                        ? "bg-emerald-600 text-white"
+                        : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                    )}
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{['completed', 'QC Complete'].includes(selectedTask.status) ? 'Completed' : 'Mark Completed'}</span>
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => handleToggleTaskStatus(selectedTask)}
-                  className={cn(
-                    "h-10 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition",
-                    ['completed', 'QC Complete'].includes(selectedTask.status)
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                  )}
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{['completed', 'QC Complete'].includes(selectedTask.status) ? 'Completed' : 'Mark Completed'}</span>
-                </button>
+                {/* Clock In / Out on Task */}
+                <div className="pt-2 border-t border-zinc-800/60 flex items-center justify-between">
+                  <span className="text-xs text-zinc-400 font-medium">Technician Timeclock:</span>
+                  {(() => {
+                    const isClockingThis = clockingTaskState?.id === selectedTask.id;
+                    const isClockingIn = isClockingThis && clockingTaskState?.action === 'in';
+                    const isClockingOut = isClockingThis && clockingTaskState?.action === 'out';
+
+                    if (isClockingIn) {
+                      return (
+                        <button
+                          type="button"
+                          disabled
+                          className="h-9 px-4 rounded-xl bg-indigo-600/80 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-indigo-600/20 opacity-90 cursor-wait"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Clocking In...</span>
+                        </button>
+                      );
+                    }
+
+                    if (isClockingOut) {
+                      return (
+                        <button
+                          type="button"
+                          disabled
+                          className="h-9 px-4 rounded-xl bg-rose-500/80 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-rose-500/20 opacity-90 cursor-wait"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Clocking Out...</span>
+                        </button>
+                      );
+                    }
+
+                    if (isUserClockedIntoTask(selectedTask.id)) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => handleTaskClockOut(selectedTask, e)}
+                          disabled={isClockingJob}
+                          className="h-9 px-4 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-rose-500/20 active:scale-95 transition cursor-pointer"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>Clock Out of Task</span>
+                        </button>
+                      );
+                    }
+
+                    if (isUserAssignedToTask(selectedTask) || isUserClockedIntoTask(selectedTask.id)) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => handleTaskClockIn(selectedTask, e)}
+                          disabled={isClockingJob}
+                          className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-md shadow-indigo-600/20 active:scale-95 transition cursor-pointer"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          <span>Clock In to Task</span>
+                        </button>
+                      );
+                    }
+
+                    return null;
+                  })()}
+                </div>
               </div>
 
-              {/* Task Request Part Button */}
-              <button
-                onClick={() => {
-                  setSelectedTaskForPart(selectedTask);
-                  setIsPartRequestOpen(true);
-                }}
-                className="w-full h-11 bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 text-amber-400 text-xs font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-98 transition"
-              >
-                <Package className="w-4 h-4" />
-                <span>Request Part for this Task</span>
-              </button>
+              {/* Task Notes / Instructions */}
+              {(selectedTask.description || selectedTask.notes) && (
+                <div className="p-4 rounded-2xl bg-zinc-900/40 border border-zinc-800/70 space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Installation Notes & Instructions</span>
+                  <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                    {selectedTask.description || selectedTask.notes}
+                  </p>
+                </div>
+              )}
+
+              {/* Department & Staff Assignment */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-zinc-800/70">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Department</span>
+                  <div className="text-xs font-bold text-zinc-200 mt-1">
+                    {departments.find(d => d.id === selectedTask.departmentId)?.name || selectedTask.departmentName || 'General Labor'}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-zinc-800/70">
+                  <span className="text-[10px] font-bold text-zinc-500 uppercase">Assigned Tech</span>
+                  <div className="text-xs font-bold text-zinc-200 mt-1 truncate">
+                    {selectedTask.assignedToName || selectedTask.assignedStaff?.[0]?.name || (selectedTask.assignedStaffIds?.[0] ? allStaff.find(s => s.id === selectedTask.assignedStaffIds[0])?.name : 'Unassigned')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Task Actions: Edit & Request Part */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => {
+                    setSelectedTaskForPart(selectedTask);
+                    setIsPartRequestOpen(true);
+                  }}
+                  className="h-11 bg-zinc-900 border border-zinc-800 hover:border-amber-500/40 text-amber-400 text-xs font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-98 transition cursor-pointer"
+                >
+                  <Package className="w-4 h-4" />
+                  <span>Request Part</span>
+                </button>
+
+                {canManageTasks && (
+                  <button
+                    onClick={() => handleOpenEditTask(selectedTask)}
+                    className="h-11 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/40 text-zinc-200 text-xs font-bold rounded-2xl flex items-center justify-center gap-2 active:scale-98 transition cursor-pointer"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    <span>Edit Task</span>
+                  </button>
+                )}
+              </div>
 
               {/* ------------------------------------------------------------------- */}
               {/* CROSS-JOB HISTORICAL REFERENCE PHOTOS SECTION                       */}
@@ -3461,6 +4695,123 @@ export function JobDetailPageV3({
       )}
 
       {/* ========================================================================= */}
+      {/* TASK EDIT MODAL (Authorized Staff)                                        */}
+      {/* ========================================================================= */}
+      {editingTask && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl space-y-4">
+            <div className="p-5 border-b border-zinc-900 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Edit Task Record</span>
+                <h3 className="text-sm font-bold text-white mt-0.5 truncate">{editingTask.title || editingTask.name}</h3>
+              </div>
+              <button
+                onClick={() => setEditingTask(null)}
+                className="w-8 h-8 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Title */}
+              <div>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">Task Title</label>
+                <input
+                  type="text"
+                  value={editTaskTitle}
+                  onChange={(e) => setEditTaskTitle(e.target.value)}
+                  className="w-full h-11 px-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs font-semibold focus:border-indigo-500 outline-none"
+                  placeholder="Task title..."
+                />
+              </div>
+
+              {/* Description / Notes */}
+              <div>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">Instructions & Notes</label>
+                <textarea
+                  rows={3}
+                  value={editTaskDesc}
+                  onChange={(e) => setEditTaskDesc(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs leading-relaxed focus:border-indigo-500 outline-none resize-none"
+                  placeholder="Add specific installation notes, wire routing directions, or details..."
+                />
+              </div>
+
+              {/* Book Hours & Department */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Book Hours */}
+                <div>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">Book Hours</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={editTaskBookTime}
+                    onChange={(e) => setEditTaskBookTime(e.target.value)}
+                    className="w-full h-11 px-3.5 rounded-xl bg-zinc-900 border border-zinc-800 text-indigo-400 font-mono font-bold text-xs focus:border-indigo-500 outline-none"
+                    placeholder="0.0h"
+                  />
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">Department</label>
+                  <select
+                    value={editTaskDeptId}
+                    onChange={(e) => setEditTaskDeptId(e.target.value)}
+                    className="w-full h-11 px-3 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-xs font-semibold focus:border-indigo-500 outline-none cursor-pointer"
+                  >
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id} className="bg-zinc-900 text-white">
+                        {d.name || d.title || d.id}
+                      </option>
+                    ))}
+                    {departments.length === 0 && (
+                      <option value="upfitters" className="bg-zinc-900 text-white">Upfitters</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+
+              {/* Assigned Staff (Searchable Multi-Staff Embedded) */}
+              <div>
+                <label className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  Assigned Technicians ({editTaskStaffIds.length})
+                </label>
+                <SearchableStaffMultiPicker
+                  allStaff={allStaff}
+                  selectedStaffIds={editTaskStaffIds}
+                  onChange={setEditTaskStaffIds}
+                  mode="embedded"
+                  placeholder="Search staff by name, role, or department..."
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-zinc-900/50 border-t border-zinc-900 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditingTask(null)}
+                className="h-10 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 font-bold text-xs transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditedTask}
+                disabled={isSavingTaskEdit}
+                className="h-10 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/20 active:scale-95 transition disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingTaskEdit && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* PARTS REQUEST MODAL INTEGRATION                                           */}
       {/* ========================================================================= */}
       {isPartRequestOpen && (
@@ -3616,7 +4967,677 @@ export function JobDetailPageV3({
         </>
       )}
 
-      {/* Full-Page Print Portal for @media print */}
+      {/* ========================================================================= */}
+      {/* JOB DETAILS SHEET PRINT MODAL (Comprehensive Report)                      */}
+      {/* ========================================================================= */}
+      {showReportModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-sm animate-in fade-in duration-200 job-report-modal-wrapper">
+          {/* Print Style Injector */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: letter portrait;
+                margin: 0.4in;
+              }
+
+              /* 1. Hide everything under body that isn't the modal wrapper */
+              body > *:not(.job-report-modal-wrapper) {
+                display: none !important;
+                height: 0 !important;
+                overflow: hidden !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+
+              /* 2. Hide any headers/buttons/sidebars marked no-print inside the modal */
+              .no-print,
+              .no-print * {
+                display: none !important;
+                height: 0 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+
+              /* 3. Reset the modal wrapper and ALL intermediate layout containers to simple block containers with auto-height and no animation/transform offsets */
+              .job-report-modal-wrapper,
+              .job-report-modal-container,
+              .job-report-modal-container > div,
+              .job-report-modal-container > div > div {
+                position: static !important;
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                background: white !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                float: none !important;
+                flex: none !important;
+                animation: none !important;
+                transition: none !important;
+                transform: none !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+              }
+
+              /* 4. Style the print card itself to take full width naturally starting at the top of Page 1 */
+              #job-report-print-area {
+                width: 100% !important;
+                max-width: 100% !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                display: block !important;
+                position: static !important;
+                animation: none !important;
+                transition: none !important;
+                transform: none !important;
+              }
+
+              /* 5. Prevent splitting cards in half */
+              .print-no-break {
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+              }
+            }
+          ` }} />
+
+          <div className="w-full max-w-4xl h-[90vh] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 job-report-modal-container">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50 no-print shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">Job Details Sheet</h3>
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Preview or Print</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg text-zinc-500 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* Report Preview */}
+              <div className="flex-1 overflow-y-auto p-6 bg-zinc-100 dark:bg-zinc-950/40 custom-scrollbar">
+                <div className="mb-3 flex justify-between items-center no-print">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Document Preview</span>
+                  <button 
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" />
+                    Print Details Sheet
+                  </button>
+                </div>
+
+                {/* Printable Area Wrapper */}
+                <div 
+                  id="job-report-print-area" 
+                  className="bg-white text-zinc-900 p-8 rounded-2xl border border-zinc-200 shadow-md font-sans mx-auto max-w-[800px]"
+                >
+                  {/* Print Header */}
+                  <div className="border-b-2 border-indigo-900 pb-4 mb-6 flex justify-between items-start">
+                    <div>
+                      <h1 className="text-2xl font-black uppercase tracking-tight text-indigo-950">JOB DETAILS SHEET</h1>
+                      <p className="text-sm font-bold text-zinc-500 mt-1 uppercase tracking-wider">
+                        {customerDisplayName || 'Walk-in Customer'} &bull; Job #{jobDisplayNumber}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <div className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Report Date</div>
+                        <div className="text-xs font-bold font-mono">{new Date().toLocaleDateString()}</div>
+                      </div>
+                      <LogoQRCode 
+                        value={`${window.location.origin}/business/${tenantId}/job/${jobId}`} 
+                        size={60} 
+                        logoUrl={businessLogo}
+                        businessName={businessName}
+                        type="job"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Overview Stats */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mb-6 text-xs print-no-break">
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Job Title</span>
+                      <span className="font-bold text-zinc-800">{job.title || job.name}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Vehicle</span>
+                      <span className="font-bold text-zinc-800 block">
+                        {vehicleYearMakeModel || 'Not Specified'}
+                      </span>
+                      {vehicleVinRaw && (
+                        <span className="font-mono text-[10px] text-zinc-500 block truncate">
+                          VIN: {vehicleVinRaw}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Scheduled Bay</span>
+                      <span className="font-bold text-zinc-800">{job.bay || job.parkingSpot || 'Main Floor'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Scheduled Start</span>
+                      <span className="font-bold text-zinc-800">{formatJobDate(job.scheduledStartDate || job.createdAt)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Deadline</span>
+                      <span className="font-bold text-zinc-800">{formatJobDate(job.scheduledEndDate || job.deadline)}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-widest">Dynamic ETA</span>
+                      <span className="font-bold text-indigo-900">{etaDetails.etaString}</span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-3 mt-2 pt-2 border-t border-indigo-100 flex items-center justify-between">
+                      <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Total Job Progress</span>
+                      <div className="flex items-center gap-3 w-4/5">
+                        <div className="flex-1 h-2 bg-zinc-200 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-600 rounded-full transition-all" style={{ width: `${jobProgress}%` }} />
+                        </div>
+                        <span className="font-bold font-mono text-zinc-800 text-xs whitespace-nowrap">
+                          {completedBookHours.toFixed(1)}h / {totalBookHours.toFixed(1)}h ({jobProgress}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Staff Workload Section */}
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 mb-6 text-xs print-no-break">
+                    <h3 className="text-xs font-black text-zinc-700 border-b border-zinc-200 pb-1.5 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" />
+                      Staff Workload Allocation
+                    </h3>
+                    {staffStats.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No staff assigned.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-zinc-200 text-zinc-400 font-bold uppercase tracking-wider text-[9px]">
+                              <th className="py-1">Technician</th>
+                              <th className="py-1 text-center">Tasks (Done / Total)</th>
+                              <th className="py-1 text-right">Time Clocked</th>
+                              <th className="py-1 text-right">Book Time Earned</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-100">
+                            {staffStats.map(s => (
+                              <tr key={s.id}>
+                                <td className="py-2 font-bold text-zinc-700">{s.name}</td>
+                                <td className="py-2 text-center text-zinc-500">{s.completedTasks} / {s.totalTasks}</td>
+                                <td className="py-2 text-right font-mono font-bold text-zinc-700">
+                                  {s.clockedHours.toFixed(1)}h
+                                </td>
+                                <td className="py-2 text-right font-mono font-bold text-indigo-700">
+                                  {s.completedHours.toFixed(1)}h
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Missing Parts Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Wrench className="w-3.5 h-3.5" />
+                      Missing / Pending Parts
+                    </h2>
+                    {partsRequests.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No parts pending requests.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {partsRequests.filter(p => p.status !== 'received' && p.status !== 'delivered' && p.status !== 'fulfilled' && p.status !== 'inventoried').map(p => (
+                          <div key={p.id} className="py-2.5 flex justify-between items-center gap-4">
+                            <div>
+                              <h4 className="text-xs font-bold text-zinc-800">{p.partName || p.title || p.description}</h4>
+                              <p className="text-[10px] text-zinc-400 mt-0.5">
+                                Qty: {p.quantity || 1} &bull; {p.taskTitle ? `Task: ${p.taskTitle}` : 'General Part'}
+                              </p>
+                            </div>
+                            <span className="px-2 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
+                              {p.status || 'requested'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Removed Parts (Takeoffs) Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5" />
+                      Removed Parts (Takeoffs)
+                    </h2>
+                    {takeoffs.length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No removed parts logged.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {takeoffs.map(t => (
+                          <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                            <div className="flex gap-3">
+                              {t.photoUrls && t.photoUrls.length > 0 && (
+                                <div className="w-12 h-12 shrink-0 rounded-lg overflow-hidden bg-zinc-100 border border-zinc-200">
+                                  <img src={t.photoUrls[0]} alt={t.name} className="w-full h-full object-cover" />
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.name || t.partName}</h4>
+                                <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[10px] text-zinc-500">
+                                  {t.serialNumber && (
+                                    <>
+                                      <span>S/N: <span className="font-mono">{t.serialNumber}</span></span>
+                                      <span>&bull;</span>
+                                    </>
+                                  )}
+                                  {t.location && (
+                                    <>
+                                      <span>Loc: {t.location}</span>
+                                      {t.notes && <span>&bull;</span>}
+                                    </>
+                                  )}
+                                  {t.notes && (
+                                    <span className="italic">Note: {t.notes}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <span className={cn(
+                              "px-2 py-0.5 text-[8px] font-black uppercase tracking-widest rounded border shrink-0",
+                              getConditionPrintColor(t.condition)
+                            )}>
+                              {t.condition || 'Good'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Efficiency Report Summary */}
+                  {jobEfficiencyStats.totalActual > 0 && (
+                    <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 mb-6 text-xs print-no-break">
+                      <div className="flex items-center justify-between mb-3 border-b border-zinc-200 pb-2">
+                        <h3 className="text-xs font-black text-indigo-950 uppercase tracking-widest flex items-center gap-1.5">
+                          <Timer className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                          Job Efficiency Metrics
+                        </h3>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Book Allotment</span>
+                          <span className="font-mono font-bold text-zinc-800 text-sm">{jobEfficiencyStats.totalBook.toFixed(1)}h</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Total Clocked Hours</span>
+                          <span className="font-mono font-bold text-zinc-800 text-sm">{jobEfficiencyStats.totalActual.toFixed(1)}h</span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Variance</span>
+                          <span className={cn(
+                            "font-mono font-bold text-sm",
+                            jobEfficiencyStats.variance > 0.1 ? "text-rose-600" : "text-emerald-600"
+                          )}>
+                            {jobEfficiencyStats.variance > 0 ? `+${jobEfficiencyStats.variance.toFixed(1)}h` : `${jobEfficiencyStats.variance.toFixed(1)}h`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="block text-[9px] font-black text-zinc-400 uppercase tracking-widest">Overall Efficiency</span>
+                          <span className={cn(
+                            "font-mono font-bold text-sm px-1.5 py-0.5 rounded",
+                            jobEfficiencyStats.efficiency && jobEfficiencyStats.efficiency >= 100 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                          )}>
+                            {jobEfficiencyStats.efficiency ? `${jobEfficiencyStats.efficiency.toFixed(0)}%` : 'N/A'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tasks Pending Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-600 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      What Needs to be Done
+                    </h2>
+                    {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">All tasks completed successfully!</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => t.status !== 'QC' && t.status !== 'QC Complete' && t.status !== 'completed').map(t => {
+                          const loggedMs = getTaskClockedMs(t.id);
+                          const clockedHours = loggedMs / 3600000;
+                          const bookHours = parseFloat(t.bookTime) || 0;
+                          const isOverBook = bookHours > 0 && clockedHours > bookHours;
+                          const diff = clockedHours - bookHours;
+                          const assignedList = (t.assignedStaff && t.assignedStaff.length > 0)
+                            ? t.assignedStaff
+                            : (t.assignedStaffIds || []).map((sid: string) => {
+                                const found = allStaff.find(s => s.id === sid || s.userId === sid);
+                                return { id: sid, name: found ? `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name : 'Technician' };
+                              });
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title || t.name}</h4>
+                                {(t.description || t.notes) && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description || t.notes}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-indigo-500 uppercase tracking-widest">
+                                    Assigned: {assignedList.length === 0 ? (
+                                      'Unassigned'
+                                    ) : (
+                                      assignedList.map((s: any) => s.name).join(', ')
+                                    )}
+                                  </span>
+                                  {bookHours > 0 && (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="text-[9px] text-zinc-400 font-semibold font-mono">Budget: {bookHours}h &bull; Actual: {clockedHours.toFixed(1)}h</span>
+                                      {isOverBook && (
+                                        <span className="px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded text-[8px] font-black uppercase tracking-widest border border-rose-100 flex items-center gap-0.5">
+                                          <AlertTriangle className="w-2.5 h-2.5" />
+                                          +{diff.toFixed(1)}h Over
+                                        </span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-indigo-600">
+                                {bookHours > 0 ? `${clockedHours.toFixed(1)}h / ${bookHours.toFixed(1)}h` : `${clockedHours.toFixed(1)}h`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Awaiting QC Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-amber-600 border-b border-amber-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      Awaiting QC Inspection
+                    </h2>
+                    {tasks.filter(t => t.status === 'QC').length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks awaiting QC.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => t.status === 'QC').map(t => {
+                          const loggedMs = getTaskClockedMs(t.id);
+                          const clockedHours = loggedMs / 3600000;
+                          const assignedList = (t.assignedStaff && t.assignedStaff.length > 0)
+                            ? t.assignedStaff
+                            : (t.assignedStaffIds || []).map((sid: string) => {
+                                const found = allStaff.find(s => s.id === sid || s.userId === sid);
+                                return { id: sid, name: found ? `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name : 'Technician' };
+                              });
+                          
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title || t.name}</h4>
+                                {(t.description || t.notes) && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description || t.notes}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">
+                                    Completed by: {t.completedByStaffName || t.completedBy || (assignedList.length === 0 ? 'Unassigned' : assignedList.map((s: any) => s.name).join(', '))}
+                                  </span>
+                                  <span className="text-zinc-300">•</span>
+                                  <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200">
+                                    Ready for QC
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-zinc-500">{clockedHours.toFixed(1)}h</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QC Verified (Without Photos) Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-emerald-600 border-b border-emerald-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      QC Verified (Without Photos)
+                    </h2>
+                    {tasks.filter(t => (t.status === 'QC Complete' || t.status === 'completed') && !qcNotes.some(q => q.taskId === t.id && q.images.length > 0)).length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No tasks verified without photos.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {tasks.filter(t => (t.status === 'QC Complete' || t.status === 'completed') && !qcNotes.some(q => q.taskId === t.id && q.images.length > 0)).map(t => {
+                          const loggedMs = getTaskClockedMs(t.id);
+                          const clockedHours = loggedMs / 3600000;
+                          const qcNote = qcNotes.find((q: any) => q.taskId === t.id);
+                          const qcByName = t.qcCompletedBy || qcNote?.createdByName;
+                          const assignedList = (t.assignedStaff && t.assignedStaff.length > 0)
+                            ? t.assignedStaff
+                            : (t.assignedStaffIds || []).map((sid: string) => {
+                                const found = allStaff.find(s => s.id === sid || s.userId === sid);
+                                return { id: sid, name: found ? `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.name : 'Technician' };
+                              });
+
+                          return (
+                            <div key={t.id} className="py-2.5 flex justify-between items-start gap-4">
+                              <div>
+                                <h4 className="text-xs font-bold text-zinc-800">{t.title || t.name}</h4>
+                                {(t.description || t.notes) && <p className="text-[10px] text-zinc-400 mt-0.5">{t.description || t.notes}</p>}
+                                <div className="flex flex-wrap items-center gap-2 mt-1">
+                                  <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-widest">
+                                    Completed by: {t.completedByStaffName || t.completedBy || (assignedList.length === 0 ? 'Unassigned' : assignedList.map((s: any) => s.name).join(', '))}
+                                  </span>
+                                  {qcByName && (
+                                    <>
+                                      <span className="text-zinc-300">•</span>
+                                      <span className="text-[9px] font-bold text-indigo-700 uppercase tracking-widest">
+                                        QC'd by: {qcByName}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-bold text-emerald-600">{clockedHours.toFixed(1)}h</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quality Control (QC) Section */}
+                  {qcPhotoNotes.length > 0 && (
+                    <div className="mb-6 print-no-break">
+                      <h2 className="text-xs font-black text-indigo-900 border-b border-indigo-200 pb-1 mb-4 uppercase tracking-widest flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                        Quality Control (QC) Inspection
+                      </h2>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                        {qcPhotoNotes.map((qc: any) => (
+                          <div 
+                            key={qc.id} 
+                            className="border border-zinc-200 rounded-xl overflow-hidden flex flex-col bg-zinc-50/50 print:break-inside-avoid print:bg-white"
+                            style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                          >
+                            {/* Photo (if any) */}
+                            {qc.images && qc.images.length > 0 ? (
+                              <div className="aspect-[4/3] bg-zinc-100 overflow-hidden border-b border-zinc-200">
+                                <img 
+                                  src={qc.images[0]} 
+                                  alt="QC Verification" 
+                                  className="object-cover w-full h-full"
+                                />
+                              </div>
+                            ) : (
+                              <div className="aspect-[4/3] bg-zinc-50 border-b border-zinc-100 flex flex-col items-center justify-center text-zinc-400 gap-1 print:hidden">
+                                <Camera className="w-6 h-6 opacity-30" />
+                                <span className="text-[9px] font-medium">No photo attached</span>
+                              </div>
+                            )}
+
+                            {/* Card Content */}
+                            <div className="p-3 flex-1 flex flex-col justify-between space-y-2 text-[11px]">
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-start gap-1.5">
+                                  <h4 className="font-bold text-zinc-800 line-clamp-2 leading-tight">
+                                    {qc.taskTitle}
+                                  </h4>
+                                  <span className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded font-black uppercase border tracking-wider shrink-0",
+                                    qc.isPass 
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                                      : "bg-rose-50 text-rose-700 border-rose-200"
+                                  )}>
+                                    {qc.isPass ? 'Passed' : 'Failed'}
+                                  </span>
+                                </div>
+
+                                {qc.message && (
+                                  <p className="text-zinc-600 leading-relaxed whitespace-pre-wrap mt-1 print:line-clamp-none">
+                                    {qc.message}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="border-t border-zinc-100 pt-1.5 text-[9px] text-zinc-400 flex flex-col">
+                                <span>Inspector: <strong className="text-zinc-600 font-bold">{qc.createdByName}</strong></span>
+                                <span>Date: {new Date(qc.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active Job Notes Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-600 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Active Job Notes
+                    </h2>
+                    {(!job.work_notes || job.work_notes.length === 0) && !job.notes && !job.description ? (
+                      <p className="text-xs text-zinc-400 italic">No job notes recorded.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-150 space-y-2">
+                        {job.description && (
+                          <div className="py-2">
+                            <p className="text-xs text-zinc-800 leading-relaxed font-medium">{job.description}</p>
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mt-1">Scope Description</p>
+                          </div>
+                        )}
+                        {job.notes && (
+                          <div className="py-2">
+                            <p className="text-xs text-zinc-800 leading-relaxed font-medium">{job.notes}</p>
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mt-1">General Notes</p>
+                          </div>
+                        )}
+                        {(job.work_notes || []).map((note: any) => (
+                          <div key={note.id || note.createdAt} className="py-2.5">
+                            <p className="text-xs text-zinc-800 leading-relaxed font-medium">{note.message || note.text}</p>
+                            <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mt-1.5">
+                              Added by {note.createdBy || note.userName || 'Staff'} &bull; {formatDateSafe(note.createdAt, true)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Job Chat / General Notes Section */}
+                  <div className="mb-6 print-no-break">
+                    <h2 className="text-xs font-black text-indigo-900 border-b border-indigo-200 pb-1 mb-3 uppercase tracking-widest flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Job Chat (Team Log)
+                    </h2>
+                    {chatMessages.filter((m: any) => !m.isSystem).length === 0 ? (
+                      <p className="text-xs text-zinc-400 italic">No chat messages recorded.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-150">
+                        {chatMessages.filter((m: any) => !m.isSystem).map((msg: any) => {
+                          const dateObj = msg.createdAt 
+                            ? (typeof msg.createdAt.toDate === 'function' ? msg.createdAt.toDate() : new Date(msg.createdAt))
+                            : null;
+                          const formattedTime = dateObj 
+                            ? dateObj.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+                            : '';
+                          return (
+                            <div key={msg.id} className="py-2.5">
+                              <p className="text-xs text-zinc-800 leading-relaxed font-medium whitespace-pre-wrap">{msg.message}</p>
+                              <p className="text-[9px] font-bold text-zinc-400 uppercase tracking-wider mt-1.5">
+                                Posted by {msg.senderName} &bull; {formattedTime}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Print QR Codes Footer */}
+                  <div className="mt-8 pt-6 border-t-2 border-zinc-200 flex justify-end items-center gap-8 print-no-break">
+                    <div className="flex items-center gap-3 text-right">
+                      <div>
+                        <h4 className="text-xs font-bold text-zinc-800">Scan to View Job</h4>
+                        <p className="text-[9px] text-zinc-400 mt-0.5 font-medium">Open in UpfittersOS</p>
+                      </div>
+                      <LogoQRCode 
+                        value={`${window.location.origin}/business/${tenantId}/job/${jobId}`} 
+                        size={60} 
+                        logoUrl={businessLogo}
+                        businessName={businessName}
+                        type="job"
+                      />
+                    </div>
+
+                    {(job.companyCamId || job.companyCamProjectId) && (
+                      <div className="flex items-center gap-3 text-right">
+                        <div>
+                          <h4 className="text-xs font-bold text-zinc-800">Scan for Photos</h4>
+                          <p className="text-[9px] text-zinc-400 mt-0.5 font-medium">Open CompanyCam</p>
+                        </div>
+                        <LogoQRCode 
+                          value={(() => {
+                            const cc = job.companyCamId || job.companyCamProjectId;
+                            return cc.startsWith('http') ? cc : `https://app.companycam.com/projects/${cc}`;
+                          })()} 
+                          size={60} 
+                          type="general"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Full-Page Print Portal for @media print (Traveler Card) */}
       {isPrintTravelerOpen && createPortal(
         <div className="traveler-print-wrapper" style={{ display: 'none' }}>
           <div className="bg-white text-zinc-900 p-12 font-sans mx-auto max-w-[800px] h-[10.2in] flex flex-col justify-between text-left">

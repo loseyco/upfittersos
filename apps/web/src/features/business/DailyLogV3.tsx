@@ -772,6 +772,32 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
           };
         };
 
+        // Event 0: Task Created / Added
+        const taskCreatedDate = parseSafeDate(t.createdAt || t.createdDate);
+        if (taskCreatedDate && isSameSelectedDate(taskCreatedDate) && !isFinished) {
+          const creatorInfo = resolveTaskStaff(t.createdByStaffId || t.createdById || t.createdBy, t.createdByStaffName || t.createdByName || t.createdBy);
+          feed.push({
+            id: `task_created_${t.id}_${taskCreatedDate.getTime()}`,
+            category: 'task',
+            badgeLabel: 'TASK ADDED',
+            badgeClass: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+            timestamp: taskCreatedDate,
+            timeStr: taskCreatedDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            who: creatorInfo.name,
+            staffId: creatorInfo.id,
+            duration: bookTimeVal > 0 ? `${bookTimeVal}h Book` : '--',
+            jobId,
+            taskId: t.id,
+            jobNumber: job?.jobNumber || 'N/A',
+            jobTitle: job?.title || 'Upfit Job',
+            customerName: job?.customerName || job?.customer || '',
+            vehicleInfo,
+            details: `Task Added: ${taskTitle} ${bookTimeVal > 0 ? `(${bookTimeVal}h Book)` : ''}`,
+            note: typeof (t.description || t.notes) === 'string' ? (t.description || t.notes).trim() : '',
+            status: 'TASK ADDED'
+          });
+        }
+
         // Event 1: Task Finished / Done
         const compDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt || t.closedAt);
         if (isFinished && compDate && isSameSelectedDate(compDate)) {
