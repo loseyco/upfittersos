@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { useTimeclockStore } from '../../lib/store/timeclockStore';
 import { toast } from 'sonner';
@@ -11,15 +11,42 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
   const activeSessionId = customActiveSessionId !== undefined ? customActiveSessionId : storeSessionId;
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const resolveTargetSessionId = async (): Promise<string | null> => {
+    if (activeSessionId) return activeSessionId;
+    const { user, impersonatedStaff } = useAuthStore.getState();
+    const effectiveUserId = impersonatedStaff?.id || user?.uid;
+    if (!effectiveUserId || !tenantId) return null;
+
+    try {
+      const q = query(
+        collection(db, `businesses/${tenantId}/time_sessions`),
+        where('userId', '==', effectiveUserId),
+        where('status', 'in', ['active', 'on_break']),
+        orderBy('clockIn.timestamp', 'desc'),
+        limit(1)
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const foundId = snap.docs[0].id;
+        useTimeclockStore.getState().setStatus('clocked_in', Date.now(), foundId);
+        return foundId;
+      }
+    } catch (err) {
+      console.warn("Could not dynamically resolve active session:", err);
+    }
+    return null;
+  };
+
   const clockIntoJob = async (jobId: string, jobName: string, taskId?: string, taskName?: string) => {
-    if (!activeSessionId) {
+    const targetSessionId = await resolveTargetSessionId();
+    if (!targetSessionId) {
       toast.error('Please clock in for the day first.');
       return;
     }
 
     setIsProcessing(true);
     try {
-      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, targetSessionId);
       const sessionSnap = await getDoc(sessionRef);
       if (!sessionSnap.exists() || !sessionSnap.data()) {
         toast.error('Active session not found.');
@@ -104,10 +131,11 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
   };
 
   const clockOutOfJob = async (jobId?: string, taskId?: string) => {
-    if (!activeSessionId) return;
+    const targetSessionId = await resolveTargetSessionId();
+    if (!targetSessionId) return;
     setIsProcessing(true);
     try {
-      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, activeSessionId);
+      const sessionRef = doc(db, `businesses/${tenantId}/time_sessions`, targetSessionId);
       const sessionSnap = await getDoc(sessionRef);
       if (!sessionSnap.exists()) return;
 

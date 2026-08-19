@@ -11,21 +11,18 @@ async function pushChangelog() {
     try {
         console.log("Pushing End-of-Day Changelog via Admin SDK...");
         await db.collection('changelogs').add({
-            version: 'v0.1.11-beta',
+            version: 'v0.1.12-beta',
             date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            title: 'Job Details V3 Printout, Task Assignment Clock-In Gating & Dedicated History Hub',
-            description: 'Comprehensive enhancements to the Job Details V3 interface, technician assignment verification, automated task clock-outs, active bay duration tracking, and full chronological timeline audit logs.',
+            title: 'Real-Time Cross-Tab Timeclock Sync & Window Wakeup Engine',
+            description: 'Implemented real-time bidirectional Firestore session synchronization, BroadcastChannel cross-tab communication, and window focus/visibility wakeup hooks to eliminate stale clock status across multiple browser tabs.',
             features: [
-                'Added print-ready Job Details Sheet matching classic shop traveler specifications.',
-                'Enforced active staff roster filtering across multi-staff task assignment pickers with selected staff pinned to top.',
-                'Restricted task clock-in and task completion actions to assigned technicians with automated clock-out on completion.',
-                'Integrated continuous bay telemetry calculation preserving uninterrupted shop floor durations across job edits.',
-                'Launched top-level dedicated Job History & Audit Log tab and overview timeline card streaming real-time actions.',
-                'Standardized operator attribution across all job/task mutations for consistent Daily Operations Log reporting.'
+                'Deployed BroadcastChannel cross-tab synchronization broadcasting clock status, breaks, and shifts in sub-millisecond real time.',
+                'Replaced one-off mount queries in TimeClockBar and UserMissionControl with continuous Firestore onSnapshot listeners.',
+                'Added window focus and document visibilitychange wakeup listeners that instantly verify Firestore ground truth when switching back to background tabs.',
+                'Added dynamic session fallback in useJobClock ensuring uninterrupted job clocking even during network reconnects or tab rehydration.'
             ],
             fixes: [
-                'Resolved bay occupancy timer reset anomaly on job document updates.',
-                'Fixed auto-clock-out cascades when starting lunch, break, or ending shift.'
+                'Resolved stale clock-in / clock-out state desynchronization when opening old browser tabs or background windows.'
             ],
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });

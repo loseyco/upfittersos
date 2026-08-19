@@ -904,57 +904,94 @@ export function UserMissionControl({ tenantId, viewMode: propViewMode }: { tenan
     }
   };
 
-  // Sync clock status with Firestore
+  // Real-time synchronization with Firestore for active time session
   useEffect(() => {
-    const syncStatus = async () => {
-      if (!effectiveUserId || !tenantId) return;
-      
-      try {
-        const q = query(
-          collection(db, `businesses/${tenantId}/time_sessions`),
-          where('status', 'in', ['active', 'on_break'])
+    if (!effectiveUserId || !tenantId) return;
+
+    const searchIds = [effectiveUserId];
+    if (staffMember?.id && !searchIds.includes(staffMember.id)) {
+      searchIds.push(staffMember.id);
+    }
+    if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
+      searchIds.push(staffMember.userId);
+    }
+    if (user?.uid && !searchIds.includes(user.uid)) {
+      searchIds.push(user.uid);
+    }
+
+    const handleSnapshot = (docs: any[]) => {
+      const filteredDocs = docs.filter(d => {
+        const data = d.data ? d.data() : d;
+        return (
+          searchIds.includes(data.userId) || 
+          searchIds.includes(data.staffId) || 
+          (user?.email && data.userEmail && data.userEmail.toLowerCase() === user.email.toLowerCase())
         );
-        
-        const snap = await getDocs(q);
-        const searchIds = [effectiveUserId];
-        if (staffMember?.id && !searchIds.includes(staffMember.id)) {
-          searchIds.push(staffMember.id);
-        }
-        if (staffMember?.userId && !searchIds.includes(staffMember.userId)) {
-          searchIds.push(staffMember.userId);
+      });
+
+      if (filteredDocs.length > 0) {
+        const sessionDoc = filteredDocs[0];
+        const session = sessionDoc.data ? sessionDoc.data() : sessionDoc;
+        const sessionId = sessionDoc.id || session.id;
+
+        let newStatus: ClockStatus = 'clocked_in';
+        let newStartTime = Date.now();
+
+        if (session.clockIn?.timestamp) {
+          newStartTime = session.clockIn.timestamp.toMillis ? session.clockIn.timestamp.toMillis() : new Date(session.clockIn.timestamp).getTime();
         }
 
-        const filteredDocs = snap.docs.filter(d => searchIds.includes(d.data().userId));
-        if (filteredDocs.length > 0) {
-          const session = filteredDocs[0].data();
-          const sessionId = filteredDocs[0].id;
-          
-          let newStatus: ClockStatus = 'clocked_in';
-          let newStartTime = Date.now();
-          
-          if (session.clockIn?.timestamp) {
-            newStartTime = session.clockIn.timestamp.toMillis ? session.clockIn.timestamp.toMillis() : new Date(session.clockIn.timestamp).getTime();
+        if (session.status === 'on_break' && Array.isArray(session.breaks) && session.breaks.length > 0) {
+          const lastBreak = session.breaks[session.breaks.length - 1];
+          newStatus = lastBreak.type === 'lunch' ? 'on_lunch' : 'on_break';
+          if (lastBreak.start) {
+            newStartTime = lastBreak.start.toMillis ? lastBreak.start.toMillis() : new Date(lastBreak.start).getTime();
           }
-          
-          if (session.status === 'on_break') {
-            const lastBreak = session.breaks[session.breaks.length - 1];
-            newStatus = lastBreak.type === 'lunch' ? 'on_lunch' : 'on_break';
-            if (lastBreak.start) {
-              newStartTime = lastBreak.start.toMillis ? lastBreak.start.toMillis() : new Date(lastBreak.start).getTime();
-            }
-          }
-          
-          setClockStatus(newStatus, newStartTime, sessionId);
-        } else if (clockStatus !== 'clocked_out') {
-          resetClock();
         }
-      } catch (err) {
-        console.warn("Time Clock synchronization error:", err);
+
+        setClockStatus(newStatus, newStartTime, sessionId);
+      } else {
+        resetClock();
       }
     };
 
-    syncStatus();
-  }, [effectiveUserId, tenantId, staffMember?.id, staffMember?.userId]);
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('status', 'in', ['active', 'on_break'])
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      handleSnapshot(snap.docs);
+    }, (err) => {
+      console.warn("UserMissionControl: time sessions listener query error:", err);
+    });
+
+    const handleRevalidate = async () => {
+      try {
+        const snap = await getDocs(q);
+        handleSnapshot(snap.docs);
+      } catch (err) {
+        console.warn("UserMissionControl revalidate error:", err);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleRevalidate();
+      }
+    };
+
+    window.addEventListener('focus', handleRevalidate);
+    window.addEventListener('online', handleRevalidate);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      unsub();
+      window.removeEventListener('focus', handleRevalidate);
+      window.removeEventListener('online', handleRevalidate);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [effectiveUserId, tenantId, staffMember?.id, staffMember?.userId, user?.uid, user?.email]);
 
   // Timer update
   useEffect(() => {

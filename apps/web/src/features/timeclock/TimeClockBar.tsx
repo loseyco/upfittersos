@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { 
   collection, query, where, getDocs, addDoc, 
   updateDoc, doc, getDoc, serverTimestamp, 
-  orderBy, limit, onSnapshot 
+  onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase/config';
 import { 
@@ -142,27 +142,39 @@ export function TimeClockBar() {
     refetchInterval: 30000 // Refresh every 30s to keep breaks in sync
   });
 
-  // Sync state with Firestore on mount or if status is inconsistent
+  // Real-time bidirectional synchronization with Firestore for active session
   useEffect(() => {
-    const syncStatus = async () => {
-      if (!user?.uid || !tenantId) return;
-      
-      const q = query(
-        collection(db, `businesses/${tenantId}/time_sessions`),
-        where('userId', '==', user.uid),
-        where('status', 'in', ['active', 'on_break']),
-        orderBy('clockIn.timestamp', 'desc'),
-        limit(1)
-      );
-      
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const sessionDoc = snap.docs[0];
-        const session = sessionDoc.data();
-        const sessionId = sessionDoc.id;
+    if (!tenantId || !effectiveUserId || tenantId === 'GLOBAL') {
+      if (status !== 'clocked_out') {
+        reset();
+      }
+      return;
+    }
 
-        // Auto-close stale session if older than 16 hours or from a previous date
-        const clockInTime = session.clockIn?.timestamp?.toMillis ? session.clockIn.timestamp.toMillis() : Date.now();
+    const searchUserIds = Array.from(
+      new Set([user?.uid, effectiveUserId, staffMember?.id, staffMember?.userId].filter(Boolean))
+    ) as string[];
+
+    const handleSessionSnapshot = async (docs: any[]) => {
+      // Filter for current user's sessions
+      const matchingDocs = docs.filter((d: any) => {
+        const data = d.data ? d.data() : d;
+        return (
+          searchUserIds.includes(data.userId) ||
+          searchUserIds.includes(data.staffId) ||
+          (user?.email && data.userEmail && data.userEmail.toLowerCase() === user.email.toLowerCase())
+        );
+      });
+
+      if (matchingDocs.length > 0) {
+        const sessionDoc = matchingDocs[0];
+        const session = sessionDoc.data ? sessionDoc.data() : sessionDoc;
+        const sessionId = sessionDoc.id || session.id;
+
+        // Auto-close stale session if older than 16 hours
+        const clockInTime = session.clockIn?.timestamp?.toMillis 
+          ? session.clockIn.timestamp.toMillis() 
+          : (session.clockIn?.timestamp ? new Date(session.clockIn.timestamp).getTime() : Date.now());
         const ageHours = (Date.now() - clockInTime) / (1000 * 60 * 60);
 
         if (ageHours > 16) {
@@ -186,24 +198,64 @@ export function TimeClockBar() {
           reset();
           return;
         }
-        
+
         let newStatus: ClockStatus = 'clocked_in';
-        let newStartTime = session.clockIn?.timestamp?.toMillis ? session.clockIn.timestamp.toMillis() : Date.now();
-        
-        if (session.status === 'on_break' && session.breaks && session.breaks.length > 0) {
+        let newStartTime = clockInTime;
+
+        if (session.status === 'on_break' && Array.isArray(session.breaks) && session.breaks.length > 0) {
           const lastBreak = session.breaks[session.breaks.length - 1];
           newStatus = lastBreak.type === 'lunch' ? 'on_lunch' : 'on_break';
-          newStartTime = lastBreak.start?.toMillis ? lastBreak.start.toMillis() : Date.now();
+          newStartTime = lastBreak.start?.toMillis 
+            ? lastBreak.start.toMillis() 
+            : (lastBreak.start ? new Date(lastBreak.start).getTime() : Date.now());
         }
-        
+
         setStatus(newStatus, newStartTime, sessionId);
-      } else if (status !== 'clocked_out') {
+      } else {
+        // No active session in Firestore -> guarantee local state reflects clocked out
         reset();
       }
     };
 
-    syncStatus();
-  }, [user?.uid, tenantId]);
+    // Listen in real-time to active sessions
+    const q = query(
+      collection(db, `businesses/${tenantId}/time_sessions`),
+      where('status', 'in', ['active', 'on_break'])
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      handleSessionSnapshot(snap.docs);
+    }, (err) => {
+      console.warn("TimeClockBar: real-time session listener query error, falling back:", err);
+    });
+
+    // Instant Resync when tab becomes visible, window is focused, or network reconnects
+    const handleRevalidate = async () => {
+      try {
+        const snap = await getDocs(q);
+        handleSessionSnapshot(snap.docs);
+      } catch (err) {
+        console.warn("TimeClockBar revalidation error:", err);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleRevalidate();
+      }
+    };
+
+    window.addEventListener('focus', handleRevalidate);
+    window.addEventListener('online', handleRevalidate);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      unsub();
+      window.removeEventListener('focus', handleRevalidate);
+      window.removeEventListener('online', handleRevalidate);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [user?.uid, user?.email, effectiveUserId, tenantId, staffMember?.id, staffMember?.userId]);
 
   // Extract and securely store qr_code parameter from URL search params on mount
   useEffect(() => {
