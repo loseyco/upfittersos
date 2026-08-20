@@ -76,6 +76,7 @@ export const ITEMS: NavItem[] = [
   { id: 'sales_analytics', label: 'Sales Performance', icon: BarChart3, hub: 'development', groupLabel: 'Sales Dept', permission: 'sales.view' },
 
   // Office Dept (Main Office)
+  { id: 'jobs_overview', label: 'Jobs Overview Sheet', icon: FileSpreadsheet, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'foreman.view'] },
   { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
   { id: 'time_sheet', label: 'Time Clock Log', icon: FileSpreadsheet, hub: 'office', permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view'] },
@@ -196,11 +197,13 @@ export function BusinessSidebar({
       window.location.search.includes('sidebar=collapsed') ||
       window.location.pathname.includes('/job/') ||
       window.location.pathname.includes('/jobv3/') ||
-      window.location.pathname.includes('/task/')
+      window.location.pathname.includes('/task/') ||
+      window.location.pathname.includes('/jobs_overview') ||
+      activeTab === 'jobs_overview'
     );
 
     if (isStandaloneWindow) {
-      return false; // Start with submenu shrunk / minimized in standalone windows
+      return false; // Start with submenu shrunk / minimized by default for overview sheets & standalone windows
     }
 
     const saved = localStorage.getItem('upfitters_sidebar_pinned');

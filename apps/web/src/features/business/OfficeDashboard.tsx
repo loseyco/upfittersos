@@ -422,6 +422,13 @@ export function OfficeDashboard({ tenantId }: OfficeDashboardProps) {
             </button>
           )}
           <button 
+            onClick={() => navigate(`/business/${tenantId}/jobs_overview`)}
+            className="w-full sm:w-auto px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 border border-zinc-700 shadow-sm h-10 shrink-0 text-sm cursor-pointer"
+          >
+            <FileText className="w-4 h-4 text-indigo-400" />
+            JOBS OVERVIEW SHEET
+          </button>
+          <button 
             onClick={handleCreateQuickPart}
             className="w-full sm:w-auto px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-xl transition-all flex items-center justify-center gap-2 border border-indigo-500/20 shadow-sm h-10 shrink-0 text-sm cursor-pointer"
           >

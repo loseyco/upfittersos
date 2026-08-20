@@ -777,8 +777,9 @@ export function JobQCPage({
                 ) : (
                   <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
                     {selectedTask.task_notes.map((note) => {
-                      const isFail = note.message.startsWith('[QC FAILED]');
-                      const isPass = note.message.startsWith('[QC VERIFIED]');
+                      const msg = typeof note?.message === 'string' ? note.message : (typeof (note as any)?.note === 'string' ? (note as any).note : '');
+                      const isFail = msg.startsWith('[QC FAILED]');
+                      const isPass = msg.startsWith('[QC VERIFIED]');
                       
                       return (
                         <div 

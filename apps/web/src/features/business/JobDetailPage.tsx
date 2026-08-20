@@ -17,6 +17,7 @@ import { useAuthStore } from '../../lib/auth/store';
 import { setPreferredJobViewVersion } from '../../lib/utils/window';
 import { assignQCStaffToTask, assignQCStaffToJob } from '../../lib/auth/qcAssignment';
 import { useJobClock } from '../timeclock/useJobClock';
+import { submitAuditLog } from '../../lib/logging/audit';
 import { JobChat } from './components/JobChat';
 import { PartsRequestModal } from './PartsRequestModal';
 import { ETAModal } from './ETAModal';
@@ -162,37 +163,41 @@ export function JobDetailPage({
   const [isSyncingCcPhotos, setIsSyncingCcPhotos] = useState(false);
 
   const allJobPhotos = tasks.flatMap((task: any) => 
-    (task.task_notes || []).flatMap((note: any) => 
-      (note.images || []).map((imgUrl: string) => ({
+    (Array.isArray(task?.task_notes) ? task.task_notes : []).flatMap((note: any) => 
+      (Array.isArray(note?.images) ? note.images : []).map((imgUrl: string) => ({
         url: imgUrl,
-        taskTitle: task.title,
-        createdAt: note.createdAt,
-        createdByName: note.createdByName
+        taskTitle: task?.title || task?.name || 'Task',
+        createdAt: note?.createdAt,
+        createdByName: note?.createdByName
       }))
     )
   );
 
   const qcNotes = tasks.flatMap((task: any) => 
-    (task.task_notes || [])
-      .filter((note: any) => note.message.startsWith('[QC '))
+    (Array.isArray(task?.task_notes) ? task.task_notes : [])
+      .filter((note: any) => {
+        const msg = typeof note?.message === 'string' ? note.message : (typeof note?.note === 'string' ? note.note : (typeof note?.text === 'string' ? note.text : ''));
+        return msg.startsWith('[QC ');
+      })
       .map((note: any) => {
-        const isPass = note.message.startsWith('[QC VERIFIED]');
-        const cleanMessage = note.message
+        const rawMsg = typeof note?.message === 'string' ? note.message : (typeof note?.note === 'string' ? note.note : (typeof note?.text === 'string' ? note.text : ''));
+        const isPass = rawMsg.startsWith('[QC VERIFIED]');
+        const cleanMessage = rawMsg
           .replace('[QC VERIFIED]', '')
           .replace('[QC FAILED]', '')
           .trim();
         return {
-          id: note.id,
-          taskId: task.id,
-          taskTitle: task.title,
+          id: note?.id || Math.random().toString(),
+          taskId: task?.id,
+          taskTitle: task?.title || task?.name || 'Task',
           isPass,
           message: cleanMessage,
-          images: note.images || [],
-          createdAt: note.createdAt,
-          createdByName: note.createdByName
+          images: Array.isArray(note?.images) ? note.images : [],
+          createdAt: note?.createdAt,
+          createdByName: note?.createdByName
         };
       })
-  ).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  ).sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
   const qcPhotoNotes = qcNotes.filter((qc: any) => qc.images && qc.images.length > 0);
 
@@ -200,10 +205,7 @@ export function JobDetailPage({
     if (selectedCcPhotos.length === 0) return;
     setIsSyncingCcPhotos(true);
     try {
-      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const apiBase = isLocal 
-        ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
-        : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+      const apiBase = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
 
       const token = await auth.currentUser?.getIdToken();
       const res = await fetch(`${apiBase}/jobs/${jobId}/companycam-photos`, {
@@ -613,10 +615,7 @@ export function JobDetailPage({
 
   const handleConnectCompanyCam = async () => {
     try {
-      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const apiBase = isLocal 
-        ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
-        : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+      const apiBase = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
         
       const token = await auth.currentUser?.getIdToken();
       const redirectUri = window.location.origin + window.location.pathname;
@@ -652,10 +651,7 @@ export function JobDetailPage({
       setPhotosError(null);
       try {
         const token = await auth.currentUser?.getIdToken();
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const apiBase = isLocal 
-          ? 'http://localhost:5001/saegroup-c6487/us-central1/api'
-          : 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+        const apiBase = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
 
         const redirectUri = window.location.origin + window.location.pathname;
 
@@ -706,36 +702,14 @@ export function JobDetailPage({
       setPhotosError(null);
       try {
         const token = await auth.currentUser?.getIdToken();
-        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const apiBaseLocal = 'http://localhost:5001/saegroup-c6487/us-central1/api';
-        const apiBaseProd = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
+        const apiBase = 'https://us-central1-saegroup-c6487.cloudfunctions.net/api';
         
-        let res;
-        if (isLocal) {
-          try {
-            res = await fetch(`${apiBaseLocal}/jobs/${jobId}/companycam-photos`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'x-tenant-id': tenantId
-              }
-            });
-          } catch (localErr) {
-            console.warn("Local functions emulator not reachable, falling back to production/staging API", localErr);
-            res = await fetch(`${apiBaseProd}/jobs/${jobId}/companycam-photos`, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'x-tenant-id': tenantId
-              }
-            });
+        const res = await fetch(`${apiBase}/jobs/${jobId}/companycam-photos`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'x-tenant-id': tenantId
           }
-        } else {
-          res = await fetch(`${apiBaseProd}/jobs/${jobId}/companycam-photos`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'x-tenant-id': tenantId
-            }
-          });
-        }
+        });
 
         if (!res.ok) {
           throw new Error(`Failed to fetch photos: ${res.statusText}`);
@@ -1460,16 +1434,32 @@ export function JobDetailPage({
 
   const handleZoneChange = async (newZoneId: string) => {
     try {
-      const previousZone = zones.find(z => z.currentJobId === jobId);
       const now = new Date();
-      
-      if (previousZone && previousZone.id !== newZoneId) {
-        // If leaving a bay or parking spot, update total time
-        const isBay = previousZone.type === 'bay';
-        const isParking = previousZone.type === 'parking' || previousZone.type === 'lot';
+      const targetVin = (job?.vehicleVin || job?.vehicleId || '').toLowerCase().trim();
+      const targetJobNum = String(job?.jobNumber || '').trim();
 
-        if ((isBay || isParking)) {
-          const lastAssigned = previousZone.lastAssignedAt?.seconds ? previousZone.lastAssignedAt.seconds * 1000 : (previousZone.lastAssignedAt || previousZone.updatedAt || Date.now());
+      const previousZone = zones.find(z => 
+        z.id === job?.zoneId || 
+        z.id === job?.bayId || 
+        z.name?.toLowerCase().trim() === (job?.parkingSpot || '').toLowerCase().trim() ||
+        z.currentJobId === jobId
+      );
+
+      // Clear all stale zones that were associated with this job or vehicle
+      const staleZones = zones.filter(z => 
+        z.id !== newZoneId && (
+          z.currentJobId === jobId || 
+          (targetVin && targetVin !== 'n/a' && (z.currentVehicleVin || '').toLowerCase().trim() === targetVin) ||
+          (targetJobNum && String(z.currentJobNumber || '').trim() === targetJobNum)
+        )
+      );
+
+      for (const sz of staleZones) {
+        const isBay = sz.type === 'bay';
+        const isParking = sz.type === 'parking' || sz.type === 'lot';
+
+        if (isBay || isParking) {
+          const lastAssigned = sz.lastAssignedAt?.seconds ? sz.lastAssignedAt.seconds * 1000 : (sz.lastAssignedAt || sz.updatedAt || Date.now());
           const durationSeconds = Math.max(0, Math.floor((now.getTime() - new Date(lastAssigned).getTime()) / 1000));
           
           const updateData: any = {
@@ -1477,40 +1467,49 @@ export function JobDetailPage({
           };
 
           if (isBay) {
-            updateData.totalBayTimeSeconds = (job.totalBayTimeSeconds || 0) + durationSeconds;
+            updateData.totalBayTimeSeconds = (job?.totalBayTimeSeconds || 0) + durationSeconds;
             updateData.currentBaySessionStart = null;
           } else if (isParking) {
-            updateData.totalParkingTimeSeconds = (job.totalParkingTimeSeconds || 0) + durationSeconds;
+            updateData.totalParkingTimeSeconds = (job?.totalParkingTimeSeconds || 0) + durationSeconds;
             updateData.currentParkingSessionStart = null;
           }
 
           await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), updateData);
         }
 
-        await updateDoc(doc(db, `businesses/${tenantId}/zones`, previousZone.id), {
+        await updateDoc(doc(db, `businesses/${tenantId}/zones`, sz.id), {
           currentJobId: null,
+          currentJobNumber: null,
           currentVehicleVin: null,
+          currentVehicleId: null,
+          isOccupied: false,
           updatedAt: serverTimestamp()
         });
       }
 
       if (!newZoneId) {
-        // Clear bayId on job if moved to Off-site
+        // Clear bayId and parkingSpot on job if moved to Off-site
         await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
           bayId: null,
+          zoneId: null,
+          parkingSpot: null,
+          location: 'OFF-SITE',
           updatedAt: serverTimestamp()
         });
       }
 
       const newZone = zones.find(z => z.id === newZoneId);
 
-      if (newZoneId) {
+      if (newZoneId && newZone) {
         // Handle entering a new zone
-        const isBay = newZone?.type === 'bay';
-        const isParking = newZone?.type === 'parking' || newZone?.type === 'lot';
+        const isBay = newZone.type === 'bay' || newZone.name.toLowerCase().includes('bay');
+        const isParking = newZone.type === 'parking' || newZone.type === 'lot' || !isBay;
 
         const jobUpdate: any = {
-          bayId: newZoneId,
+          bayId: isBay ? newZoneId : null,
+          zoneId: newZoneId,
+          location: newZone.name,
+          parkingSpot: newZone.name,
           updatedAt: serverTimestamp()
         };
 
@@ -1535,15 +1534,38 @@ export function JobDetailPage({
 
         await updateDoc(doc(db, `businesses/${tenantId}/zones`, newZoneId), {
           currentJobId: jobId,
-          currentVehicleVin: job.vehicleId || null,
+          currentJobNumber: job?.jobNumber || null,
+          currentVehicleVin: job?.vehicleVin || job?.vehicleId || null,
+          currentVehicleId: job?.vehicleId || null,
+          isOccupied: true,
           lastAssignedAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
       }
       
-      await logActivity('location_changed', `Moved vehicle to ${newZone?.name || 'OFF-SITE'}`);
+      await logActivity('location_changed', `Moved vehicle to ${newZone?.name || 'OFF-SITE'}`, {
+        previousZone: previousZone?.name || 'Unassigned',
+        newZone: newZone?.name || 'OFF-SITE',
+        newZoneId: newZoneId || null,
+        jobId,
+        jobNumber: job?.jobNumber || ''
+      });
+
+      submitAuditLog(tenantId, {
+        userId: user?.uid || 'staff',
+        actionType: 'DATA_MUTATION',
+        details: {
+          action: 'VEHICLE_LOCATION_CHANGED',
+          jobId,
+          jobNumber: job?.jobNumber || '',
+          customerName: job?.customerName || job?.customer || '',
+          previousLocation: previousZone?.name || 'Unassigned',
+          newLocation: newZone?.name || 'OFF-SITE',
+          staffName: user?.displayName || user?.email || 'Staff'
+        }
+      });
       
-      toast.success('Parking location updated');
+      toast.success(`Vehicle location updated to ${newZone?.name || 'OFF-SITE'}`);
     } catch (err) {
       console.error(err);
       toast.error('Failed to update parking location');
@@ -2110,7 +2132,7 @@ export function JobDetailPage({
           <SearchableSelect
             theme="indigo"
             options={zones.sort((a, b) => a.name.localeCompare(b.name))}
-            value={zones.find(z => z.currentJobId === jobId)?.id || ''}
+            value={zones.find(z => z.id === job?.zoneId || z.id === job?.bayId || z.name?.toLowerCase().trim() === (job?.parkingSpot || '').toLowerCase().trim() || z.currentJobId === jobId)?.id || ''}
             onChange={val => handleZoneChange(val || '')}
             getLabel={z => z.name}
             getValue={z => z.id}

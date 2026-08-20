@@ -264,6 +264,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
   const [logToDelete, setLogToDelete] = useState<any | null>(null);
   const [isDeletingLog, setIsDeletingLog] = useState(false);
   const [showDeletedLogs, setShowDeletedLogs] = useState(false);
+  const [activityFeed, setActivityFeed] = useState<any[]>([]);
 
   // Super Admin Time Edit State
   const [editedLogMap, setEditedLogMap] = useState<Record<string, any>>({});
@@ -522,6 +523,11 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       touchLastUpdated();
     });
 
+    const unsubActivity = onSnapshot(collection(db, `businesses/${tenantId}/activity_feed`), (snap) => {
+      setActivityFeed(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      touchLastUpdated();
+    });
+
     return () => {
       unsubBiz();
       unsubJobs();
@@ -532,6 +538,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       unsubSessions();
       unsubDeletedLogs();
       unsubEditedLogs();
+      unsubActivity();
     };
   }, [tenantId]);
 
@@ -1663,6 +1670,44 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       }
     });
 
+    // 9. Vehicle Movements & Location Changes
+    activityFeed.forEach(act => {
+      const actDate = parseSafeDate(act.timestamp || act.createdAt || act.date);
+      if (actDate && isSameSelectedDate(actDate)) {
+        const type = (act.type || '').toLowerCase();
+        const title = (act.title || '').toLowerCase();
+        const msg = act.message || '';
+        const isMoved = type === 'location_changed' || title.includes('vehicle moved') || title.includes('location') || msg.toLowerCase().includes('moved vehicle');
+
+        if (isMoved) {
+          const staffName = act.author || act.staffName || 'Staff';
+          const staffRec = staff.find(s => s.name === staffName || s.displayName === staffName || s.email === staffName);
+          const job = jobs.find(j => j.id === act.metadata?.jobId) || jobs.find(j => j.jobNumber === act.metadata?.jobNumber);
+          const vehicleInfo = job?.vehicleYearMakeModel || job?.vehicleName || job?.vehicleId || job?.vehicleVin || job?.vehicle || '';
+
+          feed.push({
+            id: `act_move_${act.id}_${actDate.getTime()}`,
+            category: 'shift',
+            badgeLabel: 'VEHICLE MOVED',
+            badgeClass: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+            timestamp: actDate,
+            timeStr: actDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+            who: staffName,
+            staffId: staffRec?.id || act.staffId || '',
+            duration: '--',
+            jobId: act.metadata?.jobId || job?.id || '',
+            jobNumber: act.metadata?.jobNumber || job?.jobNumber || 'N/A',
+            jobTitle: act.metadata?.jobTitle || job?.title || 'Upfit Job',
+            customerName: job?.customerName || job?.customer || '',
+            vehicleInfo,
+            details: msg || `Moved vehicle to ${act.metadata?.newZone || 'new spot'}`,
+            note: act.metadata?.previousZone ? `From ${act.metadata.previousZone} → ${act.metadata.newZone}` : (act.metadata?.notes || ''),
+            status: 'VEHICLE MOVED'
+          });
+        }
+      }
+    });
+
     return feed.map(item => {
       if (editedLogMap[item.id]) {
         const editData = editedLogMap[item.id];
@@ -1678,7 +1723,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       }
       return item;
     }).sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-  }, [tasksMap, jobs, staff, activeSessions, partsRequests, readyForQcJobs, selectedDate, editedLogMap]);
+  }, [tasksMap, jobs, staff, activeSessions, partsRequests, readyForQcJobs, selectedDate, editedLogMap, activityFeed]);
 
   // Unique Filter Options
   const [selectedCustomerFilters, setSelectedCustomerFilters] = useState<string[]>([]);

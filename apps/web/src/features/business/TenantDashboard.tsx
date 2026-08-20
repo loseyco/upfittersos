@@ -105,6 +105,7 @@ import { usePageAnalytics } from '../../lib/telemetry/usePageAnalytics';
 import { SafetyManager } from './safety/SafetyManager';
 import { getCurrentLocation, updateStaffLastLocation } from '../../lib/locationService';
 import { UpfittersDesktopOS } from '../desktop/UpfittersDesktopOS';
+import { OfficeJobsOverviewSheet } from './OfficeJobsOverviewSheet';
 
 export function TenantDashboard() {
   const params = useParams();
@@ -180,6 +181,7 @@ export function TenantDashboard() {
     bay_worksheet: 'Bay Worksheet',
     parts_worksheet: 'Parts Worksheet',
     jobs_worksheet: 'Jobs Worksheet',
+    jobs_overview: 'Jobs Overview Sheet',
     package_intake: 'Package Intake',
     part_request: 'Add Part / Request',
     vehicle_intake: 'Vehicle Intake',
@@ -698,15 +700,21 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'job' && !pathParts[2] && pathParts[1] !== 'create' && (
-              <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              <PermissionGate permissions={["jobs.view", "jobs.manage"]}>
+                <JobDetailPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              </PermissionGate>
             )}
 
             {activeTab === 'jobv3' && (
-              <JobDetailPageV3 tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              <PermissionGate permissions={["jobs.view", "jobs.manage"]}>
+                <JobDetailPageV3 tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              </PermissionGate>
             )}
 
             {activeTab === 'job' && pathParts[2] === 'efficiency' && (
-              <JobEfficiencyPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              <PermissionGate permissions={["jobs.view", "jobs.manage", "reports.view"]}>
+                <JobEfficiencyPage tenantId={tenantId!} setDynamicTitle={setDynamicTitle} />
+              </PermissionGate>
             )}
 
             {activeTab === 'job' && pathParts[2] === 'qc' && (
@@ -794,6 +802,12 @@ export function TenantDashboard() {
             {activeTab === 'jobs_worksheet' && (
               <PermissionGate permission="jobs.view">
                 <JobSpreadsheet tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {activeTab === 'jobs_overview' && (
+              <PermissionGate permissions={["office.view", "jobs.view", "foreman.view"]}>
+                <OfficeJobsOverviewSheet tenantId={tenantId!} />
               </PermissionGate>
             )}
 

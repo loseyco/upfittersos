@@ -173,44 +173,80 @@ const formatTaskStatusLabel = (t: any, hasTimeOnIt: boolean = false): { label: s
   return { label: 'NOT STARTED', statusCode: 'not_started', isQCComplete: false, isReadyForQC: false, isCompleted: false };
 };
 
-const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payrollNotes: string } => {
-  if (!t) return { taskNotes: '', staffNotes: '', payrollNotes: '' };
+const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payrollNotes: string; allNotesSummary: string } => {
+  if (!t) return { taskNotes: '', staffNotes: '', payrollNotes: '', allNotesSummary: '' };
 
-  // Task Specs / Instructions / Customer Requirements
+  // Task Specs / Work Order Instructions / Customer Requirements
   const taskNotes = safeString(
-    t.taskNotes || t.instructions || t.instruction || t.specNotes || t.taskDescription || t.details || t.description,
+    t.instructions || t.instruction || t.specNotes || t.spec || t.specs || t.taskNotes,
     ''
   );
 
-  // Staff Notes / Tech Completion Remarks / Work Logs
+  // Staff Notes / Tech Remarks / Work Logs / Description of work performed
   const staffNotesList: string[] = [];
 
-  const directStaffNote = safeString(
-    t.staffNotes || t.staffNote || t.techNote || t.techNotes || 
-    t.completionNote || t.completionNotes || t.qcNote || t.qcNotes || 
-    t.workNote || t.workNotes,
-    ''
-  );
-  if (directStaffNote && directStaffNote !== taskNotes) {
-    staffNotesList.push(directStaffNote);
+  const candidateStaffNotes = [
+    t.staffNotes,
+    t.staffNote,
+    t.techNote,
+    t.techNotes,
+    t.completionNote,
+    t.completionNotes,
+    t.notes,
+    t.note,
+    t.description,
+    t.details,
+    t.taskDescription,
+    t.workNote,
+    t.workNotes,
+    t.comments,
+    t.comment
+  ];
+
+  // If task name itself contains a long remark (>25 chars, e.g. from unassigned clock in), treat that remark as a staff note
+  const rawTitle = safeString(t.name || t.title || t.taskTitle, '');
+  if (rawTitle.length > 25 && !candidateStaffNotes.includes(rawTitle)) {
+    candidateStaffNotes.push(rawTitle);
   }
+
+  candidateStaffNotes.forEach(cand => {
+    const s = safeString(cand, '').trim();
+    if (s && s !== taskNotes && !staffNotesList.includes(s) && !staffNotesList.some(n => n.includes(s))) {
+      staffNotesList.push(s);
+    }
+  });
 
   if (Array.isArray(t.timeSessions) && t.timeSessions.length > 0) {
     t.timeSessions.forEach((s: any) => {
-      const sessNote = safeString(s.notes || s.note || s.comment || s.completionNote || s.workNote, '');
+      const sessNote = safeString(s.notes || s.note || s.comment || s.completionNote || s.workNote, '').trim();
       const sName = s.staffName || s.techName || s.userName || '';
-      if (sessNote && !staffNotesList.includes(sessNote) && sessNote !== taskNotes) {
-        staffNotesList.push(sName ? `${sName}: "${sessNote}"` : `"${sessNote}"`);
+      if (sessNote && sessNote !== taskNotes && sessNote !== 'Unassigned shop task clock-in') {
+        const entry = sName ? `${sName}: "${sessNote}"` : `"${sessNote}"`;
+        if (!staffNotesList.some(n => n.includes(sessNote))) {
+          staffNotesList.push(entry);
+        }
       }
     });
   }
 
   if (Array.isArray(t.workLogs) && t.workLogs.length > 0) {
     t.workLogs.forEach((w: any) => {
-      const logNote = safeString(w.notes || w.note || w.comment || w.text, '');
+      const logNote = safeString(w.notes || w.note || w.comment || w.text, '').trim();
       const wName = w.staffName || w.userName || '';
-      if (logNote && !staffNotesList.includes(logNote) && logNote !== taskNotes) {
-        staffNotesList.push(wName ? `${wName}: "${logNote}"` : `"${logNote}"`);
+      if (logNote && logNote !== taskNotes) {
+        const entry = wName ? `${wName}: "${logNote}"` : `"${logNote}"`;
+        if (!staffNotesList.some(n => n.includes(logNote))) {
+          staffNotesList.push(entry);
+        }
+      }
+    });
+  }
+
+  if (Array.isArray(t.blockers) && t.blockers.length > 0) {
+    t.blockers.forEach((b: any) => {
+      const bMsg = safeString(b.message || b.reason || b.note || '', '').trim();
+      if (bMsg && !staffNotesList.some(n => n.includes(bMsg))) {
+        staffNotesList.push(`[Blocker] ${bMsg}`);
       }
     });
   }
@@ -218,10 +254,25 @@ const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payr
   // Payroll Notes
   const payrollNotes = safeString(t.payrollNotes || t.payrollNote || t.payrollRemarks, '');
 
+  const resolvedStaffNotes = staffNotesList.join('\n');
+
+  // Combined notes for Staff Labor & Payout Report
+  const combinedParts: string[] = [];
+  if (resolvedStaffNotes) {
+    combinedParts.push(resolvedStaffNotes);
+  }
+  if (taskNotes && taskNotes !== resolvedStaffNotes) {
+    combinedParts.push(`Spec: ${taskNotes}`);
+  }
+  if (payrollNotes) {
+    combinedParts.push(`[Payroll] ${payrollNotes}`);
+  }
+
   return {
-    taskNotes,
-    staffNotes: staffNotesList.join('\n'),
-    payrollNotes
+    taskNotes: taskNotes !== resolvedStaffNotes ? taskNotes : '',
+    staffNotes: resolvedStaffNotes,
+    payrollNotes,
+    allNotesSummary: combinedParts.join('\n')
   };
 };
 
@@ -916,8 +967,14 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         const isUnassigned = !seg.id || seg.id === 'unassigned' || seg.jobId === 'unassigned' || (seg.name && seg.name.toLowerCase().includes('unassigned')) || (seg.taskName && seg.taskName.toLowerCase().includes('unassigned'));
 
         if (isUnassigned) {
-          const tTitle = seg.taskName || seg.name || 'General Task';
-          const key = `unassigned_${tTitle.toLowerCase().trim()}_${sUser.toLowerCase().trim()}`;
+          const rawNote = seg.notes || seg.taskName || seg.name || '';
+          const hasSpecificNote = rawNote && rawNote !== 'Unassigned shop task clock-in' && rawNote.toLowerCase() !== 'unassigned';
+          const isLongDesc = (seg.taskName && seg.taskName.length > 25) || (seg.name && seg.name.length > 25);
+          const tTitle = isLongDesc 
+            ? (seg.category || seg.department || 'Shop Labor') 
+            : (seg.taskName || seg.name || 'General Labor');
+
+          const key = `unassigned_${tTitle.toLowerCase().trim()}_${rawNote.slice(0, 30).toLowerCase().trim()}_${sUser.toLowerCase().trim()}`;
           if (!unassignedKeys.has(key)) {
             unassignedKeys.add(key);
             unassignedTasksFromSessions.push({
@@ -933,9 +990,11 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               timeSessions: [{
                 clockIn: parseSafeDate(seg.start),
                 clockOut: parseSafeDate(seg.end || session.clockOut),
-                userName: sUser
+                userName: sUser,
+                notes: hasSpecificNote ? rawNote : ''
               }],
-              notes: seg.notes || 'Unassigned shop task clock-in'
+              notes: hasSpecificNote ? rawNote : '',
+              staffNotes: hasSpecificNote ? rawNote : ''
             });
           }
         }
@@ -1090,12 +1149,18 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           if (!isMatch) return;
         }
 
-        const taskTitle = safeString(t.name || t.title || t.taskTitle, 'Task');
+        let taskTitle = safeString(t.name || t.title || t.taskTitle, 'Task');
+        if (taskTitle.length > 25 || jobId === 'unassigned') {
+          if (taskTitle.length > 25) {
+            const rawCat = safeString(t.taskGroup || t.category || t.categoryName || t.departmentName || t.department, 'Shop Labor');
+            taskTitle = (rawCat && rawCat.toUpperCase() !== 'UNCATEGORIZED') ? rawCat : 'Shop Labor';
+          }
+        }
         const rawTaskCat = safeString(t.taskGroup || t.category || t.categoryName || t.departmentName || t.department, 'UNCATEGORIZED');
         const taskCategory = rawTaskCat.toUpperCase();
         const totalBookHours = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
         const bookHours = selectedStaffId !== 'all' ? activeWorkerSplitHours : totalBookHours;
-        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes } = resolveTaskNotes(t);
+        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes, allNotesSummary } = resolveTaskNotes(t);
         const payrollNotes = t.payrollNotes || resolvedPayrollNotes || '';
         let efficiencyPct: number | null = null;
         if (completed && actualHours > 0 && bookHours > 0) {
@@ -1134,6 +1199,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           taskNotes,
           staffNotes,
           payrollNotes,
+          allNotesSummary,
           taskSegments,
           hasOvernightSegment,
           rawTask: t
@@ -1189,7 +1255,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         const rawTaskCat = safeString(t.taskGroup || t.category || t.categoryName || t.departmentName || t.department, 'UNCATEGORIZED');
         const taskCategory = rawTaskCat.toUpperCase();
         const bookHours = parseFloat(t.bookTime || t.estimatedHours || t.hours || '0');
-        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes } = resolveTaskNotes(t);
+        const { taskNotes, staffNotes, payrollNotes: resolvedPayrollNotes, allNotesSummary } = resolveTaskNotes(t);
         const payrollNotes = t.payrollNotes || resolvedPayrollNotes || '';
         const completedByNames = workers.map(w => w.name).join(', ');
 
@@ -1208,7 +1274,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
           completedBy: safeString(completedByNames, 'Technician'),
           taskNotes,
           staffNotes,
-          payrollNotes
+          payrollNotes,
+          allNotesSummary
         };
 
         if (!jobMap[jId].allJobCategories[taskCategory]) {
@@ -2663,13 +2730,15 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 <table className="w-full text-left border-collapse border border-black text-[10px] font-mono">
                   <thead>
                     <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase">
-                      <th className="border border-black p-1.5 w-[20%]">Job</th>
-                      <th className="border border-black p-1.5 w-[22%]">Task</th>
-                      <th className="border border-black p-1.5 w-[12%]">Time Completed</th>
-                      <th className="border border-black p-1.5 w-[9%] text-right">Book (Split)</th>
-                      <th className="border border-black p-1.5 w-[9%] text-right">Clocked</th>
-                      <th className="border border-black p-1.5 w-[8%] text-right">Eff %</th>
-                      <th className="border border-black p-1.5 w-[20%]">Payroll Notes</th>
+                      <th className="border border-black p-1.5 w-[15%]">Job</th>
+                      <th className="border border-black p-1.5 w-[17%]">Task</th>
+                      <th className="border border-black p-1.5 w-[11%]">Time Completed</th>
+                      <th className="border border-black p-1.5 w-[7%] text-right">Book</th>
+                      <th className="border border-black p-1.5 w-[7%] text-right">Clocked</th>
+                      <th className="border border-black p-1.5 w-[7%] text-right">Eff %</th>
+                      <th className="border border-black p-1.5 w-[12%]">Task Notes</th>
+                      <th className="border border-black p-1.5 w-[12%]">Staff Notes</th>
+                      <th className="border border-black p-1.5 w-[12%]">Payroll Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2679,7 +2748,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
                       return (
                         <tr key={t.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
-                          <td className="border border-black p-1.5 font-bold text-black truncate max-w-[150px]" title={jobInfo}>{jobInfo}</td>
+                          <td className="border border-black p-1.5 font-bold text-black truncate max-w-[140px]" title={jobInfo}>{jobInfo}</td>
                           <td className="border border-black p-1.5 font-bold text-black">
                             <div>{t.taskTitle}</div>
                             {getTaskCategoryDisplay(t) && (
@@ -2716,6 +2785,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                           <td className="border border-black p-1.5 text-right font-bold text-black">
                             {eff !== null ? `${eff}%` : '—'}
                           </td>
+                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
+                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.staffNotes || '—'}</td>
                           <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
                         </tr>
                       );
