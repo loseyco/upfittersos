@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.0.16] - 2026-08-21
+- **Yellow Sheets Payroll Supercharge & Landscape Cover Summary Page**:
+  - Added dedicated **Executive Cover Summary Page** for landscape 1-page printing with full shop technician roster, department summaries, earned book hours, total shift hours on clock, actual wrench hours, dual efficiency metrics (Shift Efficiency % vs. Task Efficiency %), and total shop payout reconciliation.
+  - Added dedicated **Time Clock Shift Ledger** to technician reports showing chronological daily shift clock-in/out timestamps, unpaid break deductions, shift notes, and edit badges.
+  - Added **Time Clock Shift Management & Audit Trail**: Full shift editing modal with mandatory edit reasons, manual shift entry creation, and shift deletion with automated audit logs in `businesses/{tenantId}/audit_logs`.
+  - Added **Triage Filter Chips** (`All`, `🔴 Bottlenecks (<60%)`, `⚠️ Review (>200% / <2m)`, `👥 Multi-Tech Splits`).
+  - Added dark-mode glassmorphic **Pace Variance Highlighting** (`🟢 95% On Target`, `🟡 75% Variance`, `🔴 42% Bottleneck`, `⚠️ Under-Clocked`).
+  - Enhanced **↳ 💬 Full-Width Indented Staff Notes** with inline delimiter formatting and quick-edit modal.
+- **Jobs Overview Sheet Customer Pickup Recovery Hub**:
+  - Added graceful "Customer Picked Up" workflow jumping delivered vehicles to a dedicated "Jobs With Customer (Last 7 Days)" section.
+  - Added 1-click "↩️ Undo" pickup action to instantly restore accidentally delivered vehicles back to `Ready for Customer` on the shop floor.
+- **Time Clock Invariants & Safety**:
+  - Added guard in `useJobClock.ts` preventing technicians from clocking into jobs/tasks while on break/lunch.
+  - Resolved active worker segment filtering on Jobs Overview to strictly evaluate active sessions.
+
 ## [v0.0.15] - 2026-08-18
 - **Unified Native Date & Time Picker for Shift Adjustments**:
   - Upgraded Shift Clock In, Shift Clock Out, and labor segment adjustments in `TimeDetailsV3.tsx` with native Date/Time Pickers (`<input type="datetime-local">`).

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase/config';
 import {
   FileSpreadsheet, Clock, User,
@@ -338,6 +338,49 @@ export const getTaskRowColorStyles = (bookHours?: number | null, actualHours?: n
   };
 };
 
+// On-Screen Dark Glassmorphic Row Pace Style Helper (For Live Screen UI)
+const getScreenTaskRowStyles = (bookHours: number | undefined, actualHours: number | undefined, isEven: boolean) => {
+  const b = Number(bookHours) || 0;
+  const a = Number(actualHours) || 0;
+  const baseClass = isEven ? 'bg-zinc-900/60' : 'bg-zinc-950/40';
+
+  if (b <= 0 && a <= 0) {
+    return { className: baseClass, badge: null };
+  }
+  if (a <= 0) {
+    return { className: baseClass, badge: null };
+  }
+
+  const eff = Math.round((b / a) * 100);
+
+  // Severe Under-Clocked: worked <2 mins on a >=0.5h task, or eff > 200%
+  if ((b >= 0.5 && a < 0.033) || eff > 200) {
+    return {
+      className: 'bg-rose-950/20 hover:bg-rose-950/30 border-l-2 border-l-rose-500',
+      badge: { text: eff > 200 ? `${eff}% Rushed / Review` : '<2m Under-Clocked', color: 'bg-rose-500/20 text-rose-300 border-rose-500/40' }
+    };
+  }
+  // Severe Delay / Bottleneck (<60%)
+  if (eff < 60) {
+    return {
+      className: 'bg-rose-950/20 hover:bg-rose-950/30 border-l-2 border-l-rose-500',
+      badge: { text: `${eff}% Bottleneck`, color: 'bg-rose-500/20 text-rose-300 border-rose-500/40' }
+    };
+  }
+  // On-Target Sweet Spot (85%–115%)
+  if (eff >= 85 && eff <= 115) {
+    return {
+      className: 'bg-emerald-950/20 hover:bg-emerald-950/30 border-l-2 border-l-emerald-500',
+      badge: { text: `${eff}% On Target`, color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' }
+    };
+  }
+  // Pace Variance (60–84% or 116–200%)
+  return {
+    className: 'bg-amber-950/15 hover:bg-amber-950/25 border-l-2 border-l-amber-500',
+    badge: { text: `${eff}% Variance`, color: 'bg-amber-500/20 text-amber-300 border-amber-500/40' }
+  };
+};
+
 export function YellowSheets({ tenantId }: YellowSheetsProps) {
   // Firestore Subscriptions State
   const [jobs, setJobs] = useState<any[]>([]);
@@ -426,6 +469,21 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   const [expandedTaskSessions, setExpandedTaskSessions] = useState<Record<string, boolean>>({});
   const [printJobId, setPrintJobId] = useState<string | null>(null);
   const [printMode, setPrintMode] = useState<'jobs' | 'staff' | 'cover_only' | 'full'>('jobs');
+  const [triageFilter, setTriageFilter] = useState<'all' | 'bottlenecks' | 'under_clocked' | 'splits'>('all');
+
+  const [editingShiftSession, setEditingShiftSession] = useState<any>(null);
+  const [savingShiftSession, setSavingShiftSession] = useState<boolean>(false);
+
+  const [addingShiftStaff, setAddingShiftStaff] = useState<any>(null);
+  const [newShiftDate, setNewShiftDate] = useState<string>('');
+  const [newShiftClockIn, setNewShiftClockIn] = useState<string>('07:30');
+  const [newShiftClockOut, setNewShiftClockOut] = useState<string>('16:00');
+  const [newShiftBreakMins, setNewShiftBreakMins] = useState<number>(30);
+  const [newShiftNotes, setNewShiftNotes] = useState<string>('');
+  const [savingNewShift, setSavingNewShift] = useState<boolean>(false);
+
+  const [deletingShiftSession, setDeletingShiftSession] = useState<any>(null);
+  const [deletingShiftLoading, setDeletingShiftLoading] = useState<boolean>(false);
 
   // Multi-Tech Custom Split Adjustment Modal State
   const [editingSplitTask, setEditingSplitTask] = useState<{ task: any; jobId: string } | null>(null);
@@ -2148,6 +2206,100 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     }, 50);
   };
 
+  
+  const handleSaveShiftSession = async () => {
+    if (!editingShiftSession) return;
+    setSavingShiftSession(true);
+    try {
+      const { session, clockInTime, clockOutTime, breakMinutes, notes, editReason, staffName, date } = editingShiftSession;
+      
+      const startParts = clockInTime.split(':');
+      const endParts = clockOutTime.split(':');
+      
+      const st = new Date(date);
+      st.setHours(parseInt(startParts[0]), parseInt(startParts[1]), 0, 0);
+      
+      const et = new Date(date);
+      et.setHours(parseInt(endParts[0]), parseInt(endParts[1]), 0, 0);
+      
+      await updateDoc(doc(db, `businesses/${tenantId}/time_sessions`, session.id), {
+        start: st,
+        end: et,
+        'clockOut.timestamp': et,
+        breakDurationMin: breakMinutes,
+        notes: notes
+      });
+      
+      await recordAuditLog(
+        'Time Clock Shift Edited',
+        `${staffName} (${date}): Adjusted shift to ${clockInTime}-${clockOutTime} (-${breakMinutes}m break). Reason: ${editReason}`
+      );
+      
+      setEditingShiftSession(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingShiftSession(false);
+    }
+  };
+
+  const handleCreateManualShift = async () => {
+    if (!addingShiftStaff || !newShiftDate) return;
+    setSavingNewShift(true);
+    try {
+      const { staffId, staffName } = addingShiftStaff;
+      const startParts = newShiftClockIn.split(':');
+      const endParts = newShiftClockOut.split(':');
+      
+      const st = new Date(newShiftDate);
+      st.setHours(parseInt(startParts[0]), parseInt(startParts[1]), 0, 0);
+      
+      const et = new Date(newShiftDate);
+      et.setHours(parseInt(endParts[0]), parseInt(endParts[1]), 0, 0);
+      
+      await addDoc(collection(db, `businesses/${tenantId}/time_sessions`), {
+        staffId,
+        userName: staffName,
+        start: st,
+        end: et,
+        clockOut: { timestamp: et },
+        breakDurationMin: newShiftBreakMins,
+        notes: newShiftNotes,
+        status: 'completed',
+        type: 'manual_entry'
+      });
+      
+      await recordAuditLog(
+        'Manual Shift Added',
+        `${staffName} (${newShiftDate}): Added manual shift ${newShiftClockIn}-${newShiftClockOut} (-${newShiftBreakMins}m break). Notes: ${newShiftNotes}`
+      );
+      
+      setAddingShiftStaff(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSavingNewShift(false);
+    }
+  };
+
+  const handleDeleteShiftSession = async () => {
+    if (!deletingShiftSession) return;
+    setDeletingShiftLoading(true);
+    try {
+      const { sessionId, staffName, dateStr, hours } = deletingShiftSession;
+      await deleteDoc(doc(db, `businesses/${tenantId}/time_sessions`, sessionId));
+      await recordAuditLog(
+        'Time Clock Shift Deleted',
+        `${staffName} (${dateStr}): Voided/deleted ${hours.toFixed(1)}h shift entry`
+      );
+      setDeletingShiftSession(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeletingShiftLoading(false);
+    }
+  };
+
   const handlePrintStaff = () => {
     setPrintMode('staff');
     setPrintJobId(null);
@@ -2411,6 +2563,50 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               </button>
             </div>
 
+            {/* Triage Filter Pills */}
+            <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-0.5 text-[10px] font-mono flex-wrap">
+              <button
+                onClick={() => setTriageFilter('all')}
+                className={cn(
+                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer",
+                  triageFilter === 'all' ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30" : "text-zinc-400 hover:text-zinc-200"
+                )}
+                title="Show all tasks"
+              >
+                All
+              </button>
+              <button
+                onClick={() => setTriageFilter('bottlenecks')}
+                className={cn(
+                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer flex items-center gap-1",
+                  triageFilter === 'bottlenecks' ? "bg-rose-500/20 text-rose-300 border border-rose-500/30" : "text-zinc-400 hover:text-zinc-200"
+                )}
+                title="Show tasks that took significantly longer than book time (<60% efficiency)"
+              >
+                <span>🔴 Bottlenecks</span>
+              </button>
+              <button
+                onClick={() => setTriageFilter('under_clocked')}
+                className={cn(
+                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer flex items-center gap-1",
+                  triageFilter === 'under_clocked' ? "bg-amber-500/20 text-amber-300 border border-amber-500/30" : "text-zinc-400 hover:text-zinc-200"
+                )}
+                title="Show tasks with <2 minutes worked or >200% efficiency (under-clocked review)"
+              >
+                <span>⚠️ Review</span>
+              </button>
+              <button
+                onClick={() => setTriageFilter('splits')}
+                className={cn(
+                  "px-2 py-0.5 rounded font-extrabold uppercase transition cursor-pointer flex items-center gap-1",
+                  triageFilter === 'splits' ? "bg-teal-500/20 text-teal-300 border border-teal-500/30" : "text-zinc-400 hover:text-zinc-200"
+                )}
+                title="Show tasks worked on by 2 or more technicians"
+              >
+                <span>👥 Splits</span>
+              </button>
+            </div>
+
             {/* Search Input */}
             <div className="relative">
               <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -2570,6 +2766,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             </div>
           </div>
 
+
           {groupedJobsData.map(item => {
             const { job, categories } = item;
             const isExpanded = expandedJobIds[job.id] === true; // Default collapsed on page load
@@ -2691,20 +2888,20 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                               <span>CATEGORY: {catName}</span>
                               <span className="text-[10px] text-zinc-500 font-normal">({tasks.length} {tasks.length === 1 ? 'task' : 'tasks'})</span>
                             </div>
-                            <span>CATEGORY BOOK HOURS: {catTotalHours.toFixed(1)}H</span>
+                          <span>CATEGORY BOOK HOURS: {catTotalHours.toFixed(1)}H</span>
                           </div>
 
                           {/* Task Table matching exact print structure */}
                           <div className="overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950/80">
-                            <table className="w-full text-left border-collapse font-mono text-xs text-zinc-200">
+                            <table className="w-full text-left border-collapse font-mono text-xs">
                               <thead>
                                 <tr className="bg-zinc-900 text-zinc-400 border-b border-zinc-800 font-extrabold uppercase text-[10px]">
-                                  <th className="p-2.5 w-[22%]">TASK</th>
+                                  <th className="p-2.5 w-[24%]">TASK</th>
                                   <th className="p-2.5 w-[9%] text-right">BOOK HOURS</th>
-                                  <th className="p-2.5 w-[17%]">TECH</th>
-                                  <th className="p-2.5 w-[17.5%]">TASK NOTES</th>
-                                  <th className="p-2.5 w-[17.5%]">STAFF NOTES</th>
-                                  <th className="p-2.5 w-[17%]">PAYROLL NOTES</th>
+                                  <th className="p-2.5 w-[11%] text-right">TIME SPENT</th>
+                                  <th className="p-2.5 w-[18%]">TECH</th>
+                                  <th className="p-2.5 w-[20%]">TASK SPEC NOTES</th>
+                                  <th className="p-2.5 w-[18%]">PAYROLL NOTES</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-zinc-800/80">
@@ -2712,151 +2909,203 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                                   const isDone = task.completed || task.isCompleted || task.isQCComplete;
                                   const taskKey = `${task.jobId}_${task.id}`;
                                   const hasSessions = task.taskSegments && task.taskSegments.length > 0;
+                                  const paceStyles = getScreenTaskRowStyles(task.bookHours, task.actualHours, idx % 2 === 0);
+                                  const hasStaffNotes = !!(task.staffNotes && task.staffNotes.trim() && task.staffNotes.trim() !== '—');
 
                                   return (
-                                    <tr key={task.id || idx} className={cn("transition hover:bg-zinc-900/50", isDone ? "bg-zinc-900/60 font-normal" : "bg-zinc-950/20 opacity-50 hover:opacity-100")}>
-                                      <td className="p-2.5 font-bold text-white align-top">
-                                        <div className="space-y-1">
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className={cn(
-                                              "px-1.5 py-0.2 rounded text-[8px] font-mono font-black uppercase border",
-                                              task.statusCode === 'completed' || task.completed
-                                                ? "bg-emerald-950 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10" 
-                                                : task.statusCode === 'in_progress'
-                                                ? "bg-amber-950/80 text-amber-400 border-amber-500/30"
-                                                : "bg-zinc-900 text-zinc-500 border-zinc-800"
-                                            )}>
-                                              {task.statusLabel}
-                                            </span>
-                                            <span 
-                                              onClick={(e) => {
-                                                if (task.jobId !== 'unassigned' && task.id) {
-                                                  e.stopPropagation();
-                                                  openTaskDetails(task.jobId, task.id);
-                                                }
-                                              }}
-                                              className={cn("text-xs font-bold", isDone ? "text-white" : "text-zinc-400", task.jobId !== 'unassigned' && task.id ? "hover:text-amber-300 cursor-pointer underline decoration-dotted" : "")}
-                                            >
-                                              {task.taskTitle}
-                                            </span>
-                                            {getTaskCategoryDisplay(task) && (
-                                              <span className="text-[9px] font-mono font-bold text-amber-500/80 uppercase tracking-wider block mt-0.5">
-                                                {getTaskCategoryDisplay(task)}
+                                    <Fragment key={task.id || idx}>
+                                      <tr className={cn("transition", isDone ? paceStyles.className : "bg-zinc-950/20 opacity-50 hover:opacity-100")}>
+                                        <td className="p-2.5 font-bold text-white align-top">
+                                          <div className="space-y-1">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <span className={cn(
+                                                "px-1.5 py-0.2 rounded text-[8px] font-mono font-black uppercase border",
+                                                task.statusCode === 'completed' || task.completed
+                                                  ? "bg-emerald-950 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-500/10" 
+                                                  : task.statusCode === 'in_progress'
+                                                  ? "bg-amber-950/80 text-amber-400 border-amber-500/30"
+                                                  : "bg-zinc-900 text-zinc-500 border-zinc-800"
+                                              )}>
+                                                {task.statusLabel}
                                               </span>
+                                              {paceStyles.badge && (
+                                                <span className={cn("px-1.5 py-0.2 rounded text-[8px] font-mono font-black border", paceStyles.badge.color)}>
+                                                  {paceStyles.badge.text}
+                                                </span>
+                                              )}
+                                              <span 
+                                                onClick={(e) => {
+                                                  if (task.jobId !== 'unassigned' && task.id) {
+                                                    e.stopPropagation();
+                                                    openTaskDetails(task.jobId, task.id);
+                                                  }
+                                                }}
+                                                className={cn("text-xs font-bold", isDone ? "text-white" : "text-zinc-400", task.jobId !== 'unassigned' && task.id ? "hover:text-amber-300 cursor-pointer underline decoration-dotted" : "")}
+                                              >
+                                                {task.taskTitle}
+                                              </span>
+                                              {getTaskCategoryDisplay(task) && (
+                                                <span className="text-[9px] font-mono font-bold text-amber-500/80 uppercase tracking-wider block mt-0.5">
+                                                  {getTaskCategoryDisplay(task)}
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            {/* Collapsible Clocked Sessions Drawer Button */}
+                                            {hasSessions && (
+                                              <div className="pt-1">
+                                                <button
+                                                  onClick={() => setExpandedTaskSessions(prev => ({ ...prev, [taskKey]: !prev[taskKey] }))}
+                                                  className="text-[9px] font-mono font-bold text-zinc-400 hover:text-amber-300 flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 transition cursor-pointer"
+                                                >
+                                                  {expandedTaskSessions[taskKey] ? <ChevronDown className="w-3 h-3 text-amber-400" /> : <ChevronRight className="w-3 h-3 text-zinc-400" />}
+                                                  <Clock className="w-3 h-3 text-amber-400" />
+                                                  <span>Sessions ({task.taskSegments.length})</span>
+                                                </button>
+
+                                                {expandedTaskSessions[taskKey] && (
+                                                  <div className="mt-1.5 space-y-1 pl-1 text-[9px] font-mono">
+                                                    {task.taskSegments.map((seg: any, sIdx: number) => {
+                                                      const startStr = `${seg.start.toLocaleDateString([], { month: 'numeric', day: 'numeric' })} ${seg.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+                                                      const endStr = seg.isOpen ? 'Active' : `${seg.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+                                                      const hrs = (seg.durationSec / 3600).toFixed(1);
+                                                      return (
+                                                        <div key={sIdx} className="bg-zinc-900/90 p-1 rounded border border-zinc-800 text-zinc-300">
+                                                          <div className="flex justify-between items-center">
+                                                            <span>{seg.userName}: {startStr} ➔ {endStr}</span>
+                                                            <span className="font-bold text-amber-400">{hrs}h</span>
+                                                          </div>
+                                                          {seg.note && <div className="text-amber-200/80 italic text-[9px]">"{seg.note}"</div>}
+                                                        </div>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                )}
+                                              </div>
                                             )}
                                           </div>
+                                        </td>
 
-                                          {/* Collapsible Clocked Sessions Drawer Button */}
-                                          {hasSessions && (
-                                            <div className="pt-1">
+                                        <td className={cn("p-2.5 text-right font-black align-top", isDone ? "text-amber-300" : "text-zinc-500")}>
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span>{task.bookHours?.toFixed(1)}h</span>
+                                            {canEdit && (
                                               <button
-                                                onClick={() => setExpandedTaskSessions(prev => ({ ...prev, [taskKey]: !prev[taskKey] }))}
-                                                className="text-[9px] font-mono font-bold text-zinc-400 hover:text-amber-300 flex items-center gap-1 bg-zinc-900 hover:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 transition cursor-pointer"
+                                                onClick={() => {
+                                                  setEditingBookTimeTask({ task, jobId: task.jobId, hours: task.totalBookHours || task.bookHours });
+                                                  setNewBookHours(task.totalBookHours || task.bookHours || 1.0);
+                                                }}
+                                                className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
                                               >
-                                                {expandedTaskSessions[taskKey] ? <ChevronDown className="w-3 h-3 text-amber-400" /> : <ChevronRight className="w-3 h-3 text-zinc-400" />}
-                                                <Clock className="w-3 h-3 text-amber-400" />
-                                                <span>Sessions ({task.taskSegments.length})</span>
+                                                <Edit3 className="w-3 h-3" />
                                               </button>
+                                            )}
+                                          </div>
+                                        </td>
 
-                                              {expandedTaskSessions[taskKey] && (
-                                                <div className="mt-1.5 space-y-1 pl-1 text-[9px] font-mono">
-                                                  {task.taskSegments.map((seg: any, sIdx: number) => {
-                                                    const startStr = `${seg.start.toLocaleDateString([], { month: 'numeric', day: 'numeric' })} ${seg.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-                                                    const endStr = seg.isOpen ? 'Active' : `${seg.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
-                                                    const hrs = (seg.durationSec / 3600).toFixed(1);
-                                                    return (
-                                                      <div key={sIdx} className="bg-zinc-900/90 p-1 rounded border border-zinc-800 text-zinc-300">
-                                                        <div className="flex justify-between items-center">
-                                                          <span>{seg.userName}: {startStr} ➔ {endStr}</span>
-                                                          <span className="font-bold text-amber-400">{hrs}h</span>
-                                                        </div>
-                                                        {seg.note && <div className="text-amber-200/80 italic text-[9px]">"{seg.note}"</div>}
-                                                      </div>
-                                                    );
-                                                  })}
+                                        {/* TIME SPENT ON TASK */}
+                                        <td className="p-2.5 text-right font-mono text-xs align-top">
+                                          {task.actualHours > 0 ? (
+                                            <div>
+                                              <div className="font-bold text-teal-300">{task.actualDurationStr}</div>
+                                              {task.efficiencyPct !== null && (
+                                                <div className={cn(
+                                                  "text-[10px] font-black",
+                                                  task.efficiencyPct >= 85 ? "text-emerald-400" : task.efficiencyPct >= 60 ? "text-amber-400" : "text-rose-400"
+                                                )}>
+                                                  {task.efficiencyPct}% eff
                                                 </div>
                                               )}
                                             </div>
+                                          ) : (
+                                            <span className="text-zinc-600">—</span>
                                           )}
-                                        </div>
-                                      </td>
+                                        </td>
 
-                                      <td className={cn("p-2.5 text-right font-black align-top", isDone ? "text-amber-300" : "text-zinc-500")}>
-                                        <div className="flex items-center justify-end gap-1">
-                                          <span>{task.bookHours?.toFixed(1)}h</span>
-                                          {canEdit && (
-                                            <button
-                                              onClick={() => {
-                                                setEditingBookTimeTask({ task, jobId: task.jobId, hours: task.totalBookHours || task.bookHours });
-                                                setNewBookHours(task.totalBookHours || task.bookHours || 1.0);
-                                              }}
-                                              className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
-                                            >
-                                              <Edit3 className="w-3 h-3" />
-                                            </button>
-                                          )}
-                                        </div>
-                                      </td>
+                                        <td className={cn("p-2.5 font-semibold align-top", isDone ? "text-zinc-200" : "text-zinc-500 font-normal")}>
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            {isDone ? (
+                                              <>
+                                                <span>{task.completedBy || 'Technician'}</span>
+                                                {task.completedAt && (
+                                                  <span className="text-[9px] font-mono text-zinc-400 block w-full font-normal">
+                                                    {task.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })} {task.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                                  </span>
+                                                )}
+                                                {canEdit && task.workers && task.workers.length > 1 && (
+                                                  <button
+                                                    onClick={() => openSplitModal(task)}
+                                                    className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
+                                                    title="Adjust split"
+                                                  >
+                                                    <Sliders className="w-3 h-3" />
+                                                  </button>
+                                                )}
+                                              </>
+                                            ) : (
+                                              <span className="text-zinc-500 font-mono text-xs">—</span>
+                                            )}
+                                          </div>
+                                        </td>
 
-                                      <td className={cn("p-2.5 font-semibold align-top", isDone ? "text-zinc-200" : "text-zinc-500 font-normal")}>
-                                        <div className="flex items-center gap-1 flex-wrap">
-                                          {isDone ? (
-                                            <>
-                                              <span>{task.completedBy || 'Technician'}</span>
-                                              {task.completedAt && (
-                                                <span className="text-[9px] font-mono text-zinc-400 block w-full font-normal">
-                                                  {task.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })} {task.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                                </span>
-                                              )}
-                                              {canEdit && task.workers && task.workers.length > 1 && (
+                                        <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
+                                          {task.taskNotes || '—'}
+                                        </td>
+
+                                        <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
+                                          <div className="space-y-1">
+                                            <span>{task.payrollNotes || '—'}</span>
+                                            {canEdit && (
+                                              <div>
                                                 <button
-                                                  onClick={() => openSplitModal(task)}
-                                                  className="p-0.5 hover:bg-zinc-800 rounded text-amber-400 hover:text-amber-200 transition"
-                                                  title="Adjust split"
+                                                  onClick={() => {
+                                                    setEditingTaskNotes({ task, jobId: task.jobId });
+                                                    setEditTaskSpecNote(task.taskNotes || '');
+                                                    setEditStaffTechNote(task.staffNotes || '');
+                                                    setEditPayrollNote(task.payrollNotes || '');
+                                                  }}
+                                                  className="text-[9px] font-mono font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 px-1.5 py-0.5 rounded border border-zinc-700 transition cursor-pointer mt-1"
                                                 >
-                                                  <Sliders className="w-3 h-3" />
+                                                  <Edit3 className="w-2.5 h-2.5" />
+                                                  <span>Edit Notes</span>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+
+                                      {/* Indented Staff Notes Full-Width Child Sub-Row */}
+                                      {hasStaffNotes && (
+                                        <tr className="bg-zinc-950/70 border-b border-zinc-800/80">
+                                          <td colSpan={6} className="py-1 px-3 pl-8 text-[11px] font-mono text-zinc-300 border-l-2 border-l-indigo-500/60">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-bold text-indigo-400">↳ 💬 STAFF NOTE:</span>
+                                                <span className="italic text-zinc-200">
+                                                  {task.staffNotes.split(/\r?\n+/).map((s: string) => s.trim()).filter(Boolean).join(' | ')}
+                                                </span>
+                                              </div>
+                                              {canEdit && (
+                                                <button
+                                                  onClick={() => {
+                                                    setEditingTaskNotes({ task, jobId: task.jobId });
+                                                    setEditTaskSpecNote(task.taskNotes || '');
+                                                    setEditStaffTechNote(task.staffNotes || '');
+                                                    setEditPayrollNote(task.payrollNotes || '');
+                                                  }}
+                                                  className="text-[9px] font-mono text-zinc-400 hover:text-amber-300 flex items-center gap-0.5"
+                                                  title="Edit staff note"
+                                                >
+                                                  <Edit3 className="w-2.5 h-2.5" />
+                                                  <span>Edit</span>
                                                 </button>
                                               )}
-                                            </>
-                                          ) : (
-                                            <span className="text-zinc-500 font-mono text-xs">—</span>
-                                          )}
-                                        </div>
-                                      </td>
-
-                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
-                                        {task.taskNotes || '—'}
-                                      </td>
-
-                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
-                                        <div className="space-y-1">
-                                          <span>{task.staffNotes || '—'}</span>
-                                        </div>
-                                      </td>
-
-                                      <td className={cn("p-2.5 align-top whitespace-pre-wrap", isDone ? "text-zinc-300" : "text-zinc-500")}>
-                                        <div className="space-y-1">
-                                          <span>{task.payrollNotes || '—'}</span>
-                                          {canEdit && (
-                                            <div>
-                                              <button
-                                                onClick={() => {
-                                                  setEditingTaskNotes({ task, jobId: task.jobId });
-                                                  setEditTaskSpecNote(task.taskNotes || '');
-                                                  setEditStaffTechNote(task.staffNotes || '');
-                                                  setEditPayrollNote(task.payrollNotes || '');
-                                                }}
-                                                className="text-[9px] font-mono text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
-                                                title="Edit Task Specs, Staff Notes & Payroll Notes"
-                                              >
-                                                <Edit3 className="w-2.5 h-2.5" />
-                                                <span>Edit Notes</span>
-                                              </button>
                                             </div>
-                                          )}
-                                        </div>
-                                      </td>
-                                    </tr>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </Fragment>
                                   );
                                 })}
                               </tbody>
@@ -3963,7 +4212,99 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         </div>
       )}
 
-      {/* Global CSS for Print Media to ensure clean landscape Excel spreadsheet printing */}
+      
+      {/* Modal 6: Edit Time Clock Shift */}
+      {editingShiftSession && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-black text-white">Edit Shift - {editingShiftSession.staffName}</h3>
+              <button onClick={() => setEditingShiftSession(null)} className="text-zinc-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Clock In</label>
+                <input type="time" value={editingShiftSession.clockInTime} onChange={e => setEditingShiftSession({...editingShiftSession, clockInTime: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Clock Out</label>
+                <input type="time" value={editingShiftSession.clockOutTime} onChange={e => setEditingShiftSession({...editingShiftSession, clockOutTime: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Break Deduction (mins)</label>
+                <input type="number" value={editingShiftSession.breakMinutes} onChange={e => setEditingShiftSession({...editingShiftSession, breakMinutes: parseInt(e.target.value) || 0})} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Edit Reason *</label>
+                <input type="text" placeholder="Reason for editing" value={editingShiftSession.editReason} onChange={e => setEditingShiftSession({...editingShiftSession, editReason: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Notes</label>
+                <input type="text" value={editingShiftSession.notes} onChange={e => setEditingShiftSession({...editingShiftSession, notes: e.target.value})} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setEditingShiftSession(null)} className="px-3 py-1.5 bg-zinc-800 text-zinc-300 rounded text-xs">Cancel</button>
+              <button onClick={handleSaveShiftSession} disabled={savingShiftSession || !editingShiftSession.editReason.trim()} className="px-4 py-1.5 bg-amber-500 text-zinc-950 font-bold rounded text-xs">Save Shift</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 7: Add Manual Shift */}
+      {addingShiftStaff && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-3">
+              <h3 className="text-sm font-black text-white">Add Shift - {addingShiftStaff.staffName}</h3>
+              <button onClick={() => setAddingShiftStaff(null)} className="text-zinc-400 hover:text-white"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Date *</label>
+                <input type="date" value={newShiftDate} onChange={e => setNewShiftDate(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Clock In</label>
+                <input type="time" value={newShiftClockIn} onChange={e => setNewShiftClockIn(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Clock Out</label>
+                <input type="time" value={newShiftClockOut} onChange={e => setNewShiftClockOut(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Lunch Deduction (mins)</label>
+                <input type="number" value={newShiftBreakMins} onChange={e => setNewShiftBreakMins(parseInt(e.target.value) || 0)} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-zinc-300">Reason / Notes</label>
+                <input type="text" placeholder="Forgotten clock in, etc." value={newShiftNotes} onChange={e => setNewShiftNotes(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 text-white rounded p-2 text-xs" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-3">
+              <button onClick={() => setAddingShiftStaff(null)} className="px-3 py-1.5 bg-zinc-800 text-zinc-300 rounded text-xs">Cancel</button>
+              <button onClick={handleCreateManualShift} disabled={savingNewShift || !newShiftDate} className="px-4 py-1.5 bg-amber-500 text-zinc-950 font-bold rounded text-xs">Create Shift</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 8: Delete Shift Confirmation */}
+      {deletingShiftSession && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
+            <h3 className="text-sm font-black text-rose-500">Delete Shift Record?</h3>
+            <p className="text-xs text-zinc-400">
+              Are you sure you want to permanently delete the {deletingShiftSession.hours.toFixed(1)}h shift for {deletingShiftSession.staffName} on {deletingShiftSession.dateStr}? This action cannot be undone and will be logged in the audit trail.
+            </p>
+            <div className="flex justify-center gap-2 pt-2">
+              <button onClick={() => setDeletingShiftSession(null)} className="px-4 py-1.5 bg-zinc-800 text-zinc-300 rounded-lg text-xs">Cancel</button>
+              <button onClick={handleDeleteShiftSession} disabled={deletingShiftLoading} className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs">Delete Shift</button>
+            </div>
+          </div>
+        </div>
+      )}
+{/* Global CSS for Print Media to ensure clean landscape Excel spreadsheet printing */}
       <style>{`
         @media print {
           @page {
