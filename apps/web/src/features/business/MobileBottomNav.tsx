@@ -25,6 +25,7 @@ export function MobileBottomNav({ activeTab, setActiveTab, onOpenSidebar }: Mobi
     if (activeTab?.startsWith('safety')) return 'safety';
     if (activeTab?.startsWith('help_')) return 'help';
     if (activeTab?.startsWith('sop_')) return 'sop';
+    if (['time_sheet', 'yellowsheets', 'yellowsheet', 'live_timeclock', 'timeclock', 'payroll_audit_worksheet'].includes(activeTab)) return 'payroll';
     const activeItem = ITEMS.find(item => item.id === activeTab);
     return activeItem ? activeItem.hub : 'dashboard';
   }, [activeTab]);

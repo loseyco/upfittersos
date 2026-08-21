@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   collection, onSnapshot, doc, updateDoc, serverTimestamp, 
-  query, where, addDoc, getDoc
+  addDoc, getDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase/config';
@@ -13,7 +13,7 @@ import {
   FileText, Image as ImageIcon, Plus,
   Camera, MessageSquare, Send, Trash2,
   Eye, User, Maximize2, Minimize2, Package,
-  RotateCcw
+  RotateCcw, MapPin, Warehouse, CheckCircle2, X, Pencil
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
@@ -90,8 +90,16 @@ const extractCustomerNameString = (job: any): string => {
 
 const parseSafeDate = (val: any): Date | null => {
   if (!val) return null;
-  if (val.toDate) return val.toDate();
-  if (val.seconds) return new Date(val.seconds * 1000);
+  if (typeof val === 'object') {
+    if (val.toDate && typeof val.toDate === 'function') return val.toDate();
+    if (val.seconds !== undefined) return new Date(val.seconds * 1000);
+    if (val._seconds !== undefined) return new Date(val._seconds * 1000);
+    if (val.timestamp !== undefined) return parseSafeDate(val.timestamp);
+    if (val.time !== undefined) return parseSafeDate(val.time);
+    if (val.date !== undefined) return parseSafeDate(val.date);
+    if (val.startTime !== undefined) return parseSafeDate(val.startTime);
+    if (val.endTime !== undefined) return parseSafeDate(val.endTime);
+  }
   const d = new Date(val);
   return isNaN(d.getTime()) ? null : d;
 };
@@ -193,8 +201,6 @@ function calculateAvailableWorkHours(from: Date, to: Date, techCount: number): n
 export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetProps) {
   const navigate = useNavigate();
   const { user, isSuperAdmin, permissions, impersonatedStaff } = useAuthStore();
-  const effectiveStaffName = impersonatedStaff?.name || user?.displayName || user?.email?.split('@')[0] || 'Office Staff';
-  const effectiveStaffId = impersonatedStaff?.id || user?.uid || 'office';
 
   // Permission Checks:
   // - canViewJobs: Required to open job details popup or navigate to job pages
@@ -210,14 +216,34 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
   const [partsRequests, setPartsRequests] = useState<any[]>([]);
   const [timeSessions, setTimeSessions] = useState<any[]>([]);
   const [tasksMap, setTasksMap] = useState<Record<string, any[]>>({});
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Periodic Clock State (for detecting 4:00 PM Front spot move-to-back trigger)
+  // Dynamic Effective Staff Name (Robust lookup from staff list, displayName, and email)
+  const currentStaffDoc = useMemo(() => {
+    return staff.find(s => 
+      (s.email && user?.email && s.email.toLowerCase().trim() === user.email.toLowerCase().trim()) ||
+      (s.userId && user?.uid && s.userId === user.uid)
+    );
+  }, [staff, user]);
+
+  const effectiveStaffName = impersonatedStaff?.name || 
+    (currentStaffDoc ? (currentStaffDoc.name || `${currentStaffDoc.firstName || ''} ${currentStaffDoc.lastName || ''}`.trim()) : '') ||
+    user?.displayName || 
+    (user?.email?.toLowerCase().includes('losey') ? 'Patrick Losey' : 
+      (user?.email?.toLowerCase().includes('paul') ? 'Paul Oeffling' : 
+        (user?.email?.toLowerCase().includes('eric') ? 'Eric Schildkraut' : (user?.email?.split('@')[0] || 'Patrick Losey'))));
+  const effectiveStaffId = impersonatedStaff?.id || currentStaffDoc?.id || user?.uid || 'office';
+
+  // Periodic Clock State (for detecting 4:00 PM Front spot trigger & live ticking timers)
   const [currentHour, setCurrentHour] = useState(() => new Date().getHours());
+  const [nowTime, setNowTime] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentHour(new Date().getHours());
-    }, 30000);
+      const n = new Date();
+      setCurrentHour(n.getHours());
+      setNowTime(n);
+    }, 10000);
     return () => clearInterval(timer);
   }, []);
 
@@ -236,17 +262,34 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
   const [isUndoingJobId, setIsUndoingJobId] = useState<string | null>(null);
   const [showWithCustomerBottomSection, setShowWithCustomerBottomSection] = useState(true);
 
+  // Confirmation Modal State for Customer Picked Up
+  const [confirmPickupJob, setConfirmPickupJob] = useState<any | null>(null);
+
+  // V3 Location & Work Bay Relocation Modal State
+  const [editingLocationJob, setEditingLocationJob] = useState<any | null>(null);
+  const [zoneFilterType, setZoneFilterType] = useState<'all' | 'bays' | 'lot'>('all');
+  const [zoneSearch, setZoneSearch] = useState('');
+  const [isUpdatingLocation, setIsUpdatingLocation] = useState(false);
+
   // Customer Pickup ETA Modal State
   const [editingPickupJob, setEditingPickupJob] = useState<any | null>(null);
   const [pickupDateTimeInput, setPickupDateTimeInput] = useState('');
   const [pickupNotesInput, setPickupNotesInput] = useState('');
   const [isUpdatingPickupEta, setIsUpdatingPickupEta] = useState(false);
 
+  // Parts Requested & Blockers Inspector Modal States
+  const [viewingPartsModalJob, setViewingPartsModalJob] = useState<any | null>(null);
+  const [viewingBlockerModalJob, setViewingBlockerModalJob] = useState<any | null>(null);
+
   // Opened Job Popup Windows Map (Re-clicking focuses the window up front without losing background sheet)
   const openedWindowsRef = useRef<Record<string, Window>>({});
 
   const openJobInWindow = (jobId: string, e?: React.MouseEvent) => {
     if (e) {
+      const target = e.target as HTMLElement;
+      if (target && (target.closest('button') || target.closest('input') || target.closest('textarea') || target.closest('[data-no-row-click="true"]'))) {
+        return;
+      }
       e.stopPropagation();
     }
     if (!canViewJobs) {
@@ -296,17 +339,8 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
     };
     document.addEventListener('fullscreenchange', handleFsChange);
 
-    // Enter fullscreen upon first user click interaction
-    const enterFs = () => {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
-    };
-    window.addEventListener('click', enterFs, { once: true });
-
     return () => {
       document.removeEventListener('fullscreenchange', handleFsChange);
-      window.removeEventListener('click', enterFs);
     };
   }, []);
 
@@ -396,11 +430,11 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
       setPartsRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const qSessions = query(
-      collection(db, `businesses/${tenantId}/time_sessions`),
-      where('status', 'in', ['active', 'on_break'])
-    );
-    const unsubSessions = onSnapshot(qSessions, (snap) => {
+    const unsubAudit = onSnapshot(collection(db, `businesses/${tenantId}/audit_logs`), (snap) => {
+      setAuditLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const unsubSessions = onSnapshot(collection(db, `businesses/${tenantId}/time_sessions`), (snap) => {
       setTimeSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -410,6 +444,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
       unsubStaff();
       unsubZones();
       unsubParts();
+      unsubAudit();
       unsubSessions();
     };
   }, [tenantId]);
@@ -673,9 +708,9 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         }) : '';
         const customerPickupNotes = job.customerPickupNotes || '';
 
-        // Check if vehicle needs to be moved UP FRONT for customer pickup (within 1 hour of pickup ETA and NOT in a front spot)
+        // Check if vehicle needs to be moved UP FRONT for customer pickup (ONLY if already Ready for Customer, within 1 hour of pickup ETA, and NOT in a front spot)
         const isWithin1HourOfPickup = Boolean(pickupEtaDate && (pickupEtaDate.getTime() - now.getTime() <= 3600000));
-        const needsMoveToFront = Boolean(!isFrontSpot && isWithin1HourOfPickup && isOnSite);
+        const needsMoveToFront = Boolean(isReadyForCustomer && !isFrontSpot && isWithin1HourOfPickup && isOnSite);
 
         // Priority Rank for strict shop floor sorting:
         // 1 = Blocked
@@ -730,10 +765,12 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           feasibilityMessage,
           bufferHours,
           hasBlockers,
+          blockers,
           blockersCount: blockers.length,
-          activeBlockerMessage: blockers[0]?.message || '',
+          activeBlockerMessage: blockers[0]?.message || blockers[0]?.reason || blockers[0]?.notes || job.blockReason || job.blockNotes || 'Blocked by shop floor management.',
           hasPartsRequest,
           partsRequestCount,
+          jobParts,
           status: job.status || 'In Bay',
           isReadyForQc,
           isReadyForCustomer,
@@ -778,6 +815,49 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           ? job.previousParkingSpot.trim()
           : (typeof job.location === 'string' && job.location.trim() ? job.location.trim() : (typeof job.parkingSpot === 'string' && job.parkingSpot.trim() ? job.parkingSpot.trim() : 'Front 1'));
 
+        const rawActor = job.pickedUpBy || job.markedWithCustomerBy || job.deliveredBy || job.completedBy;
+        let markedBy = '';
+        if (rawActor && typeof rawActor === 'string' && rawActor.trim() && !['staff', 'office', 'office staff', 'system', 'unknown', 'null', 'undefined'].includes(rawActor.toLowerCase().trim())) {
+          const matchStaff = staff.find(s => {
+            if (!s) return false;
+            if (s.id && s.id === rawActor) return true;
+            if (s.userId && s.userId === rawActor) return true;
+            if (s.email && s.email.toLowerCase() === rawActor.toLowerCase()) return true;
+            if (s.name && s.name.toLowerCase() === rawActor.toLowerCase()) return true;
+            const fullName = `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase();
+            return Boolean(fullName && fullName === rawActor.toLowerCase());
+          });
+          if (matchStaff) {
+            markedBy = (matchStaff.firstName || matchStaff.lastName)
+              ? `${matchStaff.firstName || ''} ${matchStaff.lastName || ''}`.trim()
+              : (matchStaff.name || rawActor);
+          } else {
+            markedBy = rawActor;
+          }
+        }
+
+        // If not stored directly on job doc, check real audit logs for this exact job
+        if (!markedBy) {
+          const jobAudit = auditLogs.find(a => 
+            (a.targetEntityId === job.id || a.details?.jobId === job.id || (job.jobNumber && a.details?.jobNumber === job.jobNumber)) &&
+            (a.details?.action === 'CUSTOMER_PICKED_UP' || a.details?.action === 'CUSTOMER_PICKUP_ETA_UPDATED' || a.details?.action === 'JOB_STATUS_CHANGED')
+          );
+          if (jobAudit?.details?.staffName && typeof jobAudit.details.staffName === 'string' && jobAudit.details.staffName.trim()) {
+            markedBy = jobAudit.details.staffName.trim();
+          }
+        }
+
+        // If still not found, check staff ID references
+        if (!markedBy && (job.pickedUpById || job.completedById)) {
+          const targetId = job.pickedUpById || job.completedById;
+          const matchStaff = staff.find(s => (s.id && s.id === targetId) || (s.userId && s.userId === targetId));
+          if (matchStaff) {
+            markedBy = (matchStaff.firstName || matchStaff.lastName)
+              ? `${matchStaff.firstName || ''} ${matchStaff.lastName || ''}`.trim()
+              : (matchStaff.name || '');
+          }
+        }
+
         let deliveredTimeStr = 'Recently';
         if (compDate) {
           const diffMs = now.getTime() - compDate.getTime();
@@ -800,6 +880,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           vinNumber,
           completedAt: compDate,
           deliveredTimeStr,
+          markedBy,
           previousStatus: typeof job.previousStatus === 'string' ? job.previousStatus : 'Ready for Customer',
           previousParkingSpot,
           rawJob: job
@@ -811,7 +892,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         return searchable.includes(queryLower);
       })
       .sort((a, b) => (b.completedAt?.getTime() || 0) - (a.completedAt?.getTime() || 0));
-  }, [jobs, vehicles, searchQuery]);
+  }, [jobs, vehicles, staff, auditLogs, searchQuery]);
 
   // Filtered & Searched Rows (for Main Lower Table)
   const filteredRows = useMemo(() => {
@@ -913,19 +994,376 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
     };
   }, [enrichedRows, onlyOnSite, withCustomerRows]);
 
-  // 1-Click Customer Picked Up: Marks Job as Completed and Clears Bay / Parking Spot
-  const handleCustomerPickedUp = async (row: any, e: React.MouseEvent) => {
+function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Date()): string {
+  if (!startDate) return '';
+  const diffMs = Math.max(0, targetDate.getTime() - startDate.getTime());
+  const totalMins = Math.floor(diffMs / 60000);
+  if (totalMins < 1) return '< 1m';
+  if (totalMins < 60) return `${totalMins}m`;
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+// Live Floor Staff Telemetry (Working on Task, On Break/Lunch, Floor Available, Clocked Out for Day)
+  const staffFloorStatusList = useMemo(() => {
+    const today = new Date();
+    const isToday = (d: Date | null) => {
+      if (!d) return false;
+      return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    };
+
+    // Helper to resolve staff doc strictly without false-matching undefined values
+    const resolveStaffDoc = (session: any) => {
+      const sUserId = session.userId || session.uid;
+      const sEmail = (session.userEmail || session.email || '').toLowerCase().trim();
+      const sName = (session.staffName || session.userName || '').toLowerCase().trim();
+
+      return staff.find(st => {
+        if (sUserId && (st.id === sUserId || (st.userId && st.userId === sUserId) || (st.uid && st.uid === sUserId))) return true;
+        if (sEmail && st.email && st.email.toLowerCase().trim() === sEmail) return true;
+        if (sName) {
+          const stFullName = `${st.firstName || ''} ${st.lastName || ''}`.trim().toLowerCase();
+          if (st.name && st.name.toLowerCase().trim() === sName) return true;
+          if (stFullName && stFullName === sName) return true;
+        }
+        return false;
+      });
+    };
+
+    // Group sessions by unique staff key for today
+    const activeSessionsByStaff: Record<string, { session: any; staffDoc: any; staffName: string }> = {};
+    const latestEndedSessionsByStaff: Record<string, { session: any; staffDoc: any; staffName: string }> = {};
+
+    timeSessions.forEach(session => {
+      const clockInDate = parseSafeDate(session.clockIn || session.startTime || session.createdAt);
+      const clockOutDate = parseSafeDate(session.clockOut || session.endTime || session.closedAt);
+      
+      const isTodaySession = isToday(clockInDate) || isToday(clockOutDate) || isToday(parseSafeDate(session.createdAt));
+      if (!isTodaySession) return;
+
+      const isClockedOut = Boolean(clockOutDate || session.status === 'completed' || session.status === 'closed' || session.status === 'clocked_out');
+      const isClockedIn = Boolean(clockInDate) && !isClockedOut && (session.status === 'active' || session.status === 'on_break' || !session.status);
+
+      const staffDoc = resolveStaffDoc(session);
+      const staffName = (staffDoc?.firstName || staffDoc?.lastName)
+        ? `${staffDoc.firstName || ''} ${staffDoc.lastName || ''}`.trim()
+        : (staffDoc?.name || session.staffName || session.userName || 'Staff Member');
+
+      const staffKey = staffDoc?.id || session.userId || session.userEmail || staffName.toLowerCase().trim();
+      if (!staffKey) return;
+
+      if (isClockedIn) {
+        activeSessionsByStaff[staffKey] = { session, staffDoc, staffName };
+      } else if (isClockedOut) {
+        const thisEnd = clockOutDate ? clockOutDate.getTime() : (clockInDate ? clockInDate.getTime() : 0);
+        const prev = latestEndedSessionsByStaff[staffKey];
+        const prevClockOut = prev ? parseSafeDate(prev.session.clockOut || prev.session.endTime || prev.session.closedAt) : null;
+        const prevEnd = prevClockOut ? prevClockOut.getTime() : 0;
+        if (thisEnd >= prevEnd) {
+          latestEndedSessionsByStaff[staffKey] = { session, staffDoc, staffName };
+        }
+      }
+    });
+
+    const renderedKeys = new Set<string>();
+    const list: any[] = [];
+
+    // 1. Currently Clocked-In Staff (Working on Task, On Break, or Clocked In)
+    Object.entries(activeSessionsByStaff).forEach(([key, { session, staffName }]) => {
+      renderedKeys.add(key);
+
+      const breaks = Array.isArray(session.breaks) ? session.breaks : [];
+      const activeBreak = breaks.find((b: any) => !b.end);
+      const isOnBreak = Boolean(activeBreak);
+      const breakType = activeBreak?.type === 'lunch' ? 'Lunch' : 'Break';
+
+      const sessionJobs = Array.isArray(session.jobs) ? session.jobs : [];
+      const activeJobSegment = sessionJobs.find((j: any) => !j.end);
+
+      let currentJob: any = null;
+      let currentTask: any = null;
+
+      if (activeJobSegment) {
+        currentJob = jobs.find(j => j.id === activeJobSegment.id || j.id === activeJobSegment.jobId || j.jobNumber === activeJobSegment.jobNumber);
+        if (activeJobSegment.taskId && currentJob) {
+          const jobTasks = tasksMap[currentJob.id] || currentJob.tasks || [];
+          currentTask = jobTasks.find((t: any) => t.id === activeJobSegment.taskId);
+        }
+      }
+
+      if (!currentJob && session.activeJobId) {
+        currentJob = jobs.find(j => j.id === session.activeJobId);
+      }
+
+      const jobNumber = currentJob ? (currentJob.jobNumber || currentJob.number || 'N/A') : (activeJobSegment?.jobNumber || null);
+      const customerName = currentJob ? (currentJob.customerName || currentJob.customer || '') : (activeJobSegment?.customerName || '');
+      const taskTitle = currentTask ? (currentTask.name || currentTask.title || '') : (activeJobSegment?.taskTitle || activeJobSegment?.taskName || null);
+      const bayOrSpot = currentJob?.bayId || currentJob?.parkingSpot || currentJob?.location || null;
+
+      const clockInDate = parseSafeDate(session.clockIn?.timestamp || session.clockIn?.time || session.clockIn || session.startTime);
+      const clockInTimeStr = clockInDate ? clockInDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+
+      // Durations:
+      let durationStr = '';
+      if (isOnBreak) {
+        const breakStartDate = parseSafeDate(activeBreak?.start || activeBreak?.startTime);
+        durationStr = formatElapsedDuration(breakStartDate, nowTime);
+      } else if (jobNumber) {
+        const taskStartDate = parseSafeDate(activeJobSegment?.start || activeJobSegment?.startTime || clockInDate);
+        durationStr = formatElapsedDuration(taskStartDate, nowTime);
+      } else {
+        durationStr = formatElapsedDuration(clockInDate, nowTime);
+      }
+
+      list.push({
+        status: isOnBreak ? 'break' : jobNumber ? 'working' : 'floor',
+        staffName,
+        isOnBreak,
+        breakType,
+        jobNumber,
+        customerName,
+        taskTitle,
+        bayOrSpot,
+        clockInTimeStr,
+        durationStr,
+        clockOutTimeStr: null,
+        sessionId: session.id,
+        userId: session.userId || key
+      });
+    });
+
+    // 2. Staff Who Clocked Out for the Day Today
+    Object.entries(latestEndedSessionsByStaff).forEach(([key, { session, staffName }]) => {
+      if (renderedKeys.has(key)) return;
+      renderedKeys.add(key);
+
+      const clockInDate = parseSafeDate(session.clockIn?.timestamp || session.clockIn?.time || session.clockIn || session.startTime);
+      const clockOutDate = parseSafeDate(session.clockOut?.timestamp || session.clockOut?.time || session.clockOut || session.endTime);
+      const clockOutTimeStr = clockOutDate ? clockOutDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Out';
+      const durationStr = (clockInDate && clockOutDate) ? formatElapsedDuration(clockInDate, clockOutDate) : '';
+
+      list.push({
+        status: 'out',
+        staffName,
+        isOnBreak: false,
+        breakType: null,
+        jobNumber: null,
+        customerName: null,
+        taskTitle: null,
+        bayOrSpot: null,
+        clockInTimeStr: null,
+        clockOutTimeStr,
+        durationStr,
+        sessionId: session.id,
+        userId: session.userId || key
+      });
+    });
+
+    return list.sort((a, b) => {
+      const order: Record<string, number> = { working: 1, break: 2, floor: 3, out: 4 };
+      if (order[a.status] !== order[b.status]) {
+        return order[a.status] - order[b.status];
+      }
+      return a.staffName.localeCompare(b.staffName);
+    });
+  }, [timeSessions, staff, jobs, tasksMap, nowTime]);
+
+  // Enriched Zones for V3 Location Editor Modal (Live occupancy & work bay mapping)
+  const enrichedZones = useMemo(() => {
+    return zones.map(z => {
+      const isCurrentJobAssigned = editingLocationJob && (
+        editingLocationJob.rawJob?.zoneId === z.id ||
+        (editingLocationJob.locationName && (
+          z.name?.toLowerCase().trim() === editingLocationJob.locationName.toLowerCase().trim() ||
+          z.code?.toLowerCase().trim() === editingLocationJob.locationName.toLowerCase().trim()
+        ))
+      );
+
+      // Check if zone is occupied by another active job
+      const occupiedByJob = jobs.find(j => 
+        !isJobCompleted(j) &&
+        j.id !== editingLocationJob?.id && (
+          j.zoneId === z.id ||
+          (j.parkingSpot && (j.parkingSpot.toLowerCase().trim() === z.name?.toLowerCase().trim() || j.parkingSpot.toLowerCase().trim() === z.code?.toLowerCase().trim())) ||
+          (j.location && (j.location.toLowerCase().trim() === z.name?.toLowerCase().trim() || j.location.toLowerCase().trim() === z.code?.toLowerCase().trim()))
+        )
+      );
+
+      let occupantDetails: any = null;
+      if (occupiedByJob) {
+        occupantDetails = {
+          jobNumber: occupiedByJob.jobNumber || occupiedByJob.number,
+          customerName: occupiedByJob.customerName || occupiedByJob.customer,
+          vehicle: occupiedByJob.vehicleYearMakeModel || occupiedByJob.vehicle
+        };
+      }
+
+      const isBay = Boolean(
+        z.isBay === true ||
+        (z.category && z.category.toLowerCase().includes('bay')) ||
+        (z.type && z.type.toLowerCase().includes('bay')) ||
+        (z.name && z.name.toLowerCase().startsWith('bay'))
+      );
+
+      const isOccupied = isCurrentJobAssigned ? false : Boolean(occupiedByJob || z.isOccupied === true);
+
+      return {
+        ...z,
+        isBay,
+        isOccupied,
+        isCurrentJobAssigned,
+        occupantDetails
+      };
+    }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [zones, jobs, editingLocationJob]);
+
+  // V3 Location Relocation Handler
+  const handleUpdateLocation = async (chosenSpot: string) => {
+    if (!tenantId || !editingLocationJob) return;
+    setIsUpdatingLocation(true);
+    try {
+      const spotName = chosenSpot.trim();
+      const oldSpot = editingLocationJob.locationName || 'Unassigned';
+
+      // 1. Identify Target Zone
+      const targetZone = enrichedZones.find(z => 
+        z.name?.toLowerCase().trim() === spotName.toLowerCase().trim() ||
+        z.code?.toLowerCase().trim() === spotName.toLowerCase().trim()
+      );
+
+      const isInBay = Boolean(
+        targetZone?.isBay ||
+        spotName.toLowerCase().startsWith('bay')
+      );
+
+      const jobRef = doc(db, `businesses/${tenantId}/jobs`, editingLocationJob.id);
+      await updateDoc(jobRef, {
+        parkingSpot: spotName || null,
+        location: spotName || null,
+        bayId: isInBay ? (targetZone?.id || spotName) : null,
+        zoneId: targetZone?.id || null,
+        updatedAt: serverTimestamp(),
+        updatedBy: effectiveStaffName,
+        updatedById: effectiveStaffId
+      });
+
+      // 2. Update Vehicle record if present
+      const vehicleId = editingLocationJob.rawJob?.vehicleId || vehicles.find(v => v.vin && editingLocationJob.vinNumber && editingLocationJob.vinNumber !== 'N/A' && v.vin.toLowerCase().trim() === editingLocationJob.vinNumber.toLowerCase().trim())?.id;
+      if (vehicleId) {
+        const vehicleRef = doc(db, `businesses/${tenantId}/vehicles`, vehicleId);
+        await updateDoc(vehicleRef, {
+          parkingSpot: spotName || null,
+          location: spotName || null,
+          bayId: isInBay ? (targetZone?.id || spotName) : null,
+          zoneId: targetZone?.id || null,
+          status: spotName === 'With Customer' ? 'delivered' : 'on_site',
+          isWithCustomer: spotName === 'With Customer',
+          updatedAt: serverTimestamp()
+        }).catch(err => console.warn("Vehicle update warn:", err));
+      }
+
+      // 3. Clear Old Zone Occupancy
+      const previousAssignedZones = zones.filter(z => 
+        z.currentJobId === editingLocationJob.id && (!targetZone || z.id !== targetZone.id)
+      );
+      for (const pz of previousAssignedZones) {
+        const pzRef = doc(db, `businesses/${tenantId}/zones`, pz.id);
+        await updateDoc(pzRef, {
+          currentJobId: null,
+          currentJobNumber: null,
+          currentVehicleId: null,
+          currentVehicleVin: null,
+          isOccupied: false,
+          updatedAt: serverTimestamp()
+        }).catch(err => console.warn(`Clear zone ${pz.id} err:`, err));
+      }
+
+      // 4. Mark New Zone as Occupied
+      if (targetZone) {
+        const tzRef = doc(db, `businesses/${tenantId}/zones`, targetZone.id);
+        await updateDoc(tzRef, {
+          currentJobId: editingLocationJob.id,
+          currentJobNumber: editingLocationJob.jobNumber,
+          currentVehicleId: vehicleId || null,
+          currentVehicleVin: editingLocationJob.vinNumber !== 'N/A' ? editingLocationJob.vinNumber : null,
+          isOccupied: true,
+          updatedAt: serverTimestamp()
+        }).catch(err => console.warn(`Occupancy zone ${targetZone.id} err:`, err));
+      }
+
+      // 5. Submit Audit Log
+      submitAuditLog(tenantId, {
+        userId: user?.uid || 'office',
+        actionType: 'DATA_MUTATION',
+        targetEntityId: editingLocationJob.id,
+        details: {
+          action: 'VEHICLE_LOCATION_CHANGED',
+          jobId: editingLocationJob.id,
+          jobNumber: editingLocationJob.jobNumber,
+          customerName: editingLocationJob.customerName,
+          previousLocation: oldSpot,
+          newLocation: spotName || 'Unassigned',
+          staffName: effectiveStaffName
+        }
+      });
+
+      // 6. Write to Activity Feed for Daily Operations Log Feed
+      await addDoc(collection(db, `businesses/${tenantId}/activity_feed`), {
+        type: 'location_changed',
+        action: 'VEHICLE_LOCATION_CHANGED',
+        title: 'Vehicle Relocated',
+        message: `Relocated vehicle to ${spotName || 'Unassigned'} (from ${oldSpot})`,
+        author: effectiveStaffName,
+        staffName: effectiveStaffName,
+        staffId: effectiveStaffId,
+        metadata: {
+          jobId: editingLocationJob.id,
+          jobNumber: editingLocationJob.jobNumber,
+          customerName: editingLocationJob.customerName,
+          vehicle: editingLocationJob.vehicleInfo,
+          previousZone: oldSpot,
+          newZone: spotName || 'Unassigned'
+        },
+        timestamp: serverTimestamp(),
+        createdAt: new Date().toISOString()
+      }).catch(err => console.warn("Activity feed add err:", err));
+
+      toast.success(`Vehicle relocated to ${spotName || 'Unassigned'}!`);
+      setEditingLocationJob(null);
+    } catch (err: any) {
+      console.error("Relocation error:", err);
+      toast.error("Failed to relocate vehicle: " + (err.message || 'Unknown error'));
+    } finally {
+      setIsUpdatingLocation(false);
+    }
+  };
+
+  // Open Confirmation Modal for Customer Picked Up
+  const handleCustomerPickedUp = (row: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!tenantId || !row) return;
+    if (!row) return;
 
     if (!canManageJobs) {
       toast.error("Permission required to mark job as Customer Picked Up");
       return;
     }
 
+    setConfirmPickupJob(row);
+  };
+
+  // Execute Confirmed Customer Picked Up
+  const executeCustomerPickedUp = async () => {
+    if (!tenantId || !confirmPickupJob) return;
+    const row = confirmPickupJob;
+
     setIsPickingUpJobId(row.id);
     try {
       const nowIso = new Date().toISOString();
+      const currentSpot = row.locationName || row.parkingSpot || row.rawJob?.parkingSpot || row.rawJob?.location || row.previousParkingSpot || 'Front 1';
+      const currentStatus = row.status || row.rawJob?.status || 'Ready for Customer';
+      const currentZoneId = row.rawJob?.zoneId || row.zoneId || null;
+      const currentBayId = row.rawJob?.bayId || row.bayId || null;
 
       // 1. Update Job Document: Mark as Completed & Clear Bay / Spot Assignments
       const jobRef = doc(db, `businesses/${tenantId}/jobs`, row.id);
@@ -939,14 +1377,21 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         pickedUpAt: nowIso,
         deliveredAt: nowIso,
         completedAt: nowIso,
+        pickedUpBy: effectiveStaffName,
+        pickedUpById: effectiveStaffId,
+        markedWithCustomerBy: effectiveStaffName,
+        deliveredBy: effectiveStaffName,
+        completedBy: effectiveStaffName,
         bayId: null,
         zoneId: null,
         parkingSpot: null,
         parkingKeyNumber: null,
         parkingKey: null,
         location: null,
-        previousStatus: row.status || row.rawJob?.status || 'Ready for Customer',
-        previousParkingSpot: row.locationName || row.rawJob?.parkingSpot || 'Front 1',
+        previousStatus: currentStatus,
+        previousParkingSpot: currentSpot,
+        previousZoneId: currentZoneId,
+        previousBayId: currentBayId,
         updatedAt: serverTimestamp()
       });
 
@@ -978,6 +1423,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           zoneId: null,
           currentJobId: null,
           status: 'delivered',
+          isWithCustomer: true,
           updatedAt: serverTimestamp()
         }).catch(err => console.warn(`Could not clear vehicle ${row.rawJob.vehicleId}:`, err));
       }
@@ -993,11 +1439,15 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           jobNumber: row.jobNumber,
           customerName: row.customerName,
           staffName: effectiveStaffName,
-          clearedLocation: row.locationName
+          clearedLocation: currentSpot
         }
       });
 
-      toast.success(`Job #${row.jobNumber} marked as Customer Picked Up!`);
+      toast.success(
+        `Job #${row.jobNumber} marked as Customer Picked Up! (You can undo this anytime at the bottom of the page)`,
+        { duration: 6000 }
+      );
+      setConfirmPickupJob(null);
     } catch (err: any) {
       console.error("Error marking job as picked up:", err);
       toast.error("Failed to complete pickup action: " + (err.message || 'Unknown error'));
@@ -1006,7 +1456,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
     }
   };
 
-  // 1-Click Undo "Mark as With Customer": Reopens Job & Restores to Shop Floor / Ready for Customer
+  // 1-Click Undo "Mark as With Customer": Reopens Job & Restores to Exact Previous Parking Spot / Ready for Customer
   const handleUndoWithCustomer = async (row: any, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!tenantId || !row) return;
@@ -1019,8 +1469,10 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
     setIsUndoingJobId(row.id);
     try {
       const jobRef = doc(db, `businesses/${tenantId}/jobs`, row.id);
-      const targetStatus = row.previousStatus || 'Ready for Customer';
-      const targetSpot = row.previousParkingSpot || 'Front 1';
+      const targetStatus = row.previousStatus || row.rawJob?.previousStatus || 'Ready for Customer';
+      const targetSpot = row.previousParkingSpot || row.rawJob?.previousParkingSpot || 'Front 1';
+      const targetZoneId = row.rawJob?.previousZoneId || null;
+      const targetBayId = row.rawJob?.previousBayId || (targetSpot.toLowerCase().startsWith('bay') ? targetSpot : null);
 
       await updateDoc(jobRef, {
         status: targetStatus,
@@ -1036,19 +1488,44 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         completedAt: null,
         parkingSpot: targetSpot,
         location: targetSpot,
+        zoneId: targetZoneId,
+        bayId: targetBayId,
         updatedAt: serverTimestamp()
       });
 
       // Restore vehicle status if present
-      if (row.rawJob?.vehicleId) {
-        const vehicleRef = doc(db, `businesses/${tenantId}/vehicles`, row.rawJob.vehicleId);
+      const vehicleId = row.rawJob?.vehicleId || vehicles.find(v => (v.vin && row.vinNumber && row.vinNumber !== 'N/A' && v.vin.toLowerCase().trim() === row.vinNumber.toLowerCase().trim()) || v.id === row.rawJob?.vehicleId)?.id;
+      if (vehicleId) {
+        const vehicleRef = doc(db, `businesses/${tenantId}/vehicles`, vehicleId);
         await updateDoc(vehicleRef, {
           parkingSpot: targetSpot,
           location: targetSpot,
           status: 'on_site',
           isWithCustomer: false,
+          zoneId: targetZoneId,
+          bayId: targetBayId,
           updatedAt: serverTimestamp()
-        }).catch(err => console.warn(`Could not update vehicle ${row.rawJob.vehicleId}:`, err));
+        }).catch(err => console.warn(`Could not update vehicle ${vehicleId}:`, err));
+      }
+
+      // Re-occupy matching zone in zones collection
+      const matchingZone = zones.find(z => 
+        (targetZoneId && z.id === targetZoneId) ||
+        (z.name && z.name.toLowerCase().trim() === targetSpot.toLowerCase().trim()) ||
+        (z.code && z.code.toLowerCase().trim() === targetSpot.toLowerCase().trim()) ||
+        (z.label && z.label.toLowerCase().trim() === targetSpot.toLowerCase().trim())
+      );
+
+      if (matchingZone) {
+        const zoneRef = doc(db, `businesses/${tenantId}/zones`, matchingZone.id);
+        await updateDoc(zoneRef, {
+          currentJobId: row.id,
+          currentJobNumber: row.jobNumber,
+          currentVehicleId: vehicleId || null,
+          currentVehicleVin: row.vinNumber !== 'N/A' ? row.vinNumber : null,
+          isOccupied: true,
+          updatedAt: serverTimestamp()
+        }).catch(err => console.warn(`Could not reoccupy zone ${matchingZone.id}:`, err));
       }
 
       // Submit audit log
@@ -1066,7 +1543,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         }
       });
 
-      toast.success(`Job #${row.jobNumber} returned to "${targetStatus}" at ${targetSpot}!`);
+      toast.success(`Job #${row.jobNumber} returned to "${targetStatus}" at spot ${targetSpot}!`);
     } catch (err: any) {
       console.error("Error undoing with customer status:", err);
       toast.error("Failed to undo With Customer status: " + (err.message || 'Unknown error'));
@@ -1332,6 +1809,10 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
   // Open Task Notes & Photos Drawer for a Job
   const handleOpenTaskNotesModal = (row: any, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!canViewJobs) {
+      toast.error("Permission required: You do not have permission to view or edit Job Tasks.");
+      return;
+    }
     setTaskModalJob(row);
     const jobTaskList = tasksMap[row.id] || [];
     if (jobTaskList.length > 0) {
@@ -1615,19 +2096,19 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
   const activeTask = activeJobTasks.find(t => t.id === activeTaskId) || null;
 
   return (
-    <div className="space-y-2.5 max-w-[1600px] mx-auto p-2 sm:p-3 animate-in fade-in duration-200">
+    <div className="w-full space-y-1.5 p-1 sm:p-2 animate-in fade-in duration-200">
       
       {/* ========================================================================= */}
       {/* HEADER: TITLE, SEARCH & QUICK ACTIONS (TIGHT PADDING, CRISP FONTS)         */}
       {/* ========================================================================= */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 bg-zinc-900/60 py-2.5 px-3.5 rounded-2xl border border-zinc-800/80 shadow-xl backdrop-blur-md">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-400 font-bold shrink-0">
-            <Car className="w-4 h-4" />
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-zinc-900/60 py-1.5 px-3 rounded-xl border border-zinc-800/80 shadow-md backdrop-blur-md">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-400 font-bold shrink-0">
+            <Car className="w-3.5 h-3.5" />
           </div>
-          <h1 className="text-base font-black tracking-tight text-white flex items-center gap-2 flex-wrap">
+          <h1 className="text-sm font-black tracking-tight text-white flex items-center gap-2 flex-wrap">
             <span>Office Jobs Overview Sheet</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 font-mono border border-emerald-500/30">
+            <span className="text-[11px] px-2 py-0.2 rounded-full bg-emerald-500/15 text-emerald-300 font-mono border border-emerald-500/30">
               {kpis.totalOnSite} On-Site
             </span>
           </h1>
@@ -1638,30 +2119,30 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           <button
             onClick={() => setOnlyOnSite(!onlyOnSite)}
             className={cn(
-              "h-8 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border shrink-0",
+              "h-7 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border shrink-0",
               onlyOnSite 
                 ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm" 
                 : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"
             )}
             title="Toggle between only showing vehicles physically on site vs all scheduled pipeline jobs"
           >
-            <span className={cn("w-2 h-2 rounded-full", onlyOnSite ? "bg-emerald-400 animate-pulse" : "bg-zinc-500")} />
+            <span className={cn("w-1.5 h-1.5 rounded-full", onlyOnSite ? "bg-emerald-400 animate-pulse" : "bg-zinc-500")} />
             <span>{onlyOnSite ? `On-Site (${kpis.totalOnSite})` : `All (${kpis.totalPipeline})`}</span>
           </button>
 
-          <div className="relative flex-1 md:w-60">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+          <div className="relative flex-1 md:w-56">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search Job #, Customer, VIN..."
-              className="w-full h-8 pl-8 pr-3 bg-zinc-950/80 border border-zinc-700/80 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition shadow-inner"
+              className="w-full h-7 pl-7 pr-2.5 bg-zinc-950/80 border border-zinc-700/80 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition shadow-inner"
             />
             {searchQuery && (
               <button 
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white"
               >
                 ✕
               </button>
@@ -1672,7 +2153,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           <button
             onClick={toggleFullscreen}
             className={cn(
-              "h-8 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border shrink-0",
+              "h-7 px-2.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border shrink-0",
               isFullscreen
                 ? "bg-indigo-600 border-indigo-500 text-white shadow-md font-black"
                 : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border-zinc-700"
@@ -1692,7 +2173,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
               setLoading(true);
               setTimeout(() => setLoading(false), 300);
             }}
-            className="h-8 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700 shrink-0"
+            className="h-7 px-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer border border-zinc-700 shrink-0"
             title="Refresh Sheet"
           >
             <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin text-indigo-400")} />
@@ -1702,113 +2183,113 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
       </div>
 
       {/* ========================================================================= */}
-      {/* 📊 TOP KPI CARDS RIBBON (TIGHT PADDING, BOLD READABLE NUMBERS)              */}
+      {/* 📊 TOP KPI CARDS RIBBON (ULTRA-COMPACT, CRISP READABLE NUMBERS)           */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
         <div 
           onClick={() => setFilterTab('all')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'all' 
               ? "bg-zinc-800/90 border-indigo-500/50 shadow-md shadow-indigo-500/10" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-zinc-700"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Total On-Site</div>
-          <div className="text-lg font-black text-white mt-0.5 leading-none">{kpis.totalOnSite}</div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Total On-Site</div>
+          <div className="text-base font-black text-white leading-none">{kpis.totalOnSite}</div>
         </div>
 
         {/* 1. Blocked / Issues (Top Priority) */}
         <div 
           onClick={() => setFilterTab('blocked')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'blocked' 
               ? "bg-rose-500/20 border-rose-500/60 shadow-md shadow-rose-500/20" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-rose-500/40"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
             <span>⚠️ Blocked</span>
           </div>
-          <div className="text-lg font-black text-rose-300 mt-0.5 leading-none">{kpis.blocked}</div>
+          <div className="text-base font-black text-rose-300 leading-none">{kpis.blocked}</div>
         </div>
 
         {/* 2. Requested Parts (2nd Priority) */}
         <div 
           onClick={() => setFilterTab('parts')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'parts' 
               ? "bg-amber-500/20 border-amber-500/60 shadow-md shadow-amber-500/20" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-amber-500/40"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
-            <Package className="w-3 h-3 text-amber-400" />
-            <span>Requested Parts</span>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+            <Package className="w-2.5 h-2.5 text-amber-400" />
+            <span>Parts Req</span>
           </div>
-          <div className="text-lg font-black text-amber-300 mt-0.5 leading-none">{kpis.partsCount}</div>
+          <div className="text-base font-black text-amber-300 leading-none">{kpis.partsCount}</div>
         </div>
 
         {/* 3. Ready for QC (3rd Priority) */}
         <div 
           onClick={() => setFilterTab('ready_qc')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'ready_qc' 
               ? "bg-purple-500/20 border-purple-500/60 shadow-md shadow-purple-500/20" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-purple-500/40"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-purple-400">Ready for QC</div>
-          <div className="text-lg font-black text-purple-300 mt-0.5 leading-none">{kpis.readyQc}</div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-purple-400">Ready for QC</div>
+          <div className="text-base font-black text-purple-300 leading-none">{kpis.readyQc}</div>
         </div>
 
         {/* 4. Ready for Customer (4th Priority) */}
         <div 
           onClick={() => setFilterTab('ready_customer')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'ready_customer' 
               ? "bg-emerald-500/20 border-emerald-500/60 shadow-md shadow-emerald-500/20" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-emerald-500/40"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">Ready for Pickup</div>
-          <div className="text-lg font-black text-emerald-300 mt-0.5 leading-none">{kpis.readyCustomer}</div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Ready for Pickup</div>
+          <div className="text-base font-black text-emerald-300 leading-none">{kpis.readyCustomer}</div>
         </div>
 
         {/* 5. Service Drop-Offs */}
         <div 
           onClick={() => setFilterTab('service')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'service' 
               ? "bg-amber-500/20 border-amber-500/60 shadow-md shadow-amber-500/20" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-amber-500/40"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
             <span>Service / Triage</span>
           </div>
-          <div className="text-lg font-black text-amber-300 mt-0.5 leading-none">{kpis.serviceCount}</div>
+          <div className="text-base font-black text-amber-300 leading-none">{kpis.serviceCount}</div>
         </div>
 
         {/* 6. In Work Bays */}
         <div 
           onClick={() => setFilterTab('in_bay')}
           className={cn(
-            "py-2 px-3 rounded-xl border transition cursor-pointer active:scale-95",
+            "py-1 px-2.5 rounded-lg border transition cursor-pointer active:scale-95 flex items-center justify-between sm:flex-col sm:items-start",
             filterTab === 'in_bay' 
               ? "bg-zinc-800/90 border-blue-500/50 shadow-md shadow-blue-500/10" 
               : "bg-zinc-900/50 border-zinc-800/80 hover:border-zinc-700"
           )}
         >
-          <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">In Work Bays</div>
-          <div className="text-lg font-black text-blue-400 mt-0.5 leading-none">{kpis.inBay}</div>
+          <div className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">In Work Bays</div>
+          <div className="text-base font-black text-blue-400 leading-none">{kpis.inBay}</div>
         </div>
       </div>
 
@@ -1816,33 +2297,33 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
       {/* 🚗 READY FOR CUSTOMER PICKUP DECK (PINNED DIRECTLY UNDER KPIS)             */}
       {/* ========================================================================= */}
       {readyForCustomerRows.length > 0 && (
-        <div className="bg-emerald-950/20 border border-emerald-500/40 rounded-2xl p-2.5 sm:p-3 shadow-lg backdrop-blur-md space-y-2">
+        <div className="bg-emerald-950/20 border border-emerald-500/40 rounded-xl p-1.5 sm:p-2 shadow-md backdrop-blur-md space-y-1.5">
           <div className="flex items-center justify-between gap-2 flex-wrap px-1">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <h2 className="text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
                 <span>🚗 Ready for Customer Pickup</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-black border border-emerald-500/30">
+                <span className="px-1.5 py-0.2 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-black border border-emerald-500/30">
                   {readyForCustomerRows.length} Vehicles
                 </span>
               </h2>
             </div>
-            <span className="text-xs text-zinc-400">
-              QC-passed & staged for pickup • 1-click completes job & frees bay/parking spot
+            <span className="text-[11px] text-zinc-400">
+              QC-passed & staged for pickup • 1-click completes job & frees spot (Undo anytime at bottom of page)
             </span>
           </div>
 
-          <div className="overflow-x-auto bg-zinc-950/80 rounded-xl border border-emerald-500/20">
+          <div className="overflow-x-auto bg-zinc-950/80 rounded-lg border border-emerald-500/20">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="border-b border-zinc-800 bg-zinc-900/90 text-zinc-400 uppercase text-[9px] font-black tracking-wider">
-                  <th className="py-1.5 px-3 font-black">Job #</th>
-                  <th className="py-1.5 px-3 font-black">Customer</th>
-                  <th className="py-1.5 px-3 font-black">Vehicle & VIN</th>
-                  <th className="py-1.5 px-3 font-black">Location</th>
-                  <th className="py-1.5 px-3 font-black">Ready Duration</th>
-                  <th className="py-1.5 px-3 font-black">Customer Pickup ETA</th>
-                  <th className="py-1.5 px-3 font-black text-right">Pickup Action</th>
+                  <th className="py-1 px-2.5 font-black">Job #</th>
+                  <th className="py-1 px-2.5 font-black">Customer</th>
+                  <th className="py-1 px-2.5 font-black">Vehicle & VIN</th>
+                  <th className="py-1 px-2.5 font-black">Location</th>
+                  <th className="py-1 px-2.5 font-black">Ready Duration</th>
+                  <th className="py-1 px-2.5 font-black">Customer Pickup ETA</th>
+                  <th className="py-1 px-2.5 font-black text-right">Pickup Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60">
@@ -1856,7 +2337,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                     )}
                   >
                     {/* 1. Job # */}
-                    <td className="py-1.5 px-3">
+                    <td className="py-1 px-2.5">
                       <span className={cn(
                         "font-mono font-black text-xs",
                         canViewJobs ? "text-indigo-400 group-hover:text-indigo-300" : "text-zinc-300"
@@ -1866,12 +2347,12 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                     </td>
 
                     {/* 2. Customer */}
-                    <td className="py-1.5 px-3 font-bold text-zinc-100 truncate max-w-[180px] text-xs">
+                    <td className="py-1 px-2.5 font-bold text-zinc-100 truncate max-w-[180px] text-xs">
                       {row.customerName}
                     </td>
 
                     {/* 3. Vehicle & VIN */}
-                    <td className="py-1.5 px-3 text-zinc-300 text-xs">
+                    <td className="py-1 px-2.5 text-zinc-300 text-xs">
                       <span className="font-semibold">{row.vehicleInfo}</span>
                       {row.vinNumber !== 'N/A' && (
                         <span className="text-zinc-500 font-mono text-[10px] ml-2">
@@ -1880,39 +2361,64 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                       )}
                     </td>
 
-                    {/* 4. Location (Flashing if in Front Spot after 4:00 PM OR Move to Front <= 1hr before ETA) */}
-                    <td className="py-1.5 px-3">
-                      {row.isFrontSpotAfter4Pm ? (
-                        <span 
-                          className="px-2 py-0.5 rounded-lg text-xs font-black inline-flex items-center gap-1.5 border bg-rose-500/25 border-rose-500/60 text-rose-200 shadow-lg shadow-rose-500/30 animate-pulse"
-                          title="After 4:00 PM: Vehicle in Front spot must be moved to secure back lot!"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping shrink-0" />
-                          <span>{row.locationName} • Move to Back</span>
-                        </span>
-                      ) : row.needsMoveToFront ? (
-                        <span 
-                          className="px-2 py-0.5 rounded-lg text-xs font-black inline-flex items-center gap-1.5 border bg-amber-500/25 border-amber-500/60 text-amber-200 shadow-lg shadow-amber-500/30 animate-pulse"
-                          title="Within 1 hour of Customer Pickup ETA: Move vehicle up front!"
-                        >
-                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
-                          <span>{row.locationName} • Move to Front</span>
-                        </span>
-                      ) : (
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border",
-                          row.isInBay
-                            ? "bg-blue-500/10 text-blue-300 border-blue-500/30"
-                            : "bg-zinc-800/80 text-zinc-300 border-zinc-700/80"
-                        )}>
-                          <span className={cn("w-1.5 h-1.5 rounded-full", row.isInBay ? "bg-blue-400" : "bg-zinc-400")} />
-                          <span>{row.locationName}</span>
-                        </span>
-                      )}
+                    {/* 4. Location (Click to open V3 Location Editor) */}
+                    <td 
+                      className="py-1 px-2.5"
+                      data-no-row-click="true"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEditingLocationJob(row);
+                        setZoneFilterType('all');
+                        setZoneSearch('');
+                      }}
+                    >
+                      <button
+                        type="button"
+                        data-no-row-click="true"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEditingLocationJob(row);
+                          setZoneFilterType('all');
+                          setZoneSearch('');
+                        }}
+                        className="group/loc cursor-pointer text-left transition hover:scale-105 active:scale-95 inline-flex items-center gap-1"
+                        title="Click to relocate vehicle / change work bay or parking spot"
+                      >
+                        {row.isFrontSpotAfter4Pm ? (
+                          <span 
+                            className="px-2 py-0.5 rounded-lg text-xs font-black inline-flex items-center gap-1.5 border bg-rose-500/25 border-rose-500/60 text-rose-200 shadow-lg shadow-rose-500/30 animate-pulse"
+                            title="After 4:00 PM: Vehicle in Front spot must be moved to secure back lot!"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping shrink-0" />
+                            <span>{row.locationName} • Move to Back</span>
+                          </span>
+                        ) : row.needsMoveToFront ? (
+                          <span 
+                            className="px-2 py-0.5 rounded-lg text-xs font-black inline-flex items-center gap-1.5 border bg-amber-500/25 border-amber-500/60 text-amber-200 shadow-lg shadow-amber-500/30 animate-pulse"
+                            title="Within 1 hour of Customer Pickup ETA: Move vehicle up front!"
+                          >
+                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping shrink-0" />
+                            <span>{row.locationName} • Move to Front</span>
+                          </span>
+                        ) : (
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 border group-hover/loc:border-amber-500/60 group-hover/loc:bg-amber-500/10",
+                            row.isInBay
+                              ? "bg-blue-500/10 text-blue-300 border-blue-500/30"
+                              : "bg-zinc-800/80 text-zinc-300 border-zinc-700/80"
+                          )}>
+                            <span className={cn("w-1.5 h-1.5 rounded-full", row.isInBay ? "bg-blue-400" : "bg-zinc-400")} />
+                            <span>{row.locationName}</span>
+                          </span>
+                        )}
+                        <Pencil className="w-3 h-3 text-amber-400/80 group-hover/loc:text-amber-300 shrink-0 transition" />
+                      </button>
                     </td>
 
                     {/* 5. How long ready */}
-                    <td className="py-1.5 px-3">
+                    <td className="py-1 px-2.5">
                       <span className="font-mono font-bold text-emerald-400 text-xs inline-flex items-center gap-1">
                         <Clock className="w-3 h-3 text-emerald-400" />
                         <span>Ready {row.readyDurationString}</span>
@@ -1920,37 +2426,39 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                     </td>
 
                     {/* 6. Customer Pickup ETA (Interactive Editor Button) */}
-                    <td className="py-1.5 px-3">
+                    <td className="py-1 px-2.5">
                       {row.pickupEtaString ? (
                         <button
                           type="button"
                           onClick={(e) => handleOpenPickupEtaModal(row, e)}
-                          className="px-2.5 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/35 text-xs font-black inline-flex items-center gap-1.5 transition cursor-pointer active:scale-95"
+                          className="px-2 py-0.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/35 text-xs font-black inline-flex items-center gap-1.5 transition cursor-pointer active:scale-95 group/eta"
                           title={row.customerPickupNotes ? `Notes: ${row.customerPickupNotes}` : "Click to adjust customer pickup ETA"}
                         >
                           <Calendar className="w-3 h-3 text-emerald-400" />
                           <span>{row.pickupEtaString}</span>
+                          <Pencil className="w-2.5 h-2.5 text-emerald-400/70 group-hover/eta:text-emerald-200 transition" />
                         </button>
                       ) : (
                         <button
                           type="button"
                           onClick={(e) => handleOpenPickupEtaModal(row, e)}
-                          className="px-2.5 py-0.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/80 text-xs font-bold inline-flex items-center gap-1 transition cursor-pointer active:scale-95"
+                          className="px-2 py-0.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700/80 text-xs font-bold inline-flex items-center gap-1 transition cursor-pointer active:scale-95"
                           title="Click to set estimated customer pickup date & time"
                         >
                           <Plus className="w-3 h-3 text-zinc-400" />
                           <span>Set Pickup ETA</span>
+                          <Pencil className="w-2.5 h-2.5 text-zinc-500 ml-0.5" />
                         </button>
                       )}
                     </td>
 
                     {/* 7. Action Button */}
-                    <td className="py-1.5 px-3 text-right">
+                    <td className="py-1 px-2.5 text-right">
                       <button
                         type="button"
                         onClick={(e) => handleCustomerPickedUp(row, e)}
                         disabled={isPickingUpJobId === row.id}
-                        className="h-7 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider inline-flex items-center gap-1.5 shadow-md shadow-emerald-600/25 active:scale-95 cursor-pointer disabled:opacity-50"
+                        className="h-6 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider inline-flex items-center gap-1.5 shadow-sm shadow-emerald-600/25 active:scale-95 cursor-pointer disabled:opacity-50"
                         title="Mark as customer picked up (clears bay/parking spot & completes job)"
                       >
                         {isPickingUpJobId === row.id ? (
@@ -1968,6 +2476,121 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* 🟢 ULTRA-COMPACT LIVE CLOCKED-IN STAFF & ACTIVE TASKS HORIZONTAL STRIP      */}
+      {/* ========================================================================= */}
+      <div className="bg-zinc-900/70 border border-zinc-800/90 rounded-xl px-3 py-1.5 shadow-md backdrop-blur-md flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 shrink-0 pr-2.5 border-r border-zinc-800">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <span className="text-[10px] font-black uppercase tracking-wider text-zinc-300 whitespace-nowrap">
+            Shop Staff ({staffFloorStatusList.filter(s => s.status !== 'out').length} Active)
+          </span>
+        </div>
+
+        {staffFloorStatusList.length === 0 ? (
+          <div className="text-[11px] text-zinc-500 italic py-0.5">
+            No technicians recorded today.
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+            {staffFloorStatusList.map(st => (
+              <div
+                key={st.sessionId || st.userId || st.staffName}
+                className={cn(
+                  "h-6 px-2 rounded-lg border text-xs inline-flex items-center gap-1.5 shrink-0 transition select-none shadow-sm",
+                  st.status === 'break' 
+                    ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+                    : st.status === 'working'
+                      ? "bg-zinc-950/80 border-zinc-700/80 text-zinc-200"
+                      : st.status === 'out'
+                        ? "bg-zinc-950/50 border-zinc-800 text-zinc-400 opacity-60 hover:opacity-100"
+                        : "bg-emerald-500/10 border-emerald-500/25 text-emerald-300"
+                )}
+                title={
+                  st.status === 'break' 
+                    ? `${st.staffName} is on ${st.breakType} (Clocked in ${st.clockInTimeStr})`
+                    : st.status === 'working'
+                      ? `${st.staffName}: Working on #${st.jobNumber} (${st.customerName}) - ${st.taskTitle || 'Active Job'}`
+                      : st.status === 'out'
+                        ? `${st.staffName}: Clocked out today at ${st.clockOutTimeStr} (Worked ${st.durationStr})`
+                        : `${st.staffName}: Clocked in (${st.clockInTimeStr}) - General Floor / Available`
+                }
+              >
+                {/* Tech Name */}
+                <div className={cn(
+                  "flex items-center gap-1 font-bold whitespace-nowrap text-[11px]",
+                  st.status === 'out' ? "text-zinc-400" : "text-zinc-100"
+                )}>
+                  <span className={cn(
+                    "w-1.5 h-1.5 rounded-full shrink-0",
+                    st.status === 'break' ? "bg-amber-400" : st.status === 'out' ? "bg-zinc-500" : "bg-emerald-400"
+                  )} />
+                  <span>{st.staffName}</span>
+                </div>
+
+                {/* Separator */}
+                <span className="text-zinc-600 font-mono text-[9px]">|</span>
+
+                {/* Active Task / Break / Out Status */}
+                {st.status === 'break' ? (
+                  <span className="text-[10px] font-black uppercase text-amber-400 inline-flex items-center gap-1">
+                    <span>☕ {st.breakType}</span>
+                    {st.durationStr && (
+                      <span className="font-mono text-[9px] bg-amber-400/20 px-1 py-0.2 rounded font-bold text-amber-300">
+                        {st.durationStr}
+                      </span>
+                    )}
+                  </span>
+                ) : st.status === 'working' ? (
+                  <div className="inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap">
+                    <span className="font-mono font-black text-indigo-400 bg-indigo-500/10 px-1 py-0.2 rounded border border-indigo-500/20 text-[9px]">
+                      #{st.jobNumber}
+                    </span>
+                    {st.taskTitle ? (
+                      <span className="text-zinc-300 font-semibold truncate max-w-[130px] text-[10px]" title={st.taskTitle}>
+                        {st.taskTitle}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400 text-[10px] truncate max-w-[110px]">
+                        {st.customerName}
+                      </span>
+                    )}
+                    {st.bayOrSpot && (
+                      <span className="text-zinc-500 font-mono text-[9px]">
+                        ({st.bayOrSpot})
+                      </span>
+                    )}
+                    {st.durationStr && (
+                      <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20 inline-flex items-center gap-0.5" title="Time spent on this task">
+                        <span>⏱️</span>
+                        <span>{st.durationStr}</span>
+                      </span>
+                    )}
+                  </div>
+                ) : st.status === 'out' ? (
+                  <div className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-mono whitespace-nowrap">
+                    <span>Clocked Out • {st.clockOutTimeStr}</span>
+                    {st.durationStr && <span className="text-[9px] text-zinc-500">({st.durationStr})</span>}
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 whitespace-nowrap">
+                    <span>Clocked In</span>
+                    {st.durationStr && (
+                      <span className="font-mono text-[9px] text-emerald-300 bg-emerald-500/15 px-1 py-0.2 rounded border border-emerald-500/25">
+                        ⏱️ {st.durationStr}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ========================================================================= */}
       {/* MAIN HIGH-DENSITY JOBS SHEET TABLE (TIGHT PADDING, CRISP READABLE TEXT)    */}
@@ -2049,23 +2672,137 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                             {!row.isService && !row.isWarranty && <span>🏗️ Build</span>}
                           </button>
 
+                          {/* 🚫 Blocked Badge with Interactive Hover Popover & Click Modal */}
                           {row.hasBlockers && (
-                            <span 
-                              className="px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-500/40 text-rose-300 font-black text-[9px] animate-pulse flex items-center gap-1"
-                              title={`Blocked: ${row.activeBlockerMessage}`}
-                            >
-                              <span>⚠️ Blocked</span>
-                            </span>
+                            <div className="relative group/blocker inline-block" data-no-row-click="true">
+                              <button 
+                                type="button"
+                                data-no-row-click="true"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setViewingBlockerModalJob(row);
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-rose-500/25 hover:bg-rose-500/35 border border-rose-500/50 text-rose-200 font-black text-[9px] animate-pulse flex items-center gap-1 cursor-pointer transition active:scale-95"
+                                title="Click to view blocker details"
+                              >
+                                <span>⚠️ Blocked</span>
+                              </button>
+
+                              {/* Hover Popover Modal */}
+                              <div className="hidden group-hover/blocker:block absolute left-0 top-full mt-1.5 z-50 w-72 bg-zinc-950/95 border border-rose-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
+                                <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
+                                  <div className="flex items-center gap-1.5 text-xs font-black text-rose-400">
+                                    <span>⚠️</span>
+                                    <span>Active Blocker Details</span>
+                                  </div>
+                                  <span className="text-[10px] font-mono text-zinc-500">
+                                    #{row.jobNumber}
+                                  </span>
+                                </div>
+
+                                {row.blockers && row.blockers.length > 0 ? (
+                                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                    {row.blockers.map((b: any, idx: number) => (
+                                      <div key={b.id || idx} className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs">
+                                        <div className="font-bold text-rose-300 text-[11px]">
+                                          {b.reason || b.title || b.type || 'Production Blocker'}
+                                        </div>
+                                        {(b.notes || b.message || b.description) && (
+                                          <div className="text-[10px] text-zinc-300 mt-0.5 whitespace-pre-wrap">
+                                            {b.notes || b.message || b.description}
+                                          </div>
+                                        )}
+                                        {b.createdByName && (
+                                          <div className="text-[9px] text-zinc-500 mt-1">
+                                            Logged by: {b.createdByName}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-zinc-300 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                                    {row.activeBlockerMessage || 'Job flagged as blocked on the shop floor.'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           )}
 
-                          {row.hasPartsRequest && !row.hasBlockers && (
-                            <span 
-                              className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 font-black text-[9px] flex items-center gap-1"
-                              title={`${row.partsRequestCount} Pending Parts Requests`}
-                            >
-                              <Package className="w-2.5 h-2.5" />
-                              <span>Parts Req ({row.partsRequestCount})</span>
-                            </span>
+                          {/* 📦 Parts Requested Badge with Interactive Hover Popover & Click Modal */}
+                          {row.hasPartsRequest && (
+                            <div className="relative group/parts inline-block" data-no-row-click="true">
+                              <button 
+                                type="button"
+                                data-no-row-click="true"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setViewingPartsModalJob(row);
+                                }}
+                                className="px-1.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-black text-[9px] flex items-center gap-1 cursor-pointer transition active:scale-95"
+                                title="Click to view parts request details"
+                              >
+                                <Package className="w-2.5 h-2.5" />
+                                <span>Parts Req ({row.partsRequestCount})</span>
+                              </button>
+
+                              {/* Hover Popover Modal */}
+                              <div className="hidden group-hover/parts:block absolute left-0 top-full mt-1.5 z-50 w-80 bg-zinc-950/95 border border-amber-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
+                                <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
+                                  <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
+                                    <Package className="w-3.5 h-3.5" />
+                                    <span>Requested Parts ({row.partsRequestCount})</span>
+                                  </div>
+                                  <span className="text-[10px] font-mono text-zinc-500">
+                                    #{row.jobNumber}
+                                  </span>
+                                </div>
+
+                                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
+                                  {row.jobParts && row.jobParts.map((p: any, idx: number) => {
+                                    const partName = p.partName || p.description || p.name || p.partNumber || 'Requested Item';
+                                    const partNumber = p.partNumber || p.sku || p.pn || '';
+                                    const qty = p.quantity || p.qty || 1;
+                                    const status = String(p.status || 'pending').toLowerCase();
+                                    const techName = p.requestedByName || p.requestedBy || p.techName || p.userName || '';
+
+                                    return (
+                                      <div key={p.id || idx} className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-xs">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <div className="font-bold text-zinc-200 text-[11px] truncate">
+                                              {partName}
+                                            </div>
+                                            {partNumber && (
+                                              <div className="text-[10px] text-zinc-400 font-mono">
+                                                PN: {partNumber}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <span className={cn(
+                                            "px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider shrink-0 border",
+                                            status.includes('ordered') || status.includes('transit')
+                                              ? "bg-blue-500/20 border-blue-500/30 text-blue-300"
+                                              : status.includes('staged') || status.includes('ready') || status.includes('received')
+                                                ? "bg-purple-500/20 border-purple-500/30 text-purple-300"
+                                                : "bg-amber-500/20 border-amber-500/30 text-amber-300"
+                                          )}>
+                                            {status.replace('_', ' ')}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between text-[10px] text-zinc-500 mt-1 pt-1 border-t border-zinc-800/60 font-mono">
+                                          <span>Qty: {qty}</span>
+                                          {techName && <span>Req: {techName}</span>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
                           )}
                         </div>
                         <div className="font-bold text-zinc-100 truncate max-w-[200px] text-xs mt-0.5">
@@ -2091,7 +2828,7 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                         )}
                       </td>
 
-                      {/* 3. Location / Bay (Flashing if in Front Spot after 4:00 PM OR Move to Front <= 1hr before ETA) */}
+                      {/* 3. Location / Bay (Read-only on lower table) */}
                       <td className="py-2 px-3">
                         {row.isFrontSpotAfter4Pm ? (
                           <span 
@@ -2156,45 +2893,79 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                         )}
                       </td>
 
-                      {/* 5. Tasks Completed / Remaining & Notes Hub */}
+                      {/* 5. Tasks Completed / Remaining & Notes Hub (View-Only unless user has jobs.view / jobs.manage) */}
                       <td className="py-2 px-3">
-                        <button
-                          onClick={(e) => handleOpenTaskNotesModal(row, e)}
-                          className="w-full min-w-[120px] text-left p-1.5 px-2.5 rounded-xl bg-zinc-950/60 hover:bg-zinc-800 border border-zinc-800 hover:border-indigo-500/50 transition cursor-pointer"
-                          title="Click to open task notes, tech logs, and photo hub"
-                        >
-                          <div className="flex items-center justify-between text-xs font-bold text-zinc-200">
-                            <span className="flex items-center gap-1">
-                              <FileText className="w-3 h-3 text-indigo-400" />
-                              <span>{row.completedTasks}/{row.totalTasks} Done</span>
-                            </span>
-                            <span className="text-zinc-400 font-mono text-[10px]">
-                              {row.remainingBookHours.toFixed(1)}h left
-                            </span>
+                        {canViewJobs ? (
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenTaskNotesModal(row, e)}
+                            className="w-full min-w-[120px] text-left p-1.5 px-2.5 rounded-xl bg-zinc-950/60 hover:bg-zinc-800 border border-zinc-800 hover:border-indigo-500/50 transition cursor-pointer group/task"
+                            title="Click to open task notes, tech logs, and photo hub"
+                          >
+                            <div className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                              <span className="flex items-center gap-1">
+                                <FileText className="w-3 h-3 text-indigo-400" />
+                                <span>{row.completedTasks}/{row.totalTasks} Done</span>
+                              </span>
+                              <div className="flex items-center gap-1">
+                                <span className="text-zinc-400 font-mono text-[10px]">
+                                  {row.remainingBookHours.toFixed(1)}h left
+                                </span>
+                                <Pencil className="w-2.5 h-2.5 text-zinc-500 group-hover/task:text-indigo-300 transition" />
+                              </div>
+                            </div>
+                            <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-1 overflow-hidden">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  progressPct === 100 ? "bg-emerald-500" : progressPct > 50 ? "bg-indigo-500" : "bg-amber-500"
+                                )}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+                          </button>
+                        ) : (
+                          <div 
+                            className="w-full min-w-[120px] text-left p-1.5 px-2.5 rounded-xl bg-zinc-950/40 border border-zinc-800/80 cursor-default select-none"
+                            title="Task progress (View-Only)"
+                          >
+                            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                              <span className="flex items-center gap-1">
+                                <FileText className="w-3 h-3 text-zinc-500" />
+                                <span>{row.completedTasks}/{row.totalTasks} Done</span>
+                              </span>
+                              <span className="text-zinc-500 font-mono text-[10px]">
+                                {row.remainingBookHours.toFixed(1)}h left
+                              </span>
+                            </div>
+                            <div className="w-full bg-zinc-800/80 rounded-full h-1.5 mt-1 overflow-hidden">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  progressPct === 100 ? "bg-emerald-500" : progressPct > 50 ? "bg-indigo-500" : "bg-amber-500"
+                                )}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="w-full bg-zinc-800 rounded-full h-1.5 mt-1 overflow-hidden">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all",
-                                progressPct === 100 ? "bg-emerald-500" : progressPct > 50 ? "bg-indigo-500" : "bg-amber-500"
-                              )}
-                              style={{ width: `${progressPct}%` }}
-                            />
-                          </div>
-                        </button>
+                        )}
                       </td>
 
                       {/* 6. Delivery Deadline & Possibility Status */}
                       <td className="py-2 px-3">
                         <div className="space-y-1">
                           <button
+                            type="button"
                             onClick={(e) => handleOpenDeadlineModal(row, e)}
-                            className="px-2.5 py-1 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 border border-zinc-700 text-left transition group-hover:border-indigo-500/50 cursor-pointer block w-full max-w-[140px]"
+                            className="px-2.5 py-1 rounded-xl bg-zinc-950/80 hover:bg-zinc-800 border border-zinc-700 text-left transition group/dl hover:border-indigo-500/50 cursor-pointer block w-full max-w-[140px]"
                             title="Click to adjust delivery deadline"
                           >
                             <div className="text-[9px] text-zinc-500 font-bold uppercase flex items-center justify-between">
                               <span>Deadline</span>
-                              <Calendar className="w-2.5 h-2.5 text-zinc-400 group-hover:text-indigo-400" />
+                              <div className="flex items-center gap-1">
+                                <Pencil className="w-2.5 h-2.5 text-zinc-500 group-hover/dl:text-indigo-300 transition" />
+                                <Calendar className="w-2.5 h-2.5 text-zinc-400 group-hover/dl:text-indigo-400" />
+                              </div>
                             </div>
                             <div className="font-bold text-zinc-200 text-xs mt-0.5 truncate">
                               {row.deadlineString}
@@ -2342,12 +3113,19 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
                         )}
                       </td>
 
-                      {/* 4. Delivered Time */}
+                      {/* 4. Delivered Time & Who Marked */}
                       <td className="py-2 px-3 text-xs">
-                        <span className="text-blue-300 font-bold flex items-center gap-1.5 font-mono">
-                          <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                          <span>{row.deliveredTimeStr}</span>
-                        </span>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-blue-300 font-bold flex items-center gap-1.5 font-mono">
+                            <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                            <span>{row.deliveredTimeStr}</span>
+                          </span>
+                          {row.markedBy && (
+                            <span className="text-[10px] text-zinc-400 font-medium ml-5 truncate max-w-[150px]" title={`Marked by ${row.markedBy}`}>
+                              by <strong className="text-zinc-200 font-semibold">{row.markedBy}</strong>
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 5. Previous Spot */}
@@ -3086,6 +3864,447 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
               >
                 {isUpdatingDeadline ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>Save Deadline</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* CONFIRMATION MODAL: CUSTOMER PICKED UP                                    */}
+      {/* ========================================================================= */}
+      {confirmPickupJob && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setConfirmPickupJob(null)}
+        >
+          <div 
+            className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 border-b border-zinc-800 pb-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black uppercase text-zinc-100">Confirm Customer Pickup</h3>
+                <p className="text-xs text-zinc-400">Complete job & mark vehicle with customer</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-zinc-950/80 rounded-2xl border border-zinc-800/80 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400 font-medium">Job Number:</span>
+                <span className="font-mono font-black text-indigo-400">#{confirmPickupJob.jobNumber}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400 font-medium">Customer:</span>
+                <span className="font-bold text-zinc-100 truncate max-w-[220px]">{confirmPickupJob.customerName}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400 font-medium">Vehicle:</span>
+                <span className="font-semibold text-zinc-200 truncate max-w-[220px]">{confirmPickupJob.vehicleInfo}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-zinc-400 font-medium">Current Location:</span>
+                <span className="font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
+                  {confirmPickupJob.locationName || 'Front 1'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-[11px] text-blue-300 leading-relaxed">
+              💡 <strong>Note:</strong> Marking as picked up will complete the job and clear the parking spot. You can always <strong>undo this change</strong> anytime at the bottom of the page in the <em>Jobs With Customer</em> section.
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmPickupJob(null)}
+                className="h-9 px-4 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-zinc-300 hover:text-white transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeCustomerPickedUp}
+                disabled={isPickingUpJobId === confirmPickupJob.id}
+                className="h-9 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition active:scale-95 cursor-pointer disabled:opacity-50"
+              >
+                {isPickingUpJobId === confirmPickupJob.id ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                <span>Confirm Picked Up</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* V3 RELOCATE VEHICLE / SHOP LOCATION & WORK BAY PICKER MODAL              */}
+      {/* ========================================================================= */}
+      {editingLocationJob && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setEditingLocationJob(null)}
+        >
+          <div 
+            className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-3.5 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <MapPin className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase text-zinc-100">
+                    Relocate Vehicle • #{editingLocationJob.jobNumber}
+                  </h3>
+                  <p className="text-[11px] text-zinc-400 truncate max-w-[280px]">
+                    {editingLocationJob.customerName} — {editingLocationJob.vehicleInfo}
+                  </p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setEditingLocationJob(null)} 
+                className="text-zinc-500 hover:text-white p-1 rounded-lg hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="space-y-2 shrink-0">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setZoneFilterType('all')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer",
+                      zoneFilterType === 'all' ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:text-white"
+                    )}
+                  >
+                    All ({enrichedZones.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoneFilterType('bays')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer",
+                      zoneFilterType === 'bays' ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:text-white"
+                    )}
+                  >
+                    Work Bays ({enrichedZones.filter(z => z.isBay).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setZoneFilterType('lot')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer",
+                      zoneFilterType === 'lot' ? "bg-amber-500 text-zinc-950" : "text-zinc-400 hover:text-white"
+                    )}
+                  >
+                    Yard & Lot ({enrichedZones.filter(z => !z.isBay).length})
+                  </button>
+                </div>
+
+                <div className="relative flex-1 min-w-[130px]">
+                  <Search className="w-3 h-3 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={zoneSearch}
+                    onChange={(e) => setZoneSearch(e.target.value)}
+                    placeholder="Search bays, spots, jobs..."
+                    className="w-full h-8 pl-7 pr-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-100 text-[11px] placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Zones & Live Occupancy List */}
+            <div className="space-y-2 overflow-y-auto pr-1 flex-1">
+              {/* Unassigned Spot Card */}
+              <div
+                onClick={() => !isUpdatingLocation && handleUpdateLocation('')}
+                className={cn(
+                  "p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3",
+                  !editingLocationJob.locationName || editingLocationJob.locationName === 'Unassigned'
+                    ? "bg-zinc-800 border-amber-500 shadow-sm ring-1 ring-amber-500/30"
+                    : "bg-zinc-950/70 border-zinc-800 hover:border-zinc-700"
+                )}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-lg">⚪</span>
+                  <div>
+                    <div className="text-xs font-bold text-zinc-100">Unassigned / Float</div>
+                    <div className="text-[10px] text-zinc-500">Clear vehicle bay assignment</div>
+                  </div>
+                </div>
+                {(!editingLocationJob.locationName || editingLocationJob.locationName === 'Unassigned') && (
+                  <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+                )}
+              </div>
+
+              {/* With Customer Card */}
+              <div
+                onClick={() => !isUpdatingLocation && handleUpdateLocation('With Customer')}
+                className={cn(
+                  "p-3 rounded-2xl border transition cursor-pointer flex items-center justify-between gap-3",
+                  editingLocationJob.locationName === 'With Customer'
+                    ? "bg-blue-500/10 border-blue-500 shadow-md ring-1 ring-blue-500/30"
+                    : "bg-zinc-950/70 border-zinc-800 hover:border-blue-500/50"
+                )}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-lg">🤝</span>
+                  <div>
+                    <div className="text-xs font-bold text-blue-300">With Customer</div>
+                    <div className="text-[10px] text-zinc-500">Vehicle off-site • Not on shop lot</div>
+                  </div>
+                </div>
+                {editingLocationJob.locationName === 'With Customer' && (
+                  <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                )}
+              </div>
+
+              {enrichedZones
+                .filter(z => {
+                  if (zoneFilterType === 'bays' && !z.isBay) return false;
+                  if (zoneFilterType === 'lot' && z.isBay) return false;
+                  if (zoneSearch.trim()) {
+                    const query = zoneSearch.toLowerCase();
+                    const matchesName = z.name?.toLowerCase().includes(query) || z.code?.toLowerCase().includes(query);
+                    const matchesOccupant = z.occupantDetails && (
+                      z.occupantDetails.jobNumber?.toLowerCase().includes(query) ||
+                      z.occupantDetails.customerName?.toLowerCase().includes(query) ||
+                      z.occupantDetails.vehicle?.toLowerCase().includes(query)
+                    );
+                    return matchesName || matchesOccupant;
+                  }
+                  return true;
+                })
+                .map((z) => {
+                  const isCurrent = z.isCurrentJobAssigned;
+                  return (
+                    <div
+                      key={z.id}
+                      onClick={() => !isUpdatingLocation && handleUpdateLocation(z.name || z.code)}
+                      className={cn(
+                        "p-3 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-2 group",
+                        isCurrent
+                          ? "bg-indigo-500/10 border-indigo-500 shadow-md ring-1 ring-indigo-500/30"
+                          : z.isOccupied
+                            ? "bg-zinc-950/80 border-rose-500/30 hover:border-rose-500/60"
+                            : "bg-zinc-950/70 border-zinc-800 hover:border-amber-500/50"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {z.isBay ? <Warehouse className="w-4 h-4 text-amber-400 shrink-0" /> : <MapPin className="w-4 h-4 text-zinc-400 shrink-0" />}
+                          <span className="text-xs font-black text-zinc-100 truncate">{z.name || z.code}</span>
+                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 font-bold uppercase shrink-0">
+                            {z.isBay ? 'Work Bay' : 'Yard Spot'}
+                          </span>
+                        </div>
+
+                        {isCurrent ? (
+                          <div className="flex items-center gap-1 text-[10px] font-black uppercase text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 shrink-0">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Assigned</span>
+                          </div>
+                        ) : z.isOccupied ? (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20 shrink-0">
+                            <span>Occupied</span>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 shrink-0">
+                            Available
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Occupant details if occupied by another vehicle */}
+                      {z.occupantDetails && !isCurrent && (
+                        <div className="text-[10px] text-zinc-400 bg-zinc-900/90 p-1.5 px-2 rounded-xl border border-zinc-800 flex items-center justify-between gap-2">
+                          <span className="text-rose-300 font-bold font-mono">#{z.occupantDetails.jobNumber}</span>
+                          <span className="truncate text-zinc-300">{z.occupantDetails.customerName}</span>
+                          <span className="text-zinc-500 truncate">{z.occupantDetails.vehicle}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 📦 REQUESTED PARTS DETAIL MODAL DIALOG                                    */}
+      {/* ========================================================================= */}
+      {viewingPartsModalJob && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-zinc-950 border border-amber-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <span className="text-[10px] uppercase font-black text-amber-400 tracking-wider flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5" />
+                  <span>Requested Parts ({viewingPartsModalJob.partsRequestCount})</span>
+                </span>
+                <h3 className="text-base font-black text-white mt-0.5">
+                  #{viewingPartsModalJob.jobNumber} • {viewingPartsModalJob.customerName}
+                </h3>
+              </div>
+              <button
+                onClick={() => setViewingPartsModalJob(null)}
+                className="w-8 h-8 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs flex items-center justify-between">
+              <div>
+                <span className="text-zinc-400">Vehicle:</span> <span className="text-zinc-100 font-bold">{viewingPartsModalJob.vehicleInfo}</span>
+              </div>
+              <div className="font-mono text-zinc-400 text-[11px]">
+                VIN: {viewingPartsModalJob.vinNumber}
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {viewingPartsModalJob.jobParts && viewingPartsModalJob.jobParts.length > 0 ? (
+                viewingPartsModalJob.jobParts.map((p: any, idx: number) => {
+                  const partName = p.partName || p.description || p.name || p.partNumber || 'Requested Part';
+                  const partNumber = p.partNumber || p.sku || p.pn || '';
+                  const qty = p.quantity || p.qty || 1;
+                  const status = String(p.status || 'pending').toLowerCase();
+                  const techName = p.requestedByName || p.requestedBy || p.techName || p.userName || '';
+
+                  return (
+                    <div key={p.id || idx} className="p-3 rounded-2xl bg-zinc-900/80 border border-zinc-800 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-zinc-100 text-xs">
+                            {partName}
+                          </div>
+                          {partNumber && (
+                            <div className="text-[11px] text-zinc-400 font-mono mt-0.5">
+                              Part #: {partNumber}
+                            </div>
+                          )}
+                        </div>
+                        <span className={cn(
+                          "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border shrink-0",
+                          status.includes('ordered') || status.includes('transit')
+                            ? "bg-blue-500/20 border-blue-500/30 text-blue-300"
+                            : status.includes('staged') || status.includes('ready') || status.includes('received')
+                              ? "bg-purple-500/20 border-purple-500/30 text-purple-300"
+                              : "bg-amber-500/20 border-amber-500/30 text-amber-300"
+                        )}>
+                          {status.replace('_', ' ')}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-1.5 border-t border-zinc-800 font-mono">
+                        <span>Quantity: <strong className="text-zinc-200">{qty}</strong></span>
+                        {techName && <span>Requested by: <strong className="text-zinc-200">{techName}</strong></span>}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-6 text-zinc-500 italic text-xs">
+                  No active pending parts requests recorded for this job.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingPartsModalJob(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ⚠️ PRODUCTION BLOCKER DETAIL MODAL DIALOG                                */}
+      {/* ========================================================================= */}
+      {viewingBlockerModalJob && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-zinc-950 border border-rose-500/40 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <span className="text-[10px] uppercase font-black text-rose-400 tracking-wider flex items-center gap-1.5">
+                  <span>⚠️</span>
+                  <span>Active Production Blocker</span>
+                </span>
+                <h3 className="text-base font-black text-white mt-0.5">
+                  #{viewingBlockerModalJob.jobNumber} • {viewingBlockerModalJob.customerName}
+                </h3>
+              </div>
+              <button
+                onClick={() => setViewingBlockerModalJob(null)}
+                className="w-8 h-8 rounded-xl bg-zinc-900 text-zinc-400 hover:text-white flex items-center justify-center text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-zinc-900/60 border border-zinc-800 text-xs flex items-center justify-between">
+              <div>
+                <span className="text-zinc-400">Vehicle:</span> <span className="text-zinc-100 font-bold">{viewingBlockerModalJob.vehicleInfo}</span>
+              </div>
+              <div className="font-mono text-zinc-400 text-[11px]">
+                VIN: {viewingBlockerModalJob.vinNumber}
+              </div>
+            </div>
+
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {viewingBlockerModalJob.blockers && viewingBlockerModalJob.blockers.length > 0 ? (
+                viewingBlockerModalJob.blockers.map((b: any, idx: number) => (
+                  <div key={b.id || idx} className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 space-y-1.5">
+                    <div className="font-black text-rose-300 text-xs">
+                      {b.reason || b.title || b.type || 'Production Blocker'}
+                    </div>
+                    {(b.notes || b.message || b.description) && (
+                      <div className="text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed">
+                        {b.notes || b.message || b.description}
+                      </div>
+                    )}
+                    {b.createdByName && (
+                      <div className="text-[10px] text-zinc-400 pt-1 border-t border-rose-500/20 font-mono">
+                        Logged by: {b.createdByName}
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/25 text-xs text-zinc-200 leading-relaxed">
+                  {viewingBlockerModalJob.activeBlockerMessage || 'Job flagged as blocked on the shop floor.'}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setViewingBlockerModalJob(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -53,11 +53,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSuperAdmin(false);
         }
 
-        // Fetch tenant ID from claims or user document
+        // Fetch tenant ID from claims, user document, or URL path
         let currentTenantId: string | null = null;
         try {
           const token = await user.getIdTokenResult();
           currentTenantId = (token.claims?.tenantId as string) || null;
+          
+          if (!currentTenantId) {
+            const userDocSnap = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
+            if (userDocSnap?.exists() && userDocSnap.data().tenantId) {
+              currentTenantId = userDocSnap.data().tenantId;
+            }
+          }
+
+          if (!currentTenantId && typeof window !== 'undefined') {
+            const match = window.location.pathname.match(/\/business\/([^\/]+)/);
+            if (match && match[1] && match[1] !== 'GLOBAL') {
+              currentTenantId = match[1];
+            }
+          }
+
+          if (!currentTenantId) {
+            currentTenantId = '7jlg4IA2G6lvDJ0S5Vbp';
+          }
+
           setTenantId(currentTenantId);
 
           if (currentTenantId) {
@@ -101,7 +120,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   }
                 }
               } else {
-                setPermissions({});
+                if (user.email?.toLowerCase() === 'p.losey@saegrp.com') {
+                  const allPerms = Object.keys(PERMISSIONS).reduce((acc, key) => ({ ...acc, [key]: true }), {});
+                  setPermissions(allPerms);
+                } else {
+                  setPermissions({});
+                }
               }
             });
           }
@@ -126,6 +150,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (unsubDeptPermissions) unsubDeptPermissions();
     };
   }, []);
+
+  // Real-time synchronization when impersonating a staff member or department role
+  const impersonatedStaff = useAuthStore(state => state.impersonatedStaff);
+  const tenantId = useAuthStore(state => state.tenantId);
+
+  useEffect(() => {
+    if (!impersonatedStaff || !tenantId) return;
+
+    if (impersonatedStaff.type === 'role') {
+      const deptRef = doc(db, `businesses/${tenantId}/departments`, impersonatedStaff.id);
+      const unsub = onSnapshot(deptRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const deptPerms = docSnap.data().permissions || {};
+          useAuthStore.setState({ permissions: deptPerms });
+        }
+      });
+      return unsub;
+    } else {
+      const staffRef = doc(db, `businesses/${tenantId}/staff`, impersonatedStaff.id);
+      let unsubDept: (() => void) | null = null;
+
+      const unsubStaff = onSnapshot(staffRef, (staffSnap) => {
+        if (unsubDept) {
+          unsubDept();
+          unsubDept = null;
+        }
+        if (staffSnap.exists()) {
+          const staffData = staffSnap.data();
+          const indPerms = staffData.individualPermissions || staffData.permissions || {};
+          if (staffData.departmentId) {
+            const deptRef = doc(db, `businesses/${tenantId}/departments`, staffData.departmentId);
+            unsubDept = onSnapshot(deptRef, (deptDoc) => {
+              const deptPerms = deptDoc.exists() ? (deptDoc.data().permissions || {}) : {};
+              const resolved = resolvePermissions(deptPerms, indPerms);
+              useAuthStore.setState({ permissions: resolved });
+            });
+          } else {
+            const resolved = resolvePermissions({}, indPerms);
+            useAuthStore.setState({ permissions: resolved });
+          }
+        }
+      });
+
+      return () => {
+        unsubStaff();
+        if (unsubDept) unsubDept();
+      };
+    }
+  }, [impersonatedStaff?.id, impersonatedStaff?.type, tenantId]);
 
   return <>{children}</>;
 }

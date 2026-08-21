@@ -5,7 +5,7 @@ import {
   ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
   GraduationCap, LogIn, Pizza, BookOpen, BarChart3, Sliders, Smartphone,
-  Code, Table
+  Code, Table, DollarSign
 } from 'lucide-react';
 import { useParams } from 'react-router-dom';
 import { useAuthStore } from '../../lib/auth/store';
@@ -21,7 +21,7 @@ export type NavItem = {
   id: string;
   label: string;
   icon: React.ElementType;
-  hub: 'dashboard' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'safety' | 'super_admin';
+  hub: 'dashboard' | 'office' | 'payroll' | 'upfitters' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'safety' | 'super_admin';
   groupLabel?: string;
   permission?: PermissionKey;
   permissions?: PermissionKey[];
@@ -79,12 +79,15 @@ export const ITEMS: NavItem[] = [
   { id: 'jobs_overview', label: 'Jobs Overview Sheet', icon: FileSpreadsheet, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
   { id: 'progress_digest', label: "Today's Progress", icon: Activity, hub: 'office', permissions: ['office.view', 'foreman.view'] },
   { id: 'daily_log', label: 'Daily Operations Log', icon: Table, hub: 'office', permissions: ['office.view', 'foreman.view'] },
-  { id: 'time_sheet', label: 'Time Clock Log', icon: FileSpreadsheet, hub: 'office', permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view'] },
-  { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'office', permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'] },
-  { id: 'live_timeclock', label: 'Live Timeclock', icon: Clock, hub: 'office', permission: 'timeclock.view' },
-  { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'office', permission: 'timeclock.manage' },
   { id: 'staff', label: 'Staff Directory', icon: UserCog, hub: 'office', permission: 'staff.view' },
   { id: 'org_chart', label: 'Org Chart', icon: Users, hub: 'office', permissions: ['office.view', 'jobs.view', 'foreman.view'] },
+
+  // Payroll Dept (Payroll & Time)
+  { id: 'time_sheet', label: 'Time Clock Log', icon: FileSpreadsheet, hub: 'payroll', permissions: ['payroll.view', 'timeclock.view', 'timeclock.manage'] },
+  { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'payroll', permissions: ['payroll.view', 'yellow_sheets.view', 'yellow_sheets.manage'] },
+  { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, hub: 'payroll', permissions: ['payroll.view', 'timeclock.view'] },
+  { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'payroll', permissions: ['payroll.view', 'timeclock.manage'] },
+  { id: 'payroll_audit_worksheet', label: 'Timeclock & Payout Audit', icon: ShieldCheck, hub: 'payroll', permissions: ['payroll.view', 'sync.view', 'timeclock.manage'] },
 
   // Facility & Comm (TV Monitors)
   { id: 'conference_control', label: 'TV Monitor Control Hub', icon: Sliders, hub: 'facility', permission: 'facility.view' },
@@ -136,16 +139,18 @@ export const ITEMS: NavItem[] = [
 ];
 
 export type HubType = {
-  id: 'dashboard' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'office' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'super_admin';
+  id: 'dashboard' | 'office' | 'payroll' | 'upfitters' | 'safety' | 'parts' | 'printed_parts' | 'graphics' | 'fast' | 'fabrication' | 'harness' | 'sales' | 'facility' | 'settings' | 'help' | 'sop' | 'development' | 'super_admin';
   label: string;
   icon: React.ElementType;
   superAdminOnly?: boolean;
   permission?: PermissionKey;
+  permissions?: PermissionKey[];
 };
 
 export const HUBS: HubType[] = [
   { id: 'dashboard', label: 'Dashboard', icon: Home },
   { id: 'office', label: 'Main Office', icon: Building2, permission: 'office.view' },
+  { id: 'payroll', label: 'Payroll', icon: DollarSign, permission: 'payroll.view' },
   { id: 'upfitters', label: 'Upfitters', icon: ClipboardList, permission: 'foreman.view' },
   { id: 'parts', label: 'Parts Dept', icon: Package, permission: 'parts.view' },
   { id: 'facility', label: 'Facility', icon: Map, permission: 'facility.view' },
@@ -217,6 +222,7 @@ export function BusinessSidebar({
     if (activeTab?.startsWith('safety')) return 'safety';
     if (activeTab?.startsWith('help_')) return 'help';
     if (activeTab?.startsWith('sop_')) return 'sop';
+    if (['time_sheet', 'yellowsheets', 'yellowsheet', 'live_timeclock', 'timeclock', 'payroll_audit_worksheet'].includes(activeTab)) return 'payroll';
     const activeItem = ITEMS.find(item => item.id === activeTab);
     return activeItem ? activeItem.hub : 'dashboard';
   });
@@ -229,6 +235,7 @@ export function BusinessSidebar({
       if (activeTab?.startsWith('safety')) return 'safety';
       if (activeTab?.startsWith('help_')) return 'help';
       if (activeTab?.startsWith('sop_')) return 'sop';
+      if (['time_sheet', 'yellowsheets', 'yellowsheet', 'live_timeclock', 'timeclock', 'payroll_audit_worksheet'].includes(activeTab)) return 'payroll';
       const currentHubItems = ITEMS.filter(item => item.hub === current);
       const isTabInCurrentHub = currentHubItems.some(item => item.id === activeTab);
       
@@ -239,6 +246,10 @@ export function BusinessSidebar({
       const activeItem = ITEMS.find(item => item.id === activeTab);
       return activeItem ? activeItem.hub : current;
     });
+
+    if (activeTab === 'jobs_overview' || (typeof window !== 'undefined' && window.location.pathname.includes('/jobs_overview'))) {
+      setIsPinned(false);
+    }
   }, [activeTab]);
 
   // Manage hover flyout menus when unpinned (collapsed)
@@ -278,6 +289,7 @@ export function BusinessSidebar({
     const hubObj = HUBS.find(h => h.id === hubId);
     if (!hubObj) return true;
     if (hubObj.superAdminOnly && !canAccessSuperAdmin) return false;
+    if (hubObj.permissions && !hubObj.permissions.some(p => permissions[p])) return false;
     if (hubObj.permission && !permissions[hubObj.permission]) return false;
     return true;
   };

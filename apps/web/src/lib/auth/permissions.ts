@@ -26,6 +26,7 @@ export const PERMISSIONS = {
   'fabrication.view': 'View Fabrication Board',
   'harness.view': 'View Harness Board',
   'office.view': 'Main Office Hub (Main Menu)',
+  'payroll.view': 'Payroll & Time Hub (Main Menu)',
   'settings.view': 'Admin & Sync Hub (Main Menu)',
   'settings.manage': 'Manage Settings',
   'timeclock.view': 'View Timeclock',

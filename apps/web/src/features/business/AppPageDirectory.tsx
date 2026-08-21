@@ -101,11 +101,11 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
   {
     id: 'yellowsheets',
     title: 'Yellow Sheets',
-    hub: 'office',
+    hub: 'payroll',
     permission: 'yellow_sheets.view',
-    permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage'],
+    permissions: ['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'timeclock.manage', 'payroll.view'],
     route: 'yellowsheets',
-    altAccessPaths: ['Main Office Submenu', 'Payroll & Attendance Submenu'],
+    altAccessPaths: ['Payroll Main Menu', 'Main Office Submenu', 'Payroll & Attendance Submenu'],
     description: 'Job → Task Category → Task completion breakdown for staff payroll labor payouts.'
   },
   {
@@ -130,28 +130,30 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
   {
     id: 'time_sheet',
     title: 'Time Clock Sheet (Spreadsheet)',
-    hub: 'office',
-    permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view'],
+    hub: 'payroll',
+    permissions: ['office.view', 'timeclock.view', 'timeclock.manage', 'foreman.view', 'payroll.view'],
     route: 'time_sheet',
-    altAccessPaths: ['Main Office Submenu', 'Time Clock Page Header Action'],
+    altAccessPaths: ['Payroll Main Menu', 'Main Office Submenu', 'Time Clock Page Header Action'],
     description: 'Master Excel-style spreadsheet displaying all time clock sessions, job labor entries, tasks, and breaks with staff, date range, job, and task search.'
   },
   {
     id: 'live_timeclock',
     title: 'Live Timeclock Monitor',
-    hub: 'office',
+    hub: 'payroll',
     permission: 'timeclock.view',
+    permissions: ['timeclock.view', 'timeclock.manage', 'payroll.view'],
     route: 'live_timeclock',
-    altAccessPaths: ['Main Office Submenu', 'Payroll & Attendance Header Action'],
+    altAccessPaths: ['Payroll Main Menu', 'Main Office Submenu', 'Payroll & Attendance Header Action'],
     description: 'Live shop floor dashboard showing who is currently clocked in, active task timer, and break status.'
   },
   {
     id: 'timeclock',
     title: 'Payroll & Attendance Manager',
-    hub: 'office',
+    hub: 'payroll',
     permission: 'timeclock.manage',
+    permissions: ['timeclock.manage', 'timeclock.view', 'payroll.view'],
     route: 'timeclock',
-    altAccessPaths: ['Main Office Submenu', 'Staff Member Time Audit Button'],
+    altAccessPaths: ['Payroll Main Menu', 'Main Office Submenu', 'Staff Member Time Audit Button'],
     description: 'Payroll manager for approving timecards, editing timestamps, adding manual time entries, and exporting pay periods.'
   },
   {
@@ -338,7 +340,7 @@ const MASTER_APP_PAGES: PageCatalogItem[] = [
     groupLabel: 'Data & QuickBooks Sync',
     permission: 'sync.view',
     route: 'payroll_audit_worksheet',
-    altAccessPaths: ['Super Admin Hub -> Timeclock & Payout Audit'],
+    altAccessPaths: ['Payroll Main Menu -> Timeclock & Payout Audit', 'Super Admin Hub -> Timeclock & Payout Audit'],
     description: 'Audit worksheet providing 1:1 cross-referencing across timeclock punches, Job Yellow Sheets, Staff Payout Reports, and Operations Log feeds with zero fallback data.'
   },
   {

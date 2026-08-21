@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, doc, updateDoc, addDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase/config';
@@ -173,54 +173,78 @@ const formatTaskStatusLabel = (t: any, hasTimeOnIt: boolean = false): { label: s
   return { label: 'NOT STARTED', statusCode: 'not_started', isQCComplete: false, isReadyForQC: false, isCompleted: false };
 };
 
-const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payrollNotes: string; allNotesSummary: string } => {
+export const resolveTaskNotes = (t: any) => {
   if (!t) return { taskNotes: '', staffNotes: '', payrollNotes: '', allNotesSummary: '' };
 
-  // Task Specs / Work Order Instructions / Customer Requirements
-  const taskNotes = safeString(
-    t.instructions || t.instruction || t.specNotes || t.spec || t.specs || t.taskNotes,
-    ''
-  );
+  const isUnassigned = t.jobId === 'unassigned' || t.id?.toString().startsWith('unassigned_');
 
-  // Staff Notes / Tech Remarks / Work Logs / Description of work performed
+  // 1. Task Notes / Work Order Specs (Only for real work orders - never for unassigned shop labor)
+  const taskNotesList: string[] = [];
+  if (!isUnassigned) {
+    [
+      t.instructions,
+      t.instruction,
+      t.specNotes,
+      t.specs,
+      t.spec,
+      t.taskSpec,
+      t.taskNotes
+    ].forEach(cand => {
+      const s = safeString(cand, '').trim();
+      if (s && !taskNotesList.includes(s) && !taskNotesList.some(n => n.includes(s))) {
+        taskNotesList.push(s);
+      }
+    });
+  }
+
+  // 2. Staff Notes / Technician Remarks (Work logs, completion notes, time session remarks, shop labor descriptions)
   const staffNotesList: string[] = [];
 
-  const candidateStaffNotes = [
-    t.staffNotes,
-    t.staffNote,
-    t.techNote,
-    t.techNotes,
-    t.completionNote,
-    t.completionNotes,
-    t.notes,
-    t.note,
-    t.description,
-    t.details,
-    t.taskDescription,
-    t.workNote,
-    t.workNotes,
-    t.comments,
-    t.comment
-  ];
-
-  // If task name itself contains a long remark (>25 chars, e.g. from unassigned clock in), treat that remark as a staff note
-  const rawTitle = safeString(t.name || t.title || t.taskTitle, '');
-  if (rawTitle.length > 25 && !candidateStaffNotes.includes(rawTitle)) {
-    candidateStaffNotes.push(rawTitle);
-  }
+  const candidateStaffNotes = isUnassigned
+    ? [
+        t.staffNotes,
+        t.staffNote,
+        t.notes,
+        t.note,
+        t.description,
+        t.taskDescription,
+        t.details,
+        t.techNotes,
+        t.techNote,
+        t.completionNotes,
+        t.completionNote,
+        t.comments,
+        t.comment
+      ]
+    : [
+        t.staffNotes,
+        t.staffNote,
+        t.techNotes,
+        t.techNote,
+        t.completionNotes,
+        t.completionNote,
+        t.workNote,
+        t.workNotes,
+        t.comments,
+        t.comment,
+        t.description,
+        t.notes,
+        t.note
+      ];
 
   candidateStaffNotes.forEach(cand => {
     const s = safeString(cand, '').trim();
-    if (s && s !== taskNotes && !staffNotesList.includes(s) && !staffNotesList.some(n => n.includes(s))) {
+    if (s && !taskNotesList.includes(s) && !staffNotesList.includes(s) && !staffNotesList.some(n => n.includes(s))) {
       staffNotesList.push(s);
     }
   });
 
+  // Time session remarks & unassigned clock-in notes
   if (Array.isArray(t.timeSessions) && t.timeSessions.length > 0) {
     t.timeSessions.forEach((s: any) => {
       const sessNote = safeString(s.notes || s.note || s.comment || s.completionNote || s.workNote, '').trim();
       const sName = s.staffName || s.techName || s.userName || '';
-      if (sessNote && sessNote !== taskNotes && sessNote !== 'Unassigned shop task clock-in') {
+      if (sessNote && !taskNotesList.includes(sessNote) && sessNote !== 'Unassigned shop task clock-in') {
         const entry = sName ? `${sName}: "${sessNote}"` : `"${sessNote}"`;
         if (!staffNotesList.some(n => n.includes(sessNote))) {
           staffNotesList.push(entry);
@@ -233,7 +257,7 @@ const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payr
     t.workLogs.forEach((w: any) => {
       const logNote = safeString(w.notes || w.note || w.comment || w.text, '').trim();
       const wName = w.staffName || w.userName || '';
-      if (logNote && logNote !== taskNotes) {
+      if (logNote && !taskNotesList.includes(logNote)) {
         const entry = wName ? `${wName}: "${logNote}"` : `"${logNote}"`;
         if (!staffNotesList.some(n => n.includes(logNote))) {
           staffNotesList.push(entry);
@@ -251,9 +275,10 @@ const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payr
     });
   }
 
-  // Payroll Notes
+  // 3. Payroll Notes
   const payrollNotes = safeString(t.payrollNotes || t.payrollNote || t.payrollRemarks, '');
 
+  const resolvedTaskNotes = taskNotesList.join('\n');
   const resolvedStaffNotes = staffNotesList.join('\n');
 
   // Combined notes for Staff Labor & Payout Report
@@ -261,18 +286,55 @@ const resolveTaskNotes = (t: any): { taskNotes: string; staffNotes: string; payr
   if (resolvedStaffNotes) {
     combinedParts.push(resolvedStaffNotes);
   }
-  if (taskNotes && taskNotes !== resolvedStaffNotes) {
-    combinedParts.push(`Spec: ${taskNotes}`);
+  if (resolvedTaskNotes && resolvedTaskNotes !== resolvedStaffNotes) {
+    combinedParts.push(`Spec: ${resolvedTaskNotes}`);
   }
   if (payrollNotes) {
     combinedParts.push(`[Payroll] ${payrollNotes}`);
   }
 
   return {
-    taskNotes: taskNotes !== resolvedStaffNotes ? taskNotes : '',
+    taskNotes: resolvedTaskNotes,
     staffNotes: resolvedStaffNotes,
     payrollNotes,
     allNotesSummary: combinedParts.join('\n')
+  };
+};
+
+// Helper to color task rows based on efficiency vs. book time (red/yellow/green/yellow/red theme - ultra subtle 50% dimmed)
+export const getTaskRowColorStyles = (bookHours?: number | null, actualHours?: number | null, defaultBg: string = '#ffffff') => {
+  const bH = typeof bookHours === 'number' ? bookHours : parseFloat(bookHours as any || '0');
+  const aH = typeof actualHours === 'number' ? actualHours : parseFloat(actualHours as any || '0');
+
+  if (!bH || bH <= 0 || !aH || aH <= 0) {
+    return { backgroundColor: defaultBg, WebkitPrintColorAdjust: 'exact' as const, printColorAdjust: 'exact' as const };
+  }
+
+  const eff = Math.round((bH / aH) * 100);
+
+  // 1. Audit / Needs Review (<60% Over Time or >200% Under-Clocked or <2m on >=0.5h task) -> Soft Rose
+  if (eff < 60 || eff > 200 || (aH < 0.05 && bH >= 0.5)) {
+    return {
+      backgroundColor: '#fff1f2', // Soft Pastel Rose (~50% dimmed)
+      WebkitPrintColorAdjust: 'exact' as const,
+      printColorAdjust: 'exact' as const
+    };
+  }
+
+  // 2. On Target / Sweet Spot (85% - 115%) -> Soft Mint Green
+  if (eff >= 85 && eff <= 115) {
+    return {
+      backgroundColor: '#f0fdf4', // Soft Pastel Mint Green (~50% dimmed)
+      WebkitPrintColorAdjust: 'exact' as const,
+      printColorAdjust: 'exact' as const
+    };
+  }
+
+  // 3. Moderate Variance (60% - 84% Behind or 116% - 200% Ahead) -> Soft Amber / Yellow
+  return {
+    backgroundColor: '#fefce8', // Soft Pastel Yellow (~50% dimmed)
+    WebkitPrintColorAdjust: 'exact' as const,
+    printColorAdjust: 'exact' as const
   };
 };
 
@@ -363,7 +425,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
   const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
   const [expandedTaskSessions, setExpandedTaskSessions] = useState<Record<string, boolean>>({});
   const [printJobId, setPrintJobId] = useState<string | null>(null);
-  const [printMode, setPrintMode] = useState<'jobs' | 'staff'>('jobs');
+  const [printMode, setPrintMode] = useState<'jobs' | 'staff' | 'cover_only' | 'full'>('jobs');
 
   // Multi-Tech Custom Split Adjustment Modal State
   const [editingSplitTask, setEditingSplitTask] = useState<{ task: any; jobId: string } | null>(null);
@@ -567,6 +629,9 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         if (!startMs) return;
 
         const startDate = new Date(startMs);
+        // Isolate task time spent strictly to the selected pay period date range
+        if (dateRange.start && startDate < dateRange.start) return;
+        if (dateRange.end && startDate > dateRange.end) return;
 
         let endMs = nowMs;
         let isOpen = false;
@@ -632,7 +697,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     });
 
     return { taskActualSecondsMap: secMap, taskTimeSegmentsMap: segMap, taskWorkerActualSecondsMap: workerSecMap };
-  }, [timeSessionsList, jobs, tasksMap, staff]);
+  }, [timeSessionsList, jobs, tasksMap, staff, dateRange]);
 
   // Helper to extract detailed time segments for a specific task
   const getTaskSegments = (t: any, _job: any, segmentsMap: Record<string, any[]>) => {
@@ -756,26 +821,67 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     }
   };
 
-  // Helper to resolve Staff details and handle multi-tech labor assignments/splits
+  // Helper to resolve Staff details and handle multi-tech labor assignments/splits strictly by Database User/Staff ID
   const resolveTaskWorkers = (t: any, job: any): { workers: { id: string; name: string; pct: number; splitHours: number }[]; closedByManager: string } => {
+    const findActiveStaff = (sId?: string, sName?: string) => {
+      if (!sId && !sName) return null;
+      const sIdNorm = (sId || '').trim().toLowerCase();
+      const sNameNorm = (sName || '').trim().toLowerCase();
+
+      // 1. Strict primary lookup: Database ID / userId on ACTIVE staff
+      if (sIdNorm) {
+        const found = staff.find(s => !s.isArchived && s.status !== 'inactive' && (s.id.toLowerCase() === sIdNorm || (s.userId && s.userId.toLowerCase() === sIdNorm)));
+        if (found) return found;
+      }
+
+      // 2. Exact full name match on ACTIVE staff only
+      if (sNameNorm) {
+        const found = staff.find(s => {
+          if (s.isArchived || s.status === 'inactive') return false;
+          const full1 = `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase();
+          const full2 = (s.name || '').trim().toLowerCase();
+          return full1 === sNameNorm || full2 === sNameNorm;
+        });
+        if (found) return found;
+      }
+
+      // 3. Fallback to active staff by first name only if unambiguous
+      if (sNameNorm) {
+        const activeMatches = staff.filter(s => !s.isArchived && s.status !== 'inactive' && (
+          (s.firstName && s.firstName.trim().toLowerCase() === sNameNorm) ||
+          (s.lastName && s.lastName.trim().toLowerCase() === sNameNorm)
+        ));
+        if (activeMatches.length === 1) return activeMatches[0];
+        if (activeMatches.length > 1) {
+          const upfitter = activeMatches.find(s => (s.department || '').toLowerCase().includes('upfit') || s.departmentId === 'GojhQmZXMBCw24fg3GNB');
+          if (upfitter) return upfitter;
+          return activeMatches[0];
+        }
+      }
+
+      // 4. Exact ID fallback on any staff document (strictly by ID, NEVER by loose name to archived)
+      if (sIdNorm) {
+        const fallback = staff.find(s => s.id.toLowerCase() === sIdNorm || (s.userId && s.userId.toLowerCase() === sIdNorm));
+        if (fallback) return fallback;
+      }
+
+      return null;
+    };
+
     const isOfficeOrManager = (sId?: string, sName?: string) => {
       if (!sId && !sName) return false;
-      const nameLower = (sName || '').toLowerCase();
-      if (nameLower.includes('kathy') || nameLower.includes('couch') || nameLower.includes('admin') || nameLower.includes('manager')) {
-        return true;
-      }
-      const found = staff.find(s => s.id === sId || s.userId === sId || s.name === sName || `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === nameLower);
+      const found = findActiveStaff(sId, sName);
       if (found) {
         const role = (found.role || found.department || '').toLowerCase();
         return found.isManager === true || found.isOffice === true || ['office', 'manager', 'admin', 'super_admin', 'executive', 'director'].includes(role);
       }
-      return false;
+      const nameLower = (sName || '').toLowerCase();
+      return nameLower.includes('kathy') || nameLower.includes('couch') || nameLower.includes('admin') || nameLower.includes('manager');
     };
 
     const formatStaff = (sId?: string, sName?: string): { id: string; name: string } | null => {
       if (!sId && !sName) return null;
-      const nameLower = (sName || '').toLowerCase();
-      const found = staff.find(s => s.id === sId || s.userId === sId || s.name === sName || `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === nameLower);
+      const found = findActiveStaff(sId, sName);
       if (found) {
         return {
           id: found.id || found.userId || sId || '',
@@ -993,8 +1099,10 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 userName: sUser,
                 notes: hasSpecificNote ? rawNote : ''
               }],
-              notes: hasSpecificNote ? rawNote : '',
-              staffNotes: hasSpecificNote ? rawNote : ''
+              staffNotes: hasSpecificNote ? rawNote : '',
+              notes: '',
+              specNotes: '',
+              instructions: ''
             });
           }
         }
@@ -1296,6 +1404,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       tasks: any[];
       totalBookHours: number;
       totalActualHours: number;
+      totalShiftHours?: number;
+      shifts?: any[];
     }> = {};
 
     allFilteredTasks.forEach(task => {
@@ -1317,6 +1427,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               tasks: [],
               totalBookHours: 0,
               totalActualHours: 0,
+              totalShiftHours: 0,
+              shifts: []
             };
           }
 
@@ -1457,6 +1569,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       );
 
       let shiftSec = 0;
+      const shiftsList: any[] = [];
+
       timeSessionsList.forEach(session => {
         const sStaffId = (session.staffId || session.userId || '').toLowerCase();
         const sUserNorm = (session.userName || session.staffName || session.userEmail || '').trim().toLowerCase();
@@ -1483,6 +1597,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         const cOut = parseSafeDate(cOutVal) || new Date();
 
         let dur = Math.max(0, (cOut.getTime() - cIn.getTime()) / 1000);
+        let breakSec = 0;
 
         if (Array.isArray(session.breaks)) {
           session.breaks.forEach((b: any) => {
@@ -1490,16 +1605,32 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               const bStart = parseSafeDate(b.start);
               const bEnd = parseSafeDate(b.end) || cOut;
               if (bStart && bEnd) {
-                dur -= Math.max(0, (bEnd.getTime() - bStart.getTime()) / 1000);
+                const bDur = Math.max(0, (bEnd.getTime() - bStart.getTime()) / 1000);
+                breakSec += bDur;
+                dur -= bDur;
               }
             }
           });
         }
 
-        shiftSec += Math.max(0, dur);
+        const netDur = Math.max(0, dur);
+        shiftSec += netDur;
+
+        shiftsList.push({
+          id: session.id,
+          date: cIn,
+          dateStr: cIn.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' }),
+          clockInStr: cIn.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          clockOutStr: (session.status === 'active' || session.status === 'on_break') ? 'Active (On Clock)' : cOut.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          breakDurationMin: Math.round(breakSec / 60),
+          shiftHours: netDur / 3600,
+          status: session.status || 'closed',
+          notes: session.notes || session.note || ''
+        });
       });
 
       (group as any).totalShiftHours = shiftSec / 3600;
+      (group as any).shifts = shiftsList.sort((a, b) => a.date.getTime() - b.date.getTime());
     });
 
     // Sort by name
@@ -1540,16 +1671,15 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     return parts.join(' | ');
   }, [searchQuery]);
 
-  // Helper to determine if a technician belongs to the selected department for top payout cards
+  // Helper to determine if a technician belongs to the selected department for top payout cards and cover sheet
   const isTechInSelectedDept = (w: any, targetDept: string, staffList: any[]) => {
     if (targetDept === 'all') return true;
 
     const dTarget = targetDept.toLowerCase().trim();
     const wNameLower = (w.name || '').toLowerCase();
     
-    // Explicit exclusion for Dan Urban and Patrick Losey when viewing Upfitters department
+    // Explicit exclusion for Dan Urban when viewing Upfitters department (Dan is dedicated Fabrication)
     if (dTarget === 'upfitters' && (
-      wNameLower.includes('patrick losey') || 
       wNameLower.includes('daniel urban') || 
       wNameLower.includes('dan urban')
     )) {
@@ -1563,17 +1693,22 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     );
 
     if (sObj) {
-      const sDept = safeString(sObj.department || sObj.departmentName || sObj.departmentId || sObj.role || sObj.title, '').toLowerCase();
+      const deptDoc = sObj.departmentId ? departmentsList.find(d => d.id === sObj.departmentId) : null;
+      const sDept = safeString(sObj.department || sObj.departmentName || deptDoc?.name || sObj.role || sObj.title, '').toLowerCase();
 
       const isNonUpfitterStaff = sDept.includes('office') || 
                                  sDept.includes('admin') || 
                                  sDept.includes('owner') || 
                                  sDept.includes('management') || 
                                  sDept.includes('payroll') || 
+                                 sDept.includes('fabrication') ||
+                                 sDept.includes('graphics') ||
+                                 sDept.includes('parts') ||
+                                 sDept.includes('facility') ||
                                  sDept.includes('sales');
 
       if (dTarget === 'upfitters') {
-        if (isNonUpfitterStaff && !sDept.includes('upfit') && !sDept.includes('install') && !sDept.includes('shop') && !sDept.includes('tech')) {
+        if (isNonUpfitterStaff && !sDept.includes('upfit') && !sDept.includes('install') && !sDept.includes('foreman') && !sDept.includes('shop')) {
           return false;
         }
         return true;
@@ -1582,7 +1717,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       return sDept.includes(dTarget);
     }
 
-    return true;
+    return dTarget === 'all' || dTarget === 'upfitters';
   };
 
   // Per-Tech Book Hours Summary for the selected time period
@@ -1597,7 +1732,15 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
       (t.workers || []).forEach((w: any) => {
         if (!w.name) return;
-        
+
+        // Exclude archived staff from technician payout summary
+        const sObj = staff.find(s => 
+          s.id === w.id || 
+          s.userId === w.id || 
+          `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === (w.name || '').toLowerCase().trim()
+        );
+        if (sObj?.isArchived) return;
+
         // Exclude non-upfitters (like Dan Urban and Patrick Losey) from top Payout Breakdown Cards when filtering by Upfitters
         if (!isTechInSelectedDept(w, selectedDept, staff)) return;
 
@@ -1620,7 +1763,14 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       });
     });
 
-    return Object.values(map).sort((a, b) => b.bookHours - a.bookHours);
+    return Object.values(map)
+      .filter(tp => tp.bookHours > 0 || tp.actualHours > 0)
+      .filter(tp => {
+        const sObj = staff.find(s => s.id === tp.id || `${s.firstName || ''} ${s.lastName || ''}`.trim().toLowerCase() === tp.name.toLowerCase().trim());
+        if (sObj?.isArchived) return false;
+        return true;
+      })
+      .sort((a, b) => b.bookHours - a.bookHours);
   }, [allFilteredTasks, selectedDept, staff]);
 
   // Summary Metrics (Strictly for tasks completed in selected pay period for filtered department staff)
@@ -1651,6 +1801,169 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       hasOvernightInPeriod
     };
   }, [allFilteredTasks, techPayrollSummary]);
+
+  // Staff Summary Cover Page Data (All staff with book hours, clocked-in shift hours, efficiency %, task counts, and job lists)
+  const coverPageStaffData = useMemo(() => {
+    const map: Record<string, {
+      id: string;
+      name: string;
+      role: string;
+      dept: string;
+      clockedShiftHours: number;
+      earnedBookHours: number;
+      actualJobHours: number;
+      shiftEfficiencyPct: number | null;
+      taskEfficiencyPct: number | null;
+      tasksCount: number;
+      jobsList: string[];
+    }> = {};
+
+    // 1. Process staff from groupedStaffData (staff who have logged tasks/time)
+    groupedStaffData.forEach(s => {
+      const staffDoc = staff.find(st => 
+        !st.isArchived && (
+          st.id === s.staffId || 
+          st.userId === s.staffId || 
+          (st.name && st.name.toLowerCase().trim() === s.staffName.toLowerCase().trim()) ||
+          (`${st.firstName || ''} ${st.lastName || ''}`.trim().toLowerCase() === s.staffName.toLowerCase().trim())
+        )
+      );
+
+      if (staffDoc?.isArchived) return;
+
+      const deptDoc = staffDoc?.departmentId ? departmentsList.find(d => d.id === staffDoc.departmentId) : null;
+      const dept = staffDoc?.department || staffDoc?.departmentName || deptDoc?.name || 'Upfitting';
+      let role = staffDoc?.jobTitle || staffDoc?.role || staffDoc?.title || '';
+      if (!role) {
+        role = dept.toLowerCase().includes('upfit') ? 'Upfitter' : dept;
+      }
+
+      const jobsSet = new Set<string>();
+      (s.tasks || []).forEach((t: any) => {
+        const job = jobs.find(j => j.id === t.jobId);
+        const jNum = job ? (job.jobNumber || job.number) : t.jobNumber;
+        if (jNum) jobsSet.add(`#${jNum}`);
+      });
+
+      const shiftH = (s as any).totalShiftHours || 0;
+      const bookH = s.totalBookHours || 0;
+      const actualJobH = s.totalActualHours || 0;
+      const shiftEff = (shiftH > 0 && bookH > 0) ? Math.round((bookH / shiftH) * 100) : null;
+      const taskEff = (actualJobH > 0 && bookH > 0) ? Math.round((bookH / actualJobH) * 100) : null;
+
+      const key = (staffDoc?.id || s.staffId || s.staffName).toLowerCase().trim();
+
+      map[key] = {
+        id: staffDoc?.id || s.staffId,
+        name: staffDoc?.name || `${staffDoc?.firstName || ''} ${staffDoc?.lastName || ''}`.trim() || s.staffName,
+        role,
+        dept,
+        clockedShiftHours: shiftH,
+        earnedBookHours: bookH,
+        actualJobHours: actualJobH,
+        shiftEfficiencyPct: shiftEff,
+        taskEfficiencyPct: taskEff,
+        tasksCount: (s.tasks || []).filter((t: any) => t.completedInPayPeriod).length,
+        jobsList: Array.from(jobsSet)
+      };
+    });
+
+    // 2. Include EVERY active employee in the organization
+    staff.forEach(st => {
+      if (st.isArchived || st.status === 'inactive') return;
+      const stName = (st.name || `${st.firstName || ''} ${st.lastName || ''}`.trim());
+      if (!stName || stName.toLowerCase() === 'unassigned') return;
+      
+      const key = (st.id || st.userId || stName).toLowerCase().trim();
+      if (!map[key]) {
+        let shiftSec = 0;
+        timeSessionsList.forEach(session => {
+          const sStaffId = (session.staffId || session.userId || '').toLowerCase();
+          const sUserNorm = (session.userName || session.staffName || session.userEmail || '').trim().toLowerCase();
+          const isMatch = (st.id && sStaffId === st.id.toLowerCase()) || 
+                          (st.userId && sStaffId === st.userId.toLowerCase()) || 
+                          (sUserNorm && (sUserNorm === stName.toLowerCase() || sUserNorm.includes(stName.toLowerCase())));
+          if (!isMatch) return;
+          const cIn = parseSafeDate(session.clockIn?.timestamp || session.clockIn || session.createdAt);
+          if (!cIn) return;
+          if (dateRange.start && cIn < dateRange.start) return;
+          if (dateRange.end && cIn > dateRange.end) return;
+          const cOutVal = session.clockOut?.timestamp || session.clockOut;
+          const cOut = parseSafeDate(cOutVal) || new Date();
+          let dur = Math.max(0, (cOut.getTime() - cIn.getTime()) / 1000);
+          if (Array.isArray(session.breaks)) {
+            session.breaks.forEach((b: any) => {
+              if (b.isPaid === false || b.type === 'lunch') {
+                const bStart = parseSafeDate(b.start);
+                const bEnd = parseSafeDate(b.end) || cOut;
+                if (bStart && bEnd) dur -= Math.max(0, (bEnd.getTime() - bStart.getTime()) / 1000);
+              }
+            });
+          }
+          shiftSec += Math.max(0, dur);
+        });
+
+        const shiftH = shiftSec / 3600;
+        const stDeptDoc = st.departmentId ? departmentsList.find(d => d.id === st.departmentId) : null;
+        const stDept = st.department || st.departmentName || stDeptDoc?.name || 'Shop Floor';
+        let stRole = st.jobTitle || st.role || st.title || '';
+        if (!stRole) {
+          stRole = stDept.toLowerCase().includes('upfit') ? 'Upfitter' : stDept;
+        }
+
+        map[key] = {
+          id: st.id,
+          name: stName,
+          role: stRole,
+          dept: stDept,
+          clockedShiftHours: shiftH,
+          earnedBookHours: 0,
+          actualJobHours: 0,
+          shiftEfficiencyPct: null,
+          taskEfficiencyPct: null,
+          tasksCount: 0,
+          jobsList: []
+        };
+      }
+    });
+
+    return Object.values(map).sort((a, b) => b.earnedBookHours - a.earnedBookHours || b.clockedShiftHours - a.clockedShiftHours || a.name.localeCompare(b.name));
+  }, [groupedStaffData, staff, jobs, timeSessionsList, dateRange, departmentsList]);
+
+  const totalCoverBookHours = useMemo(() => coverPageStaffData.reduce((sum, s) => sum + s.earnedBookHours, 0), [coverPageStaffData]);
+  const totalCoverShiftHours = useMemo(() => coverPageStaffData.reduce((sum, s) => sum + s.clockedShiftHours, 0), [coverPageStaffData]);
+  const totalCoverActualJobHours = useMemo(() => coverPageStaffData.reduce((sum, s) => sum + s.actualJobHours, 0), [coverPageStaffData]);
+  const totalCoverTasks = useMemo(() => coverPageStaffData.reduce((sum, s) => sum + s.tasksCount, 0), [coverPageStaffData]);
+  
+  // Sum shift hours strictly for technicians who completed book time jobs
+  const totalBookTechShiftHours = useMemo(() => {
+    return coverPageStaffData
+      .filter(s => s.earnedBookHours > 0)
+      .reduce((sum, s) => sum + s.clockedShiftHours, 0);
+  }, [coverPageStaffData]);
+
+  // Sum actual job task hours strictly for technicians who completed book time jobs
+  const totalBookTechTaskHours = useMemo(() => {
+    return coverPageStaffData
+      .filter(s => s.earnedBookHours > 0)
+      .reduce((sum, s) => sum + s.actualJobHours, 0);
+  }, [coverPageStaffData]);
+
+  // 1. Shift Efficiency (Book Time vs Total Shift Time on Clock)
+  const totalShiftEfficiency = useMemo(() => {
+    if (totalBookTechShiftHours > 0 && totalCoverBookHours > 0) {
+      return Math.round((totalCoverBookHours / totalBookTechShiftHours) * 100);
+    }
+    return null;
+  }, [totalBookTechShiftHours, totalCoverBookHours]);
+
+  // 2. Task Efficiency (Book Time vs Actual Time Logged on Tasks)
+  const totalTaskEfficiency = useMemo(() => {
+    if (totalBookTechTaskHours > 0 && totalCoverBookHours > 0) {
+      return Math.round((totalCoverBookHours / totalBookTechTaskHours) * 100);
+    }
+    return null;
+  }, [totalBookTechTaskHours, totalCoverBookHours]);
 
   // Expand / Collapse All
   const toggleExpandAll = (expand: boolean) => {
@@ -1827,10 +2140,8 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
     }
   };
 
-
-
-  const handlePrint = () => {
-    setPrintMode('jobs');
+  const handlePrintFull = () => {
+    setPrintMode('full');
     setPrintJobId(null);
     setTimeout(() => {
       window.print();
@@ -1858,10 +2169,12 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-black text-white uppercase tracking-wider">Yellow Sheets</h1>
-                <span className="px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Labor Payout Report
+              <h1 className="text-base font-black tracking-tight text-white flex items-center gap-2 flex-wrap">
+                <span>Yellow Sheets & Payroll Labor Reconciliation</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-mono border border-amber-500/30">
+                  {summaryMetrics.totalBookHours}h Total Book Time
                 </span>
+              </h1>
                 {!canEdit && (
                   <span className="px-2 py-0.5 rounded text-[9px] font-mono font-black uppercase bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center gap-1" title="Read-only view mode. Requires Yellow Sheets edit permission to adjust payout hours or splits.">
                     <ShieldCheck className="w-3 h-3 text-zinc-400" /> Read-Only
@@ -1870,27 +2183,27 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             </div>
           </div>
 
-          {/* Header Action Buttons: Print, Export Excel, Audit Log */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Header Action Buttons: Print Yellow Sheets, Print Staff Sheets, Audit Log */}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {/* 1. Print Yellow Sheets (Cover Page + All Job Sheets) */}
             <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-lg font-extrabold transition cursor-pointer text-[11px] shadow-md shadow-amber-500/10"
-              title={`Print all ${groupedJobsData.length} currently shown filtered jobs in Excel spreadsheet layout`}
+              onClick={handlePrintFull}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded-lg font-black transition cursor-pointer text-[11px] shadow-md shadow-amber-500/20"
+              title={`Print complete Yellow Sheets package: Cover Summary Page (Page 1) + all ${groupedJobsData.length} Job Sheets`}
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print Filtered Yellow Sheets ({groupedJobsData.length} Jobs)</span>
+              <span>Print Yellow Sheets ({groupedJobsData.length} Jobs)</span>
             </button>
 
+            {/* 2. Print Staff Sheets */}
             <button
               onClick={handlePrintStaff}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-extrabold transition cursor-pointer text-[11px] shadow-md shadow-indigo-600/10"
               title={`Print staff payout/labor reports for each technician shown based on active filters`}
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print Staff Sheets ({groupedStaffData.length} Staff)</span>
+              <span>Print Staff Sheets ({groupedStaffData.length})</span>
             </button>
-
-
 
             <button
               onClick={() => setShowAuditModal(true)}
@@ -2563,7 +2876,225 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
       {/* Modern Excel Printable Container */}
       <div id="yellow-sheets-print-area" className="hidden print:block font-sans text-[11px] text-black bg-white p-4 space-y-6">
-        {printMode === 'jobs' ? (
+        {/* ========================================================================= */}
+        {/* 📄 COVER / SUMMARY PAGE (FITS EXACTLY ON 1 LANDSCAPE SHEET)               */}
+        {/* ========================================================================= */}
+        {(printMode === 'full' || printMode === 'staff' || (printMode === 'jobs' && printJobId === null)) && (
+          <div 
+            className="yellow-sheet-cover-page"
+            style={{
+              pageBreakBefore: 'avoid',
+              breakBefore: 'avoid',
+              pageBreakAfter: 'always',
+              breakAfter: 'page',
+              pageBreakInside: 'avoid',
+              breakInside: 'avoid',
+              width: '100%',
+              boxSizing: 'border-box'
+            }}
+          >
+            {/* Top 8px Yellow Stripe */}
+            <div 
+              style={{
+                height: '8px',
+                backgroundColor: '#eab308',
+                WebkitPrintColorAdjust: 'exact',
+                printColorAdjust: 'exact'
+              }}
+            />
+
+            {/* Header Block */}
+            <div className="border-2 border-black p-2 bg-zinc-50 mb-1.5 flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span 
+                    className="px-2 py-0.5 font-black text-[9px] uppercase font-mono tracking-wider text-black border border-black"
+                    style={{ backgroundColor: '#fde047', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+                  >
+                    EXECUTIVE SUMMARY & COVER PAGE
+                  </span>
+                  <h1 className="text-sm font-black text-black tracking-tight uppercase">
+                    Yellow Sheets — Payroll & Shop Summary
+                  </h1>
+                </div>
+                <p className="text-[10px] font-bold text-gray-800 mt-0.5">
+                  Pay Period / Date Range: <span className="font-mono text-black underline font-black">{formatPayPeriodRangeText(dateRange.start, dateRange.end)}</span>
+                  {activeFiltersSummary && <span className="text-[9px] text-gray-600 ml-2">({activeFiltersSummary})</span>}
+                </p>
+              </div>
+              <div className="text-right font-mono text-[9px]">
+                <p className="font-black text-black uppercase text-[10px]">UPFITTERS OS</p>
+                <p className="text-gray-700">Printed: {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
+              </div>
+            </div>
+
+            {/* KPI Summary Bar (5 Metrics across) */}
+            <div className="grid grid-cols-5 gap-1.5 mb-1">
+              <div className="border border-black bg-zinc-100 p-1 text-center">
+                <div className="text-[8px] font-mono font-bold uppercase text-gray-700">Total Completed Book Time</div>
+                <div className="text-sm font-black text-black font-mono">{totalCoverBookHours.toFixed(1)}h</div>
+              </div>
+              <div className="border border-black bg-zinc-100 p-1 text-center">
+                <div className="text-[8px] font-mono font-bold uppercase text-gray-700">Total Clocked Hours</div>
+                <div className="text-sm font-black text-black font-mono">{totalCoverShiftHours.toFixed(1)}h</div>
+                <div className="text-[7.5px] text-gray-600 font-mono">({totalBookTechShiftHours.toFixed(1)}h Tech Shift)</div>
+              </div>
+              <div className="border border-black bg-zinc-100 p-1 text-center">
+                <div className="text-[8px] font-mono font-bold uppercase text-gray-700">Shift Efficiency (On Clock)</div>
+                <div className="text-sm font-black text-black font-mono">
+                  {totalShiftEfficiency !== null ? `${totalShiftEfficiency}%` : 'N/A'}
+                </div>
+                <div className="text-[7.5px] text-gray-600 font-mono">
+                  {totalCoverBookHours.toFixed(1)}h Book ÷ {totalBookTechShiftHours.toFixed(1)}h Shift
+                </div>
+              </div>
+              <div className="border border-black bg-zinc-100 p-1 text-center">
+                <div className="text-[8px] font-mono font-bold uppercase text-gray-700">Task Efficiency (On Job)</div>
+                <div className="text-sm font-black text-black font-mono">
+                  {totalTaskEfficiency !== null ? `${totalTaskEfficiency}%` : 'N/A'}
+                </div>
+                <div className="text-[7.5px] text-gray-600 font-mono">
+                  {totalCoverBookHours.toFixed(1)}h Book ÷ {totalBookTechTaskHours.toFixed(1)}h Task Time
+                </div>
+              </div>
+              <div className="border border-black bg-zinc-100 p-1 text-center">
+                <div className="text-[8px] font-mono font-bold uppercase text-gray-700">Jobs & Tasks Done</div>
+                <div className="text-sm font-black text-black font-mono">{summaryMetrics.uniqueJobsCount} Jobs</div>
+                <div className="text-[7.5px] text-gray-600 font-mono">{summaryMetrics.totalCompletedTasks} Tasks Done</div>
+              </div>
+            </div>
+
+            {/* Explanatory Note */}
+            <div className="text-[8px] font-mono text-gray-600 mb-1.5 px-0.5 italic">
+              * Note: Efficiency is calculated strictly on staff with completed book time. Shift Eff % = Completed Book Time ÷ Total Clocked Shift Hours. Task Eff % = Completed Book Time ÷ Actual Time Spent on Tasks.
+            </div>
+
+            {/* Staff Breakdown Table */}
+            <div className="mb-2">
+              <div className="bg-zinc-200 border border-black px-2 py-0.5 font-mono font-bold text-[9.5px] uppercase text-black flex justify-between">
+                <span>STAFF PAYROLL & BOOK TIME SUMMARY</span>
+                <span>{coverPageStaffData.length} Staff Members</span>
+              </div>
+              <table className="w-full text-left border-collapse border border-black text-[9.5px] font-mono">
+                <thead>
+                  <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase text-[8px]">
+                    <th className="border border-black p-1 w-[17%]">Staff Member</th>
+                    <th className="border border-black p-1 w-[12%]">Role / Dept</th>
+                    <th className="border border-black p-1 w-[10%] text-right">Clocked Hours</th>
+                    <th className="border border-black p-1 w-[11%] text-right">Completed Book</th>
+                    <th className="border border-black p-1 w-[10%] text-right">Shift Eff (Clock)</th>
+                    <th className="border border-black p-1 w-[10%] text-right">Task Time (Job)</th>
+                    <th className="border border-black p-1 w-[10%] text-right">Task Eff (Job)</th>
+                    <th className="border border-black p-1 w-[6%] text-center">Tasks</th>
+                    <th className="border border-black p-1 w-[14%]">Jobs Worked</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverPageStaffData.map((st, idx) => {
+                    return (
+                      <tr key={st.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
+                        <td className="border border-black p-1 font-bold text-black truncate">
+                          {st.name}
+                        </td>
+                        <td className="border border-black p-1 text-gray-800 truncate text-[9px]">
+                          {st.role}
+                        </td>
+                        <td className="border border-black p-1 text-right font-black text-black">
+                          {st.clockedShiftHours > 0 ? `${st.clockedShiftHours.toFixed(1)}h` : '0.0h'}
+                        </td>
+                        <td className="border border-black p-1 text-right font-black text-black">
+                          {st.earnedBookHours > 0 ? `${st.earnedBookHours.toFixed(1)}h` : '0.0h'}
+                        </td>
+                        <td className="border border-black p-1 text-right font-bold">
+                          {st.shiftEfficiencyPct !== null ? (
+                            <span className={st.shiftEfficiencyPct >= 100 ? 'text-black font-black' : 'text-gray-800'}>
+                              {st.shiftEfficiencyPct}%
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="border border-black p-1 text-right text-gray-800">
+                          {st.actualJobHours > 0 ? `${st.actualJobHours.toFixed(1)}h` : '—'}
+                        </td>
+                        <td className="border border-black p-1 text-right font-bold">
+                          {st.taskEfficiencyPct !== null ? (
+                            <span className={st.taskEfficiencyPct >= 100 ? 'text-black font-black' : 'text-gray-800'}>
+                              {st.taskEfficiencyPct}%
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="border border-black p-1 text-center font-bold text-black">
+                          {st.tasksCount}
+                        </td>
+                        <td className="border border-black p-1 text-gray-800 truncate text-[8px]">
+                          {st.jobsList.length > 0 ? st.jobsList.join(', ') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr 
+                    className="border-t-2 border-black font-black text-black text-[9.5px]"
+                    style={{ backgroundColor: '#fef08a', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+                  >
+                    <td className="border border-black p-1 uppercase" colSpan={2}>
+                      TOTALS ({coverPageStaffData.length} Staff)
+                    </td>
+                    <td className="border border-black p-1 text-right">
+                      {totalCoverShiftHours.toFixed(1)}h
+                    </td>
+                    <td className="border border-black p-1 text-right">
+                      {totalCoverBookHours.toFixed(1)}h
+                    </td>
+                    <td className="border border-black p-1 text-right">
+                      {totalShiftEfficiency !== null ? (
+                        <span>
+                          <strong className="text-black font-black">{totalShiftEfficiency}%</strong>
+                          <span className="text-[7px] text-gray-600 block font-normal font-mono">({totalBookTechShiftHours.toFixed(1)}h shift)</span>
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="border border-black p-1 text-right">
+                      {totalCoverActualJobHours.toFixed(1)}h
+                    </td>
+                    <td className="border border-black p-1 text-right">
+                      {totalTaskEfficiency !== null ? (
+                        <span>
+                          <strong className="text-black font-black">{totalTaskEfficiency}%</strong>
+                          <span className="text-[7px] text-gray-600 block font-normal font-mono">({totalBookTechTaskHours.toFixed(1)}h task)</span>
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="border border-black p-1 text-center">
+                      {totalCoverTasks}
+                    </td>
+                    <td className="border border-black p-1 text-[8px]">
+                      {summaryMetrics.uniqueJobsCount} Unique Jobs
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Verification & Sign-off Block */}
+            <div className="border border-black p-1.5 bg-zinc-50 grid grid-cols-3 gap-3 text-[8.5px] font-mono">
+              <div>
+                <span className="font-bold text-gray-700 block">Report Prepared By:</span>
+                <div className="border-b border-black mt-2.5" />
+              </div>
+              <div>
+                <span className="font-bold text-gray-700 block">Payroll Processed Date & Sign:</span>
+                <div className="border-b border-black mt-2.5" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(printMode === 'jobs' || printMode === 'full') ? (
           groupedJobsData
             .filter(jobData => printJobId === null || jobData.job.id === printJobId)
             .map((jobData) => {
@@ -2617,61 +3148,74 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                       <table className="w-full text-left border-collapse border border-black text-[10px] font-mono">
                         <thead>
                           <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase">
-                            <th className="border border-black p-1.5 w-[19%]">Task</th>
-                            <th className="border border-black p-1.5 w-[11%]">Time Completed</th>
-                            <th className="border border-black p-1.5 w-[7%] text-right">Book</th>
-                            <th className="border border-black p-1.5 w-[7%] text-right">Time Spent</th>
-                            <th className="border border-black p-1.5 w-[14%]">Tech</th>
-                            <th className="border border-black p-1.5 w-[14%]">Task Notes</th>
-                            <th className="border border-black p-1.5 w-[14%]">Staff Notes</th>
-                            <th className="border border-black p-1.5 w-[14%]">Payroll Notes</th>
+                            <th className="border border-black p-1.5 w-[22%]">Task</th>
+                            <th className="border border-black p-1.5 w-[14%]">Time Completed</th>
+                            <th className="border border-black p-1.5 w-[8%] text-right">Book</th>
+                            <th className="border border-black p-1.5 w-[8%] text-right">Time Spent</th>
+                            <th className="border border-black p-1.5 w-[16%]">Tech</th>
+                            <th className="border border-black p-1.5 w-[16%]">Task Notes</th>
+                            <th className="border border-black p-1.5 w-[16%]">Payroll Notes</th>
                           </tr>
                         </thead>
                         <tbody>
                           {catTasks.map((t, idx) => {
+                            const rowStyle = getTaskRowColorStyles(t.bookHours, t.actualHours, idx % 2 === 0 ? '#f9fafb' : '#ffffff');
+                            const hasStaffNotes = !!(t.staffNotes && t.staffNotes.trim() && t.staffNotes.trim() !== '—');
+
                             return (
-                              <tr key={t.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
-                                <td className="border border-black p-1.5 font-bold text-black">
-                                  <div>{t.taskTitle}</div>
-                                  {getTaskCategoryDisplay(t) && (
-                                    <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
-                                      {getTaskCategoryDisplay(t)}
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="border border-black p-1.5 text-black">
-                                  {t.completed ? (
-                                    t.completedAt ? (
-                                      <span className="font-mono text-[10px] font-medium text-black">
-                                        {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
-                                        {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                      </span>
+                              <Fragment key={t.id || idx}>
+                                <tr style={rowStyle} className={hasStaffNotes ? "border-t border-black" : "border-b border-black"}>
+                                  <td className="border border-black p-1.5 font-bold text-black">
+                                    <div>{t.taskTitle}</div>
+                                    {getTaskCategoryDisplay(t) && (
+                                      <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
+                                        {getTaskCategoryDisplay(t)}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="border border-black p-1.5 text-black">
+                                    {t.completed ? (
+                                      t.completedAt ? (
+                                        <span className="font-mono text-[10px] font-medium text-black">
+                                          {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
+                                          {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-gray-400">COMPLETED</span>
+                                      )
                                     ) : (
-                                      <span className="text-[10px] font-bold text-gray-400">COMPLETED</span>
-                                    )
-                                  ) : (
-                                    <span className={cn(
-                                      "px-1 py-0.5 rounded text-[10px] font-bold uppercase border",
-                                      t.statusCode === 'in_progress' ? "bg-amber-200 text-amber-950 border-amber-600 font-bold" :
-                                      "bg-gray-200 text-gray-800 border-gray-400"
-                                    )}>
-                                      {t.statusLabel}
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="border border-black p-1.5 text-right font-black text-black">{t.bookHours?.toFixed(1)}h</td>
-                                <td className="border border-black p-1.5 text-right text-black font-medium">{t.actualDurationStr || (t.actualHours > 0 ? `${t.actualHours.toFixed(1)}h` : '—')}</td>
-                                <td className="border border-black p-1.5 font-semibold text-black">
-                                  {t.completed ? (
-                                    <p>{t.completedBy || 'Technician'}</p>
-                                  ) : (
-                                    <span className="text-gray-400 font-normal">—</span>
-                                  )}
-                                </td>
-                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
-                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.staffNotes || '—'}</td>
-                                <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
-                              </tr>
+                                      <span className={cn(
+                                        "px-1 py-0.5 rounded text-[10px] font-bold uppercase border",
+                                        t.statusCode === 'in_progress' ? "bg-amber-200 text-amber-950 border-amber-600 font-bold" :
+                                        "bg-gray-200 text-gray-800 border-gray-400"
+                                      )}>
+                                        {t.statusLabel}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="border border-black p-1.5 text-right font-black text-black">{t.bookHours?.toFixed(1)}h</td>
+                                  <td className="border border-black p-1.5 text-right text-black font-medium">{t.actualDurationStr || (t.actualHours > 0 ? `${t.actualHours.toFixed(1)}h` : '—')}</td>
+                                  <td className="border border-black p-1.5 font-semibold text-black">
+                                    {t.completed ? (
+                                      <p>{t.completedBy || 'Technician'}</p>
+                                    ) : (
+                                      <span className="text-gray-400 font-normal">—</span>
+                                    )}
+                                  </td>
+                                  <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
+                                  <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
+                                </tr>
+                                {hasStaffNotes && (
+                                  <tr style={rowStyle} className="border-b border-black">
+                                    <td colSpan={7} className="border border-black px-2 py-0.5">
+                                      <div className="flex items-center gap-1.5 text-[8.5px] font-mono text-black leading-tight pl-8">
+                                        <span className="text-gray-600 font-bold shrink-0">↳ 💬 STAFF NOTE:</span>
+                                        <span className="italic text-gray-800">{t.staffNotes.split(/\r?\n+/).map((s: string) => s.trim()).filter(Boolean).join(' | ')}</span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
                             );
                           })}
                         </tbody>
@@ -2679,6 +3223,16 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                     </div>
                   );
                 })}
+
+                {/* Pace Color Legend */}
+                <div className="text-[7.5px] font-mono text-gray-600 mt-2 flex items-center justify-between border-t border-gray-300 pt-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-bold text-black">Pace Audit:</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#f0fdf4', width: 9, height: 9, border: '1px solid #86efac', display: 'inline-block' }} /> <strong>On Target</strong> (85%–115%)</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#fefce8', width: 9, height: 9, border: '1px solid #fde047', display: 'inline-block' }} /> <strong>Pace Variance</strong> (60–84% / 116–200%)</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#fff1f2', width: 9, height: 9, border: '1px solid #fda4af', display: 'inline-block' }} /> <strong>Needs Review</strong> (&lt;60% Bottleneck / &gt;200% Under-Clocked)</span>
+                  </div>
+                </div>
               </div>
             );
           })
@@ -2730,69 +3284,153 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
                 <table className="w-full text-left border-collapse border border-black text-[10px] font-mono">
                   <thead>
                     <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase">
-                      <th className="border border-black p-1.5 w-[15%]">Job</th>
-                      <th className="border border-black p-1.5 w-[17%]">Task</th>
-                      <th className="border border-black p-1.5 w-[11%]">Time Completed</th>
-                      <th className="border border-black p-1.5 w-[7%] text-right">Book</th>
-                      <th className="border border-black p-1.5 w-[7%] text-right">Clocked</th>
-                      <th className="border border-black p-1.5 w-[7%] text-right">Eff %</th>
-                      <th className="border border-black p-1.5 w-[12%]">Task Notes</th>
-                      <th className="border border-black p-1.5 w-[12%]">Staff Notes</th>
-                      <th className="border border-black p-1.5 w-[12%]">Payroll Notes</th>
+                      <th className="border border-black p-1.5 w-[18%]">Job</th>
+                      <th className="border border-black p-1.5 w-[22%]">Task</th>
+                      <th className="border border-black p-1.5 w-[14%]">Time Completed</th>
+                      <th className="border border-black p-1.5 w-[8%] text-right">Book</th>
+                      <th className="border border-black p-1.5 w-[8%] text-right">Clocked</th>
+                      <th className="border border-black p-1.5 w-[8%] text-right">Eff %</th>
+                      <th className="border border-black p-1.5 w-[11%]">Task Notes</th>
+                      <th className="border border-black p-1.5 w-[11%]">Payroll Notes</th>
                     </tr>
                   </thead>
                   <tbody>
                     {tasks.map((t: any, idx: number) => {
                       const eff = t.workerActualHours > 0 ? Math.round((t.splitBookHours / t.workerActualHours) * 100) : null;
                       const jobInfo = `#${t.jobNumber} ${t.customerName}`;
+                      const rowStyle = getTaskRowColorStyles(t.splitBookHours || t.bookHours, t.workerActualHours || t.actualHours, idx % 2 === 0 ? '#f9fafb' : '#ffffff');
+                      const hasStaffNotes = !!(t.staffNotes && t.staffNotes.trim() && t.staffNotes.trim() !== '—');
 
                       return (
-                        <tr key={t.id || idx} className={idx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
-                          <td className="border border-black p-1.5 font-bold text-black truncate max-w-[140px]" title={jobInfo}>{jobInfo}</td>
-                          <td className="border border-black p-1.5 font-bold text-black">
-                            <div>{t.taskTitle}</div>
-                            {getTaskCategoryDisplay(t) && (
-                              <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
-                                {getTaskCategoryDisplay(t)}
-                              </div>
-                            )}
-                          </td>
-                          <td className="border border-black p-1.5 text-black">
-                            {t.completed && t.completedAt ? (
-                              <span className="font-mono text-[10px] font-medium text-black">
-                                {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
-                                {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                              </span>
-                            ) : t.completed ? (
-                              <span className="text-[9px] font-bold text-gray-500">COMPLETED</span>
-                            ) : (
-                              <span className="text-[9px] text-gray-600 uppercase font-bold">{t.statusLabel}</span>
-                            )}
-                          </td>
-                          <td className="border border-black p-1.5 text-right font-black text-black">
-                            {t.splitBookHours?.toFixed(1)}h
-                            {t.workers && t.workers.length > 1 && (
-                              <span className="text-[8px] text-gray-600 block font-normal">
-                                ({t.workers.find((w: any) => w.id === staffId)?.pct}%)
-                              </span>
-                            )}
-                          </td>
-                          <td className="border border-black p-1.5 text-right text-black">
-                            {t.workerActualHours > 0 ? (
-                              t.workerActualHours < 0.1 ? `${Math.max(1, Math.round(t.workerActualHours * 60))}m` : `${t.workerActualHours.toFixed(1)}h`
-                            ) : '—'}
-                          </td>
-                          <td className="border border-black p-1.5 text-right font-bold text-black">
-                            {eff !== null ? `${eff}%` : '—'}
-                          </td>
-                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
-                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.staffNotes || '—'}</td>
-                          <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
-                        </tr>
+                        <Fragment key={t.id || idx}>
+                          <tr style={rowStyle} className={hasStaffNotes ? "border-t border-black" : "border-b border-black"}>
+                            <td className="border border-black p-1.5 font-bold text-black truncate max-w-[140px]" title={jobInfo}>{jobInfo}</td>
+                            <td className="border border-black p-1.5 font-bold text-black">
+                              <div>{t.taskTitle}</div>
+                              {getTaskCategoryDisplay(t) && (
+                                <div className="text-[8px] font-bold text-gray-500 uppercase tracking-wider font-mono">
+                                  {getTaskCategoryDisplay(t)}
+                                </div>
+                              )}
+                            </td>
+                            <td className="border border-black p-1.5 text-black">
+                              {t.completed && t.completedAt ? (
+                                <span className="font-mono text-[10px] font-medium text-black">
+                                  {t.completedAt.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' })}{' '}
+                                  {t.completedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                </span>
+                              ) : t.completed ? (
+                                <span className="text-[9px] font-bold text-gray-500">COMPLETED</span>
+                              ) : (
+                                <span className="text-[9px] text-gray-600 uppercase font-bold">{t.statusLabel}</span>
+                              )}
+                            </td>
+                            <td className="border border-black p-1.5 text-right font-black text-black">
+                              {t.splitBookHours?.toFixed(1)}h
+                              {t.workers && t.workers.length > 1 && (
+                                <span className="text-[8px] text-gray-600 block font-normal">
+                                  ({t.workers.find((w: any) => w.id === staffId)?.pct}%)
+                                </span>
+                              )}
+                            </td>
+                            <td className="border border-black p-1.5 text-right text-black">
+                              {t.workerActualHours > 0 ? (
+                                t.workerActualHours < 0.1 ? `${Math.max(1, Math.round(t.workerActualHours * 60))}m` : `${t.workerActualHours.toFixed(1)}h`
+                              ) : '—'}
+                            </td>
+                            <td className="border border-black p-1.5 text-right font-bold text-black">
+                              {eff !== null ? `${eff}%` : '—'}
+                            </td>
+                            <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.taskNotes || '—'}</td>
+                            <td className="border border-black p-1.5 text-black whitespace-pre-wrap">{t.payrollNotes || '—'}</td>
+                          </tr>
+                          {hasStaffNotes && (
+                            <tr style={rowStyle} className="border-b border-black">
+                              <td colSpan={8} className="border border-black px-2 py-0.5">
+                                <div className="flex items-center gap-1.5 text-[8.5px] font-mono text-black leading-tight pl-8">
+                                  <span className="text-gray-600 font-bold shrink-0">↳ 💬 STAFF NOTE:</span>
+                                  <span className="italic text-gray-800">{t.staffNotes.split(/\r?\n+/).map((s: string) => s.trim()).filter(Boolean).join(' | ')}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
                       );
                     })}
                   </tbody>
                 </table>
+
+                {/* Pace Color Legend */}
+                <div className="text-[7.5px] font-mono text-gray-600 mt-2 flex items-center justify-between border-t border-gray-300 pt-1">
+                  <div className="flex items-center gap-2.5">
+                    <span className="font-bold text-black">Pace Audit:</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#f0fdf4', width: 9, height: 9, border: '1px solid #86efac', display: 'inline-block' }} /> <strong>On Target</strong> (85%–115%)</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#fefce8', width: 9, height: 9, border: '1px solid #fde047', display: 'inline-block' }} /> <strong>Pace Variance</strong> (60–84% / 116–200%)</span>
+                    <span className="inline-flex items-center gap-1"><span style={{ backgroundColor: '#fff1f2', width: 9, height: 9, border: '1px solid #fda4af', display: 'inline-block' }} /> <strong>Needs Review</strong> (&lt;60% Bottleneck / &gt;200% Under-Clocked)</span>
+                  </div>
+                </div>
+
+                {/* Time Clock Shift Sessions Table */}
+                <div className="mt-4 border border-black">
+                  <div 
+                    className="flex items-center justify-between px-2 py-1 border-b border-black font-bold uppercase text-[9px] tracking-wider text-black"
+                    style={{ backgroundColor: '#f4f4f5', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3 h-3 text-black" />
+                      <span>TIME CLOCK SHIFT SESSIONS ({staffData.shifts?.length || 0} Shifts in Period)</span>
+                    </div>
+                    <span className="font-mono font-black text-black">TOTAL SHIFT TIME: {(totalShiftHours || 0).toFixed(1)}h</span>
+                  </div>
+                  <table className="w-full text-left border-collapse text-[9px] font-mono">
+                    <thead>
+                      <tr className="bg-zinc-100 text-black border-b border-black font-bold uppercase text-[8.5px]">
+                        <th className="border border-black p-1 w-[16%]">Date</th>
+                        <th className="border border-black p-1 w-[14%]">Clock In</th>
+                        <th className="border border-black p-1 w-[14%]">Clock Out</th>
+                        <th className="border border-black p-1 w-[12%] text-center">Unpaid Break</th>
+                        <th className="border border-black p-1 w-[12%] text-right">Shift Hours</th>
+                        <th className="border border-black p-1 w-[32%]">Notes / Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffData.shifts && staffData.shifts.length > 0 ? (
+                        staffData.shifts.map((sh: any, sIdx: number) => (
+                          <tr key={sh.id || sIdx} className={sIdx % 2 === 0 ? 'bg-zinc-50' : 'bg-white'}>
+                            <td className="border border-black p-1 font-bold text-black">{sh.dateStr}</td>
+                            <td className="border border-black p-1 text-black font-medium">{sh.clockInStr}</td>
+                            <td className="border border-black p-1 text-black font-medium">{sh.clockOutStr}</td>
+                            <td className="border border-black p-1 text-center text-gray-700">{sh.breakDurationMin > 0 ? `${sh.breakDurationMin}m` : '0m'}</td>
+                            <td className="border border-black p-1 text-right font-black text-black">{sh.shiftHours.toFixed(1)}h</td>
+                            <td className="border border-black p-1 text-black truncate max-w-[200px]">{sh.notes || '—'}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="border border-black p-2 text-center text-gray-500 italic">
+                            No time clock shift records logged in this pay period.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot>
+                      <tr 
+                        className="border-t-2 border-black font-black text-black text-[9.5px]"
+                        style={{ backgroundColor: '#fef08a', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}
+                      >
+                        <td colSpan={4} className="border border-black p-1 uppercase text-right">
+                          Total Shift Time On Clock:
+                        </td>
+                        <td className="border border-black p-1 text-right text-black font-black font-mono">
+                          {(totalShiftHours || 0).toFixed(1)}h
+                        </td>
+                        <td className="border border-black p-1 text-[8px] text-gray-800">
+                          Reconciled against {totalBookHours.toFixed(1)}h completed book time
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             );
           })
@@ -3330,7 +3968,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
         @media print {
           @page {
             size: landscape;
-            margin: 0.4in;
+            margin: 0.3in;
           }
           body * {
             visibility: hidden !important;
@@ -3350,9 +3988,24 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          .yellow-sheet-job-card {
+          .yellow-sheet-cover-page {
+            page-break-before: avoid !important;
+            break-before: avoid !important;
             page-break-after: always !important;
             break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            display: block !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .yellow-sheet-job-card {
+            page-break-before: always !important;
+            break-before: page !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           .yellow-sheet-job-card:last-child {
             page-break-after: avoid !important;

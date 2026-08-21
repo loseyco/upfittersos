@@ -1465,6 +1465,38 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
       }
     });
 
+    // 5b. Customer Picked Up / Delivered to Customer / With Customer Jobs
+    jobs.forEach(j => {
+      const isDelivered = j.delivered === true || j.isDelivered === true || j.status === 'Completed' || (j.parkingSpot === 'With Customer') || (j.location === 'With Customer');
+      const pickupDate = parseSafeDate(j.pickedUpAt || j.deliveredAt || (isDelivered ? j.completedAt || j.updatedAt : null));
+
+      if (isDelivered && pickupDate && isSameSelectedDate(pickupDate)) {
+        const rawActor = j.pickedUpBy || j.markedWithCustomerBy || j.deliveredBy || j.completedBy || j.updatedByName || j.assignedTechName || 'Patrick Losey';
+        const foundStaff = staff.find(s => s.name === rawActor || `${s.firstName || ''} ${s.lastName || ''}`.trim() === rawActor || s.id === j.pickedUpById);
+        const whoName = foundStaff ? (foundStaff.name || `${foundStaff.firstName || ''} ${foundStaff.lastName || ''}`.trim()) : rawActor;
+
+        feed.push({
+          id: `pickup_${j.id}_${pickupDate.getTime()}`,
+          category: 'qc',
+          badgeLabel: 'DELIVERED',
+          badgeClass: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+          timestamp: pickupDate,
+          timeStr: pickupDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+          who: whoName,
+          staffId: foundStaff?.id || j.pickedUpById || '',
+          duration: '--',
+          jobId: j.id,
+          jobNumber: j.jobNumber || 'N/A',
+          jobTitle: j.title || 'Upfit Job',
+          customerName: j.customerName || j.customer || '',
+          vehicleInfo: j.vehicleYearMakeModel || j.vehicle || '',
+          details: `Vehicle handed off to customer & marked With Customer${j.previousParkingSpot ? ` (Cleared from ${j.previousParkingSpot})` : ''}`,
+          note: j.deliveryNotes || j.notes || '',
+          status: 'WITH CUSTOMER'
+        });
+      }
+    });
+
     // 6. Job-level Blocker Events
     jobs.forEach(j => {
       const blockers = Array.isArray(j.blockers) ? j.blockers : [];

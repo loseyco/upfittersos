@@ -393,7 +393,7 @@ export function TenantDashboard() {
           </div>
         )}
 
-        <main className={`flex-1 overflow-y-auto ${(activeTab === 'bay_monitor' || activeTab === 'timeclock_monitor' || activeTab === 'parking_monitor' || activeTab === 'conference_monitor') ? 'p-0' : 'p-4 pb-24 md:p-8'} no-scrollbar`}>
+        <main className={`flex-1 overflow-y-auto ${(activeTab === 'bay_monitor' || activeTab === 'timeclock_monitor' || activeTab === 'parking_monitor' || activeTab === 'conference_monitor') ? 'p-0' : activeTab === 'jobs_overview' ? 'p-1 sm:p-2 pb-16' : 'p-4 pb-24 md:p-8'} no-scrollbar`}>
           {impersonatedStaff && (
             <div className="mb-8 bg-emerald-600 text-white rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-emerald-500/20 animate-in slide-in-from-top-4 duration-300 print-hidden">
               <div className="flex items-center gap-4">
@@ -608,13 +608,13 @@ export function TenantDashboard() {
             )}
 
             {activeTab === 'timeclock' && (
-              <PermissionGate permission="timeclock.manage">
+              <PermissionGate permissions={["timeclock.manage", "payroll.view"]}>
                 <TimeclockAdmin tenantId={tenantId!} />
               </PermissionGate>
             )}
 
             {activeTab === 'live_timeclock' && (
-              <PermissionGate permission="timeclock.view">
+              <PermissionGate permissions={["timeclock.view", "timeclock.manage", "payroll.view"]}>
                 <LiveTimeclockBoard tenantId={tenantId!} />
               </PermissionGate>
             )}
@@ -1013,13 +1013,13 @@ export function TenantDashboard() {
             )}
 
             {(activeTab === 'yellowsheets' || activeTab === 'yellowsheet') && (
-              <PermissionGate permissions={['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'development.view', 'timeclock.manage']}>
+              <PermissionGate permissions={['yellow_sheets.view', 'yellow_sheets.manage', 'office.view', 'foreman.view', 'development.view', 'timeclock.manage', 'payroll.view']}>
                 <YellowSheets tenantId={tenantId!} />
               </PermissionGate>
             )}
 
             {activeTab === 'payroll_audit_worksheet' && (
-              <PermissionGate permissions={['yellow_sheets.view', 'office.view', 'foreman.view', 'development.view', 'reports.view']}>
+              <PermissionGate permissions={['yellow_sheets.view', 'office.view', 'foreman.view', 'development.view', 'reports.view', 'timeclock.manage', 'payroll.view']}>
                 <PayrollAuditWorksheet tenantId={tenantId!} />
               </PermissionGate>
             )}
