@@ -563,7 +563,8 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
         // Check if ANY technician is actively clocked into this job right this second
         const liveClockedTechs: string[] = [];
         timeSessions.forEach(session => {
-          if (session.jobs && Array.isArray(session.jobs)) {
+          // Strictly only evaluate active on-the-clock sessions (not clocked out, not completed, status === 'active')
+          if (session.status === 'active' && !session.clockOut && session.jobs && Array.isArray(session.jobs)) {
             const hasActiveJobSegment = session.jobs.some((j: any) => j.id === job.id && !j.end);
             if (hasActiveJobSegment) {
               const techName = session.staffName || session.userName || 'Technician';

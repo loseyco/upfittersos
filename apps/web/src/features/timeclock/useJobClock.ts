@@ -61,6 +61,12 @@ export function useJobClock(tenantId: string, customActiveSessionId?: string | n
         return;
       }
 
+      if (sessionData.status === 'on_break') {
+        toast.error('You are currently on break. Please end your break before clocking into a task.');
+        setIsProcessing(false);
+        return;
+      }
+
       const jobs = [...(sessionData.jobs || [])];
 
       // Check if already clocked into this specific task
