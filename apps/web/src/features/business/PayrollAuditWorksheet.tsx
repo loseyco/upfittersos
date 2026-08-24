@@ -200,7 +200,7 @@ export function PayrollAuditWorksheet({ tenantId }: PayrollAuditWorksheetProps) 
         const statusRaw = safeString(t.status, '').toLowerCase();
         const isCompleted = statusRaw === 'qc' || statusRaw === 'qc_complete' || statusRaw === 'qc complete' || statusRaw === 'completed';
 
-        const completedAtDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt);
+        const completedAtDate = parseSafeDate(t.completedAt || t.completedDate || t.finishedAt);
         
         // Check if task completion falls within selected date range
         let completedInPayPeriod = isCompleted;

@@ -1181,7 +1181,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
       const hasCompletedInRange = tasks.some(t => {
         const completed = isTaskCompleted(t);
         if (!completed) return false;
-        const cDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt || t.closedAt);
+        const cDate = parseSafeDate(t.completedAt || t.completedDate || t.finishedAt);
         if (cDate) {
           const afterStart = !dateRange.start || cDate >= dateRange.start;
           const beforeEnd = !dateRange.end || cDate <= dateRange.end;
@@ -1221,7 +1221,7 @@ export function YellowSheets({ tenantId }: YellowSheetsProps) {
 
       tasks.forEach(t => {
         const completed = isTaskCompleted(t);
-        const compDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt || t.closedAt);
+        const compDate = parseSafeDate(t.completedAt || t.completedDate || t.finishedAt);
 
         // Check if this task was completed within the selected pay period date range
         let completedInPayPeriod = false;

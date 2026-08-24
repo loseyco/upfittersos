@@ -95,9 +95,9 @@ const calculateBreaksMs = (session: any) => {
   }, 0);
 };
 
-// Parse task completed date safely
+// Parse task completed date safely - Strictly based on floor completion, never QC inspection timestamp
 const getCompletedDateMs = (t: any) => {
-  const val = t.completedAt || t.qcCompletedAt || t.updatedAt;
+  const val = t.completedAt || t.completedDate || t.finishedAt;
   if (!val) return null;
   if (val.seconds !== undefined) return val.seconds * 1000;
   if (val.toDate !== undefined) return val.toDate().getTime();

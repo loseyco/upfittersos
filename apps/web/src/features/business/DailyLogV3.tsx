@@ -806,7 +806,7 @@ export function DailyLogV3({ tenantId }: DailyLogV3Props) {
         }
 
         // Event 1: Task Finished / Done
-        const compDate = parseSafeDate(t.completedAt || t.completedDate || t.qcCompletedAt || t.closedAt);
+        const compDate = parseSafeDate(t.completedAt || t.completedDate || t.finishedAt);
         if (isFinished && compDate && isSameSelectedDate(compDate)) {
           const staffInfo = resolveTaskStaff(t.completedByStaffId || t.completedBy || t.assignedTo, t.completedByStaffName);
           const rawStatus = (t.status || 'READY FOR QC').toUpperCase();
