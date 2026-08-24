@@ -1412,11 +1412,54 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                         (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffId || st.id === staffMember?.userId));
 
       if (isCompleter || isAssigned) {
-        const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
-        const splitPercent = t.splitPercent || (100 / assignedCount);
-        const shareRatio = (isCompleter && !isAssigned) ? 1 : (splitPercent / 100);
-        const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
-        periodBookMs += taskBookHours * 3600000;
+        let totalTaskClockedMs = 0;
+        let currentStaffTaskClockedMs = 0;
+
+        if (Array.isArray(sessions)) {
+          sessions.forEach((session: any) => {
+            const isCurrentTech = session.userId === staffId || session.userId === staffMember?.userId || session.userId === staffMember?.id;
+            (session.jobs || []).forEach((jTask: any) => {
+              if (jTask.taskId === t.id || jTask.id === t.id) {
+                const start = jTask.start?.toDate ? jTask.start.toDate().getTime() : new Date(jTask.start).getTime();
+                let endMs = Date.now();
+                if (jTask.end) {
+                  endMs = jTask.end.toDate ? jTask.end.toDate().getTime() : new Date(jTask.end).getTime();
+                } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+                  const clockOutVal = session.clockOut?.timestamp;
+                  if (clockOutVal) {
+                    endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+                  } else {
+                    const updatedVal = session.updatedAt || session.createdAt;
+                    endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+                  }
+                }
+                const dur = Math.max(0, endMs - start);
+                totalTaskClockedMs += dur;
+                if (isCurrentTech) {
+                  currentStaffTaskClockedMs += dur;
+                }
+              }
+            });
+          });
+        }
+
+        let shareRatio = 0;
+        if (totalTaskClockedMs > 0) {
+          shareRatio = currentStaffTaskClockedMs / totalTaskClockedMs;
+        } else {
+          if (isCompleter) {
+            shareRatio = 1;
+          } else if (isAssigned && !t.completedByStaffId && !t.completedByStaffName) {
+            const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
+            const splitPercent = t.splitPercent || (100 / assignedCount);
+            shareRatio = splitPercent / 100;
+          }
+        }
+
+        if (shareRatio > 0) {
+          const taskBookHours = (parseFloat(t.bookTime) || 0) * shareRatio;
+          periodBookMs += taskBookHours * 3600000;
+        }
       }
     });
 

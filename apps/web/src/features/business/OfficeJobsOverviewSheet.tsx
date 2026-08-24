@@ -2690,8 +2690,8 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                                 <span>⚠️ Blocked</span>
                               </button>
 
-                              {/* Hover Popover Modal */}
-                              <div className="hidden group-hover/blocker:block absolute left-0 top-full mt-1.5 z-50 w-72 bg-zinc-950/95 border border-rose-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
+                              {/* Hover Popover Modal (Opens UP to prevent bottom scrollbar overflow) */}
+                              <div className="hidden group-hover/blocker:block absolute left-0 bottom-full mb-1.5 z-50 w-72 bg-zinc-950/95 border border-rose-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
                                 <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
                                   <div className="flex items-center gap-1.5 text-xs font-black text-rose-400">
                                     <span>⚠️</span>
@@ -2749,8 +2749,8 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                                 <span>Parts Req ({row.partsRequestCount})</span>
                               </button>
 
-                              {/* Hover Popover Modal */}
-                              <div className="hidden group-hover/parts:block absolute left-0 top-full mt-1.5 z-50 w-80 bg-zinc-950/95 border border-amber-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
+                              {/* Hover Popover Modal (Opens UP to prevent bottom scrollbar overflow) */}
+                              <div className="hidden group-hover/parts:block absolute left-0 bottom-full mb-1.5 z-50 w-80 bg-zinc-950/95 border border-amber-500/40 rounded-xl p-3 shadow-2xl backdrop-blur-xl pointer-events-none">
                                 <div className="flex items-center justify-between border-b border-zinc-800 pb-1.5 mb-2">
                                   <div className="flex items-center gap-1.5 text-xs font-black text-amber-400">
                                     <Package className="w-3.5 h-3.5" />

@@ -2236,13 +2236,25 @@ export function JobDetailPageV3({
 
     try {
       const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, task.id);
+      
+      // If acting user is a manager checking off on behalf of assigned tech, credit assigned tech!
+      const assignedId = (Array.isArray(task.assignedStaffIds) && task.assignedStaffIds.length > 0)
+        ? task.assignedStaffIds[0]
+        : (task.assignedTechId || (Array.isArray(task.assignedStaff) && task.assignedStaff[0]?.id) || task.assignedTo);
+      const assignedName = task.assignedTechName || (Array.isArray(task.assignedStaff) && task.assignedStaff[0]?.name);
+
+      const targetCompleterId = isAssigned ? effectiveStaffId : (assignedId || effectiveStaffId);
+      const targetCompleterName = isAssigned ? effectiveStaffName : (assignedName || effectiveStaffName);
+
       await updateDoc(taskRef, {
         status: nextStatus,
         updatedAt: serverTimestamp(),
         completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
-        completedBy: effectiveStaffName,
-        completedByStaffId: effectiveStaffId,
-        completedByStaffName: effectiveStaffName
+        completedBy: targetCompleterName,
+        completedByStaffId: targetCompleterId,
+        completedByStaffName: targetCompleterName,
+        closedByStaffId: effectiveStaffId,
+        closedByStaffName: effectiveStaffName
       });
 
       // Write to history audit log

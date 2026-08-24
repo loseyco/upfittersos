@@ -1323,15 +1323,29 @@ export function JobEditPage({ tenantId }: { tenantId: string }) {
             if (!task?.completedAt) {
               updateObj.completedAt = new Date().toISOString();
             }
-            updateObj.completedBy = user?.displayName || user?.email;
-            updateObj.completedByStaffId = user?.uid;
-            updateObj.completedByStaffName = user?.displayName || user?.email || 'Staff';
+            const assignedId = (Array.isArray(task?.assignedStaffIds) && task.assignedStaffIds.length > 0)
+              ? task.assignedStaffIds[0]
+              : (task?.assignedTechId || (Array.isArray(task?.assignedStaff) && task.assignedStaff[0]?.id) || task?.assignedTo);
+            const assignedName = task?.assignedTechName || (Array.isArray(task?.assignedStaff) && task.assignedStaff[0]?.name);
+
+            const completerId = assignedId || user?.uid;
+            const completerName = assignedName || user?.displayName || user?.email || 'Staff';
+            updateObj.completedBy = completerName;
+            updateObj.completedByStaffId = completerId;
+            updateObj.completedByStaffName = completerName;
           } else if (value === 'QC Complete') {
             updateObj.qcCompletedAt = new Date().toISOString();
             updateObj.qcCompletedBy = user?.displayName || user?.email;
             if (!task?.completedByStaffId) {
-              updateObj.completedByStaffId = user?.uid;
-              updateObj.completedByStaffName = user?.displayName || user?.email || 'Staff';
+              const assignedId = (Array.isArray(task?.assignedStaffIds) && task.assignedStaffIds.length > 0)
+                ? task.assignedStaffIds[0]
+                : (task?.assignedTechId || (Array.isArray(task?.assignedStaff) && task.assignedStaff[0]?.id) || task?.assignedTo);
+              const assignedName = task?.assignedTechName || (Array.isArray(task?.assignedStaff) && task.assignedStaff[0]?.name);
+              if (assignedId) {
+                updateObj.completedBy = assignedName || 'Technician';
+                updateObj.completedByStaffId = assignedId;
+                updateObj.completedByStaffName = assignedName || 'Technician';
+              }
             }
           } else if (value === 'pending') {
             updateObj.completedAt = null;

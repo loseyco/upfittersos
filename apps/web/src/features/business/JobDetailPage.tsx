@@ -1206,8 +1206,14 @@ export function JobDetailPage({
         updateData.closedByStaffId = staffMember?.id || effectiveUserId;
         updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
         
-        const completingId = staffMember?.id || effectiveUserId;
-        const completingName = staffMember?.name || user?.displayName || user?.email || 'Technician';
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+          ? existingTask.assignedStaffIds[0]
+          : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+        const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+
+        const completingId = assignedId || staffMember?.id || effectiveUserId;
+        const completingName = assignedName || staffMember?.name || user?.displayName || user?.email || 'Technician';
         updateData.completedBy = completingName;
         updateData.completedByStaffId = completingId;
         updateData.completedByStaffName = completingName;
@@ -1218,11 +1224,19 @@ export function JobDetailPage({
         updateData.closedByStaffId = staffMember?.id || effectiveUserId;
         updateData.closedByStaffName = staffMember?.name || user?.displayName || user?.email || 'Staff';
         
-        const completingId = staffMember?.id || effectiveUserId;
-        const completingName = staffMember?.name || user?.displayName || user?.email || 'Technician';
-        updateData.completedBy = completingName;
-        updateData.completedByStaffId = completingId;
-        updateData.completedByStaffName = completingName;
+        // Never overwrite completedByStaffId with the QC Inspector!
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        if (!existingTask?.completedByStaffId) {
+          const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+            ? existingTask.assignedStaffIds[0]
+            : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+          const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+          if (assignedId) {
+            updateData.completedBy = assignedName || 'Technician';
+            updateData.completedByStaffId = assignedId;
+            updateData.completedByStaffName = assignedName || 'Technician';
+          }
+        }
       } else if (nextStatus === 'Rework') {
         updateData.qcFailedAt = new Date().toISOString();
         updateData.qcFailedBy = user?.displayName || user?.email;

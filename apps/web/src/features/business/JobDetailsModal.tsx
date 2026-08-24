@@ -6908,10 +6908,15 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
         updatedData.closedByStaffId = user?.uid;
         updatedData.closedByStaffName = user?.displayName || user?.email || 'Staff';
         const existingTask = (tasks || []).find((t: any) => t.id === taskId);
-        if (!existingTask?.completedByStaffId && !existingTask?.assignedTo) {
-          updatedData.completedBy = user?.displayName || user?.email;
-          updatedData.completedByStaffId = user?.uid;
-          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+          ? existingTask.assignedStaffIds[0]
+          : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+        const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+
+        if (!existingTask?.completedByStaffId && assignedId) {
+          updatedData.completedBy = assignedName || 'Technician';
+          updatedData.completedByStaffId = assignedId;
+          updatedData.completedByStaffName = assignedName || 'Technician';
         }
       } else if (updates.status === 'QC Complete') {
         updatedData.qcCompletedAt = new Date().toISOString();
@@ -6920,9 +6925,15 @@ function BetaJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsMod
         updatedData.closedByStaffId = user?.uid;
         updatedData.closedByStaffName = user?.displayName || user?.email || 'Staff';
         const existingTask = (tasks || []).find((t: any) => t.id === taskId);
-        if (!existingTask?.completedByStaffId && !existingTask?.assignedTo) {
-          updatedData.completedByStaffId = user?.uid;
-          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+          ? existingTask.assignedStaffIds[0]
+          : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+        const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+
+        if (!existingTask?.completedByStaffId && assignedId) {
+          updatedData.completedBy = assignedName || 'Technician';
+          updatedData.completedByStaffId = assignedId;
+          updatedData.completedByStaffName = assignedName || 'Technician';
         }
       }
       await updateDoc(taskRef, updatedData);
@@ -28238,16 +28249,31 @@ function LegacyJobDetailsModal({ tenantId, job, onClose, onUpdate }: JobDetailsM
         if (!updatedData.completedAt) {
           updatedData.completedAt = new Date().toISOString();
         }
-        updatedData.completedBy = user?.displayName || user?.email;
-        updatedData.completedByStaffId = user?.uid;
-        updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+        const existingTask = (tasks || []).find((t: any) => t.id === taskId);
+        const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+          ? existingTask.assignedStaffIds[0]
+          : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+        const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+
+        const completerId = assignedId || user?.uid;
+        const completerName = assignedName || user?.displayName || user?.email || 'Staff';
+        updatedData.completedBy = completerName;
+        updatedData.completedByStaffId = completerId;
+        updatedData.completedByStaffName = completerName;
       } else if (updates.status === 'QC Complete') {
         updatedData.qcCompletedAt = new Date().toISOString();
         updatedData.qcCompletedBy = user?.displayName || user?.email;
         const existingTask = (tasks || []).find((t: any) => t.id === taskId);
         if (!existingTask?.completedByStaffId) {
-          updatedData.completedByStaffId = user?.uid;
-          updatedData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+          const assignedId = (Array.isArray(existingTask?.assignedStaffIds) && existingTask.assignedStaffIds.length > 0)
+            ? existingTask.assignedStaffIds[0]
+            : (existingTask?.assignedTechId || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.id) || existingTask?.assignedTo);
+          const assignedName = existingTask?.assignedTechName || (Array.isArray(existingTask?.assignedStaff) && existingTask.assignedStaff[0]?.name);
+          if (assignedId) {
+            updatedData.completedBy = assignedName || 'Technician';
+            updatedData.completedByStaffId = assignedId;
+            updatedData.completedByStaffName = assignedName || 'Technician';
+          }
         }
       }
       await updateDoc(taskRef, updatedData);

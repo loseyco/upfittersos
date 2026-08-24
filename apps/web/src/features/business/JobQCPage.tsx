@@ -43,6 +43,11 @@ interface Task {
   qcCompletedBy?: string;
   qcFailedAt?: string;
   qcFailedBy?: string;
+  assignedStaffIds?: string[];
+  assignedStaff?: any[];
+  assignedTechId?: string;
+  assignedTechName?: string;
+  assignedTo?: string;
   task_notes?: TaskNote[];
 }
 
@@ -340,9 +345,17 @@ export function JobQCPage({
       if (nextStatus === 'QC Complete') {
         updateData.qcCompletedAt = new Date().toISOString();
         updateData.qcCompletedBy = user?.displayName || user?.email || 'QC Inspector';
+        // If task didn't already have completedByStaffId, credit the assigned technician, NEVER the QC Inspector!
         if (!selectedTask.completedByStaffId) {
-          updateData.completedByStaffId = user?.uid || '';
-          updateData.completedByStaffName = user?.displayName || user?.email || 'Staff';
+          const assignedId = (Array.isArray(selectedTask.assignedStaffIds) && selectedTask.assignedStaffIds.length > 0)
+            ? selectedTask.assignedStaffIds[0]
+            : (selectedTask.assignedTechId || (Array.isArray(selectedTask.assignedStaff) && selectedTask.assignedStaff[0]?.id) || selectedTask.assignedTo);
+          
+          if (assignedId) {
+            updateData.completedByStaffId = assignedId;
+            updateData.completedByStaffName = selectedTask.assignedTechName || (Array.isArray(selectedTask.assignedStaff) && selectedTask.assignedStaff[0]?.name) || 'Technician';
+            updateData.completedBy = updateData.completedByStaffName;
+          }
         }
       } else {
         updateData.qcFailedAt = new Date().toISOString();
