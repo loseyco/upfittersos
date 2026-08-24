@@ -1121,10 +1121,11 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
         currentJob = jobs.find(j => j.id === session.activeJobId);
       }
 
-      const jobNumber = currentJob ? (currentJob.jobNumber || currentJob.number || 'N/A') : (activeJobSegment?.jobNumber || null);
+      const rawJobNumber = currentJob ? (currentJob.jobNumber || currentJob.number) : (activeJobSegment?.jobNumber || activeJobSegment?.id);
+      const cleanJobNumber = (rawJobNumber && rawJobNumber !== 'N/A' && !String(rawJobNumber).startsWith('zone_')) ? String(rawJobNumber) : null;
       const customerName = currentJob ? (currentJob.customerName || currentJob.customer || '') : (activeJobSegment?.customerName || '');
       const taskTitle = currentTask ? (currentTask.name || currentTask.title || '') : (activeJobSegment?.taskTitle || activeJobSegment?.taskName || null);
-      const bayOrSpot = currentJob?.bayId || currentJob?.parkingSpot || currentJob?.location || null;
+      const isWorkingOnJob = Boolean(activeJobSegment || cleanJobNumber || currentJob);
 
       const clockInDate = parseSafeDate(session.clockIn?.timestamp || session.clockIn?.time || session.clockIn || session.startTime);
       const clockInTimeStr = clockInDate ? clockInDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
@@ -1134,7 +1135,7 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
       if (isOnBreak) {
         const breakStartDate = parseSafeDate(activeBreak?.start || activeBreak?.startTime);
         durationStr = formatElapsedDuration(breakStartDate, nowTime);
-      } else if (jobNumber) {
+      } else if (isWorkingOnJob) {
         const taskStartDate = parseSafeDate(activeJobSegment?.start || activeJobSegment?.startTime || clockInDate);
         durationStr = formatElapsedDuration(taskStartDate, nowTime);
       } else {
@@ -1142,14 +1143,13 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
       }
 
       list.push({
-        status: isOnBreak ? 'break' : jobNumber ? 'working' : 'floor',
+        status: isOnBreak ? 'break' : isWorkingOnJob ? 'working' : 'floor',
         staffName,
         isOnBreak,
         breakType,
-        jobNumber,
+        jobNumber: cleanJobNumber,
         customerName,
         taskTitle,
-        bayOrSpot,
         clockInTimeStr,
         durationStr,
         clockOutTimeStr: null,
@@ -2583,26 +2583,18 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                     )}
                   </span>
                 ) : st.status === 'working' ? (
-                  <div className="inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap">
-                    <span className="font-mono font-black text-indigo-400 bg-indigo-500/10 px-1 py-0.2 rounded border border-indigo-500/20 text-[9px]">
-                      #{st.jobNumber}
-                    </span>
-                    {st.taskTitle ? (
-                      <span className="text-zinc-300 font-semibold truncate max-w-[130px] text-[10px]" title={st.taskTitle}>
-                        {st.taskTitle}
+                  <div className="inline-flex items-center gap-1 text-[11px] whitespace-nowrap">
+                    {st.jobNumber ? (
+                      <span className="font-mono font-black text-indigo-300 bg-indigo-500/15 px-1.5 py-0.2 rounded border border-indigo-500/25 text-[10px]">
+                        #{st.jobNumber}
                       </span>
                     ) : (
-                      <span className="text-zinc-400 text-[10px] truncate max-w-[110px]">
-                        {st.customerName}
-                      </span>
-                    )}
-                    {st.bayOrSpot && (
-                      <span className="text-zinc-500 font-mono text-[9px]">
-                        ({st.bayOrSpot})
+                      <span className="font-bold text-indigo-300 text-[10px]">
+                        Active
                       </span>
                     )}
                     {st.durationStr && (
-                      <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20 inline-flex items-center gap-0.5" title="Time spent on this task">
+                      <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/10 px-1 py-0.2 rounded border border-amber-500/20 inline-flex items-center gap-0.5" title="Time on active job">
                         <span>⏱️</span>
                         <span>{st.durationStr}</span>
                       </span>
