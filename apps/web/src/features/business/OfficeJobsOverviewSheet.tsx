@@ -13,11 +13,13 @@ import {
   FileText, Image as ImageIcon, Plus,
   Camera, MessageSquare, Send, Trash2,
   Eye, User, Maximize2, Minimize2, Package,
-  RotateCcw, MapPin, Warehouse, CheckCircle2, X, Pencil
+  RotateCcw, MapPin, Warehouse, CheckCircle2, X, Pencil,
+  Printer
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { toast } from 'sonner';
 import { submitAuditLog } from '../../lib/logging/audit';
+import { JobDetailsReportPrintModal } from '../../components/JobDetailsReportPrintModal';
 
 interface OfficeJobsOverviewSheetProps {
   tenantId: string;
@@ -280,6 +282,28 @@ export function OfficeJobsOverviewSheet({ tenantId }: OfficeJobsOverviewSheetPro
   // Parts Requested & Blockers Inspector Modal States
   const [viewingPartsModalJob, setViewingPartsModalJob] = useState<any | null>(null);
   const [viewingBlockerModalJob, setViewingBlockerModalJob] = useState<any | null>(null);
+
+  // 🖨️ Print Job Details Report Modal State
+  const [printJobModalData, setPrintJobModalData] = useState<{
+    isOpen: boolean;
+    jobId: string;
+    jobData?: any;
+  }>({
+    isOpen: false,
+    jobId: ''
+  });
+
+  const handleOpenPrintJobModal = (job: any, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setPrintJobModalData({
+      isOpen: true,
+      jobId: job.id,
+      jobData: job
+    });
+  };
 
   // Opened Job Popup Windows Map (Re-clicking focuses the window up front without losing background sheet)
   const openedWindowsRef = useRef<Record<string, Window>>({});
@@ -2453,22 +2477,34 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                       )}
                     </td>
 
-                    {/* 7. Action Button */}
+                    {/* 7. Action Buttons */}
                     <td className="py-1 px-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => handleCustomerPickedUp(row, e)}
-                        disabled={isPickingUpJobId === row.id}
-                        className="h-6 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider inline-flex items-center gap-1.5 shadow-sm shadow-emerald-600/25 active:scale-95 cursor-pointer disabled:opacity-50"
-                        title="Mark as customer picked up (clears bay/parking spot & completes job)"
-                      >
-                        {isPickingUpJobId === row.id ? (
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Check className="w-3 h-3" />
-                        )}
-                        <span>Customer Picked Up</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenPrintJobModal(row, e)}
+                          className="h-6 px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 hover:text-indigo-300 text-zinc-300 border border-zinc-700 font-bold text-xs inline-flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer"
+                          title="Print Job Details Report"
+                        >
+                          <Printer className="w-3 h-3" />
+                          <span className="hidden sm:inline">Print</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleCustomerPickedUp(row, e)}
+                          disabled={isPickingUpJobId === row.id}
+                          className="h-6 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider inline-flex items-center gap-1.5 shadow-sm shadow-emerald-600/25 active:scale-95 cursor-pointer disabled:opacity-50"
+                          title="Mark as customer picked up (clears bay/parking spot & completes job)"
+                        >
+                          {isPickingUpJobId === row.id ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Check className="w-3 h-3" />
+                          )}
+                          <span>Customer Picked Up</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -3013,15 +3049,27 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                             </span>
                           )}
 
-                          {canViewJobs && (
-                            <span 
-                              onClick={(e) => openJobInWindow(row.id, e)}
-                              className="text-[10px] font-bold text-indigo-400 group-hover:text-indigo-300 flex items-center gap-0.5 cursor-pointer"
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenPrintJobModal(row, e)}
+                              className="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-zinc-700 hover:text-indigo-300 text-zinc-300 border border-zinc-700 text-[10px] font-bold inline-flex items-center gap-1 transition shadow-sm active:scale-95 cursor-pointer"
+                              title="Print Job Details Report"
                             >
-                              <span>Open</span>
-                              <ChevronRight className="w-3 h-3" />
-                            </span>
-                          )}
+                              <Printer className="w-3 h-3" />
+                              <span>Print</span>
+                            </button>
+
+                            {canViewJobs && (
+                              <span 
+                                onClick={(e) => openJobInWindow(row.id, e)}
+                                className="text-[10px] font-bold text-indigo-400 group-hover:text-indigo-300 flex items-center gap-0.5 cursor-pointer hover:underline"
+                              >
+                                <span>Open</span>
+                                <ChevronRight className="w-3 h-3" />
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -3154,16 +3202,26 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
                             <span>Undo "With Customer"</span>
                           </button>
 
-                          {canViewJobs && (
                             <button
                               type="button"
-                              onClick={(e) => openJobInWindow(row.id, e)}
-                              className="h-7 px-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80 text-xs font-bold inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                              onClick={(e) => handleOpenPrintJobModal(row, e)}
+                              className="h-7 px-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 hover:text-indigo-300 text-zinc-300 border border-zinc-700/80 text-xs font-bold inline-flex items-center gap-1.5 transition active:scale-95 cursor-pointer shadow-sm"
+                              title="Print Job Details Report"
                             >
-                              <Eye className="w-3 h-3 text-indigo-400" />
-                              <span>View</span>
+                              <Printer className="w-3.5 h-3.5" />
+                              <span>Print</span>
                             </button>
-                          )}
+
+                            {canViewJobs && (
+                              <button
+                                type="button"
+                                onClick={(e) => openJobInWindow(row.id, e)}
+                                className="h-7 px-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/80 text-xs font-bold inline-flex items-center gap-1 transition active:scale-95 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3 text-indigo-400" />
+                                <span>View</span>
+                              </button>
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -4310,6 +4368,19 @@ function formatElapsedDuration(startDate: Date | null, targetDate: Date = new Da
             </div>
           </div>
         </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 🖨️ JOB DETAILS REPORT PRINT MODAL (1-Click Print From Overview Sheet)     */}
+      {/* ========================================================================= */}
+      {printJobModalData.isOpen && (
+        <JobDetailsReportPrintModal
+          isOpen={printJobModalData.isOpen}
+          onClose={() => setPrintJobModalData({ isOpen: false, jobId: '' })}
+          jobId={printJobModalData.jobId}
+          tenantId={tenantId}
+          initialJobData={printJobModalData.jobData}
+        />
       )}
 
     </div>
