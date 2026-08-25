@@ -99,6 +99,7 @@ import { TelemetryDashboard } from './TelemetryDashboard';
 import { ProgressDigestV3 } from './ProgressDigestV3';
 import { DailyLogV3 } from './DailyLogV3';
 import { YellowSheets } from './YellowSheets';
+import { TaskCompletionAudit } from './TaskCompletionAudit';
 import { WireScanPage } from './WireScanPage';
 import { PageAnalyticsDashboard } from './PageAnalyticsDashboard';
 import { usePageAnalytics } from '../../lib/telemetry/usePageAnalytics';
@@ -1009,6 +1010,12 @@ export function TenantDashboard() {
             {(activeTab === 'daily_log' || activeTab === 'daily_log_v3') && (
               <PermissionGate permissions={['office.view', 'foreman.view', 'development.view']}>
                 <DailyLogV3 tenantId={tenantId!} />
+              </PermissionGate>
+            )}
+
+            {(activeTab === 'completed_tasks' || activeTab === 'completed-tasks' || activeTab === 'task_completions') && (
+              <PermissionGate permissions={['payroll.view', 'timeclock.view', 'jobs.view', 'office.view', 'foreman.view', 'development.view']}>
+                <TaskCompletionAudit />
               </PermissionGate>
             )}
 

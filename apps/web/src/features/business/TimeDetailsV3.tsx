@@ -1402,14 +1402,22 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       const compMs = getCompletedDateMs(t);
       if (!compMs || compMs < startOfWeekMs || compMs > endOfWeekMs) return;
 
-      const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
-      const sName = (staffMember?.name || staffMember?.displayName || '').trim().toLowerCase();
+      const staffDocId = staffMember?.id;
+      const staffAuthId = staffMember?.userId || effectiveUserUid;
+      const sFullName = `${staffMember?.firstName || ''} ${staffMember?.lastName || ''}`.trim().toLowerCase();
+      const sName = (staffMember?.name || staffMember?.displayName || sFullName || '').trim().toLowerCase();
       
-      const isCompleter = (t.completedByStaffId && (t.completedByStaffId === staffId || t.completedByStaffId === staffMember?.userId)) ||
-                        (t.completedByStaffName && t.completedByStaffName.trim().toLowerCase() === sName);
+      const isCompleter = Boolean(
+        (t.completedByStaffId && (t.completedByStaffId === staffDocId || t.completedByStaffId === staffAuthId)) ||
+        (t.completedByStaffName && (t.completedByStaffName.trim().toLowerCase() === sName || (sFullName && t.completedByStaffName.trim().toLowerCase() === sFullName))) ||
+        (t.completedBy && (t.completedBy.trim().toLowerCase() === sName || (sFullName && t.completedBy.trim().toLowerCase() === sFullName)))
+      );
 
-      const isAssigned = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.includes(staffId)) ||
-                        (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffId || st.id === staffMember?.userId));
+      const isAssigned = Boolean(
+        (Array.isArray(t.assignedStaffIds) && (t.assignedStaffIds.includes(staffDocId) || t.assignedStaffIds.includes(staffAuthId))) ||
+        (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffDocId || st.id === staffAuthId || st.userId === staffAuthId)) ||
+        (t.assignedTechName && (t.assignedTechName.trim().toLowerCase() === sName || (sFullName && t.assignedTechName.trim().toLowerCase() === sFullName)))
+      );
 
       if (isCompleter || isAssigned) {
         let totalTaskClockedMs = 0;
@@ -1417,7 +1425,7 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
 
         if (Array.isArray(sessions)) {
           sessions.forEach((session: any) => {
-            const isCurrentTech = session.userId === staffId || session.userId === staffMember?.userId || session.userId === staffMember?.id;
+            const isCurrentTech = session.userId === staffDocId || session.userId === staffAuthId;
             (session.jobs || []).forEach((jTask: any) => {
               if (jTask.taskId === t.id || jTask.id === t.id) {
                 const start = jTask.start?.toDate ? jTask.start.toDate().getTime() : new Date(jTask.start).getTime();
@@ -1444,14 +1452,18 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
         }
 
         let shareRatio = 0;
-        if (totalTaskClockedMs > 0) {
+        if (totalTaskClockedMs > 0 && currentStaffTaskClockedMs > 0) {
           shareRatio = currentStaffTaskClockedMs / totalTaskClockedMs;
         } else {
+          // If 0 clocked time recorded by this tech, credit based on completion or assignment split
+          const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) 
+            ? t.assignedStaff.length 
+            : (t.assignedStaffIds?.length || 1);
+          const splitPercent = t.splitPercent || (100 / Math.max(1, assignedCount));
+
           if (isCompleter) {
-            shareRatio = 1;
-          } else if (isAssigned && !t.completedByStaffId && !t.completedByStaffName) {
-            const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
-            const splitPercent = t.splitPercent || (100 / assignedCount);
+            shareRatio = isAssigned ? (splitPercent / 100) : 1;
+          } else if (isAssigned) {
             shareRatio = splitPercent / 100;
           }
         }
@@ -2310,62 +2322,70 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
                const zone = zones.find(z => z.id === fullJob?.bayId);
                const bayName = zone?.name || fullJob?.zoneName || '';
 
-                const staffId = staffMember?.id || staffMember?.userId || effectiveUserUid;
-                const sName = (staffMember?.name || staffMember?.displayName || '').trim().toLowerCase();
-
-                const isCompleter = (t.completedByStaffId && (t.completedByStaffId === staffId || t.completedByStaffId === staffMember?.userId)) ||
-                                  (t.completedByStaffName && t.completedByStaffName.trim().toLowerCase() === sName);
-
-                const isAssigned = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.includes(staffId)) ||
-                                  (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffId || st.id === staffMember?.userId));
-
-                 // Calculate actual logged labor milliseconds for current staff vs all staff on this task
-                 let totalTaskClockedMs = 0;
-                 let currentStaffTaskClockedMs = 0;
-
-                 if (Array.isArray(sessions)) {
-                   sessions.forEach((session: any) => {
-                     const isCurrentTech = session.userId === staffId || session.userId === staffMember?.userId || session.userId === staffMember?.id;
-                     (session.jobs || []).forEach((jTask: any) => {
-                       if (jTask.taskId === t.id || jTask.id === t.id) {
-                         const start = jTask.start?.toDate ? jTask.start.toDate().getTime() : new Date(jTask.start).getTime();
-                         let endMs = Date.now();
-                         if (jTask.end) {
-                           endMs = jTask.end.toDate ? jTask.end.toDate().getTime() : new Date(jTask.end).getTime();
-                         } else if (session.status === 'completed' || session.clockOut?.timestamp) {
-                           const clockOutVal = session.clockOut?.timestamp;
-                           if (clockOutVal) {
-                             endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
-                           } else {
-                             const updatedVal = session.updatedAt || session.createdAt;
-                             endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
-                           }
-                         }
-                         const dur = Math.max(0, endMs - start);
-                         totalTaskClockedMs += dur;
-                         if (isCurrentTech) {
-                           currentStaffTaskClockedMs += dur;
-                         }
-                       }
-                     });
-                   });
-                 }
-
-                 let shareRatio = 0;
-                 if (totalTaskClockedMs > 0) {
-                   // Labor sessions exist for this task: credit is split strictly by actual clocked time!
-                   // If current staff clocked 0 mins on this task, shareRatio is 0!
-                   shareRatio = currentStaffTaskClockedMs / totalTaskClockedMs;
-                 } else {
-                   // No clocked labor sessions recorded for this task:
-                   if (isCompleter) {
-                     shareRatio = 1;
-                   } else if (isAssigned && !t.completedByStaffId && !t.completedByStaffName) {
-                     const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) ? t.assignedStaff.length : (t.assignedStaffIds?.length || 1);
-                     const splitPercent = t.splitPercent || (100 / assignedCount);
-                     shareRatio = splitPercent / 100;
-                   }
-                 }
+                 const staffDocId = staffMember?.id;
+                 const staffAuthId = staffMember?.userId || effectiveUserUid;
+                 const sFullName = `${staffMember?.firstName || ''} ${staffMember?.lastName || ''}`.trim().toLowerCase();
+                 const sName = (staffMember?.name || staffMember?.displayName || sFullName || '').trim().toLowerCase();
+ 
+                 const isCompleter = Boolean(
+                   (t.completedByStaffId && (t.completedByStaffId === staffDocId || t.completedByStaffId === staffAuthId)) ||
+                   (t.completedByStaffName && (t.completedByStaffName.trim().toLowerCase() === sName || (sFullName && t.completedByStaffName.trim().toLowerCase() === sFullName))) ||
+                   (t.completedBy && (t.completedBy.trim().toLowerCase() === sName || (sFullName && t.completedBy.trim().toLowerCase() === sFullName)))
+                 );
+ 
+                 const isAssigned = Boolean(
+                   (Array.isArray(t.assignedStaffIds) && (t.assignedStaffIds.includes(staffDocId) || t.assignedStaffIds.includes(staffAuthId))) ||
+                   (Array.isArray(t.assignedStaff) && t.assignedStaff.some((st: any) => st.id === staffDocId || st.id === staffAuthId || st.userId === staffAuthId)) ||
+                   (t.assignedTechName && (t.assignedTechName.trim().toLowerCase() === sName || (sFullName && t.assignedTechName.trim().toLowerCase() === sFullName)))
+                 );
+ 
+                  // Calculate actual logged labor milliseconds for current staff vs all staff on this task
+                  let totalTaskClockedMs = 0;
+                  let currentStaffTaskClockedMs = 0;
+ 
+                  if (Array.isArray(sessions)) {
+                    sessions.forEach((session: any) => {
+                      const isCurrentTech = session.userId === staffDocId || session.userId === staffAuthId;
+                      (session.jobs || []).forEach((jTask: any) => {
+                        if (jTask.taskId === t.id || jTask.id === t.id) {
+                          const start = jTask.start?.toDate ? jTask.start.toDate().getTime() : new Date(jTask.start).getTime();
+                          let endMs = Date.now();
+                          if (jTask.end) {
+                            endMs = jTask.end.toDate ? jTask.end.toDate().getTime() : new Date(jTask.end).getTime();
+                          } else if (session.status === 'completed' || session.clockOut?.timestamp) {
+                            const clockOutVal = session.clockOut?.timestamp;
+                            if (clockOutVal) {
+                              endMs = clockOutVal.toDate ? clockOutVal.toDate().getTime() : new Date(clockOutVal).getTime();
+                            } else {
+                              const updatedVal = session.updatedAt || session.createdAt;
+                              endMs = updatedVal?.toDate ? updatedVal.toDate().getTime() : new Date(updatedVal || start).getTime();
+                            }
+                          }
+                          const dur = Math.max(0, endMs - start);
+                          totalTaskClockedMs += dur;
+                          if (isCurrentTech) {
+                            currentStaffTaskClockedMs += dur;
+                          }
+                        }
+                      });
+                    });
+                  }
+ 
+                  let shareRatio = 0;
+                  if (totalTaskClockedMs > 0 && currentStaffTaskClockedMs > 0) {
+                    shareRatio = currentStaffTaskClockedMs / totalTaskClockedMs;
+                  } else {
+                    const assignedCount = (Array.isArray(t.assignedStaff) && t.assignedStaff.length > 0) 
+                      ? t.assignedStaff.length 
+                      : (t.assignedStaffIds?.length || 1);
+                    const splitPercent = t.splitPercent || (100 / Math.max(1, assignedCount));
+ 
+                    if (isCompleter) {
+                      shareRatio = isAssigned ? (splitPercent / 100) : 1;
+                    } else if (isAssigned) {
+                      shareRatio = splitPercent / 100;
+                    }
+                  }
 
                  if (shareRatio <= 0) return;
 

@@ -14,7 +14,7 @@ import {
   RefreshCw, ZoomIn, TrendingDown, TrendingUp, Activity, Search,
   CheckCircle2, Warehouse, LayoutDashboard, ClipboardCheck,
   Pencil, Trash2, Play, Square, CornerDownLeft,
-  Wrench, Clock, FileText, Users
+  Wrench, Clock, FileText, Users, ShieldCheck
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuthStore } from '../../lib/auth/store';
@@ -147,7 +147,7 @@ export function JobDetailPageV3({
 
   // Tab State
   const [activeTab, setActiveTab] = useState<
-    'overview' | 'tasks' | 'photos' | 'parts' | 'staff' | 'history' | 'chat' | 'takeoffs' | 'timelog' | 'telemetry'
+    'overview' | 'tasks' | 'qc' | 'photos' | 'parts' | 'staff' | 'history' | 'chat' | 'takeoffs' | 'timelog' | 'telemetry'
   >('overview');
   const [taskSubTab, setTaskSubTab] = useState<'tasks' | 'takeoffs'>('tasks');
   const [staffSubTab, setStaffSubTab] = useState<'roster' | 'timelog' | 'telemetry'>('roster');
@@ -278,7 +278,12 @@ export function JobDetailPageV3({
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
   
-  // QC Kickback Reason State
+  // QC System & Kickback Inspection States
+  const [qcFilter, setQcFilter] = useState<'all' | 'awaiting_qc' | 'qc_passed' | 'rework'>('all');
+  const [qcKickbackModalTask, setQcKickbackModalTask] = useState<any | null>(null);
+  const [qcKickbackTaskReason, setQcKickbackTaskReason] = useState('');
+  const [isQCPassingTaskId, setIsQCPassingTaskId] = useState<string | null>(null);
+  const [isBulkQCPassing, setIsBulkQCPassing] = useState(false);
   const [kickbackModalOpen, setKickbackModalOpen] = useState(false);
   const [kickbackReason, setKickbackReason] = useState('');
 
@@ -2286,6 +2291,164 @@ export function JobDetailPageV3({
     }
   };
 
+  // QC System Action Handlers
+  const handlePassTaskQC = async (t: any) => {
+    if (!tenantId || !jobId || !t.id) return;
+    setIsQCPassingTaskId(t.id);
+    try {
+      const inspectorName = effectiveStaffName || user?.displayName || user?.email || 'QC Inspector';
+      const inspectorUid = effectiveStaffId || user?.uid || 'inspector';
+
+      const updateData: any = {
+        status: 'QC Complete',
+        qcCompletedAt: new Date().toISOString(),
+        qcCompletedBy: inspectorName,
+        qcCompletedByStaffId: inspectorUid,
+        updatedAt: serverTimestamp()
+      };
+
+      // Preserve completing technician attribution if already completed
+      if (!t.completedByStaffId) {
+        const assignedId = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.length > 0)
+          ? t.assignedStaffIds[0]
+          : (t.assignedTechId || (Array.isArray(t.assignedStaff) && t.assignedStaff[0]?.id) || t.assignedTo);
+        if (assignedId) {
+          updateData.completedByStaffId = assignedId;
+          updateData.completedByStaffName = t.assignedTechName || (Array.isArray(t.assignedStaff) && t.assignedStaff[0]?.name) || 'Technician';
+          updateData.completedBy = updateData.completedByStaffName;
+        }
+      }
+
+      const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
+      await updateDoc(taskRef, updateData);
+
+      // Write to history audit log
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'qc_passed',
+        action: 'qc_passed',
+        title: `QC Passed: "${t.title}"`,
+        details: `Task inspection verified and signed off by ${inspectorName}`,
+        taskId: t.id,
+        user: inspectorName,
+        userName: inspectorName,
+        userId: inspectorUid,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      toast.success(`Task "${t.title}" QC Verified!`);
+    } catch (err: any) {
+      console.error("Failed to pass QC:", err);
+      toast.error(`QC Pass failed: ${err.message}`);
+    } finally {
+      setIsQCPassingTaskId(null);
+    }
+  };
+
+  const handleBulkPassAllQC = async () => {
+    if (!tenantId || !jobId || tasks.length === 0) return;
+    const pendingQCTasks = tasks.filter(t => ['completed', 'QC'].includes(t.status) && !t.qcCompletedAt && t.status !== 'QC Complete');
+    if (pendingQCTasks.length === 0) {
+      toast.info("All completed tasks are already QC verified!");
+      return;
+    }
+
+    setIsBulkQCPassing(true);
+    const inspectorName = effectiveStaffName || user?.displayName || user?.email || 'QC Inspector';
+    const inspectorUid = effectiveStaffId || user?.uid || 'inspector';
+
+    try {
+      for (const t of pendingQCTasks) {
+        const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, t.id);
+        const updateData: any = {
+          status: 'QC Complete',
+          qcCompletedAt: new Date().toISOString(),
+          qcCompletedBy: inspectorName,
+          qcCompletedByStaffId: inspectorUid,
+          updatedAt: serverTimestamp()
+        };
+        if (!t.completedByStaffId) {
+          const assignedId = (Array.isArray(t.assignedStaffIds) && t.assignedStaffIds.length > 0)
+            ? t.assignedStaffIds[0]
+            : (t.assignedTechId || (Array.isArray(t.assignedStaff) && t.assignedStaff[0]?.id) || t.assignedTo);
+          if (assignedId) {
+            updateData.completedByStaffId = assignedId;
+            updateData.completedByStaffName = t.assignedTechName || (Array.isArray(t.assignedStaff) && t.assignedStaff[0]?.name) || 'Technician';
+            updateData.completedBy = updateData.completedByStaffName;
+          }
+        }
+        await updateDoc(taskRef, updateData);
+      }
+
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'qc_bulk_passed',
+        action: 'qc_bulk_passed',
+        title: `Bulk QC Verification: ${pendingQCTasks.length} tasks passed`,
+        details: `All ${pendingQCTasks.length} completed tasks verified by ${inspectorName}`,
+        user: inspectorName,
+        userName: inspectorName,
+        userId: inspectorUid,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      toast.success(`QC Passed all ${pendingQCTasks.length} completed tasks!`);
+    } catch (err: any) {
+      console.error("Bulk QC error:", err);
+      toast.error(`Bulk QC failed: ${err.message}`);
+    } finally {
+      setIsBulkQCPassing(false);
+    }
+  };
+
+  const handleConfirmTaskKickback = async () => {
+    if (!tenantId || !jobId || !qcKickbackModalTask || !qcKickbackTaskReason.trim()) {
+      toast.error("Please enter a kickback reason.");
+      return;
+    }
+
+    try {
+      const inspectorName = effectiveStaffName || user?.displayName || user?.email || 'QC Inspector';
+      const inspectorUid = effectiveStaffId || user?.uid || 'inspector';
+
+      const taskRef = doc(db, `businesses/${tenantId}/jobs/${jobId}/tasks`, qcKickbackModalTask.id);
+      
+      const newNote = {
+        id: crypto.randomUUID(),
+        message: `[QC KICKBACK / REWORK NEEDED] ${qcKickbackTaskReason.trim()}`,
+        createdAt: new Date().toISOString(),
+        createdByUid: inspectorUid,
+        createdByName: inspectorName
+      };
+
+      await updateDoc(taskRef, {
+        status: 'in_progress',
+        qcFailedAt: new Date().toISOString(),
+        qcFailedBy: inspectorName,
+        qcKickbackReason: qcKickbackTaskReason.trim(),
+        task_notes: [...(qcKickbackModalTask.task_notes || []), newNote],
+        updatedAt: serverTimestamp()
+      });
+
+      await addDoc(collection(db, `businesses/${tenantId}/jobs/${jobId}/history`), {
+        type: 'qc_kickback',
+        action: 'qc_kickback',
+        title: `Task Kicked Back: "${qcKickbackModalTask.title}"`,
+        details: `Sent to rework by ${inspectorName}. Reason: ${qcKickbackTaskReason.trim()}`,
+        taskId: qcKickbackModalTask.id,
+        user: inspectorName,
+        userName: inspectorName,
+        userId: inspectorUid,
+        createdAt: serverTimestamp()
+      }).catch(() => {});
+
+      toast.error(`Task "${qcKickbackModalTask.title}" kicked back for rework`);
+      setQcKickbackModalTask(null);
+      setQcKickbackTaskReason('');
+    } catch (err: any) {
+      console.error("Kickback error:", err);
+      toast.error(`Failed to kick back task: ${err.message}`);
+    }
+  };
+
   // Auto Book-Time Lookup on Task Title Change
   const handleTaskTitleChange = (val: string) => {
     setNewTaskTitle(val);
@@ -2966,6 +3129,7 @@ export function JobDetailPageV3({
           {[
             { id: 'overview', label: 'Overview', icon: LayoutDashboard },
             { id: 'tasks', label: `Tasks (${tasks.length})`, icon: Layers },
+            { id: 'qc', label: `QC Gate (${tasks.filter(t => t.status === 'QC Complete' || Boolean(t.qcCompletedAt)).length}/${tasks.filter(t => ['completed', 'QC Complete', 'QC'].includes(t.status)).length})`, icon: ShieldCheck },
             { id: 'photos', label: `Photos (${nativePhotos.length + companyCamPhotos.length})`, icon: Camera },
             { id: 'parts', label: `Parts (${partsRequests.length})`, icon: Package },
             { id: 'staff', label: `Staff & Time (${staffRoster.length})`, icon: Timer },
@@ -3814,6 +3978,265 @@ export function JobDetailPageV3({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------------- */}
+        {/* TAB: QUALITY CONTROL (QC) INSPECTION SUITE                                 */}
+        {/* ------------------------------------------------------------------------- */}
+        {activeTab === 'qc' && (
+          <div className="space-y-6">
+            {/* QC Quality Gate Header Banner */}
+            <div className="p-5 rounded-3xl bg-zinc-900/80 border border-zinc-800/90 shadow-2xl backdrop-blur space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <ShieldCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-black text-white tracking-tight">Quality Control Inspection Gate</h2>
+                      <span className={cn(
+                        "text-[10px] font-black uppercase px-2 py-0.5 rounded-full border",
+                        tasks.filter(t => t.status === 'QC Complete' || Boolean(t.qcCompletedAt)).length === tasks.length && tasks.length > 0
+                          ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
+                          : "bg-amber-500/20 text-amber-400 border-amber-500/40"
+                      )}>
+                        {tasks.filter(t => t.status === 'QC Complete' || Boolean(t.qcCompletedAt)).length} of {tasks.length} Verified
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 font-medium mt-0.5">
+                      Verify technician workmanship, inspect completed tasks, issue rework kickbacks, and sign off for customer delivery.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bulk Actions */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleBulkPassAllQC}
+                    disabled={isBulkQCPassing || tasks.filter(t => ['completed', 'QC'].includes(t.status) && !t.qcCompletedAt && t.status !== 'QC Complete').length === 0}
+                    className="h-10 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-lg active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition cursor-pointer"
+                  >
+                    {isBulkQCPassing ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Bulk Pass Completed ({tasks.filter(t => ['completed', 'QC'].includes(t.status) && !t.qcCompletedAt && t.status !== 'QC Complete').length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (job.status === 'Ready for Customer') {
+                        toast.info("Job is already Ready for Customer");
+                        return;
+                      }
+                      try {
+                        await updateDoc(doc(db, `businesses/${tenantId}/jobs`, jobId), {
+                          status: 'Ready for Customer',
+                          readyForCustomerAt: new Date().toISOString(),
+                          readyForCustomerBy: effectiveStaffName,
+                          readyForCustomerById: effectiveStaffId,
+                          updatedAt: serverTimestamp()
+                        });
+                        toast.success("Job status set to Ready for Customer!");
+                      } catch (e: any) {
+                        toast.error(`Status update failed: ${e.message}`);
+                      }
+                    }}
+                    className="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-lg active:scale-95 transition cursor-pointer"
+                  >
+                    <ClipboardCheck className="w-3.5 h-3.5" />
+                    <span>Sign-Off: Ready for Customer</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Summary KPI Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-zinc-800/80">
+                <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/80">
+                  <div className="text-[10px] font-black uppercase text-zinc-500">Total Job Tasks</div>
+                  <div className="text-xl font-black text-white font-mono mt-0.5">{tasks.length}</div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/80">
+                  <div className="text-[10px] font-black uppercase text-emerald-400">QC Passed</div>
+                  <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">
+                    {tasks.filter(t => t.status === 'QC Complete' || Boolean(t.qcCompletedAt)).length}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/80">
+                  <div className="text-[10px] font-black uppercase text-amber-400">Awaiting QC</div>
+                  <div className="text-xl font-black text-amber-400 font-mono mt-0.5">
+                    {tasks.filter(t => ['completed', 'QC'].includes(t.status) && t.status !== 'QC Complete' && !t.qcCompletedAt).length}
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-zinc-950/60 border border-zinc-800/80">
+                  <div className="text-[10px] font-black uppercase text-rose-400">In Progress / Rework</div>
+                  <div className="text-xl font-black text-rose-400 font-mono mt-0.5">
+                    {tasks.filter(t => !['completed', 'QC Complete', 'QC'].includes(t.status)).length}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Toolbar */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 p-1 bg-zinc-900 border border-zinc-800 rounded-2xl">
+                {(['all', 'awaiting_qc', 'qc_passed', 'rework'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setQcFilter(f)}
+                    className={cn(
+                      "px-3.5 py-1.5 rounded-xl text-xs font-black transition capitalize active:scale-95 cursor-pointer",
+                      qcFilter === f ? "bg-zinc-800 text-white shadow-sm border border-zinc-700" : "text-zinc-400 hover:text-zinc-200"
+                    )}
+                  >
+                    {f === 'all' ? `All Tasks (${tasks.length})` :
+                     f === 'awaiting_qc' ? `🟡 Awaiting QC (${tasks.filter(t => ['completed', 'QC'].includes(t.status) && !t.qcCompletedAt && t.status !== 'QC Complete').length})` :
+                     f === 'qc_passed' ? `✅ QC Passed (${tasks.filter(t => t.status === 'QC Complete' || Boolean(t.qcCompletedAt)).length})` :
+                     `🔴 Incomplete / Rework (${tasks.filter(t => !['completed', 'QC Complete', 'QC'].includes(t.status)).length})`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* QC Tasks Deck */}
+            <div className="space-y-3">
+              {tasks
+                .filter(t => {
+                  const isDone = ['completed', 'QC Complete', 'QC'].includes(t.status);
+                  const isPass = t.status === 'QC Complete' || Boolean(t.qcCompletedAt);
+                  const isAwaiting = isDone && !isPass;
+                  const isRework = !isDone;
+
+                  if (qcFilter === 'awaiting_qc') return isAwaiting;
+                  if (qcFilter === 'qc_passed') return isPass;
+                  if (qcFilter === 'rework') return isRework;
+                  return true;
+                })
+                .map((t, idx) => {
+                  const isDone = ['completed', 'QC Complete', 'QC'].includes(t.status);
+                  const isPass = t.status === 'QC Complete' || Boolean(t.qcCompletedAt);
+                  const isKickback = t.qcFailedAt || t.qcKickbackReason;
+
+                  const booked = parseFloat(t.bookTime || t.hours || '0');
+                  const clockedMs = getTaskClockedMs(t.id);
+                  const clockedHours = clockedMs / 3600000;
+
+                  return (
+                    <div 
+                      key={t.id || `task_${idx}`}
+                      className={cn(
+                        "p-4 rounded-2xl border transition shadow-sm space-y-3",
+                        isPass 
+                          ? "bg-zinc-900/60 border-emerald-500/20 hover:border-emerald-500/40" 
+                          : isKickback 
+                            ? "bg-rose-950/20 border-rose-500/30" 
+                            : isDone 
+                              ? "bg-zinc-900/80 border-amber-500/20 hover:border-amber-500/40"
+                              : "bg-zinc-900/40 border-zinc-800/80 opacity-80"
+                      )}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-300">
+                              {t.category || t.department || t.taskGroup || 'GENERAL'}
+                            </span>
+                            <h4 className="text-sm font-black text-white truncate">
+                              {t.title || t.name || 'Task'}
+                            </h4>
+                            <span className="text-xs font-mono font-bold text-indigo-400">
+                              {booked.toFixed(1)}h Book
+                            </span>
+                            {clockedHours > 0 && (
+                              <span className="text-xs font-mono font-medium text-amber-400">
+                                • {clockedHours < 0.1 ? `${Math.round(clockedMs / 60000)}m` : `${clockedHours.toFixed(1)}h`} clocked
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-zinc-400 flex-wrap">
+                            <span>Tech: <strong className="text-zinc-200">{t.completedByStaffName || t.completedBy || t.assignedTechName || 'Assigned Tech'}</strong></span>
+                            {t.completedAt && (
+                              <span>• Completed: <strong className="text-zinc-300">{new Date(t.completedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</strong></span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Status Badge & QC Actions */}
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          {isPass ? (
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-black">
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>QC Passed</span>
+                            </div>
+                          ) : isDone ? (
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handlePassTaskQC(t)}
+                                disabled={isQCPassingTaskId === t.id}
+                                className="h-8 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer disabled:opacity-50"
+                              >
+                                {isQCPassingTaskId === t.id ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <ShieldCheck className="w-3.5 h-3.5" />
+                                )}
+                                <span>Pass QC</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQcKickbackModalTask(t);
+                                  setQcKickbackTaskReason('');
+                                }}
+                                className="h-8 px-3 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs inline-flex items-center gap-1.5 active:scale-95 cursor-pointer"
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                                <span>Kickback</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-bold text-zinc-500 italic px-2.5 py-1 rounded-lg bg-zinc-800/50">
+                              Task In Progress
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* QC Sign-off or Kickback reason display */}
+                      {isPass && t.qcCompletedBy && (
+                        <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 font-medium flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            Inspected and signed off by <strong>{t.qcCompletedBy}</strong> {t.qcCompletedAt ? `on ${new Date(t.qcCompletedAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+                          </span>
+                        </div>
+                      )}
+
+                      {isKickback && (
+                        <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 font-medium space-y-1">
+                          <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            Rework Required (Kicked back by {t.qcFailedBy || 'Inspector'}):
+                          </div>
+                          <p className="text-rose-200 italic pl-5">{t.qcKickbackReason || 'Please inspect wiring and mounting.'}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
           </div>
         )}
 
@@ -6827,6 +7250,62 @@ export function JobDetailPageV3({
                 className="h-10 px-5 bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs rounded-xl active:scale-95 transition"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TASK LEVEL QC KICKBACK MODAL */}
+      {qcKickbackModalTask && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <h3 className="text-xs font-black uppercase text-rose-400 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Task QC Kickback: {qcKickbackModalTask.title}</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setQcKickbackModalTask(null);
+                  setQcKickbackTaskReason('');
+                }}
+                className="w-7 h-7 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400">
+              Specify what failed inspection and what rework needs to be performed by the technician:
+            </p>
+
+            <textarea
+              rows={3}
+              value={qcKickbackTaskReason}
+              onChange={(e) => setQcKickbackTaskReason(e.target.value)}
+              placeholder="e.g. Wire routing pinch near console base bracket. Needs zip-tie anchor."
+              className="w-full p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-zinc-100 text-xs focus:border-rose-500 focus:outline-none resize-none"
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-800">
+              <button 
+                type="button"
+                onClick={() => {
+                  setQcKickbackModalTask(null);
+                  setQcKickbackTaskReason('');
+                }} 
+                className="h-10 px-4 text-xs font-bold text-zinc-400 hover:text-white cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={handleConfirmTaskKickback} 
+                className="h-10 px-5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl active:scale-95 shadow-md cursor-pointer"
+              >
+                Confirm Kickback & Send to Rework
               </button>
             </div>
           </div>

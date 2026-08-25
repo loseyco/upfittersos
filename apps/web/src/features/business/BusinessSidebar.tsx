@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Home, Users, Briefcase, Layers, Map,
   Layout, MessageSquare, Megaphone, Calendar, CalendarDays, RefreshCw, X, Settings, UserCog, Car, Package,
-  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert,
+  ClipboardList, PenTool, Wrench, Building2, Activity, Printer, ShieldCheck, ShieldAlert, CheckCircle2,
   Handshake, Monitor, FileSpreadsheet, QrCode, ChevronLeft, ChevronRight, Clock, Info,
   GraduationCap, LogIn, Pizza, BookOpen, BarChart3, Sliders, Smartphone,
   Code, Table, DollarSign
@@ -84,6 +84,7 @@ export const ITEMS: NavItem[] = [
 
   // Payroll Dept (Payroll & Time)
   { id: 'time_sheet', label: 'Time Clock Log', icon: FileSpreadsheet, hub: 'payroll', permissions: ['payroll.view', 'timeclock.view', 'timeclock.manage'] },
+  { id: 'completed_tasks', label: 'Completed Tasks & QC', icon: CheckCircle2, hub: 'payroll', permissions: ['payroll.view', 'timeclock.view', 'jobs.view'] },
   { id: 'yellowsheets', label: 'Yellow Sheets', icon: FileSpreadsheet, hub: 'payroll', permissions: ['payroll.view', 'yellow_sheets.view', 'yellow_sheets.manage'] },
   { id: 'live_timeclock', label: 'Live Timeclock', icon: Activity, hub: 'payroll', permissions: ['payroll.view', 'timeclock.view'] },
   { id: 'timeclock', label: 'Payroll & Attendance', icon: Clock, hub: 'payroll', permissions: ['payroll.view', 'timeclock.manage'] },
