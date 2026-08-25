@@ -95,13 +95,15 @@ const calculateBreaksMs = (session: any) => {
   }, 0);
 };
 
-// Parse task completed date safely - Strictly based on floor completion, never QC inspection timestamp
+// Parse task completed date safely - Floor completion timestamp with fallback to QC/update timestamp for completed tasks
 const getCompletedDateMs = (t: any) => {
-  const val = t.completedAt || t.completedDate || t.finishedAt;
+  const isDone = ['completed', 'Completed', 'QC Complete', 'qc_complete', 'QC'].includes(t.status);
+  const val = t.completedAt || t.completedDate || t.finishedAt || (isDone ? (t.qcCompletedAt || t.updatedAt || t.createdAt) : null);
   if (!val) return null;
   if (val.seconds !== undefined) return val.seconds * 1000;
   if (val.toDate !== undefined) return val.toDate().getTime();
-  return new Date(val).getTime();
+  const ms = new Date(val).getTime();
+  return isNaN(ms) ? null : ms;
 };
 
 // Calculate unallocated time intervals for a session
@@ -1114,24 +1116,29 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     if (!tenantId || !effectiveUserUid) return;
     const searchIds = [effectiveUserUid];
-    if (staffMember?.id) searchIds.push(staffMember.id);
+    if (staffMember?.id && !searchIds.includes(staffMember.id)) searchIds.push(staffMember.id);
+    if (staffMember?.userId && !searchIds.includes(staffMember.userId)) searchIds.push(staffMember.userId);
+
+    const sFullName = `${staffMember?.firstName || ''} ${staffMember?.lastName || ''}`.trim();
+    const sName = (staffMember?.name || staffMember?.displayName || sFullName || '').trim();
+
+    let assignedTasks: any[] = [];
+    let completedTasks: any[] = [];
+    let jobTasks: any[] = [];
+
+    const handleUpdate = () => {
+      const mergedMap = new Map();
+      assignedTasks.forEach(t => mergedMap.set(t.id, t));
+      completedTasks.forEach(t => mergedMap.set(t.id, t));
+      jobTasks.forEach(t => mergedMap.set(t.id, t));
+      setMyAssignedTasks(Array.from(mergedMap.values()));
+    };
 
     const qAssigned = query(
       collectionGroup(db, 'tasks'),
       where('tenantId', '==', tenantId),
       where('assignedStaffIds', 'array-contains-any', searchIds)
     );
-
-    let assignedTasks: any[] = [];
-    let completedTasks: any[] = [];
-    let unsubCompleted: (() => void) | null = null;
-
-    const handleUpdate = () => {
-      const mergedMap = new Map();
-      assignedTasks.forEach(t => mergedMap.set(t.id, t));
-      completedTasks.forEach(t => mergedMap.set(t.id, t));
-      setMyAssignedTasks(Array.from(mergedMap.values()));
-    };
 
     const unsubAssigned = onSnapshot(qAssigned, (snap) => {
       assignedTasks = snap.docs
@@ -1146,33 +1153,55 @@ export function TimeDetailsV3({ tenantId }: { tenantId: string }) {
       console.error("Failed to load assigned tasks:", err);
     });
 
-    if (staffMember?.id) {
-      const qCompleted = query(
-        collectionGroup(db, 'tasks'),
-        where('tenantId', '==', tenantId),
-        where('completedByStaffId', '==', staffMember.id)
-      );
-      unsubCompleted = onSnapshot(qCompleted, (snap) => {
-        completedTasks = snap.docs
-          .filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`))
-          .map(doc => ({
-            ...doc.data(),
-            id: doc.id,
-            jobId: doc.ref.path.split('/')[3]
-          }));
-        handleUpdate();
-      }, (err) => {
-        console.error("Failed to load completed tasks:", err);
-      });
-    } else {
+    const qCompleted = query(
+      collectionGroup(db, 'tasks'),
+      where('tenantId', '==', tenantId),
+      where('completedByStaffId', 'in', searchIds.slice(0, 10))
+    );
+
+    const unsubCompleted = onSnapshot(qCompleted, (snap) => {
+      completedTasks = snap.docs
+        .filter(doc => doc.ref.path.startsWith(`businesses/${tenantId}/`))
+        .map(doc => ({
+          ...doc.data(),
+          id: doc.id,
+          jobId: doc.ref.path.split('/')[3]
+        }));
       handleUpdate();
-    }
+    }, (err) => {
+      console.error("Failed to load completed tasks:", err);
+    });
+
+    // Also load tasks from jobs assigned to this technician
+    const assignedJobs = allJobs.filter(j => {
+      if (!j) return false;
+      const jAssignedIds = Array.isArray(j.assignedStaffIds) ? j.assignedStaffIds : [];
+      const hasIdMatch = searchIds.some(sid => jAssignedIds.includes(sid) || j.assignedTechId === sid || j.assignedTechStaffId === sid);
+      const hasNameMatch = sName && (j.assignedTechName === sName || j.techName === sName || (sFullName && j.assignedTechName === sFullName));
+      return hasIdMatch || hasNameMatch;
+    });
+
+    const jobUnsubs: (() => void)[] = [];
+    assignedJobs.forEach(j => {
+      const qJobTasks = collection(db, `businesses/${tenantId}/jobs/${j.id}/tasks`);
+      const u = onSnapshot(qJobTasks, (snap) => {
+        const tDocs = snap.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id,
+          jobId: j.id
+        }));
+        jobTasks = jobTasks.filter(t => t.jobId !== j.id).concat(tDocs);
+        handleUpdate();
+      });
+      jobUnsubs.push(u);
+    });
     
     return () => {
       unsubAssigned();
-      if (unsubCompleted) unsubCompleted();
+      unsubCompleted();
+      jobUnsubs.forEach(u => u());
     };
-  }, [tenantId, effectiveUserUid, staffMember?.id]);
+  }, [tenantId, effectiveUserUid, staffMember?.id, staffMember?.userId, allJobs]);
 
   // Data re-attribution for Job #2445887470 task credit to Patrick Losey
   useEffect(() => {
