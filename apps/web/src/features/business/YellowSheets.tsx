@@ -178,17 +178,22 @@ export const resolveTaskNotes = (t: any) => {
 
   const isUnassigned = t.jobId === 'unassigned' || t.id?.toString().startsWith('unassigned_');
 
-  // 1. Task Notes / Work Order Specs (Only for real work orders - never for unassigned shop labor)
+  // 1. Task Notes / Work Order Specs (Instructions, scope descriptions, task specifications)
   const taskNotesList: string[] = [];
   if (!isUnassigned) {
     [
-      t.instructions,
-      t.instruction,
+      t.taskNotes,
+      t.taskSpec,
       t.specNotes,
       t.specs,
       t.spec,
-      t.taskSpec,
-      t.taskNotes
+      t.instructions,
+      t.instruction,
+      t.notes,
+      t.note,
+      t.description,
+      t.taskDescription,
+      t.details
     ].forEach(cand => {
       const s = safeString(cand, '').trim();
       if (s && !taskNotesList.includes(s) && !taskNotesList.some(n => n.includes(s))) {
@@ -197,24 +202,24 @@ export const resolveTaskNotes = (t: any) => {
     });
   }
 
-  // 2. Staff Notes / Technician Remarks (Work logs, completion notes, time session remarks, shop labor descriptions)
+  // 2. Staff Notes / Technician Remarks (Strictly technician feedback, completion remarks, time session logs)
   const staffNotesList: string[] = [];
 
   const candidateStaffNotes = isUnassigned
     ? [
         t.staffNotes,
         t.staffNote,
-        t.notes,
-        t.note,
-        t.description,
-        t.taskDescription,
-        t.details,
         t.techNotes,
         t.techNote,
         t.completionNotes,
         t.completionNote,
+        t.workNote,
+        t.workNotes,
         t.comments,
-        t.comment
+        t.comment,
+        t.notes,
+        t.note,
+        t.description
       ]
     : [
         t.staffNotes,
@@ -226,10 +231,7 @@ export const resolveTaskNotes = (t: any) => {
         t.workNote,
         t.workNotes,
         t.comments,
-        t.comment,
-        t.description,
-        t.notes,
-        t.note
+        t.comment
       ];
 
   candidateStaffNotes.forEach(cand => {
