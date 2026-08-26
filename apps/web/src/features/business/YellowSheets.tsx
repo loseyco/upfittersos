@@ -177,9 +177,40 @@ export const resolveTaskNotes = (t: any) => {
   if (!t) return { taskNotes: '', staffNotes: '', payrollNotes: '', allNotesSummary: '' };
 
   const isUnassigned = t.jobId === 'unassigned' || t.id?.toString().startsWith('unassigned_');
+  const rawTitle = safeString(t.name || t.title || t.taskTitle, '').trim();
+
+  const isStaffNarrative = (cand: string) => {
+    if (!cand) return false;
+    const str = cand.trim();
+    if (isUnassigned) return true;
+    
+    // Explicit match with custom task title when title is a long note
+    if (rawTitle && rawTitle.length > 25 && str.toLowerCase() === rawTitle.toLowerCase()) {
+      return true;
+    }
+    
+    const lower = str.toLowerCase();
+
+    // Standard blueprint spec prefixes always stay as Task Spec Notes
+    if (lower.startsWith('labor-') || lower.startsWith('labor:') || lower.startsWith('spec:') || lower.startsWith('mount in ') || lower.startsWith('to be mounted')) {
+      return false;
+    }
+
+    // Technician narrative keywords
+    const hasTechNarrativeWord = /\b(installed|diagnosed|troubleshot|repaired|fixed|wiring issue|wire issue|issues with|cannot upload|need to be|drove to|having issues|worked on|replaced|assembled|pulled wire|ran wire)\b/i.test(lower);
+    
+    if (hasTechNarrativeWord && (str.length > 25 || str.includes('.') || str.includes('\n'))) {
+      return true;
+    }
+
+    return false;
+  };
 
   // 1. Task Notes / Work Order Specs (Instructions, scope descriptions, task specifications)
   const taskNotesList: string[] = [];
+  // 2. Staff Notes / Technician Remarks (Strictly technician feedback, completion remarks, time session logs)
+  const staffNotesList: string[] = [];
+
   if (!isUnassigned) {
     [
       t.taskNotes,
@@ -196,14 +227,18 @@ export const resolveTaskNotes = (t: any) => {
       t.details
     ].forEach(cand => {
       const s = safeString(cand, '').trim();
-      if (s && !taskNotesList.includes(s) && !taskNotesList.some(n => n.includes(s))) {
-        taskNotesList.push(s);
+      if (!s) return;
+      if (isStaffNarrative(s)) {
+        if (!staffNotesList.includes(s) && !staffNotesList.some(n => n.includes(s))) {
+          staffNotesList.push(s);
+        }
+      } else {
+        if (!taskNotesList.includes(s) && !taskNotesList.some(n => n.includes(s))) {
+          taskNotesList.push(s);
+        }
       }
     });
   }
-
-  // 2. Staff Notes / Technician Remarks (Strictly technician feedback, completion remarks, time session logs)
-  const staffNotesList: string[] = [];
 
   const candidateStaffNotes = isUnassigned
     ? [
@@ -219,7 +254,8 @@ export const resolveTaskNotes = (t: any) => {
         t.comment,
         t.notes,
         t.note,
-        t.description
+        t.description,
+        rawTitle
       ]
     : [
         t.staffNotes,
